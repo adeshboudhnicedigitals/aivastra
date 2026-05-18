@@ -10,11 +10,8 @@ export interface Containers {
   stop: () => Promise<void>;
 }
 
-let testDbCounter = 0;
-
 export async function startContainers(): Promise<Containers> {
-  testDbCounter++;
-  const dbName = `test_${Date.now()}_${testDbCounter}`;
+  const dbName = `test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   
   // Create fresh test database in existing Postgres
   const adminUrl = 'postgres://tryon:tryon_dev_pw@127.0.0.1:5432/tryon_dev';
@@ -35,7 +32,7 @@ export async function startContainers(): Promise<Containers> {
     forcePathStyle: true,
   });
 
-  const bucket = `test-${Date.now()}`;
+  const bucket = `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await s3.send(new CreateBucketCommand({ Bucket: bucket }));
 
   return {

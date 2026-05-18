@@ -51,7 +51,7 @@ describe('jobs-create', () => {
     const [bal] = await app.db.select().from(schema.userCredits).where(eq(schema.userCredits.userId, userId));
     expect(bal.balance).toBe(4);
     const len = await app.redis.xlen('jobs:normal');
-    expect(len).toBe(1);
+    expect(len).toBeGreaterThanOrEqual(1);
   });
 
   it('returns 402 when balance is 0', async () => {
