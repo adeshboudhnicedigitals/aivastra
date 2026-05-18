@@ -11,6 +11,7 @@ import { dbPlugin } from './plugins/db';
 import { redisPlugin } from './plugins/redis';
 import { storagePlugin } from './plugins/storage';
 import { authPlugin } from './plugins/auth';
+import { authRoutes } from './modules/auth/routes';
 import { AppError } from './lib/errors';
 
 export async function buildServer(env: Env) {
@@ -40,6 +41,8 @@ export async function buildServer(env: Env) {
     app.log.error({ err }, 'unhandled');
     return reply.code(500).send({ error: { code: 'INTERNAL', message: 'internal error' } });
   });
+
+  await app.register(authRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
   return app;
