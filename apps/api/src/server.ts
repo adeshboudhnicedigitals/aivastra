@@ -16,6 +16,12 @@ import { creditsRoutes } from './modules/credits/routes';
 import { catalogRoutes } from './modules/catalog/routes';
 import { uploadsRoutes } from './modules/uploads/routes';
 import { jobsRoutes } from './modules/jobs/routes';
+import { adminUsersRoutes } from './modules/admin/users.routes';
+import { adminCreditsRoutes } from './modules/admin/credits.routes';
+import { adminCatalogRoutes } from './modules/admin/catalog.routes';
+import { adminJobsRoutes } from './modules/admin/jobs.routes';
+import { adminWorkersRoutes } from './modules/admin/workers.routes';
+import { adminConfigRoutes } from './modules/admin/config.routes';
 import { AppError } from './lib/errors';
 
 export async function buildServer(env: Env) {
@@ -51,6 +57,12 @@ export async function buildServer(env: Env) {
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
   await app.register(jobsRoutes);
+  await app.register(adminUsersRoutes);
+  await app.register(adminCreditsRoutes);
+  await app.register(adminCatalogRoutes);
+  await app.register(adminJobsRoutes);
+  await app.register(adminWorkersRoutes);
+  await app.register(adminConfigRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
   return app;
