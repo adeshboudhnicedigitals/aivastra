@@ -1,0 +1,29 @@
+import { pgTable, serial, integer, uuid, text, boolean, timestamp } from 'drizzle-orm/pg-core';
+
+export const catalogTypes = pgTable('catalog_types', {
+  id: serial('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  label: text('label').notNull(),
+});
+
+export const catalogCategories = pgTable('catalog_categories', {
+  id: serial('id').primaryKey(),
+  typeId: integer('type_id').notNull().references(() => catalogTypes.id),
+  parentId: integer('parent_id'),
+  slug: text('slug').notNull(),
+  label: text('label').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isActive: boolean('is_active').notNull().default(true),
+});
+
+export const catalogItems = pgTable('catalog_items', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  categoryId: integer('category_id').notNull().references(() => catalogCategories.id),
+  label: text('label').notNull(),
+  r2Key: text('r2_key').notNull(),
+  thumbnailKey: text('thumbnail_key').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
