@@ -1,0 +1,29 @@
+# Template for each ComfyUI GPU VPS.
+# Copy to ~/.cloudflared/config.yml on the worker host, replace tunnel id and hostname.
+#
+# One-time setup on worker host:
+#   cloudflared tunnel login
+#   cloudflared tunnel create tryon-worker-a
+#   cloudflared tunnel route dns tryon-worker-a worker-a.tryon.yourdomain.com
+#
+# Then run as systemd service:
+#   sudo cloudflared service install
+
+tunnel: REPLACE_WITH_TUNNEL_ID
+credentials-file: /root/.cloudflared/REPLACE_WITH_TUNNEL_ID.json
+
+# Cloudflare Access Service Token gate is configured in CF dashboard,
+# not here. cloudflared just forwards traffic.
+ingress:
+  - hostname: worker-REPLACE.tryon.yourdomain.com
+    service: http://localhost:8188
+    originRequest:
+      connectTimeout: 10s
+      tlsTimeout: 10s
+      noTLSVerify: true
+      httpHostHeader: localhost
+  - service: http_status:404
+
+# Logging
+loglevel: info
+transport-loglevel: warn

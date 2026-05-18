@@ -1,0 +1,86 @@
+name: aivastra
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aivastra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tryon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tryon_dev_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-tryon_dev}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tryon} -d ${POSTGRES_DB:-tryon_dev}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - aivastra-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: aivastra-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - aivastra-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: aivastra-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_dev_pw}
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - aivastra-net
+
+  minio-bootstrap:
+    image: minio/mc:latest
+    container_name: aivastra-minio-bootstrap
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin_dev_pw} &&
+      mc mb --ignore-existing local/${R2_BUCKET:-virtual-tryon-dev} &&
+      mc anonymous set download local/${R2_BUCKET:-virtual-tryon-dev} &&
+      echo 'minio bucket ready: ${R2_BUCKET:-virtual-tryon-dev}'
+      "
+    networks:
+      - aivastra-net
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+
+networks:
+  aivastra-net:
+    driver: bridge
