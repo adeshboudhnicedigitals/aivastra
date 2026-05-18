@@ -13,6 +13,7 @@ import { storagePlugin } from './plugins/storage';
 import { authPlugin } from './plugins/auth';
 import { authRoutes } from './modules/auth/routes';
 import { creditsRoutes } from './modules/credits/routes';
+import { catalogRoutes } from './modules/catalog/routes';
 import { AppError } from './lib/errors';
 
 export async function buildServer(env: Env) {
@@ -45,6 +46,7 @@ export async function buildServer(env: Env) {
 
   await app.register(authRoutes);
   await app.register(creditsRoutes);
+  await app.register(catalogRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
   return app;
