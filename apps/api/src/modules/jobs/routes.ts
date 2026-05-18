@@ -5,6 +5,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors';
 import { createJob } from './create';
+import { sseHandler } from './sse';
 import { keys } from '@aivastra/storage';
 
 export async function jobsRoutes(app: FastifyInstance) {
@@ -44,4 +45,9 @@ export async function jobsRoutes(app: FastifyInstance) {
     const { url, expiresIn } = await app.storage.presignGet(keys.output(id), 300);
     return { url, expiresIn };
   });
+
+  app.get('/v1/jobs/:id/events', {
+    preHandler: app.requireUser,
+    schema: { params: z.object({ id: z.string().uuid() }) },
+  }, sseHandler);
 }

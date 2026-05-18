@@ -13,5 +13,6 @@ export async function buildTestApp(c: Containers) {
     R2_FORCE_PATH_STYLE: true, CORS_ORIGIN: 'http://localhost:3000',
     COOKIE_SECRET: 'test-cookie-secret-1234567890',
   });
+  await app.listen({ port: 0 });
   return app;
 }
