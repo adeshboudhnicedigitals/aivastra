@@ -6,6 +6,7 @@ import { processJob } from '../job/processor.js';
 
 const GROUP = 'dispatcher-cg';
 const CONSUMER = hostname();
+const DEFAULT_STREAMS = ['jobs:priority', 'jobs:normal'] as const;
 
 type PendingEntry = [string, string, number, number]; // [id, consumer, idleMs, deliveries]
 
@@ -14,13 +15,20 @@ export async function recoverPendingJobs(
   cfg: ProcessorConfig,
   thresholdMs: number,
   log: Logger,
+  streams: readonly string[] = DEFAULT_STREAMS,
 ): Promise<void> {
-  for (const stream of ['jobs:priority', 'jobs:normal']) {
+  for (const stream of streams) {
     let startId = '-';
     while (true) {
-      const pending = (await redis.xpending(
-        stream, GROUP, startId, '+', 10,
-      )) as PendingEntry[];
+      let pending: PendingEntry[];
+      try {
+        pending = (await redis.xpending(
+          stream, GROUP, startId, '+', 10,
+        )) as PendingEntry[];
+      } catch (err: unknown) {
+        if (err instanceof Error && err.message.includes('NOGROUP')) break;
+        throw err;
+      }
       if (!pending.length) break;
 
       for (const [messageId, , idleMs] of pending) {

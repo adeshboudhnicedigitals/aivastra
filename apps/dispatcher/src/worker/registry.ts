@@ -41,10 +41,15 @@ export async function registerWorkers(
   workers: Array<{ id: string; url: string }>,
 ): Promise<void> {
   for (const w of workers) {
-    const existing = await redis.hget(REGISTRY_KEY, w.id);
-    if (!existing) {
-      const entry: WorkerEntry = { url: w.url, status: 'IDLE', lastSeen: Date.now() };
-      await redis.hset(REGISTRY_KEY, w.id, JSON.stringify(entry));
-    }
+    const entry: WorkerEntry = { url: w.url, status: 'IDLE', lastSeen: Date.now() };
+    await redis.hset(REGISTRY_KEY, w.id, JSON.stringify(entry));
   }
+}
+
+export async function deregisterWorker(
+  redis: Redis,
+  workerId: string,
+): Promise<void> {
+  await redis.hdel(REGISTRY_KEY, workerId);
+  await redis.del(healthKey(workerId));
 }

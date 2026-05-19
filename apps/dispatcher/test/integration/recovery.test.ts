@@ -7,7 +7,7 @@ import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 import { startComfyMock, type ComfyMock } from '../helpers/comfy-mock.js';
 import { recoverPendingJobs } from '../../src/stream/recovery.js';
 import { createLogger } from '@aivastra/logger';
-import { registerWorkers } from '../../src/worker/registry.js';
+import { registerWorkers, deregisterWorker } from '../../src/worker/registry.js';
 
 const WORKER_ID = 'test-worker-recovery';
 // Use a unique stream per test file to avoid cross-test interference
@@ -38,6 +38,7 @@ describe('dispatcher crash recovery', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await deregisterWorker(redis, WORKER_ID);
     await redis.del(STREAM);
     await comfy.close();
     redis.disconnect();
@@ -126,7 +127,7 @@ describe('dispatcher crash recovery', () => {
       log,
     };
 
-    await recoverPendingJobs(redis, cfg, 0, log);
+    await recoverPendingJobs(redis, cfg, 0, log, [STREAM]);
 
     const [completed] = await env.db
       .select()

@@ -78,6 +78,15 @@ This is faster but means:
 - `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` seed first admin.
 - Postgres and Redis bind `127.0.0.1` only (never `0.0.0.0`).
 
+## Progress Tracking
+
+After every plan execution, update `docs/progress.md`:
+- **Done** — completed work
+- **Failed / Not Done** — skipped, blocked, or broken
+- **Open Questions / Decisions** — unresolved choices affecting next steps
+
+Add a new dated entry at the top of the log.
+
 ## Gotchas
 
 - `drizzle-kit generate` needs `DATABASE_URL` set (reads `drizzle.config.ts`).

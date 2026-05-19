@@ -7,7 +7,7 @@ import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 import { startComfyMock, type ComfyMock } from '../helpers/comfy-mock.js';
 import { processJob } from '../../src/job/processor.js';
 import { createLogger } from '@aivastra/logger';
-import { registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { registerWorkers, setWorkerStatus, deregisterWorker } from '../../src/worker/registry.js';
 
 const WORKER_ID = 'test-worker-retry';
 
@@ -28,6 +28,7 @@ describe('dispatcher retry + credit refund', () => {
   }, 60_000);
 
   afterAll(async () => {
+    await deregisterWorker(redis, WORKER_ID);
     await comfy.close();
     redis.disconnect();
     pub.disconnect();

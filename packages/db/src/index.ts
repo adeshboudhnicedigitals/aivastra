@@ -11,4 +11,3 @@ export function createDb(url: string): { db: DB; close: () => Promise<void> } {
 }
 
 export * as schema from './schema';
-export { schema };

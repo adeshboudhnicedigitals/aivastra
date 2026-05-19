@@ -64,6 +64,15 @@ Not yet wired. When scaffolding, expose these at the root via pnpm:
 - `pnpm test --filter <pkg>` — single-package test run
 - `pnpm test --filter api -- <pattern>` — single test by name (Vitest `-t`)
 
+## Progress Tracking
+
+After every plan execution (`superpowers/plan`, `workflow-execute-plans`, or any implementation plan), update `docs/progress.md` with:
+- **Done** — what was completed
+- **Failed / Not Done** — what was skipped, blocked, or broken
+- **Open Questions / Decisions** — unresolved choices that affect next steps
+
+Add a new dated entry at the top of the log. Keep entries factual and brief.
+
 ## Reference
 
 Design doc sections worth re-reading before related work: §2 Tunnel, §3 Catalog model, §4 Dispatcher routing, §5 Admin surface, §6 DB schema, §11 Security layers.
