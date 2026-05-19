@@ -1,0 +1,30 @@
+{
+  "name": "@aivastra/dispatcher",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run --reporter=verbose"
+  },
+  "dependencies": {
+    "@aivastra/db": "workspace:*",
+    "@aivastra/logger": "workspace:*",
+    "@aivastra/storage": "workspace:*",
+    "@aivastra/types": "workspace:*",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "ioredis": "^5.3.2",
+    "ws": "^8.17.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.11.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
