@@ -23,3 +23,6 @@ logs/
 
 .cloudflared/
 *.tunnel.json
+
+.ai/
+.claude/
