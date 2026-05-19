@@ -7,6 +7,28 @@
 
 ## Log
 
+### 2026-05-19 — Dispatcher test fixes
+
+**Done**
+- Fixed postgres module resolution: added `resolve.alias` in `apps/dispatcher/vitest.config.ts` (Vite couldn't resolve `postgres` from non-hoisted pnpm layout)
+- Fixed worker registry test isolation: `registerWorkers` now always updates (removed `if (!existing)` guard), added `deregisterWorker` called in all test `afterAll` blocks
+- Fixed `recoverPendingJobs`: added optional `streams` param (defaults to `['jobs:priority', 'jobs:normal']`), handles NOGROUP gracefully
+- Fixed recovery test: passes custom stream to `recoverPendingJobs` instead of expecting hardcoded streams
+- Removed duplicate `export { schema }` from `packages/db/src/index.ts`
+- All 3 dispatcher integration test suites pass: happy-path, retry, recovery
+- Added `README.md` with architecture, stack, setup, commands, project status
+- Pushed all changes to GitHub (`adeshboudh/aivastra`)
+
+**Failed / Not Done**
+- `templates/virtual-tryon-v1.json` still a stub — real ComfyUI workflow export needed
+- VPS provisioning (Phase 2B) not started
+- Phase 3 (`apps/web` Next.js frontend) not started
+
+**Open Questions / Decisions**
+- [ ] ComfyUI workflow: which node IDs map to each `__AIVASTRA_*__` placeholder? Need real workflow export first
+- [ ] Worker hostname naming: `WORKER_A_URL` / `WORKER_B_URL` vs `WORKER_<ID>_URL` — decide convention before Phase 2B
+- [ ] Catalog key resolution still happens in dispatcher via DB join (deviation from CLAUDE.md invariant) — add r2Key columns to `job_inputs` in v2 migration?
+
 ### 2026-05-19 — Phase 2 dispatcher plan written
 
 **Done**
