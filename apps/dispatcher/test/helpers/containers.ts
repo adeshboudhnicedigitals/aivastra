@@ -1,0 +1,73 @@
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import { S3Client, CreateBucketCommand, DeleteBucketCommand } from '@aws-sdk/client-s3';
+import { createDb } from '@aivastra/db';
+import { createR2Provider } from '@aivastra/storage';
+import type { DB } from '@aivastra/db';
+import type { StorageProvider } from '@aivastra/storage';
+
+export interface TestEnv {
+  db: DB;
+  closeDb: () => Promise<void>;
+  redisUrl: string;
+  storage: StorageProvider;
+  s3: S3Client;
+  r2Bucket: string;
+  r2Endpoint: string;
+  cleanup: () => Promise<void>;
+}
+
+export async function setupTestEnv(): Promise<TestEnv> {
+  const dbName = `disp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const adminUrl = 'postgres://tryon:tryon_dev_pw@127.0.0.1:5432/tryon_dev';
+
+  const adminClient = postgres(adminUrl, { max: 1 });
+  await adminClient.unsafe(`CREATE DATABASE "${dbName}"`);
+  await adminClient.end();
+
+  const pgUrl = `postgres://tryon:tryon_dev_pw@127.0.0.1:5432/${dbName}`;
+  const migClient = postgres(pgUrl, { max: 1 });
+  await migrate(drizzle(migClient), {
+    migrationsFolder: './node_modules/@aivastra/db/src/migrations',
+  });
+  await migClient.end();
+
+  const { db, close: closeDb } = createDb(pgUrl);
+
+  const r2Endpoint = 'http://127.0.0.1:9000';
+  const bucket = `disp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const s3 = new S3Client({
+    endpoint: r2Endpoint,
+    region: 'auto',
+    credentials: { accessKeyId: 'minioadmin', secretAccessKey: 'minioadmin_dev_pw' },
+    forcePathStyle: true,
+  });
+  await s3.send(new CreateBucketCommand({ Bucket: bucket }));
+
+  const storage = createR2Provider({
+    endpoint: r2Endpoint,
+    accessKeyId: 'minioadmin',
+    secretAccessKey: 'minioadmin_dev_pw',
+    bucket,
+    publicUrl: `${r2Endpoint}/${bucket}`,
+    forcePathStyle: true,
+  });
+
+  return {
+    db,
+    closeDb,
+    redisUrl: 'redis://127.0.0.1:6379',
+    storage,
+    s3,
+    r2Bucket: bucket,
+    r2Endpoint,
+    cleanup: async () => {
+      await closeDb();
+      const cl = postgres(adminUrl, { max: 1 });
+      await cl.unsafe(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+      await cl.end();
+      try { await s3.send(new DeleteBucketCommand({ Bucket: bucket })); } catch { /* ignore */ }
+    },
+  };
+}
