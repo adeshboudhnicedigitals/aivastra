@@ -34,6 +34,6 @@ export async function selectWorker(redis: Redis): Promise<ClaimedWorker | null> 
     String(Date.now()),
   ) as [string, string] | false | null;
 
-  if (!result || result === false) return null;
+  if (!result) return null;
   return { id: result[0]!, url: result[1]! };
 }

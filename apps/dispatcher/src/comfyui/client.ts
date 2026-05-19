@@ -8,7 +8,7 @@ export interface ComfyOutputImage {
   type: string;
 }
 
-function cfHeaders(clientId: string, clientSecret: string): HeadersInit {
+function cfHeaders(clientId: string, clientSecret: string): Record<string, string> {
   return {
     'CF-Access-Client-Id': clientId,
     'CF-Access-Client-Secret': clientSecret,

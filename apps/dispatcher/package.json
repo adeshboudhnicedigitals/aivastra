@@ -16,6 +16,7 @@
     "@aivastra/storage": "workspace:*",
     "@aivastra/types": "workspace:*",
     "@aws-sdk/client-s3": "^3.600.0",
+    "drizzle-orm": "^0.36.0",
     "ioredis": "^5.3.2",
     "ws": "^8.17.0",
     "zod": "^3.23.8"
