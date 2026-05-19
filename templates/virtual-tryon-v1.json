@@ -1,0 +1,50 @@
+{
+  "_meta": {
+    "version": "v1",
+    "note": "STUB — replace with real ComfyUI workflow API export before Phase 4 E2E. Node IDs below are placeholders. See docs/PHASES.md §2A for export instructions."
+  },
+  "prompt": {
+    "upper_garment_loader": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "__AIVASTRA_UPPER_GARMENT_URL__",
+        "upload": "image"
+      }
+    },
+    "model_loader": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "__AIVASTRA_MODEL_URL__",
+        "upload": "image"
+      }
+    },
+    "pose_loader": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "__AIVASTRA_POSE_URL__",
+        "upload": "image"
+      }
+    },
+    "background_loader": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "__AIVASTRA_BACKGROUND_URL__",
+        "upload": "image"
+      }
+    },
+    "lower_garment_loader": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "__AIVASTRA_LOWER_GARMENT_URL__",
+        "upload": "image"
+      }
+    },
+    "output_saver": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": "__AIVASTRA_OUTPUT_PREFIX__",
+        "images": ["final_node", 0]
+      }
+    }
+  }
+}
