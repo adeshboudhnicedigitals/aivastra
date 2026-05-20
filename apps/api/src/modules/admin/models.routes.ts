@@ -268,8 +268,10 @@ export async function adminModelsRoutes(app: FastifyInstance) {
     const [pose] = await app.db.select().from(schema.modelPoses)
       .where(eq(schema.modelPoses.id, id));
     if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
-    await app.storage.deleteObject(pose.r2Key);
-    await app.storage.deleteObject(pose.thumbnailKey);
+    await Promise.allSettled([
+      app.storage.deleteObject(pose.r2Key),
+      app.storage.deleteObject(pose.thumbnailKey),
+    ]);
     await app.db.delete(schema.modelPoses).where(eq(schema.modelPoses.id, id));
     return { ok: true };
   });
