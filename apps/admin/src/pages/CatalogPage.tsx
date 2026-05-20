@@ -235,7 +235,9 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
           fields={uploadFields}
           onDone={() => {
             setShowUpload(false);
-            apiFetch<CatalogItem[]>('/admin/catalog/items').then(setItems).catch(() => {});
+            apiFetch<CatalogItem[]>('/admin/catalog/items').then(setItems).catch(() => {
+              toast({ kind: 'error', title: 'Item added but failed to refresh list' });
+            });
           }}
           onClose={() => setShowUpload(false)}
           toast={toast}
