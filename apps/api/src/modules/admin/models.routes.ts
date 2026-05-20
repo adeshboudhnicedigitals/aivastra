@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
-import { eq, count } from 'drizzle-orm';
+import { eq, count, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { keys } from '@aivastra/storage';
@@ -64,10 +64,12 @@ export async function adminModelsRoutes(app: FastifyInstance) {
     schema: { params: uuidParam, body: PatchModelFaceBody },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    await app.db
+    const [updated] = await app.db
       .update(schema.modelFaces)
       .set({ ...(req.body as object), updatedAt: new Date() })
-      .where(eq(schema.modelFaces.id, id));
+      .where(eq(schema.modelFaces.id, id))
+      .returning({ id: schema.modelFaces.id });
+    if (!updated) throw new AppError('NOT_FOUND', 404, 'face not found');
     return { ok: true };
   });
 
@@ -79,30 +81,34 @@ export async function adminModelsRoutes(app: FastifyInstance) {
     const [face] = await app.db.select().from(schema.modelFaces).where(eq(schema.modelFaces.id, id));
     if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
 
+    const jobRef = await app.db.select({ jobId: schema.jobInputs.jobId })
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.faceId, id))
+      .limit(1);
+    if (jobRef.length > 0) throw new AppError('CONFLICT', 409, 'face is referenced by existing jobs');
+
     const bgs = await app.db.select().from(schema.modelBackgrounds)
       .where(eq(schema.modelBackgrounds.faceId, id));
 
     // Collect all R2 keys before any mutations
     const r2Keys: string[] = [face.r2Key, face.thumbnailKey];
-    for (const bg of bgs) {
-      r2Keys.push(bg.r2Key, bg.thumbnailKey);
-      const poses = await app.db.select().from(schema.modelPoses)
-        .where(eq(schema.modelPoses.backgroundId, bg.id));
-      for (const pose of poses) {
-        r2Keys.push(pose.r2Key, pose.thumbnailKey);
-      }
+    for (const bg of bgs) r2Keys.push(bg.r2Key, bg.thumbnailKey);
+
+    const bgIds = bgs.map((b) => b.id);
+    if (bgIds.length > 0) {
+      const poses = await app.db.select({ r2Key: schema.modelPoses.r2Key, thumbnailKey: schema.modelPoses.thumbnailKey })
+        .from(schema.modelPoses)
+        .where(inArray(schema.modelPoses.backgroundId, bgIds));
+      for (const pose of poses) r2Keys.push(pose.r2Key, pose.thumbnailKey);
     }
 
     // Delete R2 objects best-effort (outside transaction — R2 has no rollback)
     await Promise.allSettled(r2Keys.map((k) => app.storage.deleteObject(k)));
 
     // Delete DB rows in a single transaction
-    const bgIds = bgs.map((b) => b.id);
     await app.db.transaction(async (tx) => {
       if (bgIds.length > 0) {
-        for (const bgId of bgIds) {
-          await tx.delete(schema.modelPoses).where(eq(schema.modelPoses.backgroundId, bgId));
-        }
+        await tx.delete(schema.modelPoses).where(inArray(schema.modelPoses.backgroundId, bgIds));
         await tx.delete(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.faceId, id));
       }
       await tx.delete(schema.modelFaces).where(eq(schema.modelFaces.id, id));
@@ -166,10 +172,12 @@ export async function adminModelsRoutes(app: FastifyInstance) {
     schema: { params: uuidParam, body: PatchModelBackgroundBody },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    await app.db
+    const [updated] = await app.db
       .update(schema.modelBackgrounds)
       .set({ ...(req.body as object), updatedAt: new Date() })
-      .where(eq(schema.modelBackgrounds.id, id));
+      .where(eq(schema.modelBackgrounds.id, id))
+      .returning({ id: schema.modelBackgrounds.id });
+    if (!updated) throw new AppError('NOT_FOUND', 404, 'background not found');
     return { ok: true };
   });
 
@@ -181,6 +189,12 @@ export async function adminModelsRoutes(app: FastifyInstance) {
     const [bg] = await app.db.select().from(schema.modelBackgrounds)
       .where(eq(schema.modelBackgrounds.id, id));
     if (!bg) throw new AppError('NOT_FOUND', 404, 'background not found');
+
+    const jobRef = await app.db.select({ jobId: schema.jobInputs.jobId })
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.backgroundId, id))
+      .limit(1);
+    if (jobRef.length > 0) throw new AppError('CONFLICT', 409, 'background is referenced by existing jobs');
 
     const poses = await app.db.select().from(schema.modelPoses)
       .where(eq(schema.modelPoses.backgroundId, id));
@@ -253,10 +267,12 @@ export async function adminModelsRoutes(app: FastifyInstance) {
     schema: { params: uuidParam, body: PatchModelPoseBody },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    await app.db
+    const [updated] = await app.db
       .update(schema.modelPoses)
       .set({ ...(req.body as object), updatedAt: new Date() })
-      .where(eq(schema.modelPoses.id, id));
+      .where(eq(schema.modelPoses.id, id))
+      .returning({ id: schema.modelPoses.id });
+    if (!updated) throw new AppError('NOT_FOUND', 404, 'pose not found');
     return { ok: true };
   });
 
@@ -268,6 +284,13 @@ export async function adminModelsRoutes(app: FastifyInstance) {
     const [pose] = await app.db.select().from(schema.modelPoses)
       .where(eq(schema.modelPoses.id, id));
     if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
+
+    const jobRef = await app.db.select({ jobId: schema.jobInputs.jobId })
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.poseId, id))
+      .limit(1);
+    if (jobRef.length > 0) throw new AppError('CONFLICT', 409, 'pose is referenced by existing jobs');
+
     await Promise.allSettled([
       app.storage.deleteObject(pose.r2Key),
       app.storage.deleteObject(pose.thumbnailKey),
