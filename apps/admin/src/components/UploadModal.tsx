@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
 import { apiFetch } from '../lib/data';
@@ -71,6 +71,12 @@ export function UploadModal({
   const [status, setStatus] = useState<'idle' | 'uploading' | 'confirming'>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (preview) URL.revokeObjectURL(preview);
+    };
+  }, [preview]);
 
   const busy = status !== 'idle';
 
