@@ -25,12 +25,12 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         sortOrder: schema.catalogItems.sortOrder,
         createdAt: schema.catalogItems.createdAt,
         updatedAt: schema.catalogItems.updatedAt,
-        typeSlug: schema.catalogTypes.slug,
+        type: schema.catalogTypes.slug,
       })
       .from(schema.catalogItems)
       .innerJoin(schema.catalogCategories, eq(schema.catalogItems.categoryId, schema.catalogCategories.id))
       .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id));
-    return rows.map((r) => ({ ...r, type: r.typeSlug }));
+    return rows;
   });
 
   app.get('/admin/catalog/categories', { preHandler: W }, async () => {
