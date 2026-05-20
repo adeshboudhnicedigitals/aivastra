@@ -13,8 +13,43 @@ import { AppError } from '../../lib/errors';
 export async function adminCatalogRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
 
-  app.get('/admin/catalog/items', { preHandler: W }, async () =>
-    app.db.select().from(schema.catalogItems));
+  app.get('/admin/catalog/items', { preHandler: W }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.catalogItems.id,
+        categoryId: schema.catalogItems.categoryId,
+        label: schema.catalogItems.label,
+        r2Key: schema.catalogItems.r2Key,
+        thumbnailKey: schema.catalogItems.thumbnailKey,
+        isActive: schema.catalogItems.isActive,
+        sortOrder: schema.catalogItems.sortOrder,
+        createdAt: schema.catalogItems.createdAt,
+        updatedAt: schema.catalogItems.updatedAt,
+        typeSlug: schema.catalogTypes.slug,
+      })
+      .from(schema.catalogItems)
+      .innerJoin(schema.catalogCategories, eq(schema.catalogItems.categoryId, schema.catalogCategories.id))
+      .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id));
+    return rows.map((r) => ({ ...r, type: r.typeSlug }));
+  });
+
+  app.get('/admin/catalog/categories', { preHandler: W }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.catalogCategories.id,
+        typeId: schema.catalogCategories.typeId,
+        parentId: schema.catalogCategories.parentId,
+        slug: schema.catalogCategories.slug,
+        label: schema.catalogCategories.label,
+        sortOrder: schema.catalogCategories.sortOrder,
+        isActive: schema.catalogCategories.isActive,
+        typeSlug: schema.catalogTypes.slug,
+      })
+      .from(schema.catalogCategories)
+      .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id))
+      .orderBy(schema.catalogCategories.sortOrder);
+    return rows;
+  });
 
   app.post('/admin/catalog/items/presign', { preHandler: W, schema: { body: PresignCatalogItemBody } },
     async (req) => {
