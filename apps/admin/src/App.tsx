@@ -6,16 +6,18 @@ import DashboardPage from './pages/DashboardPage';
 import CatalogPage from './pages/CatalogPage';
 import UsersPage from './pages/UsersPage';
 import JobsPage from './pages/JobsPage';
+import ModelsPage from './pages/ModelsPage';
 import SettingsPage from './pages/SettingsPage';
 import LoginPage from './pages/LoginPage';
 import { useAuth } from './context/AuthContext';
 import type { ToastItem } from './types';
 
-type Page = 'dashboard' | 'catalog' | 'users' | 'jobs' | 'settings';
+type Page = 'dashboard' | 'models' | 'catalog' | 'users' | 'jobs' | 'settings';
 type Theme = 'light' | 'dark';
 
 const PAGE_LABELS: Record<Page, string> = {
   dashboard: 'Dashboard',
+  models: 'Models',
   catalog: 'Catalog',
   users: 'Users',
   jobs: 'Jobs',
@@ -95,6 +97,7 @@ export default function App() {
         <Topbar trail={trail} onNavTrail={(i) => i === 0 && setPage('dashboard')} />
         <main className="content">
           {page === 'dashboard' && <DashboardPage {...pageProps} />}
+          {page === 'models' && <ModelsPage {...pageProps} />}
           {page === 'catalog' && <CatalogPage {...pageProps} />}
           {page === 'users' && <UsersPage {...pageProps} />}
           {page === 'jobs' && <JobsPage {...pageProps} />}
