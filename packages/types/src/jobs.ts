@@ -1,11 +1,13 @@
 import { z } from 'zod';
+
 export const CreateTryOnJobRequest = z.object({
   inputs: z.object({
     upperGarmentKey: z.string().min(1).max(512),
-    modelCatalogId: z.string().uuid(),
-    poseCatalogId: z.string().uuid(),
-    backgroundCatalogId: z.string().uuid(),
-    lowerCatalogId: z.string().uuid(),
+    faceId: z.string().uuid(),
+    backgroundId: z.string().uuid(),
+    poseId: z.string().uuid(),
+    lowerCatalogId: z.string().uuid().optional(),
+    shoeCatalogId: z.string().uuid().optional(),
   }),
   params: z.object({
     seedStage1: z.number().int().optional(),
@@ -17,10 +19,12 @@ export const CreateTryOnJobRequest = z.object({
   }).optional(),
   userHint: z.string().max(300).optional(),
 });
+
 export const PresignUploadBody = z.object({
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   contentLength: z.number().int().positive().max(10 * 1024 * 1024),
 });
+
 export const PresignUploadResponse = z.object({
   uploadUrl: z.string().url(),
   r2Key: z.string(),
