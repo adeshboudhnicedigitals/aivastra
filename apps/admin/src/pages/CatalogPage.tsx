@@ -42,7 +42,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
     const bVal = b[sortKey] ?? '';
     let cmp: number;
     if (typeof aVal === 'boolean') {
-      cmp = Number(aVal) - Number(bVal as boolean);
+      cmp = Number(bVal as boolean) - Number(aVal);
     } else if (typeof aVal === 'string') {
       cmp = aVal.localeCompare(bVal as string);
     } else {
