@@ -1,0 +1,14 @@
+import type { FastifyInstance } from 'fastify';
+import { eq } from 'drizzle-orm';
+import { schema } from '@aivastra/db';
+import { requireAdmin } from './guard';
+
+export async function adminMeRoutes(app: FastifyInstance) {
+  app.get('/admin/me', { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']) }, async (req) => {
+    const [user] = await app.db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.userId));
+    return { userId: req.userId, email: user.email, role: req.adminRole };
+  });
+}

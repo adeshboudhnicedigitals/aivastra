@@ -22,6 +22,7 @@ import { adminCatalogRoutes } from './modules/admin/catalog.routes';
 import { adminJobsRoutes } from './modules/admin/jobs.routes';
 import { adminWorkersRoutes } from './modules/admin/workers.routes';
 import { adminConfigRoutes } from './modules/admin/config.routes';
+import { adminMeRoutes } from './modules/admin/me.routes';
 import { AppError } from './lib/errors';
 
 export async function buildServer(env: Env) {
@@ -63,6 +64,7 @@ export async function buildServer(env: Env) {
   await app.register(adminJobsRoutes);
   await app.register(adminWorkersRoutes);
   await app.register(adminConfigRoutes);
+  await app.register(adminMeRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
   return app;
