@@ -40,9 +40,14 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
   const sorted = [...filtered].sort((a, b) => {
     const aVal = a[sortKey] ?? '';
     const bVal = b[sortKey] ?? '';
-    const cmp = typeof aVal === 'string'
-      ? aVal.localeCompare(bVal as string)
-      : (aVal as number) - (bVal as number);
+    let cmp: number;
+    if (typeof aVal === 'boolean') {
+      cmp = Number(aVal) - Number(bVal as boolean);
+    } else if (typeof aVal === 'string') {
+      cmp = aVal.localeCompare(bVal as string);
+    } else {
+      cmp = (aVal as number) - (bVal as number);
+    }
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
