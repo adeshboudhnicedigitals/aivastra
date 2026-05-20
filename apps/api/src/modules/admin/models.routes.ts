@@ -82,21 +82,32 @@ export async function adminModelsRoutes(app: FastifyInstance) {
     const bgs = await app.db.select().from(schema.modelBackgrounds)
       .where(eq(schema.modelBackgrounds.faceId, id));
 
+    // Collect all R2 keys before any mutations
+    const r2Keys: string[] = [face.r2Key, face.thumbnailKey];
     for (const bg of bgs) {
+      r2Keys.push(bg.r2Key, bg.thumbnailKey);
       const poses = await app.db.select().from(schema.modelPoses)
         .where(eq(schema.modelPoses.backgroundId, bg.id));
       for (const pose of poses) {
-        await app.storage.deleteObject(pose.r2Key);
-        await app.storage.deleteObject(pose.thumbnailKey);
+        r2Keys.push(pose.r2Key, pose.thumbnailKey);
       }
-      await app.db.delete(schema.modelPoses).where(eq(schema.modelPoses.backgroundId, bg.id));
-      await app.storage.deleteObject(bg.r2Key);
-      await app.storage.deleteObject(bg.thumbnailKey);
     }
-    await app.db.delete(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.faceId, id));
-    await app.storage.deleteObject(face.r2Key);
-    await app.storage.deleteObject(face.thumbnailKey);
-    await app.db.delete(schema.modelFaces).where(eq(schema.modelFaces.id, id));
+
+    // Delete R2 objects best-effort (outside transaction — R2 has no rollback)
+    await Promise.allSettled(r2Keys.map((k) => app.storage.deleteObject(k)));
+
+    // Delete DB rows in a single transaction
+    const bgIds = bgs.map((b) => b.id);
+    await app.db.transaction(async (tx) => {
+      if (bgIds.length > 0) {
+        for (const bgId of bgIds) {
+          await tx.delete(schema.modelPoses).where(eq(schema.modelPoses.backgroundId, bgId));
+        }
+        await tx.delete(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.faceId, id));
+      }
+      await tx.delete(schema.modelFaces).where(eq(schema.modelFaces.id, id));
+    });
+
     return { ok: true };
   });
 
@@ -173,14 +184,22 @@ export async function adminModelsRoutes(app: FastifyInstance) {
 
     const poses = await app.db.select().from(schema.modelPoses)
       .where(eq(schema.modelPoses.backgroundId, id));
+
+    // Collect all R2 keys before any mutations
+    const r2Keys: string[] = [bg.r2Key, bg.thumbnailKey];
     for (const pose of poses) {
-      await app.storage.deleteObject(pose.r2Key);
-      await app.storage.deleteObject(pose.thumbnailKey);
+      r2Keys.push(pose.r2Key, pose.thumbnailKey);
     }
-    await app.db.delete(schema.modelPoses).where(eq(schema.modelPoses.backgroundId, id));
-    await app.storage.deleteObject(bg.r2Key);
-    await app.storage.deleteObject(bg.thumbnailKey);
-    await app.db.delete(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, id));
+
+    // Delete R2 objects best-effort (outside transaction — R2 has no rollback)
+    await Promise.allSettled(r2Keys.map((k) => app.storage.deleteObject(k)));
+
+    // Delete DB rows in a single transaction
+    await app.db.transaction(async (tx) => {
+      await tx.delete(schema.modelPoses).where(eq(schema.modelPoses.backgroundId, id));
+      await tx.delete(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, id));
+    });
+
     return { ok: true };
   });
 
