@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { schema } from '@aivastra/db';
 import { requireAdmin } from './guard';
+import { AppError } from '../../lib/errors';
 
 export async function adminMeRoutes(app: FastifyInstance) {
   app.get('/admin/me', { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']) }, async (req) => {
@@ -9,6 +10,7 @@ export async function adminMeRoutes(app: FastifyInstance) {
       .select({ email: schema.users.email })
       .from(schema.users)
       .where(eq(schema.users.id, req.userId));
+    if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
     return { userId: req.userId, email: user.email, role: req.adminRole };
   });
 }

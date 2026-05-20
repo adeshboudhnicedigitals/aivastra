@@ -41,7 +41,7 @@ describe('GET /admin/me', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
-      userId: expect.any(String),
+      userId: userId,
       email: 'admin@x.com',
       role: 'SUPER_ADMIN',
     });
@@ -55,6 +55,6 @@ describe('GET /admin/me', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ role: 'MODERATOR' });
+    expect(res.json()).toMatchObject({ userId: userId, email: 'mod@x.com', role: 'MODERATOR' });
   });
 });
