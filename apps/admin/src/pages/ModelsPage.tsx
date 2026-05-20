@@ -108,7 +108,7 @@ export default function ModelsPage({ onNav: _onNav, toast }: Props) {
   const filteredFaces = faces.filter((f) => genderTab === 'all' || f.gender === genderTab);
 
   const filteredBackgrounds = view.kind === 'backgrounds' || view.kind === 'poses'
-    ? backgrounds.filter((b) => b.faceId === (view.kind === 'backgrounds' ? view.faceId : view.faceId))
+    ? backgrounds.filter((b) => b.faceId === view.faceId)
     : [];
 
   const filteredPoses = view.kind === 'poses'
