@@ -101,7 +101,7 @@ export function UploadModal({
     try {
       const presignRes = await apiFetch<PresignResult>(presignPath, {
         method: 'POST',
-        body: JSON.stringify({ contentType: file.type, ...presignExtra }),
+        body: JSON.stringify({ contentType: file.type, ...values, ...presignExtra }),
       });
       await uploadWithProgress(presignRes.uploadUrl, file, (p) => setProgress(Math.round(p * 65)));
       await uploadWithProgress(presignRes.thumbnailUploadUrl, file, (p) => setProgress(65 + Math.round(p * 25)));

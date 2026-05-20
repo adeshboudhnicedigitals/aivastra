@@ -24,13 +24,15 @@ export const CreateCategoryBody = z.object({
   label: z.string().min(1).max(120),
   sortOrder: z.number().int().default(0),
 });
+const CoercedPositiveInt = z.union([z.number().int().positive(), z.string().regex(/^\d+$/).transform(Number)]);
+
 export const PresignCatalogItemBody = z.object({
-  categoryId: z.number().int().positive(),
+  categoryId: CoercedPositiveInt,
   label: z.string().min(1).max(120),
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
 });
 export const ConfirmCatalogItemBody = z.object({
-  categoryId: z.number().int().positive(),
+  categoryId: CoercedPositiveInt,
   label: z.string().min(1).max(120),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
