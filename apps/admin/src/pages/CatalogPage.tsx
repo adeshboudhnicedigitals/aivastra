@@ -55,14 +55,15 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
   };
 
   const toggleActive = (id: string) => {
-    setItems((prev) => prev.map((c) => c.id === id ? { ...c, isActive: !c.isActive } : c));
     const item = items.find((c) => c.id === id);
-    if (item) toast({ title: `${item.label} ${item.isActive ? 'deactivated' : 'activated'}` });
+    setItems((prev) => prev.map((c) => c.id === id ? { ...c, isActive: !c.isActive } : c));
+    if (item) toast({ title: `${item.label} ${item.isActive ? 'activated' : 'deactivated'}` });
   };
 
   const doDelete = () => {
+    const item = items.find((c) => c.id === confirmDelete);
     setItems((prev) => prev.filter((c) => c.id !== confirmDelete));
-    toast({ title: `Item ${confirmDelete} deleted` });
+    toast({ title: `${item?.label ?? confirmDelete} deleted` });
     setConfirmDelete(null);
   };
 
