@@ -57,7 +57,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
   const toggleActive = (id: string) => {
     const item = items.find((c) => c.id === id);
     setItems((prev) => prev.map((c) => c.id === id ? { ...c, isActive: !c.isActive } : c));
-    if (item) toast({ title: `${item.label} ${item.isActive ? 'activated' : 'deactivated'}` });
+    if (item) toast({ title: `${item.label} ${item.isActive ? 'deactivated' : 'activated'}` });
   };
 
   const doDelete = () => {
