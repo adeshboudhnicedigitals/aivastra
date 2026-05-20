@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, boolean, integer, jsonb, timestamp } from 'drizzle-orm/pg-core';
 import { users } from './users';
 import { catalogItems } from './catalog';
+import { modelFaces, modelBackgrounds, modelPoses } from './models';
 
 export const jobs = pgTable('jobs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -19,10 +20,11 @@ export const jobs = pgTable('jobs', {
 export const jobInputs = pgTable('job_inputs', {
   jobId: uuid('job_id').primaryKey().references(() => jobs.id, { onDelete: 'cascade' }),
   upperGarmentKey: text('upper_garment_key').notNull(),
-  modelCatalogId: uuid('model_catalog_id').notNull().references(() => catalogItems.id),
-  poseCatalogId: uuid('pose_catalog_id').notNull().references(() => catalogItems.id),
-  backgroundCatalogId: uuid('background_catalog_id').notNull().references(() => catalogItems.id),
-  lowerCatalogId: uuid('lower_catalog_id').notNull().references(() => catalogItems.id),
+  faceId: uuid('face_id').notNull().references(() => modelFaces.id),
+  backgroundId: uuid('background_id').notNull().references(() => modelBackgrounds.id),
+  poseId: uuid('pose_id').notNull().references(() => modelPoses.id),
+  lowerCatalogId: uuid('lower_catalog_id').references(() => catalogItems.id),
+  shoeCatalogId: uuid('shoe_catalog_id').references(() => catalogItems.id),
   userHint: text('user_hint'),
   params: jsonb('params'),
 });
