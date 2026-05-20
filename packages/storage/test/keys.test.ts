@@ -14,4 +14,22 @@ describe('keys', () => {
   it('builds catalog thumb key', () => {
     expect(keys.catalogThumb('poses', 'uuid-2')).toBe('catalog/poses/uuid-2.thumb.jpg');
   });
+  it('builds model face key', () => {
+    expect(keys.modelFace('uuid-1')).toBe('models/faces/uuid-1.jpg');
+  });
+  it('builds model face thumb key', () => {
+    expect(keys.modelFaceThumb('uuid-1')).toBe('models/faces/uuid-1.thumb.jpg');
+  });
+  it('builds model background key', () => {
+    expect(keys.modelBackground('uuid-1')).toBe('models/backgrounds/uuid-1.jpg');
+  });
+  it('builds model background thumb key', () => {
+    expect(keys.modelBackgroundThumb('uuid-1')).toBe('models/backgrounds/uuid-1.thumb.jpg');
+  });
+  it('builds model pose key', () => {
+    expect(keys.modelPose('uuid-1')).toBe('models/poses/uuid-1.jpg');
+  });
+  it('builds model pose thumb key', () => {
+    expect(keys.modelPoseThumb('uuid-1')).toBe('models/poses/uuid-1.thumb.jpg');
+  });
 });

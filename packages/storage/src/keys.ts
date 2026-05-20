@@ -3,4 +3,10 @@ export const keys = {
   output: (jobId: string) => `outputs/${jobId}/result.png`,
   catalogItem: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.jpg`,
   catalogThumb: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.thumb.jpg`,
+  modelFace: (id: string) => `models/faces/${id}.jpg`,
+  modelFaceThumb: (id: string) => `models/faces/${id}.thumb.jpg`,
+  modelBackground: (id: string) => `models/backgrounds/${id}.jpg`,
+  modelBackgroundThumb: (id: string) => `models/backgrounds/${id}.thumb.jpg`,
+  modelPose: (id: string) => `models/poses/${id}.jpg`,
+  modelPoseThumb: (id: string) => `models/poses/${id}.thumb.jpg`,
 };
