@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import { setToken, initAuthFailureHandler, apiFetch, ApiError } from '../lib/data';
+import { setToken, initAuthFailureHandler, apiFetch } from '../lib/data';
 
 export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
 
