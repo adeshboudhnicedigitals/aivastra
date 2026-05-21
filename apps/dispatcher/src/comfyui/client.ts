@@ -8,24 +8,22 @@ export interface ComfyOutputImage {
   type: string;
 }
 
-function cfHeaders(clientId: string, clientSecret: string): Record<string, string> {
+function workerHeaders(apiKey: string): Record<string, string> {
   return {
-    'CF-Access-Client-Id': clientId,
-    'CF-Access-Client-Secret': clientSecret,
+    'X-Worker-Key': apiKey,
     'Content-Type': 'application/json',
   };
 }
 
 export async function submitPrompt(
   workerUrl: string,
-  clientId: string,
-  clientSecret: string,
+  apiKey: string,
   clientUuid: string,
   prompt: Record<string, unknown>,
 ): Promise<ComfySubmitResult> {
   const res = await fetch(`${workerUrl}/prompt`, {
     method: 'POST',
-    headers: cfHeaders(clientId, clientSecret),
+    headers: workerHeaders(apiKey),
     body: JSON.stringify({ prompt, client_id: clientUuid }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -39,12 +37,11 @@ export async function submitPrompt(
 
 export async function fetchHistory(
   workerUrl: string,
-  clientId: string,
-  clientSecret: string,
+  apiKey: string,
   promptId: string,
 ): Promise<ComfyOutputImage[]> {
   const res = await fetch(`${workerUrl}/history/${promptId}`, {
-    headers: { 'CF-Access-Client-Id': clientId, 'CF-Access-Client-Secret': clientSecret },
+    headers: { 'X-Worker-Key': apiKey },
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`ComfyUI /history failed: ${res.status}`);
@@ -60,13 +57,12 @@ export async function fetchHistory(
 
 export async function downloadOutputImage(
   workerUrl: string,
-  clientId: string,
-  clientSecret: string,
+  apiKey: string,
   filename: string,
 ): Promise<Uint8Array> {
   const url = `${workerUrl}/view?filename=${encodeURIComponent(filename)}&type=output`;
   const res = await fetch(url, {
-    headers: { 'CF-Access-Client-Id': clientId, 'CF-Access-Client-Secret': clientSecret },
+    headers: { 'X-Worker-Key': apiKey },
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`ComfyUI /view failed: ${res.status}`);

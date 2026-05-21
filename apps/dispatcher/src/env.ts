@@ -14,8 +14,6 @@ const Env = z.object({
   DISPATCHER_HEALTH_PORT: z.coerce.number().default(4100),
   // Comma-separated: "worker-a,worker-b"
   WORKER_IDS: z.string().min(1),
-  CF_ACCESS_CLIENT_ID: z.string(),
-  CF_ACCESS_CLIENT_SECRET: z.string(),
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
 });
@@ -29,6 +27,14 @@ export function loadEnv(): Env {
 /** Read per-worker URL from env: WORKER_A_URL, WORKER_B_URL, etc. */
 export function workerUrl(env: NodeJS.ProcessEnv, workerId: string): string {
   const key = `WORKER_${workerId.toUpperCase().replace(/-/g, '_')}_URL`;
+  const val = env[key];
+  if (!val) throw new Error(`Missing env var ${key} for worker ${workerId}`);
+  return val;
+}
+
+/** Read per-worker API key from env: WORKER_A_API_KEY, WORKER_B_API_KEY, etc. */
+export function workerApiKey(env: NodeJS.ProcessEnv, workerId: string): string {
+  const key = `WORKER_${workerId.toUpperCase().replace(/-/g, '_')}_API_KEY`;
   const val = env[key];
   if (!val) throw new Error(`Missing env var ${key} for worker ${workerId}`);
   return val;

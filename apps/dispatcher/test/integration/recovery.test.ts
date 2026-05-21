@@ -47,32 +47,45 @@ describe('dispatcher crash recovery', () => {
   });
 
   it('claims stale XPENDING entry and processes job to COMPLETED', async () => {
-    // Seed a job in DB
+    const ts = Date.now();
     const [user] = await env.db
       .insert(schema.users)
-      .values({ email: `rec-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
+      .values({ email: `rec-${ts}@test.com`, passwordHash: 'x', tier: 'FREE' })
       .returning();
     await env.db.insert(schema.userCredits).values({ userId: user!.id, balance: 5 });
 
+    const [face] = await env.db
+      .insert(schema.modelFaces)
+      .values({ gender: 'men', label: 'Face', r2Key: `rc/face-${ts}.jpg`, thumbnailKey: `rc/face-${ts}-thumb.jpg` })
+      .returning();
+    const [bg] = await env.db
+      .insert(schema.modelBackgrounds)
+      .values({ label: 'Bg', r2Key: `rc/bg-${ts}.jpg`, thumbnailKey: `rc/bg-${ts}-thumb.jpg` })
+      .returning();
+    const [subcat] = await env.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `rc-tshirt-${ts}`, label: 'T-Shirt' })
+      .returning();
+    const [pose] = await env.db
+      .insert(schema.modelPoses)
+      .values({
+        subcategoryId: subcat!.id, faceId: face!.id, backgroundId: bg!.id,
+        label: 'Pose', r2Key: `rc/pose-${ts}.jpg`, thumbnailKey: `rc/pose-${ts}-thumb.jpg`,
+      })
+      .returning();
+
     const [ct] = await env.db
       .insert(schema.catalogTypes)
-      .values({ slug: `rec-${Date.now()}`, label: 'T' })
+      .values({ slug: `rec-${ts}`, label: 'T' })
       .returning();
     const [cc] = await env.db
       .insert(schema.catalogCategories)
       .values({ typeId: ct!.id, slug: 'c', label: 'C' })
       .returning();
-    const mkItem = (k: string) =>
-      env.db
-        .insert(schema.catalogItems)
-        .values({ categoryId: cc!.id, label: 'I', r2Key: k, thumbnailKey: k })
-        .returning();
-    const [[m], [p], [b], [l]] = await Promise.all([
-      mkItem('r/m.jpg'),
-      mkItem('r/p.jpg'),
-      mkItem('r/b.jpg'),
-      mkItem('r/l.jpg'),
-    ]);
+    const [lower] = await env.db
+      .insert(schema.catalogItems)
+      .values({ categoryId: cc!.id, label: 'Lower', r2Key: `rc/lower-${ts}.jpg`, thumbnailKey: `rc/lower-${ts}.jpg` })
+      .returning();
 
     const [job] = await env.db
       .insert(schema.jobs)
@@ -81,17 +94,17 @@ describe('dispatcher crash recovery', () => {
     await env.db.insert(schema.jobInputs).values({
       jobId: job!.id,
       upperGarmentKey: `inputs/${job!.id}/garment.jpg`,
-      modelCatalogId: m!.id,
-      poseCatalogId: p!.id,
-      backgroundCatalogId: b!.id,
-      lowerCatalogId: l!.id,
+      faceId: face!.id,
+      backgroundId: bg!.id,
+      poseId: pose!.id,
+      lowerCatalogId: lower!.id,
     });
     for (const key of [
       `inputs/${job!.id}/garment.jpg`,
-      'r/m.jpg',
-      'r/p.jpg',
-      'r/b.jpg',
-      'r/l.jpg',
+      `rc/face-${ts}.jpg`,
+      `rc/bg-${ts}.jpg`,
+      `rc/pose-${ts}.jpg`,
+      `rc/lower-${ts}.jpg`,
     ]) {
       await env.s3.send(
         new PutObjectCommand({
@@ -122,8 +135,7 @@ describe('dispatcher crash recovery', () => {
       storage: env.storage,
       s3: env.s3,
       r2Bucket: env.r2Bucket,
-      cfClientId: 'x',
-      cfClientSecret: 'y',
+      workerApiKey: () => 'test-key',
       log,
     };
 

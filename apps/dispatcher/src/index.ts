@@ -1,7 +1,7 @@
 import { hostname } from 'node:os';
 import { S3Client } from '@aws-sdk/client-s3';
 import { createLogger } from '@aivastra/logger';
-import { loadEnv, workerUrl } from './env.js';
+import { loadEnv, workerUrl, workerApiKey } from './env.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
@@ -43,8 +43,7 @@ async function main(): Promise<void> {
     storage,
     s3,
     r2Bucket: env.R2_BUCKET,
-    cfClientId: env.CF_ACCESS_CLIENT_ID,
-    cfClientSecret: env.CF_ACCESS_CLIENT_SECRET,
+    workerApiKey: (id: string) => workerApiKey(process.env, id),
     log,
   };
 
@@ -53,7 +52,7 @@ async function main(): Promise<void> {
 
   // Start subsystems
   const stopHealthMonitor = startHealthMonitor(
-    redis, env.CF_ACCESS_CLIENT_ID, env.CF_ACCESS_CLIENT_SECRET, log,
+    redis, (id) => workerApiKey(process.env, id), log,
   );
   const stopConsumer = await runConsumer(redis, processorCfg, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);

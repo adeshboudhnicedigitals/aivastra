@@ -1,0 +1,24 @@
+[Unit]
+Description=ComfyUI
+After=network.target
+
+[Service]
+Type=simple
+User=comfyui
+Group=comfyui
+WorkingDirectory=/opt/comfyui
+# Bind only to loopback — nginx handles public access
+ExecStart=/opt/comfyui/venv/bin/python main.py \
+    --listen 127.0.0.1 \
+    --port 8188 \
+    --disable-auto-launch \
+    --preview-method none
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+# Give ComfyUI time to load models on startup
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

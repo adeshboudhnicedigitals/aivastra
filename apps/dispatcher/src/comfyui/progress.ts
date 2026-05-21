@@ -15,8 +15,7 @@ export type ProgressCallback = (update: ProgressUpdate) => void;
  */
 export function waitForCompletion(
   workerUrl: string,
-  clientId: string,
-  clientSecret: string,
+  apiKey: string,
   clientUuid: string,
   promptId: string,
   timeoutMs: number = 300_000,
@@ -26,8 +25,7 @@ export function waitForCompletion(
     const wsUrl = workerUrl.replace(/^https/, 'wss').replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws?clientId=${clientUuid}`, {
       headers: {
-        'CF-Access-Client-Id': clientId,
-        'CF-Access-Client-Secret': clientSecret,
+        'X-Worker-Key': apiKey,
       },
     });
 

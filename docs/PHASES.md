@@ -20,9 +20,9 @@ Goal: One command boots the full dev environment. Contracts are locked. No app c
 | `.env.example` with all variables | A | done |
 | `CLAUDE.md` | AB | done |
 | `@aivastra/logger` package (pino) | A | done |
-| `@aivastra/db` — Drizzle schema + migrations | A | planned |
-| `@aivastra/types` — Zod schemas (auth, credits, catalog, jobs, admin) | A | planned |
-| `@aivastra/storage` — R2/MinIO presign + key helpers | A | planned |
+| `@aivastra/db` — Drizzle schema + migrations | A | done |
+| `@aivastra/types` — Zod schemas (auth, credits, catalog, jobs, admin) | A | done |
+| `@aivastra/storage` — R2/MinIO presign + key helpers | A | done |
 | Cloudflare Tunnel config templates (`infra/cloudflared/`) | A | done |
 | Catalog taxonomy seed manifest JSON | B | pending |
 
@@ -218,17 +218,20 @@ Goal: Users can build a try-on job through the browser. Admins can manage the pl
 - Credits page: balance display + ledger table
 - Basic responsive layout
 
-### 3D — Admin Panel [B, Days 14–18]
+### 3D — Admin Panel [B, Days 14–18] — **DONE** (as standalone Vite SPA)
 
-All admin pages live under `/admin/` in the Next.js app (protected by `adminRole` check in middleware).
+> **Deviation from plan:** Admin panel built as `apps/admin` (Vite + React), not embedded in `apps/web` (Next.js). Deployed separately. No migration planned.
 
-- `/admin/users` — data table with search + filters; user detail drawer; tier/ban controls
-- `/admin/users/[id]` — full profile: job history, credit ledger, danger zone (force logout, soft delete)
-- `/admin/credits` — grant/deduct form, bulk grant by tier, stats cards
-- `/admin/catalog` — category tree sidebar + item grid; drag-upload for new items (presign → R2 PUT → confirm); inline edit label/sortOrder/isActive; delete with confirmation
-- `/admin/jobs` — all-jobs table with status filter; retry/cancel actions; job detail modal
-- `/admin/workers` — live worker registry cards (refresh every 10s); drain button
-- `/admin/config` — creditCostPerJob, maxJobsPerDay input form; live stats
+**Completed:**
+- Users page: search, filters, tier/ban/force-logout controls, credit grant/deduct
+- Credits page: grant/deduct form, bulk grant by tier, stats cards
+- Assets page (new — beyond original scope): Faces, Backgrounds, Subcategories + Poses with batch upload
+- Catalog page: lower garments + shoes with upload, toggle active, delete
+- Jobs page: all-jobs table, status filter, retry/cancel, job detail modal
+- Workers page: live worker registry, drain button (10s polling)
+- Config page: creditCostPerJob, maxJobsPerDay form + live stats
+- Real image thumbnails via `storagePublicUrl` from `/admin/me`
+- Dark mode support throughout
 
 **Open decisions:**
 

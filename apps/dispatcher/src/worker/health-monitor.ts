@@ -8,15 +8,11 @@ const HEALTH_TTL_SEC = 30;
 async function probeWorker(
   workerId: string,
   workerUrl: string,
-  cfClientId: string,
-  cfClientSecret: string,
+  apiKey: string,
 ): Promise<boolean> {
   try {
     const res = await fetch(`${workerUrl}/system_stats`, {
-      headers: {
-        'CF-Access-Client-Id': cfClientId,
-        'CF-Access-Client-Secret': cfClientSecret,
-      },
+      headers: { 'X-Worker-Key': apiKey },
       signal: AbortSignal.timeout(5_000),
     });
     return res.ok;
@@ -27,8 +23,7 @@ async function probeWorker(
 
 export function startHealthMonitor(
   redis: Redis,
-  cfClientId: string,
-  cfClientSecret: string,
+  getApiKey: (workerId: string) => string,
   log: Logger,
 ): () => void {
   let running = true;
@@ -37,7 +32,7 @@ export function startHealthMonitor(
     const workers = await getWorkers(redis);
     for (const [id, entry] of workers) {
       if (entry.status === 'DRAINING') continue;
-      const healthy = await probeWorker(id, entry.url, cfClientId, cfClientSecret);
+      const healthy = await probeWorker(id, entry.url, getApiKey(id));
       if (healthy) {
         await redis.setex(healthKey(id), HEALTH_TTL_SEC, '1');
         log.debug({ workerId: id }, 'worker healthy');

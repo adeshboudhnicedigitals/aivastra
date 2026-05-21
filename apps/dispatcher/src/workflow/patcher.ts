@@ -20,7 +20,7 @@ export interface WorkflowInputs {
   modelUrl: string;
   poseUrl: string;
   backgroundUrl: string;
-  lowerGarmentUrl: string;
+  lowerGarmentUrl?: string;  // optional — only present when pose.showsLower=true
   outputPrefix: string;
 }
 
@@ -38,8 +38,8 @@ export function patchWorkflow(inputs: WorkflowInputs): Record<string, unknown> {
     '__AIVASTRA_MODEL_URL__': inputs.modelUrl,
     '__AIVASTRA_POSE_URL__': inputs.poseUrl,
     '__AIVASTRA_BACKGROUND_URL__': inputs.backgroundUrl,
-    '__AIVASTRA_LOWER_GARMENT_URL__': inputs.lowerGarmentUrl,
     '__AIVASTRA_OUTPUT_PREFIX__': inputs.outputPrefix,
+    ...(inputs.lowerGarmentUrl ? { '__AIVASTRA_LOWER_GARMENT_URL__': inputs.lowerGarmentUrl } : {}),
   };
 
   function walk(obj: unknown): unknown {

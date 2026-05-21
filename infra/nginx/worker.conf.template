@@ -1,0 +1,61 @@
+# nginx reverse proxy for ComfyUI worker VPS (Ubuntu 24.04)
+#
+# Setup:
+#   envsubst '${WORKER_API_KEY} ${WORKER_DOMAIN}' < worker.conf.template \
+#     > /etc/nginx/sites-available/comfyui
+#   ln -s /etc/nginx/sites-available/comfyui /etc/nginx/sites-enabled/comfyui
+#   nginx -t && systemctl reload nginx
+#
+# For dev without TLS: change `listen 443 ssl` to `listen 80`, remove ssl_* lines.
+
+map $http_x_worker_key $worker_authorized {
+    default         0;
+    "${WORKER_API_KEY}" 1;
+}
+
+# Redirect HTTP → HTTPS (remove this block for dev/HTTP-only setup)
+server {
+    listen 80;
+    server_name ${WORKER_DOMAIN};
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name ${WORKER_DOMAIN};
+
+    # TLS (certbot / Let's Encrypt)
+    ssl_certificate     /etc/letsencrypt/live/${WORKER_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${WORKER_DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # Reject requests without valid API key
+    location / {
+        if ($worker_authorized = 0) {
+            return 403;
+        }
+
+        proxy_pass         http://127.0.0.1:8188;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+
+        # WebSocket upgrade for /ws endpoint (ComfyUI progress stream)
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection $connection_upgrade;
+
+        # Large body for image uploads to ComfyUI
+        client_max_body_size 50M;
+
+        # Long timeout for generation (5 min)
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
+}
+
+# Required for WebSocket upgrade map
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
