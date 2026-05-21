@@ -65,12 +65,11 @@ export const PatchModelFaceBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+// Backgrounds are now global — no faceId
 export const PresignModelBackgroundBody = z.object({
-  faceId: z.string().uuid(),
   contentType: AssetContentType,
 });
 export const ConfirmModelBackgroundBody = z.object({
-  faceId: z.string().uuid(),
   label: z.string().min(1).max(120),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
@@ -82,12 +81,13 @@ export const PatchModelBackgroundBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+// Poses belong to a garment subcategory — subcategoryId replaces backgroundId
 export const PresignModelPoseBody = z.object({
-  backgroundId: z.string().uuid(),
+  subcategoryId: z.string().uuid(),
   contentType: AssetContentType,
 });
 export const ConfirmModelPoseBody = z.object({
-  backgroundId: z.string().uuid(),
+  subcategoryId: z.string().uuid(),
   label: z.string().min(1).max(120),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
@@ -101,4 +101,37 @@ export const PatchModelPoseBody = z.object({
   sortOrder: z.number().int().optional(),
   showsLower: z.boolean().optional(),
   showsShoes: z.boolean().optional(),
+});
+
+// Garment subcategories
+export const CreateGarmentSubcategoryBody = z.object({
+  genderSlug: GenderEnum,
+  slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
+  label: z.string().min(1).max(120),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchGarmentSubcategoryBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+
+// Subcategory templates (pre-rendered face×background combos)
+export const PresignSubcategoryTemplateBody = z.object({
+  subcategoryId: z.string().uuid(),
+  faceId: z.string().uuid(),
+  backgroundId: z.string().uuid(),
+  contentType: AssetContentType,
+});
+export const ConfirmSubcategoryTemplateBody = z.object({
+  subcategoryId: z.string().uuid(),
+  faceId: z.string().uuid(),
+  backgroundId: z.string().uuid(),
+  r2Key: z.string().min(1),
+  thumbnailKey: z.string().min(1),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchSubcategoryTemplateBody = z.object({
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
 });
