@@ -15,6 +15,13 @@
       "when": 1779273555303,
       "tag": "0001_model_asset_tables_job_inputs_reshape",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1748822400000,
+      "tag": "0002_asset_schema_redesign",
+      "breakpoints": true
     }
   ]
 }

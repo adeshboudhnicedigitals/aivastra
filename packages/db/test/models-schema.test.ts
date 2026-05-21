@@ -40,29 +40,64 @@ describe('model_faces', () => {
   });
 });
 
-describe('model_backgrounds', () => {
-  it('inserts background linked to a face', async () => {
-    const [face] = await db.insert(schema.modelFaces).values({
-      gender: 'women',
-      label: 'Women Face',
-      r2Key: 'faces/w1.jpg',
-      thumbnailKey: 'faces/w1_thumb.jpg',
-    }).returning();
-
+describe('model_backgrounds (global)', () => {
+  it('inserts background without faceId', async () => {
     const [bg] = await db.insert(schema.modelBackgrounds).values({
-      faceId: face.id,
       label: 'Studio White',
-      r2Key: 'backgrounds/w1_studio.jpg',
-      thumbnailKey: 'backgrounds/w1_studio_thumb.jpg',
+      r2Key: 'backgrounds/studio_white.jpg',
+      thumbnailKey: 'backgrounds/studio_white_thumb.jpg',
     }).returning();
 
-    expect(bg.faceId).toBe(face.id);
+    expect(bg.id).toBeTruthy();
+    expect(bg.label).toBe('Studio White');
+    // no faceId column
+    expect((bg as unknown as Record<string, unknown>).faceId).toBeUndefined();
+  });
+});
+
+describe('garment_subcategories', () => {
+  it('inserts a garment subcategory', async () => {
+    const [sub] = await db.insert(schema.garmentSubcategories).values({
+      genderSlug: 'men',
+      slug: 'fullsleeveshirt',
+      label: 'Full Sleeve Shirt',
+    }).returning();
+
+    expect(sub.id).toBeTruthy();
+    expect(sub.genderSlug).toBe('men');
+    expect(sub.slug).toBe('fullsleeveshirt');
+    expect(sub.isActive).toBe(true);
+  });
+});
+
+describe('model_poses (per subcategory)', () => {
+  it('inserts pose linked to subcategory', async () => {
+    const [sub] = await db.insert(schema.garmentSubcategories).values({
+      genderSlug: 'men',
+      slug: 'tshirt',
+      label: 'T-Shirt',
+    }).returning();
+
+    const [pose] = await db.insert(schema.modelPoses).values({
+      subcategoryId: sub.id,
+      label: 'Front standing',
+      r2Key: 'poses/tshirt_front.jpg',
+      thumbnailKey: 'poses/tshirt_front_thumb.jpg',
+      showsLower: true,
+      showsShoes: false,
+    }).returning();
+
+    expect(pose.subcategoryId).toBe(sub.id);
+    expect(pose.showsLower).toBe(true);
+    expect(pose.showsShoes).toBe(false);
+    // no backgroundId column
+    expect((pose as unknown as Record<string, unknown>).backgroundId).toBeUndefined();
   });
 
-  it('rejects background with non-existent face_id', async () => {
+  it('rejects pose with non-existent subcategory_id', async () => {
     await expect(
-      db.insert(schema.modelBackgrounds).values({
-        faceId: '00000000-0000-0000-0000-000000000000',
+      db.insert(schema.modelPoses).values({
+        subcategoryId: '00000000-0000-0000-0000-000000000000',
         label: 'Bad',
         r2Key: 'x',
         thumbnailKey: 'x',
@@ -71,59 +106,38 @@ describe('model_backgrounds', () => {
   });
 });
 
-describe('model_poses', () => {
-  it('inserts pose linked to background with flags', async () => {
+describe('subcategory_templates', () => {
+  it('inserts a template for subcategory × face × background', async () => {
     const [face] = await db.insert(schema.modelFaces).values({
       gender: 'men',
-      label: 'Men Face 2',
-      r2Key: 'faces/m2.jpg',
-      thumbnailKey: 'faces/m2_thumb.jpg',
+      label: 'Template Face',
+      r2Key: 'faces/tmpl.jpg',
+      thumbnailKey: 'faces/tmpl_thumb.jpg',
     }).returning();
 
     const [bg] = await db.insert(schema.modelBackgrounds).values({
-      faceId: face.id,
       label: 'Outdoor',
-      r2Key: 'backgrounds/m2_outdoor.jpg',
-      thumbnailKey: 'backgrounds/m2_outdoor_thumb.jpg',
+      r2Key: 'backgrounds/outdoor.jpg',
+      thumbnailKey: 'backgrounds/outdoor_thumb.jpg',
     }).returning();
 
-    const [pose] = await db.insert(schema.modelPoses).values({
-      backgroundId: bg.id,
-      label: 'Standing front',
-      r2Key: 'poses/m2_outdoor_front.jpg',
-      thumbnailKey: 'poses/m2_outdoor_front_thumb.jpg',
-      showsLower: true,
-      showsShoes: true,
+    const [sub] = await db.insert(schema.garmentSubcategories).values({
+      genderSlug: 'men',
+      slug: 'polo',
+      label: 'Polo Shirt',
     }).returning();
 
-    expect(pose.backgroundId).toBe(bg.id);
-    expect(pose.showsLower).toBe(true);
-    expect(pose.showsShoes).toBe(true);
-  });
-
-  it('defaults showsLower and showsShoes to false', async () => {
-    const [face] = await db.insert(schema.modelFaces).values({
-      gender: 'boys',
-      label: 'Boys Face 1',
-      r2Key: 'faces/b1.jpg',
-      thumbnailKey: 'faces/b1_thumb.jpg',
-    }).returning();
-
-    const [bg] = await db.insert(schema.modelBackgrounds).values({
+    const [tmpl] = await db.insert(schema.subcategoryTemplates).values({
+      subcategoryId: sub.id,
       faceId: face.id,
-      label: 'Indoor',
-      r2Key: 'backgrounds/b1_indoor.jpg',
-      thumbnailKey: 'backgrounds/b1_indoor_thumb.jpg',
-    }).returning();
-
-    const [pose] = await db.insert(schema.modelPoses).values({
       backgroundId: bg.id,
-      label: 'Half body',
-      r2Key: 'poses/b1_indoor_half.jpg',
-      thumbnailKey: 'poses/b1_indoor_half_thumb.jpg',
+      r2Key: 'templates/polo_tmpl1_bg1.jpg',
+      thumbnailKey: 'templates/polo_tmpl1_bg1_thumb.jpg',
     }).returning();
 
-    expect(pose.showsLower).toBe(false);
-    expect(pose.showsShoes).toBe(false);
+    expect(tmpl.subcategoryId).toBe(sub.id);
+    expect(tmpl.faceId).toBe(face.id);
+    expect(tmpl.backgroundId).toBe(bg.id);
+    expect(tmpl.isActive).toBe(true);
   });
 });
