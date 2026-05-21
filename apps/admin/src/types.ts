@@ -10,13 +10,12 @@ export interface ModelFace {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
-  backgroundCount?: number;
+  templateCount?: number;
 }
 
+// Global — no faceId
 export interface ModelBackground {
   id: string;
-  faceId: string;
-  faceLabel?: string;
   label: string;
   thumbnailKey: string;
   r2Key: string;
@@ -24,18 +23,45 @@ export interface ModelBackground {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
-  poseCount?: number;
 }
 
+export interface GarmentSubcategory {
+  id: string;
+  genderSlug: GenderSlug;
+  slug: string;
+  label: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  poseCount?: number;
+  templateCount?: number;
+}
+
+// Poses belong to a subcategory — no backgroundId
 export interface ModelPose {
   id: string;
-  backgroundId: string;
-  backgroundLabel?: string;
+  subcategoryId: string;
   label: string;
   thumbnailKey: string;
   r2Key: string;
   showsLower: boolean;
   showsShoes: boolean;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubcategoryTemplate {
+  id: string;
+  subcategoryId: string;
+  faceId: string;
+  faceLabel?: string;
+  backgroundId: string;
+  backgroundLabel?: string;
+  thumbnailKey: string;
+  r2Key: string;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;

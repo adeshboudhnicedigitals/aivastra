@@ -17,7 +17,7 @@ interface NavItem {
 
 const items: NavItem[] = [
   { k: 'dashboard', label: 'Dashboard', icon: Icon.Dashboard, roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT'] },
-  { k: 'models', label: 'Models', icon: Icon.Image, roles: ['SUPER_ADMIN', 'MODERATOR'] },
+  { k: 'assets', label: 'Assets', icon: Icon.Image, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'catalog', label: 'Catalog', icon: Icon.Catalog, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT'], count: 12 },
   { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR'], count: 23, alert: true },

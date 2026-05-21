@@ -60,26 +60,25 @@ export const MOCK_USERS: User[] = [
 ];
 
 export const MOCK_FACES: ModelFace[] = [
-  { id: 'face_men_01', gender: 'men', label: 'Male Model A', thumbnailKey: 'faces/men-01-thumb.jpg', r2Key: 'faces/men-01.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z', backgroundCount: 3 },
-  { id: 'face_men_02', gender: 'men', label: 'Male Model B', thumbnailKey: 'faces/men-02-thumb.jpg', r2Key: 'faces/men-02.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-02T10:00:00Z', updatedAt: '2026-05-02T10:00:00Z', backgroundCount: 2 },
-  { id: 'face_women_01', gender: 'women', label: 'Female Model A', thumbnailKey: 'faces/women-01-thumb.jpg', r2Key: 'faces/women-01.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-03T10:00:00Z', updatedAt: '2026-05-03T10:00:00Z', backgroundCount: 4 },
-  { id: 'face_women_02', gender: 'women', label: 'Female Model B', thumbnailKey: 'faces/women-02-thumb.jpg', r2Key: 'faces/women-02.jpg', isActive: false, sortOrder: 1, createdAt: '2026-05-04T10:00:00Z', updatedAt: '2026-05-04T10:00:00Z', backgroundCount: 1 },
-  { id: 'face_boys_01', gender: 'boys', label: 'Boys Model A', thumbnailKey: 'faces/boys-01-thumb.jpg', r2Key: 'faces/boys-01.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-05T10:00:00Z', updatedAt: '2026-05-05T10:00:00Z', backgroundCount: 2 },
-  { id: 'face_girls_01', gender: 'girls', label: 'Girls Model A', thumbnailKey: 'faces/girls-01-thumb.jpg', r2Key: 'faces/girls-01.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-05T10:00:00Z', updatedAt: '2026-05-05T10:00:00Z', backgroundCount: 2 },
+  { id: 'face_men_01', gender: 'men', label: 'Male Model A', thumbnailKey: 'faces/men-01-thumb.jpg', r2Key: 'faces/men-01.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z', templateCount: 3 },
+  { id: 'face_men_02', gender: 'men', label: 'Male Model B', thumbnailKey: 'faces/men-02-thumb.jpg', r2Key: 'faces/men-02.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-02T10:00:00Z', updatedAt: '2026-05-02T10:00:00Z', templateCount: 2 },
+  { id: 'face_women_01', gender: 'women', label: 'Female Model A', thumbnailKey: 'faces/women-01-thumb.jpg', r2Key: 'faces/women-01.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-03T10:00:00Z', updatedAt: '2026-05-03T10:00:00Z', templateCount: 4 },
+  { id: 'face_women_02', gender: 'women', label: 'Female Model B', thumbnailKey: 'faces/women-02-thumb.jpg', r2Key: 'faces/women-02.jpg', isActive: false, sortOrder: 1, createdAt: '2026-05-04T10:00:00Z', updatedAt: '2026-05-04T10:00:00Z', templateCount: 1 },
+  { id: 'face_boys_01', gender: 'boys', label: 'Boys Model A', thumbnailKey: 'faces/boys-01-thumb.jpg', r2Key: 'faces/boys-01.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-05T10:00:00Z', updatedAt: '2026-05-05T10:00:00Z', templateCount: 2 },
+  { id: 'face_girls_01', gender: 'girls', label: 'Girls Model A', thumbnailKey: 'faces/girls-01-thumb.jpg', r2Key: 'faces/girls-01.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-05T10:00:00Z', updatedAt: '2026-05-05T10:00:00Z', templateCount: 2 },
 ];
 
 export const MOCK_BACKGROUNDS: ModelBackground[] = [
-  { id: 'bg_men01_01', faceId: 'face_men_01', faceLabel: 'Male Model A', label: 'Studio White', thumbnailKey: 'bgs/men01-studio-white-thumb.jpg', r2Key: 'bgs/men01-studio-white.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z', poseCount: 3 },
-  { id: 'bg_men01_02', faceId: 'face_men_01', faceLabel: 'Male Model A', label: 'Urban Street', thumbnailKey: 'bgs/men01-urban-thumb.jpg', r2Key: 'bgs/men01-urban.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-06T11:00:00Z', updatedAt: '2026-05-06T11:00:00Z', poseCount: 2 },
-  { id: 'bg_men01_03', faceId: 'face_men_01', faceLabel: 'Male Model A', label: 'Office', thumbnailKey: 'bgs/men01-office-thumb.jpg', r2Key: 'bgs/men01-office.jpg', isActive: true, sortOrder: 2, createdAt: '2026-05-07T10:00:00Z', updatedAt: '2026-05-07T10:00:00Z', poseCount: 3 },
-  { id: 'bg_men02_01', faceId: 'face_men_02', faceLabel: 'Male Model B', label: 'Studio Grey', thumbnailKey: 'bgs/men02-studio-grey-thumb.jpg', r2Key: 'bgs/men02-studio-grey.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z', poseCount: 3 },
-  { id: 'bg_women01_01', faceId: 'face_women_01', faceLabel: 'Female Model A', label: 'Studio White', thumbnailKey: 'bgs/women01-studio-white-thumb.jpg', r2Key: 'bgs/women01-studio-white.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z', poseCount: 3 },
+  { id: 'bg_001', label: 'Studio White', thumbnailKey: 'bgs/studio-white-thumb.jpg', r2Key: 'bgs/studio-white.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z' },
+  { id: 'bg_002', label: 'Urban Street', thumbnailKey: 'bgs/urban-thumb.jpg', r2Key: 'bgs/urban.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-06T11:00:00Z', updatedAt: '2026-05-06T11:00:00Z' },
+  { id: 'bg_003', label: 'Office', thumbnailKey: 'bgs/office-thumb.jpg', r2Key: 'bgs/office.jpg', isActive: true, sortOrder: 2, createdAt: '2026-05-07T10:00:00Z', updatedAt: '2026-05-07T10:00:00Z' },
+  { id: 'bg_004', label: 'Studio Grey', thumbnailKey: 'bgs/studio-grey-thumb.jpg', r2Key: 'bgs/studio-grey.jpg', isActive: true, sortOrder: 3, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z' },
 ];
 
 export const MOCK_POSES: ModelPose[] = [
-  { id: 'pose_men01bg01_01', backgroundId: 'bg_men01_01', backgroundLabel: 'Studio White', label: 'Front Stand', thumbnailKey: 'poses/m1b1-front-thumb.jpg', r2Key: 'poses/m1b1-front.jpg', showsLower: true, showsShoes: true, isActive: true, sortOrder: 0, createdAt: '2026-05-10T10:00:00Z', updatedAt: '2026-05-10T10:00:00Z' },
-  { id: 'pose_men01bg01_02', backgroundId: 'bg_men01_01', backgroundLabel: 'Studio White', label: 'Half Turn', thumbnailKey: 'poses/m1b1-half-thumb.jpg', r2Key: 'poses/m1b1-half.jpg', showsLower: true, showsShoes: false, isActive: true, sortOrder: 1, createdAt: '2026-05-10T11:00:00Z', updatedAt: '2026-05-10T11:00:00Z' },
-  { id: 'pose_men01bg01_03', backgroundId: 'bg_men01_01', backgroundLabel: 'Studio White', label: 'Upper Only', thumbnailKey: 'poses/m1b1-upper-thumb.jpg', r2Key: 'poses/m1b1-upper.jpg', showsLower: false, showsShoes: false, isActive: true, sortOrder: 2, createdAt: '2026-05-10T12:00:00Z', updatedAt: '2026-05-10T12:00:00Z' },
+  { id: 'pose_001', subcategoryId: 'sub_men_shirt', label: 'Front Stand', thumbnailKey: 'poses/front-thumb.jpg', r2Key: 'poses/front.jpg', showsLower: true, showsShoes: true, isActive: true, sortOrder: 0, createdAt: '2026-05-10T10:00:00Z', updatedAt: '2026-05-10T10:00:00Z' },
+  { id: 'pose_002', subcategoryId: 'sub_men_shirt', label: 'Half Turn', thumbnailKey: 'poses/half-thumb.jpg', r2Key: 'poses/half.jpg', showsLower: true, showsShoes: false, isActive: true, sortOrder: 1, createdAt: '2026-05-10T11:00:00Z', updatedAt: '2026-05-10T11:00:00Z' },
+  { id: 'pose_003', subcategoryId: 'sub_men_shirt', label: 'Upper Only', thumbnailKey: 'poses/upper-thumb.jpg', r2Key: 'poses/upper.jpg', showsLower: false, showsShoes: false, isActive: true, sortOrder: 2, createdAt: '2026-05-10T12:00:00Z', updatedAt: '2026-05-10T12:00:00Z' },
 ];
 
 export const MOCK_CATALOG: CatalogItem[] = [
