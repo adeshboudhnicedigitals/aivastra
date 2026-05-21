@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup dev build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate
+.PHONY: setup dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health
 
 setup:
 	cp .env.example .env
@@ -12,6 +12,21 @@ setup:
 
 dev:
 	pnpm dev
+
+dev-api:
+	pnpm --filter @aivastra/api dev
+
+dev-web:
+	pnpm --filter @aivastra/web dev
+
+dev-dispatcher:
+	pnpm --filter @aivastra/dispatcher dev
+
+dev-admin:
+	pnpm --filter @aivastra/admin dev
+
+health:
+	curl -s http://localhost:4000/health
 
 build:
 	pnpm build

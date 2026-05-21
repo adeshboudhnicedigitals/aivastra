@@ -16,3 +16,16 @@ export const creditLedger = pgTable('credit_ledger', {
   adminId: uuid('admin_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const creditRequests = pgTable('credit_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  creditsRequested: integer('credits_requested').notNull(),
+  creditsApproved: integer('credits_approved'),
+  note: text('note'),
+  status: text('status').notNull().default('pending'),
+  adminNote: text('admin_note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  reviewedBy: uuid('reviewed_by'),
+});

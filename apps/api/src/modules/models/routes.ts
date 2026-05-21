@@ -3,6 +3,7 @@ import { schema } from '@aivastra/db';
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
 
+
 export async function modelsRoutes(app: FastifyInstance) {
   app.get('/v1/models/subcategories', {
     preHandler: app.requireUser,
@@ -32,14 +33,37 @@ export async function modelsRoutes(app: FastifyInstance) {
 
   app.get('/v1/models/backgrounds', {
     preHandler: app.requireUser,
-  }, async () => {
-    const items = await app.db
-      .select({ id: schema.modelBackgrounds.id, label: schema.modelBackgrounds.label, thumbnailUrl: schema.modelBackgrounds.thumbnailKey })
-      .from(schema.modelBackgrounds)
-      .where(eq(schema.modelBackgrounds.isActive, true));
-    return {
-      items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })),
-    };
+    schema: { querystring: z.object({ faceId: z.string().uuid().optional() }) },
+  }, async (req) => {
+    const { faceId } = req.query as { faceId?: string };
+    let items: { id: string; label: string; thumbnailUrl: string }[];
+
+    if (faceId) {
+      // Only return backgrounds that have ≥1 active pose for this face (3D tensor: bg ⊂ face)
+      items = await app.db
+        .selectDistinct({
+          id: schema.modelBackgrounds.id,
+          label: schema.modelBackgrounds.label,
+          thumbnailUrl: schema.modelBackgrounds.thumbnailKey,
+        })
+        .from(schema.modelBackgrounds)
+        .innerJoin(
+          schema.modelPoses,
+          and(
+            eq(schema.modelPoses.backgroundId, schema.modelBackgrounds.id),
+            eq(schema.modelPoses.faceId, faceId),
+            eq(schema.modelPoses.isActive, true),
+          ),
+        )
+        .where(eq(schema.modelBackgrounds.isActive, true));
+    } else {
+      items = await app.db
+        .select({ id: schema.modelBackgrounds.id, label: schema.modelBackgrounds.label, thumbnailUrl: schema.modelBackgrounds.thumbnailKey })
+        .from(schema.modelBackgrounds)
+        .where(eq(schema.modelBackgrounds.isActive, true));
+    }
+
+    return { items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })) };
   });
 
   app.get('/v1/models/poses', {

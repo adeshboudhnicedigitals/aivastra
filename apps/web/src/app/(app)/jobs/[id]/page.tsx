@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Download, Loader2, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, CheckCircle, XCircle } from 'lucide-react';
 
 interface Job {
   id: string;
@@ -22,18 +22,19 @@ const STEPS = ['QUEUED', 'PREPROCESSING', 'GENERATING', 'UPLOADING', 'COMPLETED'
 function StepIndicator({ currentStatus }: { currentStatus: string }) {
   const currentIdx = STEPS.indexOf(currentStatus);
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       {STEPS.map((step, i) => (
         <div key={step} className="flex items-center gap-2">
-          <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium ${
-            i < currentIdx ? 'bg-primary text-primary-foreground' :
-            i === currentIdx ? 'bg-primary/20 text-primary ring-2 ring-primary' :
-            'bg-muted text-muted-foreground'
-          }`}>
+          <div className={[
+            'flex h-7 w-7 items-center justify-center rounded-full border font-body text-xs font-medium',
+            i < currentIdx ? 'border-primary bg-primary text-foreground' :
+            i === currentIdx ? 'border-foreground bg-foreground text-background' :
+            'border-foreground/30 text-muted-foreground',
+          ].join(' ')}>
             {i < currentIdx ? <CheckCircle className="h-4 w-4" /> : i + 1}
           </div>
           {i < STEPS.length - 1 && (
-            <div className={`h-0.5 w-8 ${i < currentIdx ? 'bg-primary' : 'bg-muted'}`} />
+            <div className={`h-px w-8 ${i < currentIdx ? 'bg-primary' : 'bg-foreground/20'}`} />
           )}
         </div>
       ))}
@@ -56,7 +57,6 @@ export default function JobDetailPage() {
     },
   });
 
-  // SSE for live progress
   useEffect(() => {
     if (!job || TERMINAL.includes(job.status)) return;
     const token = document.cookie.match(/(?:^|; )access_token=([^;]*)/)?.[1];
@@ -97,22 +97,22 @@ export default function JobDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" asChild>
+        <Button variant="outline" size="sm" asChild>
           <Link href="/dashboard"><ArrowLeft className="mr-1 h-4 w-4" />Back</Link>
         </Button>
-        <h1 className="text-xl font-bold">Try-on #{job.id.slice(0, 8)}</h1>
+        <h1 className="font-hand text-2xl">Try-on #{job.id.slice(0, 8)}</h1>
         <Badge variant={job.status === 'COMPLETED' ? 'success' : job.status === 'FAILED' ? 'destructive' : 'processing'}>
           {job.status}
         </Badge>
       </div>
 
-      {/* Progress steps */}
+      {/* Progress */}
       {job.status !== 'FAILED' && (
-        <div className="rounded-xl border p-6">
-          <p className="mb-4 text-sm font-medium text-muted-foreground">Progress</p>
+        <div className="sketch-card p-6">
+          <p className="mb-4 font-hand text-lg text-muted-foreground">Progress</p>
           <StepIndicator currentStatus={job.status} />
           {!TERMINAL.includes(job.status) && (
-            <div className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="mt-4 flex items-center gap-2 font-body text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               Processing your try-on…
             </div>
@@ -120,50 +120,50 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* Result image */}
+      {/* Result */}
       {job.status === 'COMPLETED' && (
-        <div className="rounded-xl border p-6">
-          <p className="mb-4 text-sm font-medium text-muted-foreground">Result</p>
+        <div className="sketch-card p-6">
+          <p className="mb-4 font-hand text-lg text-muted-foreground">Result</p>
           {resultUrl ? (
             <div className="space-y-4">
               <img
                 src={resultUrl}
                 alt="Try-on result"
-                className="w-full max-w-lg rounded-lg object-contain shadow-md"
+                className="w-full max-w-lg object-contain"
+                style={{ border: '1.5px solid hsl(var(--foreground))', borderRadius: '4px' }}
               />
               <Button asChild variant="outline" size="sm">
                 <a href={resultUrl} download={`tryon-${job.id}.png`}>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download
+                  <Download className="mr-2 h-4 w-4" />Download
                 </a>
               </Button>
             </div>
           ) : (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Loading result…
+              <span className="font-body text-sm">Loading result…</span>
             </div>
           )}
         </div>
       )}
 
-      {/* Failure state */}
+      {/* Failure */}
       {job.status === 'FAILED' && (
-        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6">
+        <div className="sketch-card p-6" style={{ borderColor: 'hsl(var(--destructive))' }}>
           <div className="flex items-center gap-2">
             <XCircle className="h-5 w-5 text-destructive" />
-            <p className="font-medium text-destructive">Job failed</p>
+            <p className="font-hand text-xl text-destructive">Job failed</p>
           </div>
-          {job.errorCode && <p className="mt-1 text-sm text-muted-foreground">Error: {job.errorCode}</p>}
-          <p className="mt-2 text-sm text-muted-foreground">Your credits have been refunded.</p>
+          {job.errorCode && <p className="mt-1 font-body text-sm text-muted-foreground">Error: {job.errorCode}</p>}
+          <p className="mt-2 font-body text-sm text-muted-foreground">Your credits have been refunded.</p>
           <Button asChild className="mt-4" size="sm">
-            <Link href="/tryon">Try again</Link>
+            <Link href="/tryon">Try again →</Link>
           </Button>
         </div>
       )}
 
-      {/* Job metadata */}
-      <div className="rounded-xl border p-4 text-sm text-muted-foreground">
+      {/* Metadata */}
+      <div className="sketch-card-sm p-4 font-body text-sm text-muted-foreground space-y-1">
         <p>Created: {new Date(job.createdAt).toLocaleString()}</p>
         <p>Credits charged: {job.creditsCharged}</p>
       </div>

@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 interface Job {
   id: string;
@@ -23,11 +23,11 @@ const STATUS_BADGE: Record<string, 'default' | 'processing' | 'success' | 'destr
 };
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
-  QUEUED: <Clock className="h-4 w-4" />,
-  PREPROCESSING: <Loader2 className="h-4 w-4 animate-spin" />,
-  GENERATING: <Loader2 className="h-4 w-4 animate-spin" />,
-  UPLOADING: <Loader2 className="h-4 w-4 animate-spin" />,
-  COMPLETED: <CheckCircle className="h-4 w-4 text-green-600" />,
+  QUEUED: <Clock className="h-4 w-4 text-muted-foreground" />,
+  PREPROCESSING: <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />,
+  GENERATING: <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />,
+  UPLOADING: <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />,
+  COMPLETED: <CheckCircle className="h-4 w-4 text-green-700" />,
   FAILED: <XCircle className="h-4 w-4 text-destructive" />,
 };
 
@@ -47,14 +47,11 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Your Try-Ons</h1>
-          <p className="text-muted-foreground">View and track your virtual try-on jobs</p>
+          <h1 className="font-hand text-4xl">Your Try-Ons</h1>
+          <p className="mt-1 font-body text-sm text-muted-foreground">Track your virtual try-on jobs</p>
         </div>
         <Button asChild>
-          <Link href="/tryon">
-            <Sparkles className="mr-2 h-4 w-4" />
-            New Try-On
-          </Link>
+          <Link href="/tryon">New Try-On →</Link>
         </Button>
       </div>
 
@@ -65,28 +62,31 @@ export default function DashboardPage() {
       )}
 
       {!isLoading && (!jobs || jobs.length === 0) && (
-        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-16 text-center">
-          <Sparkles className="mb-3 h-10 w-10 text-muted-foreground/40" />
-          <p className="font-medium">No try-ons yet</p>
-          <p className="mt-1 text-sm text-muted-foreground">Create your first virtual try-on to see how clothes look on you</p>
-          <Button asChild className="mt-4">
-            <Link href="/tryon">Get started</Link>
+        <div className="sketch-card flex flex-col items-center justify-center py-16 text-center">
+          <p className="font-hand text-2xl">No try-ons yet.</p>
+          <p className="mt-2 font-body text-sm text-muted-foreground">Create your first virtual try-on to get started.</p>
+          <Button asChild className="mt-6">
+            <Link href="/tryon">Get started →</Link>
           </Button>
         </div>
       )}
 
       {jobs && jobs.length > 0 && (
-        <div className="divide-y rounded-xl border">
+        <div className="sketch-card divide-y divide-foreground/10" style={{ padding: 0 }}>
           {jobs.map((job) => (
-            <Link key={job.id} href={`/jobs/${job.id}`} className="flex items-center gap-4 px-4 py-3 hover:bg-muted/50 transition-colors">
+            <Link
+              key={job.id}
+              href={`/jobs/${job.id}`}
+              className="flex items-center gap-4 px-5 py-4 hover:bg-secondary/50 transition-colors first:rounded-t last:rounded-b"
+            >
               <div className="flex-shrink-0">{STATUS_ICON[job.status] ?? <Clock className="h-4 w-4" />}</div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">Try-on #{job.id.slice(0, 8)}</p>
-                <p className="text-xs text-muted-foreground">{new Date(job.createdAt).toLocaleString()}</p>
+                <p className="font-hand text-lg truncate">Try-on #{job.id.slice(0, 8)}</p>
+                <p className="font-body text-xs text-muted-foreground">{new Date(job.createdAt).toLocaleString()}</p>
               </div>
               <div className="flex items-center gap-3">
                 <Badge variant={STATUS_BADGE[job.status] ?? 'default'}>{job.status}</Badge>
-                <span className="text-xs text-muted-foreground">{job.creditsCharged}c</span>
+                <span className="font-body text-xs text-muted-foreground">{job.creditsCharged}c</span>
               </div>
             </Link>
           ))}

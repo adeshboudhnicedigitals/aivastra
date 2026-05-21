@@ -2,17 +2,17 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/cn';
 
 const badgeVariants = cva(
-  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors',
+  'inline-flex items-center border border-foreground rounded-full px-2.5 py-0.5 font-body text-[10px] uppercase tracking-[0.08em] transition-colors',
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-primary text-primary-foreground',
-        secondary: 'border-transparent bg-secondary text-secondary-foreground',
-        outline: 'text-foreground',
-        destructive: 'border-transparent bg-destructive text-destructive-foreground',
-        success: 'border-transparent bg-green-100 text-green-800',
-        warning: 'border-transparent bg-yellow-100 text-yellow-800',
-        processing: 'border-transparent bg-blue-100 text-blue-800',
+        default: 'bg-primary text-foreground',
+        secondary: 'bg-secondary text-secondary-foreground',
+        outline: 'bg-background text-foreground',
+        destructive: 'bg-destructive text-destructive-foreground',
+        success: 'bg-green-100 text-green-800 border-green-800',
+        warning: 'bg-accent text-foreground',
+        processing: 'bg-secondary text-foreground',
       },
     },
     defaultVariants: { variant: 'default' },
