@@ -140,4 +140,28 @@ describe('subcategory_templates', () => {
     expect(tmpl.backgroundId).toBe(bg.id);
     expect(tmpl.isActive).toBe(true);
   });
+
+  it('rejects template with non-existent face_id', async () => {
+    const [bg] = await db.insert(schema.modelBackgrounds).values({
+      label: 'Test BG',
+      r2Key: 'backgrounds/test.jpg',
+      thumbnailKey: 'backgrounds/test_thumb.jpg',
+    }).returning();
+
+    const [sub] = await db.insert(schema.garmentSubcategories).values({
+      genderSlug: 'women',
+      slug: 'dress',
+      label: 'Dress',
+    }).returning();
+
+    await expect(
+      db.insert(schema.subcategoryTemplates).values({
+        subcategoryId: sub.id,
+        faceId: '00000000-0000-0000-0000-000000000000',
+        backgroundId: bg.id,
+        r2Key: 'templates/bad.jpg',
+        thumbnailKey: 'templates/bad_thumb.jpg',
+      })
+    ).rejects.toThrow();
+  });
 });

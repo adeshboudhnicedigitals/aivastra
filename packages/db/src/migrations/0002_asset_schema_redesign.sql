@@ -66,3 +66,9 @@ DO $$ BEGIN
   ALTER TABLE "subcategory_templates" ADD CONSTRAINT "subcategory_templates_background_id_fk"
     FOREIGN KEY ("background_id") REFERENCES "public"."model_backgrounds"("id") ON DELETE no action ON UPDATE no action;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "model_poses_subcategory_id_idx" ON "model_poses" ("subcategory_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "subcategory_templates_subcategory_id_idx" ON "subcategory_templates" ("subcategory_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "subcategory_templates_lookup_idx" ON "subcategory_templates" ("subcategory_id", "face_id", "background_id");
