@@ -7,6 +7,57 @@
 
 ## Log
 
+### 2026-05-21 — Frontend scaffold complete (Phase 3A+3B+3C) + backend schema fixes
+
+**Done**
+
+*`apps/web` — Next.js 15 App Router (full scaffold)*
+
+- `package.json`: Next.js 15, React 19, Tailwind CSS 3, @tanstack/react-query, react-hook-form + zod resolvers, lucide-react, @radix-ui/react-slot
+- `middleware.ts`: route protection via `access_token` cookie; redirects unauthenticated users to `/login?next=<path>`
+- **Auth proxy routes** (`/api/auth/*`): Next.js route handlers proxy to API, extract refresh token from `Set-Cookie` response header, re-set as httpOnly cookie at `/api/auth` path; set `access_token` as JS-readable cookie at `/`
+  - `/api/auth/login`, `/api/auth/register`, `/api/auth/logout`, `/api/auth/refresh`
+- **Auth pages**: `/login`, `/register` — react-hook-form + zod validation, error display, Tailwind styling
+- **App layout** (`/(app)/layout.tsx`): sticky navbar with credits balance (live via React Query), logout button, nav links
+- **Dashboard** (`/dashboard`): job history list, status badges with icons, auto-refetch every 3s when active jobs exist
+- **Try-On Wizard** (`/tryon`): 6-step wizard
+  - Step 0: Gender + subcategory picker (loads `GET /v1/models/subcategories?gender=X`)
+  - Step 1: Garment upload — XHR with progress bar, presign → direct R2 PUT
+  - Step 2: Face selection — card grid (loads `GET /v1/models/faces?gender=X`)
+  - Step 3: Background selection — card grid (loads `GET /v1/models/backgrounds`)
+  - Step 4: Pose selection — card grid (loads `GET /v1/models/poses?subcategoryId=X&faceId=Y&backgroundId=Z`)
+  - Step 5: Review + submit → `POST /v1/jobs/tryon` → redirect to job detail
+- **Job detail** (`/jobs/[id]`): SSE live progress (EventSource), step indicator, result image with download button, failure state with refund notice
+- **UI components**: Button (asChild/Radix Slot), Input, Badge (success/warning/processing/destructive variants), Navbar, Providers (React Query)
+- **API client** (`lib/api.ts`): typed fetch wrapper, auto-refresh on 401, XHR upload with onprogress
+
+*Backend fixes*
+
+- `apps/api/src/modules/models/routes.ts` (NEW): user-facing model routes — `GET /v1/models/subcategories`, `/faces`, `/backgrounds`, `/poses`; requires auth, returns thumbnailUrl via `storage.publicUrl()`; registered in `server.ts`
+- `apps/api/src/modules/jobs/create.ts`: rewrote to use new schema — validates `faceId`/`backgroundId`/`poseId` against `model_faces`/`model_backgrounds`/`model_poses` (was broken: still used old `modelCatalogId`/`catalogItems` references)
+- `apps/dispatcher/src/job/processor.ts`: fixed r2Key resolution — now reads from `model_faces`/`model_backgrounds`/`model_poses` via `inputs.faceId`/`backgroundId`/`poseId` (was broken: used old `inputs.modelCatalogId` etc. against `catalogItems`)
+
+**Failed / Not Done**
+
+- SSE auth: job events endpoint uses `EventSource` which can't set custom headers; token passed as `?token=` query param in URL. API's `requireUser` plugin needs to support token from query string (not yet implemented — will silently fail on first SSE connect)
+- No `CORS_ORIGIN` update for web port 3000 (`.env` still default; should be `http://localhost:3000` — already set)
+- `apps/web` not in CORS_ORIGIN of API: need to confirm `CORS_ORIGIN=http://localhost:3000` in `.env`
+
+**Decisions Made**
+
+- Auth cookie strategy: `access_token` non-httpOnly (JS-readable, 15min) + `refresh` httpOnly at `/api/auth` path (7d). All managed by Next.js proxy routes.
+- All API calls go direct from client to `NEXT_PUBLIC_API_URL` (not through Next.js proxy), except auth. Avoids latency overhead.
+- XHR (not fetch) for garment upload: enables `onprogress` events for progress bar.
+
+**Open Questions / Decisions**
+
+- [ ] SSE auth: `GET /v1/jobs/:id/events` uses `EventSource` (no custom headers). API `requireUser` only reads `Authorization` header. Need to add `?token=<accessToken>` query param support to `requireUser` plugin, or proxy SSE through Next.js.
+- [ ] `CORS_ORIGIN` in `.env` must be `http://localhost:3000` for web ↔ API in dev — confirm set.
+- [ ] `apps/web` prod: served via CloudPanel nginx on port 3000? Confirm routing before Phase 4D Dockerfile.
+- [ ] Catalog lower garment selection not in wizard (Phase 3B only covers face/bg/pose). Add lower garment step if needed (wizard step 5, only shown when `pose.showsLower === true`).
+
+---
+
 ### 2026-05-21 — Admin panel complete + asset management system
 
 **Done**

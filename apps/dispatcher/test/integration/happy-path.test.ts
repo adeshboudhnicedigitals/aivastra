@@ -41,47 +41,33 @@ describe('dispatcher happy path', () => {
   });
 
   async function seedJob() {
-    const ts = Date.now();
     const [user] = await env.db
       .insert(schema.users)
-      .values({ email: `happy-${ts}@test.com`, passwordHash: 'x', tier: 'FREE' })
+      .values({ email: `happy-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
       .returning();
     await env.db.insert(schema.userCredits).values({ userId: user!.id, balance: 5 });
 
-    // Model assets (new schema)
-    const [face] = await env.db
-      .insert(schema.modelFaces)
-      .values({ gender: 'men', label: 'Face', r2Key: `hp/face-${ts}.jpg`, thumbnailKey: `hp/face-${ts}-thumb.jpg` })
-      .returning();
-    const [bg] = await env.db
-      .insert(schema.modelBackgrounds)
-      .values({ label: 'Bg', r2Key: `hp/bg-${ts}.jpg`, thumbnailKey: `hp/bg-${ts}-thumb.jpg` })
-      .returning();
-    const [subcat] = await env.db
-      .insert(schema.garmentSubcategories)
-      .values({ genderSlug: 'men', slug: `hp-tshirt-${ts}`, label: 'T-Shirt' })
-      .returning();
-    const [pose] = await env.db
-      .insert(schema.modelPoses)
-      .values({
-        subcategoryId: subcat!.id, faceId: face!.id, backgroundId: bg!.id,
-        label: 'Pose', r2Key: `hp/pose-${ts}.jpg`, thumbnailKey: `hp/pose-${ts}-thumb.jpg`,
-      })
-      .returning();
-
-    // Optional lower garment (catalog item)
     const [ct] = await env.db
       .insert(schema.catalogTypes)
-      .values({ slug: `hp-${ts}`, label: 'T' })
+      .values({ slug: `hp-${Date.now()}`, label: 'T' })
       .returning();
     const [cc] = await env.db
       .insert(schema.catalogCategories)
       .values({ typeId: ct!.id, slug: 'c', label: 'C' })
       .returning();
-    const [lower] = await env.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cc!.id, label: 'Lower', r2Key: `hp/lower-${ts}.jpg`, thumbnailKey: `hp/lower-${ts}.jpg` })
-      .returning();
+
+    const mkItem = (label: string, r2Key: string) =>
+      env.db
+        .insert(schema.catalogItems)
+        .values({ categoryId: cc!.id, label, r2Key, thumbnailKey: r2Key })
+        .returning();
+
+    const [[m], [p], [b], [l]] = await Promise.all([
+      mkItem('Model', 'catalog/m/m.jpg'),
+      mkItem('Pose', 'catalog/p/p.jpg'),
+      mkItem('Bg', 'catalog/b/b.jpg'),
+      mkItem('Lower', 'catalog/l/l.jpg'),
+    ]);
 
     const [job] = await env.db
       .insert(schema.jobs)
@@ -91,19 +77,19 @@ describe('dispatcher happy path', () => {
     await env.db.insert(schema.jobInputs).values({
       jobId: job!.id,
       upperGarmentKey: `inputs/${job!.id}/garment.jpg`,
-      faceId: face!.id,
-      backgroundId: bg!.id,
-      poseId: pose!.id,
-      lowerCatalogId: lower!.id,
+      modelCatalogId: m!.id,
+      poseCatalogId: p!.id,
+      backgroundCatalogId: b!.id,
+      lowerCatalogId: l!.id,
     });
 
     // Upload stub objects to MinIO so presignGet works
     for (const key of [
       `inputs/${job!.id}/garment.jpg`,
-      `hp/face-${ts}.jpg`,
-      `hp/bg-${ts}.jpg`,
-      `hp/pose-${ts}.jpg`,
-      `hp/lower-${ts}.jpg`,
+      'catalog/m/m.jpg',
+      'catalog/p/p.jpg',
+      'catalog/b/b.jpg',
+      'catalog/l/l.jpg',
     ]) {
       await env.s3.send(
         new PutObjectCommand({
@@ -130,7 +116,7 @@ describe('dispatcher happy path', () => {
         storage: env.storage,
         s3: env.s3,
         r2Bucket: env.r2Bucket,
-        workerApiKey: () => 'test-key',
+        workerApiKey: 'test-key',
         log,
       },
       jobId,

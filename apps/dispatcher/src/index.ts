@@ -1,7 +1,7 @@
 import { hostname } from 'node:os';
 import { S3Client } from '@aws-sdk/client-s3';
 import { createLogger } from '@aivastra/logger';
-import { loadEnv, workerUrl, workerApiKey } from './env.js';
+import { loadEnv, workerUrl } from './env.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
     storage,
     s3,
     r2Bucket: env.R2_BUCKET,
-    workerApiKey: (id: string) => workerApiKey(process.env, id),
+    workerApiKey: env.WORKER_API_KEY,
     log,
   };
 
@@ -51,9 +51,7 @@ async function main(): Promise<void> {
   await recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
 
   // Start subsystems
-  const stopHealthMonitor = startHealthMonitor(
-    redis, (id) => workerApiKey(process.env, id), log,
-  );
+  const stopHealthMonitor = startHealthMonitor(redis, env.WORKER_API_KEY, log);
   const stopConsumer = await runConsumer(redis, processorCfg, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 

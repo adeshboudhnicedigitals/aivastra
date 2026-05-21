@@ -16,6 +16,7 @@ import { creditsRoutes } from './modules/credits/routes';
 import { catalogRoutes } from './modules/catalog/routes';
 import { uploadsRoutes } from './modules/uploads/routes';
 import { jobsRoutes } from './modules/jobs/routes';
+import { modelsRoutes } from './modules/models/routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes';
 import { adminCreditsRoutes } from './modules/admin/credits.routes';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes';
@@ -61,6 +62,7 @@ export async function buildServer(env: Env) {
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
   await app.register(jobsRoutes);
+  await app.register(modelsRoutes);
   await app.register(adminUsersRoutes);
   await app.register(adminCreditsRoutes);
   await app.register(adminCatalogRoutes);

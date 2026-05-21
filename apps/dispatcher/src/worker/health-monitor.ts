@@ -12,7 +12,7 @@ async function probeWorker(
 ): Promise<boolean> {
   try {
     const res = await fetch(`${workerUrl}/system_stats`, {
-      headers: { 'X-Worker-Key': apiKey },
+      headers: { 'X-Api-Key': apiKey },
       signal: AbortSignal.timeout(5_000),
     });
     return res.ok;
@@ -23,7 +23,7 @@ async function probeWorker(
 
 export function startHealthMonitor(
   redis: Redis,
-  getApiKey: (workerId: string) => string,
+  apiKey: string,
   log: Logger,
 ): () => void {
   let running = true;
@@ -32,7 +32,7 @@ export function startHealthMonitor(
     const workers = await getWorkers(redis);
     for (const [id, entry] of workers) {
       if (entry.status === 'DRAINING') continue;
-      const healthy = await probeWorker(id, entry.url, getApiKey(id));
+      const healthy = await probeWorker(id, entry.url, apiKey);
       if (healthy) {
         await redis.setex(healthKey(id), HEALTH_TTL_SEC, '1');
         log.debug({ workerId: id }, 'worker healthy');

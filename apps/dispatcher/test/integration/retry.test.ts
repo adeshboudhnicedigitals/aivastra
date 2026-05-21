@@ -41,45 +41,32 @@ describe('dispatcher retry + credit refund', () => {
   });
 
   async function seedJob() {
-    const ts = Date.now();
     const [user] = await env.db
       .insert(schema.users)
-      .values({ email: `retry-${ts}@test.com`, passwordHash: 'x', tier: 'FREE' })
+      .values({ email: `retry-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
       .returning();
+    // Grant 5 credits — dispatcher does NOT deduct, just refunds
     await env.db.insert(schema.userCredits).values({ userId: user!.id, balance: 5 });
-
-    const [face] = await env.db
-      .insert(schema.modelFaces)
-      .values({ gender: 'men', label: 'Face', r2Key: `rt/face-${ts}.jpg`, thumbnailKey: `rt/face-${ts}-thumb.jpg` })
-      .returning();
-    const [bg] = await env.db
-      .insert(schema.modelBackgrounds)
-      .values({ label: 'Bg', r2Key: `rt/bg-${ts}.jpg`, thumbnailKey: `rt/bg-${ts}-thumb.jpg` })
-      .returning();
-    const [subcat] = await env.db
-      .insert(schema.garmentSubcategories)
-      .values({ genderSlug: 'men', slug: `rt-tshirt-${ts}`, label: 'T-Shirt' })
-      .returning();
-    const [pose] = await env.db
-      .insert(schema.modelPoses)
-      .values({
-        subcategoryId: subcat!.id, faceId: face!.id, backgroundId: bg!.id,
-        label: 'Pose', r2Key: `rt/pose-${ts}.jpg`, thumbnailKey: `rt/pose-${ts}-thumb.jpg`,
-      })
-      .returning();
 
     const [ct] = await env.db
       .insert(schema.catalogTypes)
-      .values({ slug: `rt-${ts}`, label: 'T' })
+      .values({ slug: `rt-${Date.now()}`, label: 'T' })
       .returning();
     const [cc] = await env.db
       .insert(schema.catalogCategories)
       .values({ typeId: ct!.id, slug: 'c', label: 'C' })
       .returning();
-    const [lower] = await env.db
-      .insert(schema.catalogItems)
-      .values({ categoryId: cc!.id, label: 'Lower', r2Key: `rt/lower-${ts}.jpg`, thumbnailKey: `rt/lower-${ts}.jpg` })
-      .returning();
+    const mkItem = (k: string) =>
+      env.db
+        .insert(schema.catalogItems)
+        .values({ categoryId: cc!.id, label: 'I', r2Key: k, thumbnailKey: k })
+        .returning();
+    const [[m], [p], [b], [l]] = await Promise.all([
+      mkItem('k/m.jpg'),
+      mkItem('k/p.jpg'),
+      mkItem('k/b.jpg'),
+      mkItem('k/l.jpg'),
+    ]);
 
     const [job] = await env.db
       .insert(schema.jobs)
@@ -88,17 +75,17 @@ describe('dispatcher retry + credit refund', () => {
     await env.db.insert(schema.jobInputs).values({
       jobId: job!.id,
       upperGarmentKey: `inputs/${job!.id}/garment.jpg`,
-      faceId: face!.id,
-      backgroundId: bg!.id,
-      poseId: pose!.id,
-      lowerCatalogId: lower!.id,
+      modelCatalogId: m!.id,
+      poseCatalogId: p!.id,
+      backgroundCatalogId: b!.id,
+      lowerCatalogId: l!.id,
     });
     for (const key of [
       `inputs/${job!.id}/garment.jpg`,
-      `rt/face-${ts}.jpg`,
-      `rt/bg-${ts}.jpg`,
-      `rt/pose-${ts}.jpg`,
-      `rt/lower-${ts}.jpg`,
+      'k/m.jpg',
+      'k/p.jpg',
+      'k/b.jpg',
+      'k/l.jpg',
     ]) {
       await env.s3.send(
         new PutObjectCommand({
@@ -123,7 +110,7 @@ describe('dispatcher retry + credit refund', () => {
       storage: env.storage,
       s3: env.s3,
       r2Bucket: env.r2Bucket,
-      workerApiKey: () => 'test-key',
+      workerApiKey: 'test-key',
       log,
     };
 

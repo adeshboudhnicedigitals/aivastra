@@ -8,6 +8,8 @@ coverage
 
 .env
 .env.local
+.env.development
+.env.production
 .env.*.local
 !.env.example
 
@@ -26,3 +28,4 @@ logs/
 
 .ai/
 .claude/
+/docs/superpowers/plans/*

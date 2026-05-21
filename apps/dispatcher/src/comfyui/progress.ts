@@ -24,9 +24,9 @@ export function waitForCompletion(
   return new Promise((resolve, reject) => {
     const wsUrl = workerUrl.replace(/^https/, 'wss').replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws?clientId=${clientUuid}`, {
-      headers: {
-        'X-Worker-Key': apiKey,
-      },
+      headers: { 'X-Api-Key': apiKey },
+      // Honour NODE_TLS_REJECT_UNAUTHORIZED=0 for dev self-signed certs
+      rejectUnauthorized: process.env['NODE_TLS_REJECT_UNAUTHORIZED'] !== '0',
     });
 
     const timer = setTimeout(() => {

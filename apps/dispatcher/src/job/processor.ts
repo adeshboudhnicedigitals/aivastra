@@ -6,12 +6,12 @@ import type { StorageProvider } from '@aivastra/storage';
 import type { Redis } from 'ioredis';
 import type { Logger } from '@aivastra/logger';
 import type { S3Client } from '@aws-sdk/client-s3';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { transitionJob } from './state.js';
 import { selectWorker } from '../worker/selector.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { patchWorkflow } from '../workflow/patcher.js';
-import { submitPrompt, fetchHistory, downloadOutputImage } from '../comfyui/client.js';
+import { submitPrompt, fetchHistory, downloadOutputImage, uploadImageToComfy } from '../comfyui/client.js';
 import { waitForCompletion } from '../comfyui/progress.js';
 
 const MAX_ATTEMPTS = 2;
@@ -23,7 +23,7 @@ export interface ProcessorConfig {
   storage: StorageProvider;
   s3: S3Client;
   r2Bucket: string;
-  workerApiKey: (workerId: string) => string;
+  workerApiKey: string;
   log: Logger;
 }
 
@@ -34,7 +34,7 @@ export async function processJob(
   stream: string,
   messageId: string,
 ): Promise<void> {
-  const { db, redis, pub, storage, s3, r2Bucket, workerApiKey, log } = cfg;
+  const { db, redis, pub, s3, r2Bucket, workerApiKey, log } = cfg;
   const jobLog = log.child({ jobId, userId });
 
   // 1. Load job + inputs
@@ -52,32 +52,19 @@ export async function processJob(
     return;
   }
 
-  // 2. Resolve asset IDs → R2 keys (parallel)
-  const [faceRow, bgRow, poseRow] = await Promise.all([
-    db.select({ r2Key: schema.modelFaces.r2Key })
-      .from(schema.modelFaces).where(eq(schema.modelFaces.id, inputs.faceId)).then((r) => r[0]),
-    db.select({ r2Key: schema.modelBackgrounds.r2Key })
-      .from(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, inputs.backgroundId)).then((r) => r[0]),
-    db.select({ r2Key: schema.modelPoses.r2Key })
-      .from(schema.modelPoses).where(eq(schema.modelPoses.id, inputs.poseId)).then((r) => r[0]),
-  ]);
+  // 2. Resolve face / background / pose IDs → R2 keys
+  const [faceRow] = await db.select({ r2Key: schema.modelFaces.r2Key }).from(schema.modelFaces).where(eq(schema.modelFaces.id, inputs.faceId));
+  const [bgRow] = await db.select({ r2Key: schema.modelBackgrounds.r2Key }).from(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, inputs.backgroundId));
+  const [poseRow] = await db.select({ r2Key: schema.modelPoses.r2Key }).from(schema.modelPoses).where(eq(schema.modelPoses.id, inputs.poseId));
 
   if (!faceRow || !bgRow || !poseRow) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'ASSET_NOT_FOUND', jobLog);
+    await markFailed(cfg, jobId, userId, stream, messageId, 'CATALOG_NOT_FOUND', jobLog);
     return;
   }
 
-  // Optional lower garment + shoes
-  const [lowerRow, _shoeRow] = await Promise.all([
-    inputs.lowerCatalogId
-      ? db.select({ r2Key: schema.catalogItems.r2Key })
-          .from(schema.catalogItems).where(eq(schema.catalogItems.id, inputs.lowerCatalogId)).then((r) => r[0] ?? null)
-      : Promise.resolve(null),
-    inputs.shoeCatalogId
-      ? db.select({ r2Key: schema.catalogItems.r2Key })
-          .from(schema.catalogItems).where(eq(schema.catalogItems.id, inputs.shoeCatalogId)).then((r) => r[0] ?? null)
-      : Promise.resolve(null),
-  ]);
+  const modelKey = faceRow.r2Key;
+  const bgKey = bgRow.r2Key;
+  const poseKey = poseRow.r2Key;
 
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
@@ -89,48 +76,59 @@ export async function processJob(
     await redis.xack(stream, 'dispatcher-cg', messageId);
     return;
   }
-  jobLog.info({ workerId: worker.id }, 'worker claimed');
+  const w = worker;
+  jobLog.info({ workerId: w.id }, 'worker claimed');
 
   try {
-    // 4. Presign input URLs (1h expiry — enough for ComfyUI to download)
-    const [upperUrl, faceUrl, poseUrl, bgUrl, lowerUrl] = await Promise.all([
-      storage.presignGet(inputs.upperGarmentKey, 3600).then((r) => r.url),
-      storage.presignGet(faceRow.r2Key, 3600).then((r) => r.url),
-      storage.presignGet(poseRow.r2Key, 3600).then((r) => r.url),
-      storage.presignGet(bgRow.r2Key, 3600).then((r) => r.url),
-      lowerRow ? storage.presignGet(lowerRow.r2Key, 3600).then((r) => r.url) : Promise.resolve(undefined),
-    ]);
+    // 4. Download images from R2, upload to ComfyUI input folder
+    async function r2Download(key: string): Promise<Uint8Array> {
+      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
+      return res.Body.transformToByteArray();
+    }
 
-    // 5. Patch workflow template
+    async function uploadToComfy(key: string, prefix: string): Promise<string> {
+      const bytes = await r2Download(key);
+      const ext = key.split('.').pop() ?? 'jpg';
+      return uploadImageToComfy(w.url, workerApiKey, bytes, `${prefix}_${jobId}.${ext}`, `image/${ext === 'png' ? 'png' : 'jpeg'}`);
+    }
+
+    jobLog.info('uploading inputs to ComfyUI');
+    const [upperGarmentFile, faceFile, poseFile, backgroundFile] = await Promise.all([
+      uploadToComfy(inputs.upperGarmentKey, 'garment'),
+      uploadToComfy(modelKey, 'face'),
+      uploadToComfy(poseKey, 'pose'),
+      uploadToComfy(bgKey, 'bg'),
+    ]);
+    jobLog.info({ upperGarmentFile, faceFile, poseFile, backgroundFile }, 'inputs uploaded');
+
+    // 5. Patch workflow template with ComfyUI filenames
     const prompt = patchWorkflow({
-      upperGarmentUrl: upperUrl,
-      modelUrl: faceUrl,
-      poseUrl,
-      backgroundUrl: bgUrl,
-      lowerGarmentUrl: lowerUrl,
-      outputPrefix: `aivastra_${jobId}`,
+      upperGarmentFile,
+      faceFile,
+      poseFile,
+      backgroundFile,
     });
 
     // 6. Submit to ComfyUI
-    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: worker.id }, jobLog);
+    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
-    const key = workerApiKey(worker.id);
-    const { promptId } = await submitPrompt(worker.url, key, clientUuid, prompt);
+    const { promptId } = await submitPrompt(w.url, workerApiKey, clientUuid, prompt);
     jobLog.info({ promptId }, 'prompt submitted to ComfyUI');
 
     // 7. Wait for completion via WebSocket (5 min max)
     await waitForCompletion(
-      worker.url, key, clientUuid, promptId, 300_000,
+      w.url, workerApiKey, clientUuid, promptId, 300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
     );
 
     // 8. Fetch output metadata + download image
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
-    const outputImages = await fetchHistory(worker.url, key, promptId);
+    const outputImages = await fetchHistory(w.url, workerApiKey, promptId);
     if (!outputImages.length) throw new Error('ComfyUI returned no output images');
 
     const imageBytes = await downloadOutputImage(
-      worker.url, key, outputImages[0]!.filename,
+      w.url, workerApiKey, outputImages[0]!.filename,
     );
 
     // 9. Upload result to R2
@@ -145,12 +143,12 @@ export async function processJob(
     // 10. Mark COMPLETED
     await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    await setWorkerStatus(redis, worker.id, 'IDLE');
+    await setWorkerStatus(redis, w.id, 'IDLE');
     jobLog.info('job completed successfully');
 
   } catch (err) {
     jobLog.error({ err }, 'job processing error');
-    await setWorkerStatus(redis, worker.id, 'IDLE');
+    await setWorkerStatus(redis, w.id, 'IDLE');
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog);
   }
 }

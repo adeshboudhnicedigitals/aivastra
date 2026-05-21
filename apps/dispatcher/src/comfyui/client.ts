@@ -8,9 +8,9 @@ export interface ComfyOutputImage {
   type: string;
 }
 
-function workerHeaders(apiKey: string): Record<string, string> {
+function apiHeaders(apiKey: string): Record<string, string> {
   return {
-    'X-Worker-Key': apiKey,
+    'X-Api-Key': apiKey,
     'Content-Type': 'application/json',
   };
 }
@@ -23,7 +23,7 @@ export async function submitPrompt(
 ): Promise<ComfySubmitResult> {
   const res = await fetch(`${workerUrl}/prompt`, {
     method: 'POST',
-    headers: workerHeaders(apiKey),
+    headers: apiHeaders(apiKey),
     body: JSON.stringify({ prompt, client_id: clientUuid }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -41,7 +41,7 @@ export async function fetchHistory(
   promptId: string,
 ): Promise<ComfyOutputImage[]> {
   const res = await fetch(`${workerUrl}/history/${promptId}`, {
-    headers: { 'X-Worker-Key': apiKey },
+    headers: { 'X-Api-Key': apiKey },
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`ComfyUI /history failed: ${res.status}`);
@@ -55,6 +55,34 @@ export async function fetchHistory(
   return images;
 }
 
+/**
+ * Uploads an image to ComfyUI's input folder via /upload/image.
+ * Returns the filename ComfyUI assigned (use this in LoadImage nodes).
+ */
+export async function uploadImageToComfy(
+  workerUrl: string,
+  apiKey: string,
+  imageBytes: Uint8Array,
+  filename: string,
+  contentType: string,
+): Promise<string> {
+  const form = new FormData();
+  form.append('image', new Blob([imageBytes], { type: contentType }), filename);
+  form.append('overwrite', 'true');
+  const res = await fetch(`${workerUrl}/upload/image`, {
+    method: 'POST',
+    headers: { 'X-Api-Key': apiKey }, // no Content-Type — FormData sets multipart boundary
+    body: form,
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`ComfyUI /upload/image failed: ${res.status} ${text}`);
+  }
+  const json = await res.json() as { name: string };
+  return json.name;
+}
+
 export async function downloadOutputImage(
   workerUrl: string,
   apiKey: string,
@@ -62,7 +90,7 @@ export async function downloadOutputImage(
 ): Promise<Uint8Array> {
   const url = `${workerUrl}/view?filename=${encodeURIComponent(filename)}&type=output`;
   const res = await fetch(url, {
-    headers: { 'X-Worker-Key': apiKey },
+    headers: { 'X-Api-Key': apiKey },
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`ComfyUI /view failed: ${res.status}`);
