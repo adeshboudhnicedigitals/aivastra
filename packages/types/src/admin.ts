@@ -101,6 +101,8 @@ export const ConfirmModelPoseBody = z.object({
 });
 export const PatchModelPoseBody = z.object({
   label: z.string().min(1).max(120).optional(),
+  faceId: z.string().uuid().optional(),
+  backgroundId: z.string().uuid().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   showsLower: z.boolean().optional(),

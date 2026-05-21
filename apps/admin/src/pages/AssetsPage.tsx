@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
 import type {
   ModelFace, ModelBackground, GarmentSubcategory, ModelPose, SubcategoryTemplate, GenderSlug,
 } from '../types';
@@ -8,6 +9,7 @@ import { Switch } from '../components/Switch';
 import { UploadModal } from '../components/UploadModal';
 import type { FieldDef } from '../components/UploadModal';
 import { BatchPoseUploadModal } from '../components/BatchPoseUploadModal';
+import { EditPoseModal } from '../components/EditPoseModal';
 
 type AssetTab = 'backgrounds' | 'faces' | 'subcategories';
 type GenderFilter = 'all' | GenderSlug;
@@ -47,7 +49,34 @@ const BG_FIELDS: FieldDef[] = [
   { type: 'number', name: 'sortOrder', label: 'Sort order (lower = first)', min: 0, defaultValue: 0 },
 ];
 
+function AssetThumb({ thumbnailKey, label, w = 64, h = 64, storageBase }: {
+  thumbnailKey?: string; label: string; w?: number; h?: number; storageBase: string | null;
+}) {
+  const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={label}
+        style={{ width: w, height: h, objectFit: 'cover', borderRadius: 6, flexShrink: 0, display: 'block' }}
+        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+      />
+    );
+  }
+  return (
+    <div style={{
+      width: w, height: h, borderRadius: 6,
+      background: 'var(--subtle)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0, color: 'var(--muted)', fontSize: 11, fontWeight: 600,
+    }}>
+      {label.slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
+
 export default function AssetsPage({ onNav: _onNav, toast }: Props) {
+  const { storagePublicUrl } = useAuth();
   const [activeTab, setActiveTab] = useState<AssetTab>('backgrounds');
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
   const [subView, setSubView] = useState<SubView>({ kind: 'list' });
@@ -71,6 +100,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [showPoseUpload, setShowPoseUpload] = useState(false);
   const [showBatchPoseUpload, setShowBatchPoseUpload] = useState(false);
   const [showTmplUpload, setShowTmplUpload] = useState(false);
+  const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
 
   const loadBackgrounds = useCallback(async () => {
     setLoading(true);
@@ -232,15 +262,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
-  const thumb = (label: string, w = 64, h = 64) => (
-    <div style={{
-      width: w, height: h, borderRadius: 6,
-      background: 'var(--subtle)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0, color: 'var(--muted)', fontSize: 11, fontWeight: 600,
-    }}>
-      {label.slice(0, 2).toUpperCase()}
-    </div>
+  const T = (item: { thumbnailKey: string; label: string }, w?: number, h?: number) => (
+    <AssetThumb thumbnailKey={item.thumbnailKey} label={item.label} w={w} h={h} storageBase={storagePublicUrl} />
   );
 
   const poseFields: FieldDef[] = [
@@ -361,7 +384,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           {backgrounds.map((bg) => (
             <div key={bg.id} className="card" style={{ opacity: bg.isActive ? 1 : 0.6, padding: 14 }}>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                {thumb(bg.label, 64, 48)}
+                {T(bg, 64, 48)}
                 <div style={{ marginTop: 4 }}>
                   <span className="semi">{bg.label}</span>
                   <span className="sub mono" style={{ display: 'block', marginTop: 2 }}>{bg.id.slice(0, 8)}…</span>
@@ -393,7 +416,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             {filteredFaces.map((face) => (
               <div key={face.id} className="card" style={{ opacity: face.isActive ? 1 : 0.6, padding: 14 }}>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  {thumb(face.label, 48, 64)}
+                  {T(face, 48, 64)}
                   <div style={{ marginTop: 4 }}>
                     <span className="semi">{face.label}</span>
                     <div style={{ marginTop: 4 }}><span className="badge dot accent">{face.gender}</span></div>
@@ -517,7 +540,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     return (
                       <div key={pose.id} className="card" style={{ opacity: pose.isActive ? 1 : 0.6, padding: 14 }}>
                         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                          {thumb(pose.label, 48, 64)}
+                          {T(pose, 48, 64)}
                           <div style={{ marginTop: 4 }}>
                             <span className="semi">{pose.label}</span>
                             <span className="sub mono" style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
@@ -532,7 +555,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
                           <Switch checked={pose.isActive} onChange={() => togglePose(pose.id)} />
-                          <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'pose', id: pose.id, label: pose.label })}><Icon.Trash /></button>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button className="btn sm ghost" onClick={() => setEditingPose(pose)}><Icon.Edit /></button>
+                            <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'pose', id: pose.id, label: pose.label })}><Icon.Trash /></button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -558,7 +584,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 {templates.map((tmpl) => (
                   <div key={tmpl.id} className="card" style={{ opacity: tmpl.isActive ? 1 : 0.6, padding: 14 }}>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      {thumb(tmpl.faceLabel ?? '??', 48, 64)}
+                      {T({ thumbnailKey: tmpl.thumbnailKey, label: tmpl.faceLabel ?? '??' }, 48, 64)}
                       <div style={{ marginTop: 4 }}>
                         <span className="semi" style={{ fontSize: 12 }}>{tmpl.faceLabel}</span>
                         <span className="sub mono" style={{ display: 'block', marginTop: 2, fontSize: 11 }}>× {tmpl.backgroundLabel}</span>
@@ -652,6 +678,20 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           fields={tmplFields}
           onDone={(row) => { setShowTmplUpload(false); setTemplates((prev) => [...prev, row as SubcategoryTemplate]); }}
           onClose={() => setShowTmplUpload(false)}
+          toast={toast}
+        />
+      )}
+
+      {editingPose && (
+        <EditPoseModal
+          pose={editingPose}
+          faces={faces}
+          backgrounds={backgrounds}
+          onSaved={(updated) => {
+            setPoses((prev) => prev.map((p) => p.id === updated.id ? updated : p));
+            setEditingPose(null);
+          }}
+          onClose={() => setEditingPose(null)}
           toast={toast}
         />
       )}

@@ -11,6 +11,11 @@ export async function adminMeRoutes(app: FastifyInstance) {
       .from(schema.users)
       .where(eq(schema.users.id, req.userId));
     if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
-    return { userId: req.userId, email: user.email, role: req.adminRole };
+    return {
+      userId: req.userId,
+      email: user.email,
+      role: req.adminRole,
+      storagePublicUrl: app.env.R2_PUBLIC_URL.replace(/\/$/, ''),
+    };
   });
 }

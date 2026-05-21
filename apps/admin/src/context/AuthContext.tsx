@@ -6,6 +6,7 @@ export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
 interface AuthState {
   token: string | null;
   role: AdminRole | null;
+  storagePublicUrl: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -16,6 +17,7 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setTokenState] = useState<string | null>(null);
   const [role, setRole] = useState<AdminRole | null>(null);
+  const [storagePublicUrl, setStoragePublicUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const handleAuthFailure = useCallback(() => {
@@ -28,8 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [handleAuthFailure]);
 
   const fetchRole = useCallback(async () => {
-    const me = await apiFetch<{ userId: string; email: string; role: AdminRole }>('/admin/me');
+    const me = await apiFetch<{ userId: string; email: string; role: AdminRole; storagePublicUrl?: string }>('/admin/me');
     setRole(me.role);
+    if (me.storagePublicUrl) setStoragePublicUrl(me.storagePublicUrl);
   }, []);
 
   useEffect(() => {
@@ -69,10 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setTokenState(null);
     setRole(null);
+    setStoragePublicUrl(null);
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, role, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ token, role, storagePublicUrl, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

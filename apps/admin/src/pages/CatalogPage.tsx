@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { CatalogItem } from '../types';
 import { apiFetch } from '../lib/data';
+import { useAuth } from '../context/AuthContext';
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
 import { Th } from '../components/Th';
@@ -30,6 +31,7 @@ interface Props {
 }
 
 export default function CatalogPage({ onNav: _onNav, toast }: Props) {
+  const { storagePublicUrl } = useAuth();
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [tab, setTab] = useState<Tab>('all');
@@ -177,9 +179,18 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                 <tr key={c.id}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 40, height: 40, borderRadius: 6, background: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <Icon.Image />
-                      </div>
+                      {storagePublicUrl && c.thumbnailKey ? (
+                        <img
+                          src={`${storagePublicUrl}/${c.thumbnailKey}`}
+                          alt={c.label}
+                          style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div style={{ width: 40, height: 40, borderRadius: 6, background: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <Icon.Image />
+                        </div>
+                      )}
                       <div>
                         <span className="semi">{c.label}</span>
                         <span className="sub mono" style={{ display: 'block' }}>{c.id}</span>
