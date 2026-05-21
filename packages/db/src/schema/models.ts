@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, integer, timestamp, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const modelFaces = pgTable('model_faces', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -67,5 +67,5 @@ export const subcategoryTemplates = pgTable('subcategory_templates', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   subcategoryIdx: index('subcategory_templates_subcategory_id_idx').on(table.subcategoryId),
-  lookupIdx: index('subcategory_templates_lookup_idx').on(table.subcategoryId, table.faceId, table.backgroundId),
+  lookupIdx: uniqueIndex('subcategory_templates_lookup_idx').on(table.subcategoryId, table.faceId, table.backgroundId),
 }));

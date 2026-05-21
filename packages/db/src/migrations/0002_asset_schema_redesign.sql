@@ -72,3 +72,8 @@ CREATE INDEX IF NOT EXISTS "model_poses_subcategory_id_idx" ON "model_poses" ("s
 CREATE INDEX IF NOT EXISTS "subcategory_templates_subcategory_id_idx" ON "subcategory_templates" ("subcategory_id");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "subcategory_templates_lookup_idx" ON "subcategory_templates" ("subcategory_id", "face_id", "background_id");
+--> statement-breakpoint
+-- Replace the non-unique index with a unique one (run only if index already exists from earlier migration)
+DROP INDEX IF EXISTS "subcategory_templates_lookup_idx";
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "subcategory_templates_lookup_idx" ON "subcategory_templates" ("subcategory_id", "face_id", "background_id");

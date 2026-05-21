@@ -79,11 +79,19 @@ export async function adminTemplatesRoutes(app: FastifyInstance) {
       subcategoryId: string; faceId: string; backgroundId: string;
       r2Key: string; thumbnailKey: string; sortOrder: number;
     };
-    const [row] = await app.db
-      .insert(schema.subcategoryTemplates)
-      .values({ subcategoryId, faceId, backgroundId, r2Key, thumbnailKey, sortOrder })
-      .returning();
-    return row;
+    try {
+      const [row] = await app.db
+        .insert(schema.subcategoryTemplates)
+        .values({ subcategoryId, faceId, backgroundId, r2Key, thumbnailKey, sortOrder })
+        .returning();
+      return row;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('subcategory_templates_lookup_idx') || msg.includes('unique') || msg.includes('duplicate')) {
+        throw new AppError('CONFLICT', 409, 'template for this face+background combination already exists');
+      }
+      throw err;
+    }
   });
 
   app.patch('/admin/assets/templates/:id', {
