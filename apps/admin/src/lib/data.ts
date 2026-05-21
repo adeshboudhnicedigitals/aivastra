@@ -76,9 +76,9 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
 ];
 
 export const MOCK_POSES: ModelPose[] = [
-  { id: 'pose_001', subcategoryId: 'sub_men_shirt', label: 'Front Stand', thumbnailKey: 'poses/front-thumb.jpg', r2Key: 'poses/front.jpg', showsLower: true, showsShoes: true, isActive: true, sortOrder: 0, createdAt: '2026-05-10T10:00:00Z', updatedAt: '2026-05-10T10:00:00Z' },
-  { id: 'pose_002', subcategoryId: 'sub_men_shirt', label: 'Half Turn', thumbnailKey: 'poses/half-thumb.jpg', r2Key: 'poses/half.jpg', showsLower: true, showsShoes: false, isActive: true, sortOrder: 1, createdAt: '2026-05-10T11:00:00Z', updatedAt: '2026-05-10T11:00:00Z' },
-  { id: 'pose_003', subcategoryId: 'sub_men_shirt', label: 'Upper Only', thumbnailKey: 'poses/upper-thumb.jpg', r2Key: 'poses/upper.jpg', showsLower: false, showsShoes: false, isActive: true, sortOrder: 2, createdAt: '2026-05-10T12:00:00Z', updatedAt: '2026-05-10T12:00:00Z' },
+  { id: 'pose_001', subcategoryId: 'sub_men_shirt', faceId: 'face_001', backgroundId: 'bg_001', label: 'm1bg1p1', thumbnailKey: 'poses/m1bg1p1-thumb.jpg', r2Key: 'poses/m1bg1p1.jpg', showsLower: true, showsShoes: true, isActive: true, sortOrder: 0, createdAt: '2026-05-10T10:00:00Z', updatedAt: '2026-05-10T10:00:00Z' },
+  { id: 'pose_002', subcategoryId: 'sub_men_shirt', faceId: 'face_001', backgroundId: 'bg_001', label: 'm1bg1p2', thumbnailKey: 'poses/m1bg1p2-thumb.jpg', r2Key: 'poses/m1bg1p2.jpg', showsLower: true, showsShoes: false, isActive: true, sortOrder: 1, createdAt: '2026-05-10T11:00:00Z', updatedAt: '2026-05-10T11:00:00Z' },
+  { id: 'pose_003', subcategoryId: 'sub_men_shirt', faceId: 'face_001', backgroundId: 'bg_002', label: 'm1bg2p1', thumbnailKey: 'poses/m1bg2p1-thumb.jpg', r2Key: 'poses/m1bg2p1.jpg', showsLower: false, showsShoes: false, isActive: true, sortOrder: 2, createdAt: '2026-05-10T12:00:00Z', updatedAt: '2026-05-10T12:00:00Z' },
 ];
 
 export const MOCK_CATALOG: CatalogItem[] = [

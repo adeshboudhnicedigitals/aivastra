@@ -70,8 +70,21 @@ describe('garment_subcategories', () => {
   });
 });
 
-describe('model_poses (per subcategory)', () => {
-  it('inserts pose linked to subcategory', async () => {
+describe('model_poses (per subcategory × face × background)', () => {
+  it('inserts pose linked to subcategory + face + background', async () => {
+    const [face] = await db.insert(schema.modelFaces).values({
+      gender: 'men',
+      label: 'Pose Face',
+      r2Key: 'faces/pose_face.jpg',
+      thumbnailKey: 'faces/pose_face_thumb.jpg',
+    }).returning();
+
+    const [bg] = await db.insert(schema.modelBackgrounds).values({
+      label: 'Pose BG',
+      r2Key: 'backgrounds/pose_bg.jpg',
+      thumbnailKey: 'backgrounds/pose_bg_thumb.jpg',
+    }).returning();
+
     const [sub] = await db.insert(schema.garmentSubcategories).values({
       genderSlug: 'men',
       slug: 'tshirt',
@@ -80,24 +93,66 @@ describe('model_poses (per subcategory)', () => {
 
     const [pose] = await db.insert(schema.modelPoses).values({
       subcategoryId: sub.id,
-      label: 'Front standing',
-      r2Key: 'poses/tshirt_front.jpg',
-      thumbnailKey: 'poses/tshirt_front_thumb.jpg',
+      faceId: face.id,
+      backgroundId: bg.id,
+      label: 'm1bg1p1',
+      r2Key: 'poses/m1bg1p1.jpg',
+      thumbnailKey: 'poses/m1bg1p1_thumb.jpg',
       showsLower: true,
       showsShoes: false,
     }).returning();
 
     expect(pose.subcategoryId).toBe(sub.id);
+    expect(pose.faceId).toBe(face.id);
+    expect(pose.backgroundId).toBe(bg.id);
     expect(pose.showsLower).toBe(true);
     expect(pose.showsShoes).toBe(false);
-    // no backgroundId column
-    expect((pose as unknown as Record<string, unknown>).backgroundId).toBeUndefined();
   });
 
   it('rejects pose with non-existent subcategory_id', async () => {
+    const [face] = await db.insert(schema.modelFaces).values({
+      gender: 'women',
+      label: 'FK Test Face',
+      r2Key: 'faces/fk_test.jpg',
+      thumbnailKey: 'faces/fk_test_thumb.jpg',
+    }).returning();
+
+    const [bg] = await db.insert(schema.modelBackgrounds).values({
+      label: 'FK Test BG',
+      r2Key: 'backgrounds/fk_test.jpg',
+      thumbnailKey: 'backgrounds/fk_test_thumb.jpg',
+    }).returning();
+
     await expect(
       db.insert(schema.modelPoses).values({
         subcategoryId: '00000000-0000-0000-0000-000000000000',
+        faceId: face.id,
+        backgroundId: bg.id,
+        label: 'Bad',
+        r2Key: 'x',
+        thumbnailKey: 'x',
+      })
+    ).rejects.toThrow();
+  });
+
+  it('rejects pose with non-existent face_id', async () => {
+    const [bg] = await db.insert(schema.modelBackgrounds).values({
+      label: 'FK BG 2',
+      r2Key: 'backgrounds/fk2.jpg',
+      thumbnailKey: 'backgrounds/fk2_thumb.jpg',
+    }).returning();
+
+    const [sub] = await db.insert(schema.garmentSubcategories).values({
+      genderSlug: 'men',
+      slug: 'hoodie',
+      label: 'Hoodie',
+    }).returning();
+
+    await expect(
+      db.insert(schema.modelPoses).values({
+        subcategoryId: sub.id,
+        faceId: '00000000-0000-0000-0000-000000000000',
+        backgroundId: bg.id,
         label: 'Bad',
         r2Key: 'x',
         thumbnailKey: 'x',

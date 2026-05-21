@@ -36,10 +36,13 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Poses belong to a garment subcategory (not to a background)
+// Poses belong to a garment subcategory AND are per (face × background) combo
+// e.g. m1bg1p1 → face=model1, background=bg1, pose variant 1
 export const modelPoses = pgTable('model_poses', {
   id: uuid('id').primaryKey().defaultRandom(),
   subcategoryId: uuid('subcategory_id').notNull().references(() => garmentSubcategories.id),
+  faceId: uuid('face_id').notNull().references(() => modelFaces.id),
+  backgroundId: uuid('background_id').notNull().references(() => modelBackgrounds.id),
   label: text('label').notNull(),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
@@ -51,6 +54,8 @@ export const modelPoses = pgTable('model_poses', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
   subcategoryIdx: index('model_poses_subcategory_id_idx').on(table.subcategoryId),
+  faceIdx: index('model_poses_face_id_idx').on(table.faceId),
+  backgroundIdx: index('model_poses_background_id_idx').on(table.backgroundId),
 }));
 
 // One row per (subcategory × face × background) combination — 4×4 = 16 per subcategory

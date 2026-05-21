@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
-import { eq, count } from 'drizzle-orm';
+import { eq, count, and } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { keys } from '@aivastra/storage';
@@ -176,11 +176,21 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   app.get('/admin/assets/poses', {
     preHandler: W,
-    schema: { querystring: z.object({ subcategoryId: z.string().uuid() }) },
+    schema: {
+      querystring: z.object({
+        subcategoryId: z.string().uuid(),
+        faceId: z.string().uuid().optional(),
+        backgroundId: z.string().uuid().optional(),
+      }),
+    },
   }, async (req) => {
-    const { subcategoryId } = req.query as { subcategoryId: string };
-    const rows = await app.db.select().from(schema.modelPoses)
-      .where(eq(schema.modelPoses.subcategoryId, subcategoryId));
+    const { subcategoryId, faceId, backgroundId } = req.query as {
+      subcategoryId: string; faceId?: string; backgroundId?: string;
+    };
+    const conditions = [eq(schema.modelPoses.subcategoryId, subcategoryId)];
+    if (faceId) conditions.push(eq(schema.modelPoses.faceId, faceId));
+    if (backgroundId) conditions.push(eq(schema.modelPoses.backgroundId, backgroundId));
+    const rows = await app.db.select().from(schema.modelPoses).where(and(...conditions));
     return { items: rows };
   });
 
@@ -188,10 +198,18 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     preHandler: W,
     schema: { body: PresignModelPoseBody },
   }, async (req) => {
-    const { subcategoryId, contentType } = req.body as { subcategoryId: string; contentType: string };
+    const { subcategoryId, faceId, backgroundId, contentType } = req.body as {
+      subcategoryId: string; faceId: string; backgroundId: string; contentType: string;
+    };
     const [sub] = await app.db.select().from(schema.garmentSubcategories)
       .where(eq(schema.garmentSubcategories.id, subcategoryId));
     if (!sub) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+    const [face] = await app.db.select({ id: schema.modelFaces.id }).from(schema.modelFaces)
+      .where(eq(schema.modelFaces.id, faceId));
+    if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
+    const [bg] = await app.db.select({ id: schema.modelBackgrounds.id }).from(schema.modelBackgrounds)
+      .where(eq(schema.modelBackgrounds.id, backgroundId));
+    if (!bg) throw new AppError('NOT_FOUND', 404, 'background not found');
     const newId = randomUUID();
     const r2Key = keys.modelPose(newId);
     const thumbKey = keys.modelPoseThumb(newId);
@@ -206,13 +224,14 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     preHandler: W,
     schema: { body: ConfirmModelPoseBody },
   }, async (req) => {
-    const { subcategoryId, label, r2Key, thumbnailKey, showsLower, showsShoes, sortOrder } = req.body as {
-      subcategoryId: string; label: string; r2Key: string; thumbnailKey: string;
+    const { subcategoryId, faceId, backgroundId, label, r2Key, thumbnailKey, showsLower, showsShoes, sortOrder } = req.body as {
+      subcategoryId: string; faceId: string; backgroundId: string;
+      label: string; r2Key: string; thumbnailKey: string;
       showsLower: boolean; showsShoes: boolean; sortOrder: number;
     };
     const [row] = await app.db
       .insert(schema.modelPoses)
-      .values({ subcategoryId, label, r2Key, thumbnailKey, showsLower, showsShoes, sortOrder })
+      .values({ subcategoryId, faceId, backgroundId, label, r2Key, thumbnailKey, showsLower, showsShoes, sortOrder })
       .returning();
     return row;
   });

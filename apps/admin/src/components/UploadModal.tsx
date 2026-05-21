@@ -4,9 +4,9 @@ import { Switch } from './Switch';
 import { apiFetch } from '../lib/data';
 
 export type FieldDef =
-  | { type: 'text'; name: string; label: string; required?: boolean }
+  | { type: 'text'; name: string; label: string; required?: boolean; placeholder?: string }
   | { type: 'select'; name: string; label: string; options: { value: string; label: string }[] }
-  | { type: 'number'; name: string; label: string; min?: number; defaultValue?: number }
+  | { type: 'number'; name: string; label: string; min?: number; defaultValue?: number; placeholder?: string }
   | { type: 'toggle'; name: string; label: string };
 
 interface PresignResult {
@@ -180,6 +180,7 @@ export function UploadModal({
                   className="input"
                   value={values[f.name] as string}
                   disabled={busy}
+                  placeholder={f.placeholder}
                   onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
                 />
               )}

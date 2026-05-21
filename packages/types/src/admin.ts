@@ -81,13 +81,17 @@ export const PatchModelBackgroundBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
-// Poses belong to a garment subcategory — subcategoryId replaces backgroundId
+// Poses are per (subcategory × face × background) combo, e.g. m1bg1p1
 export const PresignModelPoseBody = z.object({
   subcategoryId: z.string().uuid(),
+  faceId: z.string().uuid(),
+  backgroundId: z.string().uuid(),
   contentType: AssetContentType,
 });
 export const ConfirmModelPoseBody = z.object({
   subcategoryId: z.string().uuid(),
+  faceId: z.string().uuid(),
+  backgroundId: z.string().uuid(),
   label: z.string().min(1).max(120),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),

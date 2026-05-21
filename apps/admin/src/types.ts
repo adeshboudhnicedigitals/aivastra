@@ -38,10 +38,12 @@ export interface GarmentSubcategory {
   templateCount?: number;
 }
 
-// Poses belong to a subcategory — no backgroundId
+// Poses are per (subcategory × face × background) combo, e.g. m1bg1p1
 export interface ModelPose {
   id: string;
   subcategoryId: string;
+  faceId: string;
+  backgroundId: string;
   label: string;
   thumbnailKey: string;
   r2Key: string;

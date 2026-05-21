@@ -18,15 +18,20 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
     region: cfg.region ?? 'auto',
     credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
     forcePathStyle: cfg.forcePathStyle,
+    // Disable automatic checksum so presigned PUTs work from browser/curl without extra headers
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   });
   const sign = async (cmd: PutObjectCommand | GetObjectCommand, expiresIn: number): Promise<PresignResult> => ({
     url: await getSignedUrl(s3, cmd, { expiresIn }),
     expiresIn,
   });
   return {
-    presignPut: (key, contentType, contentLength, expiresIn = 300) =>
+    // ContentLength omitted from PutObjectCommand: including it forces content-length into
+    // X-Amz-SignedHeaders, causing SignatureDoesNotMatch when the real file size differs.
+    presignPut: (key, contentType, _contentLength, expiresIn = 300) =>
       sign(new PutObjectCommand({
-        Bucket: cfg.bucket, Key: key, ContentType: contentType, ContentLength: contentLength,
+        Bucket: cfg.bucket, Key: key, ContentType: contentType,
       }), expiresIn),
     presignGet: (key, expiresIn = 300) =>
       sign(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }), expiresIn),
