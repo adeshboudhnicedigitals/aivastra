@@ -7,8 +7,7 @@ import { Pager } from '../components/Pager';
 import { Th } from '../components/Th';
 import type { SortDir } from '../components/Th';
 import { Switch } from '../components/Switch';
-import { UploadModal } from '../components/UploadModal';
-import type { FieldDef } from '../components/UploadModal';
+import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 
 const PAGE_SIZE = 25;
 
@@ -111,22 +110,6 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       toast({ kind: 'error', title: 'Failed to delete item' });
     }
   };
-
-  const uploadFields: FieldDef[] = [
-    { type: 'text', name: 'label', label: 'Label', required: true },
-    {
-      type: 'select',
-      name: 'categoryId',
-      label: 'Category (gender)',
-      options: categories
-        .filter((c) => tab === 'all' || c.typeSlug === tab)
-        .map((c) => ({
-          value: String(c.id),
-          label: tab === 'all' ? `[${c.typeSlug}] ${c.label}` : c.label,
-        })),
-    },
-    { type: 'number', name: 'sortOrder', label: 'Sort order', min: 0, defaultValue: 0 },
-  ];
 
   const lowerCount = items.filter((c) => c.type === 'lower').length;
   const shoeCount = items.filter((c) => c.type === 'shoe').length;
@@ -254,15 +237,14 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
             </div>
           </div>
         ) : (
-          <UploadModal
-            title="Add catalog item"
-            presignPath="/admin/catalog/items/presign"
-            confirmPath="/admin/catalog/items/confirm"
-            fields={uploadFields}
-            onDone={() => {
+          <BatchCatalogUploadModal
+            typeSlug={tab === 'shoe' ? 'shoe' : 'lower'}
+            categories={categories}
+            onDone={(added) => {
               setShowUpload(false);
+              setItems((prev) => [...prev, ...added as any]);
               apiFetch<CatalogItem[]>('/admin/catalog/items').then(setItems).catch(() => {
-                toast({ kind: 'error', title: 'Item added but failed to refresh list' });
+                toast({ kind: 'error', title: 'Items added but failed to refresh list' });
               });
             }}
             onClose={() => setShowUpload(false)}
