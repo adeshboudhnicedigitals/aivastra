@@ -7,6 +7,58 @@
 
 ## Log
 
+### 2026-05-22 — Admin panel live data + credit requests + isTemplate + background preview
+
+**Done**
+
+*isTemplate redesign — dropped `subcategoryTemplates` table*
+
+- `packages/db/src/schema/models.ts`: added `isTemplate boolean` to `modelPoses`; partial unique index `(subcategoryId, faceId, backgroundId) WHERE isTemplate=true`; removed `subcategoryTemplates` table
+- Migration `0005_pose_istemplate_drop_templates.sql`: `ALTER TABLE model_poses ADD COLUMN is_template`; create index; `DROP TABLE subcategory_templates CASCADE`. Applied directly via `docker exec psql` (drizzle migration tracker only has entries 0+1; 2–5 must be applied manually)
+- `packages/types/src/admin.ts`: `ConfirmModelPoseBody` + `PatchModelPoseBody` include `isTemplate`; all subcategory template schemas removed
+- `apps/api/src/modules/admin/models.routes.ts`: `POST /poses/confirm` + `PATCH /poses/:id` unset previous template in cell before setting new one (transactional)
+- `apps/api/src/modules/admin/subcategories.routes.ts`: `PATCH /subcategories/:id` enforces template coverage (every face×bg cell must have a template) when setting `isActive: true`
+- `apps/api/src/server.ts`: removed `adminTemplatesRoutes` import + registration; deleted `templates.routes.ts`
+- `BatchPoseUploadModal`: radio button per row to designate template at batch-upload time; default = first file
+- `AssetsPage`: removed template tab/cards/state; "Set as template" button on non-template pose cards; pose cards show blue outline + badge when `isTemplate=true`; `templateCount` derived client-side
+
+*Admin Users page — live data*
+
+- `GET /admin/users`: `ilike` search on email/displayName, `total` count, left-join `userCredits` + `jobs` for `balance`/`totalJobs`/`lastJobAt`; excludes `passwordHash`
+- `GET /admin/users/:id`: explicit field select (no passwordHash), flat response `{ ...user, balance, totalJobs, recentJobs }`
+- `UsersPage.tsx`: replaced MOCK_USERS with `useEffect` + `apiFetch`; server-side search + pagination; suspend/unsuspend via `PATCH /admin/users/:id { isBanned }`; optimistic status update
+- `User` type updated: `displayName`, `tier`, `isBanned`, `banReason`, `balance`, `totalJobs`, `lastJobAt`, `createdAt`; removed `name`/`plan`/`role`/`emailVerified`/`creditLimit`/`status`
+
+*Credit Requests page (new)*
+
+- `CreditRequestsPage.tsx`: tabs Pending / Approved / Rejected; approve modal (editable credits amount prefilled, optional admin note) → `PATCH /admin/credits/requests/:id/approve`; reject modal → `PATCH /admin/credits/requests/:id/reject`; reloads list after action
+- Wired into `App.tsx` (`'credits'` page) and `Sidebar.tsx` (`Icon.Credit`, visible to SUPER_ADMIN + MODERATOR)
+
+*Admin Jobs page — live data*
+
+- `GET /admin/jobs`: `status` filter, `search` (job ID / user email), `total` count; multi-join for `userEmail`, `faceLabel`, `backgroundLabel`, `poseLabel`, `hasLower`, `hasShoe`, `outputUrl` (via storage.publicUrl)
+- `GET /admin/jobs/:id`: same rich join + `userHint` from `jobInputs` + `events` array (flat response, not nested)
+- `JobsPage.tsx`: replaced MOCK_JOBS with live fetch; status tab filter + search + pagination; detail view with events log; cancel → `POST .../cancel` with optimistic update; retry button on FAILED jobs → `POST .../retry`
+- `Job` type: `userEmail`/timestamps/errorCode now `| null`; added `userId?`, `attempts?`
+
+*User-facing background preview (template showcase)*
+
+- `GET /v1/models/backgrounds`: accepts optional `subcategoryId`; when `faceId + subcategoryId` both provided fetches template poses (`isTemplate=true`) for face×subcategory, builds `backgroundId → thumbnailKey` map; response includes `previewUrl` = template pose composite thumbnail (falls back to raw bg thumbnail if no template set)
+- `tryon/page.tsx`: `BackgroundItem` gets `previewUrl`; backgrounds query passes `subcategoryId`; background cards use `previewUrl`; step 2 description updated
+
+**Failed / Not Done**
+
+- Sidebar badge counts for jobs/credits are static (removed fake counts from users/jobs, credits has no live pending count yet)
+- Dashboard page (`DashboardPage.tsx`) still uses MOCK_STATS — not converted to live data yet
+
+**Open Questions / Decisions**
+
+- [ ] Lower garment step in wizard: still not added (conditional on `pose.showsLower === true`)
+- [ ] ComfyUI workflow template `templates/virtual-tryon-v1.json` still a stub — blocking E2E
+- [ ] GPU VPS worker registration + dispatcher start — needed for E2E test
+
+---
+
 ### 2026-05-21 — Frontend scaffold complete (Phase 3A+3B+3C) + backend schema fixes
 
 **Done**

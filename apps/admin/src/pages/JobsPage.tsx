@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import type { Job } from '../types';
-import { MOCK_JOBS } from '../lib/data';
+import { apiFetch } from '../lib/data';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
 import { Pager } from '../components/Pager';
@@ -12,14 +12,25 @@ const PAGE_SIZE = 25;
 
 const FILTERS = [
   { k: 'all', l: 'All' },
-  { k: 'COMPLETED', l: 'Completed' },
-  { k: 'GENERATING', l: 'Generating' },
   { k: 'QUEUED', l: 'Queued' },
+  { k: 'GENERATING', l: 'Generating' },
+  { k: 'COMPLETED', l: 'Completed' },
   { k: 'FAILED', l: 'Failed' },
   { k: 'CANCELLED', l: 'Cancelled' },
 ] as const;
 
-type FilterKey = 'all' | 'COMPLETED' | 'GENERATING' | 'QUEUED' | 'FAILED' | 'CANCELLED';
+type FilterKey = 'all' | 'QUEUED' | 'GENERATING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+interface JobEvent {
+  id: string;
+  eventType: string;
+  payload: unknown;
+  createdAt: string;
+}
+
+interface JobDetail extends Job {
+  events?: JobEvent[];
+}
 
 interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
@@ -32,44 +43,103 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof Job>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
-  const [detail, setDetail] = useState<Job | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<JobDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
+  const [actioning, setActioning] = useState(false);
 
-  const filtered = MOCK_JOBS.filter((j) => {
-    if (filter !== 'all' && j.status !== filter) return false;
-    if (!query) return true;
-    const q = query.toLowerCase();
-    return j.id.toLowerCase().includes(q) || j.userEmail.toLowerCase().includes(q);
-  });
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page + 1), pageSize: String(PAGE_SIZE) });
+      if (filter !== 'all') params.set('status', filter);
+      if (query) params.set('search', query);
+      const data = await apiFetch<{ items: Job[]; total: number }>(`/admin/jobs?${params}`);
+      setJobs(data.items);
+      setTotal(data.total);
+    } catch {
+      toast({ kind: 'error', title: 'Failed to load jobs' });
+    } finally {
+      setLoading(false);
+    }
+  }, [page, filter, query, toast]);
 
-  const sorted = [...filtered].sort((a, b) => {
+  useEffect(() => { load(); }, [load]);
+
+  const handleFilter = (k: FilterKey) => { setFilter(k); setPage(0); };
+  const handleSearch = (q: string) => { setQuery(q); setPage(0); };
+
+  const sorted = [...jobs].sort((a, b) => {
     const aVal = a[sortKey] ?? '';
     const bVal = b[sortKey] ?? '';
     let cmp: number;
-    if (typeof aVal === 'boolean') {
-      cmp = Number(bVal as boolean) - Number(aVal);
-    } else if (typeof aVal === 'string') {
-      cmp = aVal.localeCompare(bVal as string);
-    } else {
-      cmp = (aVal as number) - (bVal as number);
-    }
+    if (typeof aVal === 'boolean') cmp = Number(bVal as boolean) - Number(aVal);
+    else if (typeof aVal === 'string') cmp = aVal.localeCompare(bVal as string);
+    else cmp = (aVal as number) - (bVal as number);
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
-  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
-  const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const totalPages = Math.ceil(total / PAGE_SIZE);
 
   const handleSort = (k: keyof Job) => {
     if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
     else { setSortKey(k); setSortDir('desc'); }
   };
 
-  const handleCancel = (id: string) => setConfirmCancel(id);
-
-  const confirmCancelAction = () => {
-    toast({ title: `Job ${confirmCancel} cancelled` });
-    setConfirmCancel(null);
+  const openDetail = async (j: Job) => {
+    setDetail(j);
+    setDetailLoading(true);
+    try {
+      const full = await apiFetch<JobDetail>(`/admin/jobs/${j.id}`);
+      setDetail(full);
+    } catch {
+      toast({ kind: 'error', title: 'Failed to load job detail' });
+    } finally {
+      setDetailLoading(false);
+    }
   };
+
+  const handleCancel = async () => {
+    if (!confirmCancel) return;
+    setActioning(true);
+    try {
+      await apiFetch(`/admin/jobs/${confirmCancel}/cancel`, { method: 'POST' });
+      toast({ title: `Job cancelled` });
+      setConfirmCancel(null);
+      if (detail?.id === confirmCancel) setDetail((d) => d ? { ...d, status: 'CANCELLED' } : d);
+      setJobs((prev) => prev.map((j) => j.id === confirmCancel ? { ...j, status: 'CANCELLED' } : j));
+    } catch {
+      toast({ kind: 'error', title: 'Cancel failed' });
+    } finally {
+      setActioning(false);
+    }
+  };
+
+  const handleRetry = async (id: string) => {
+    setActioning(true);
+    try {
+      await apiFetch(`/admin/jobs/${id}/retry`, { method: 'POST' });
+      toast({ title: 'Job re-queued' });
+      if (detail?.id === id) setDetail((d) => d ? { ...d, status: 'QUEUED', errorCode: undefined } : d);
+      setJobs((prev) => prev.map((j) => j.id === id ? { ...j, status: 'QUEUED', errorCode: undefined } : j));
+    } catch {
+      toast({ kind: 'error', title: 'Retry failed' });
+    } finally {
+      setActioning(false);
+    }
+  };
+
+  const fmtDuration = (j: Job) => {
+    if (!j.startedAt || !j.completedAt) return null;
+    const ms = new Date(j.completedAt).getTime() - new Date(j.startedAt).getTime();
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
+
+  const fmtTs = (ts?: string | null) =>
+    ts ? new Date(ts).toLocaleString() : '—';
 
   if (detail) {
     const j = detail;
@@ -78,60 +148,99 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         <div className="page-head">
           <div>
             <button className="btn ghost" onClick={() => setDetail(null)}><Icon.Chevron /> Back to jobs</button>
-            <h1 style={{ marginTop: 8 }}>{j.id}</h1>
-            <p className="lede">{j.userEmail} · Created {j.createdAt}</p>
+            <h1 style={{ marginTop: 8, fontFamily: 'var(--mono)', fontSize: 18 }}>{j.id}</h1>
+            <p className="lede">{j.userEmail ?? j.userId} &middot; Created {fmtTs(j.createdAt)}</p>
           </div>
           <div className="head-tools">
             <StatusBadge status={j.status} />
-            {(j.status === 'QUEUED' || j.status === 'GENERATING') && (
-              <button className="btn danger" onClick={() => handleCancel(j.id)}><Icon.Ban /> Cancel job</button>
+            {(j.status === 'QUEUED' || j.status === 'GENERATING' || j.status === 'PREPROCESSING') && (
+              <button className="btn danger" disabled={actioning} onClick={() => setConfirmCancel(j.id)}>
+                <Icon.Ban /> Cancel
+              </button>
+            )}
+            {j.status === 'FAILED' && (
+              <button className="btn" disabled={actioning} onClick={() => handleRetry(j.id)}>
+                <Icon.Refresh /> Retry
+              </button>
             )}
           </div>
         </div>
 
-        <div className="kv-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
-          <KV k="User" v={j.userEmail} />
-          <KV k="Status" v={<StatusBadge status={j.status} />} />
-          <KV k="Credits charged" v={String(j.creditsCharged)} />
-          <KV k="Priority" v={j.priority ? 'PRO' : 'Normal'} />
-          <KV k="Face" v={j.faceLabel ?? '—'} />
-          <KV k="Background" v={j.backgroundLabel ?? '—'} />
-          <KV k="Pose" v={j.poseLabel ?? '—'} />
-          <KV k="Worker" v={j.workerId ?? '—'} />
-          <KV k="Created" v={j.createdAt} />
-          <KV k="Started" v={j.startedAt ?? '—'} />
-          <KV k="Completed" v={j.completedAt ?? '—'} />
-          <KV k="Error code" v={j.errorCode ?? '—'} />
-        </div>
-
-        {j.outputUrl && (
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="card-head"><h3>Output</h3></div>
-            <div className="card-body">
-              <a href={j.outputUrl} target="_blank" rel="noreferrer" className="link">
-                View output <Icon.ExternalLink />
-              </a>
+        {detailLoading ? (
+          <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading&hellip;</p>
+        ) : (
+          <>
+            <div className="kv-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+              <KV k="User" v={j.userEmail ?? '—'} />
+              <KV k="Status" v={<StatusBadge status={j.status} />} />
+              <KV k="Credits charged" v={String(j.creditsCharged)} />
+              <KV k="Priority" v={j.priority ? 'PRO' : 'Normal'} />
+              <KV k="Face" v={j.faceLabel ?? '—'} />
+              <KV k="Background" v={j.backgroundLabel ?? '—'} />
+              <KV k="Pose" v={j.poseLabel ?? '—'} />
+              <KV k="Worker" v={j.workerId ?? '—'} />
+              <KV k="Created" v={fmtTs(j.createdAt)} />
+              <KV k="Started" v={fmtTs(j.startedAt)} />
+              <KV k="Completed" v={fmtTs(j.completedAt)} />
+              <KV k="Duration" v={fmtDuration(j) ?? '—'} />
+              {j.attempts != null && <KV k="Attempts" v={String(j.attempts)} />}
+              {j.errorCode && <KV k="Error code" v={j.errorCode} />}
             </div>
-          </div>
-        )}
 
-        {j.userHint && (
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="card-head"><h3>User hint</h3></div>
-            <div className="card-body"><p style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 13 }}>{j.userHint}</p></div>
-          </div>
-        )}
-
-        {j.errorCode && (
-          <div className="card" style={{ marginTop: 14 }}>
-            <div className="card-head"><h3>Error</h3></div>
-            <div className="card-body">
-              <div className="banner error">
-                <div className="ic"><Icon.Alert /></div>
-                <div><b>Error code</b><p style={{ margin: 0, fontSize: 13, marginTop: 2, fontFamily: 'var(--mono)' }}>{j.errorCode}</p></div>
+            {j.outputUrl && (
+              <div className="card" style={{ marginBottom: 14 }}>
+                <div className="card-head"><h3>Output</h3></div>
+                <div className="card-body">
+                  <a href={j.outputUrl} target="_blank" rel="noreferrer" className="link">
+                    View output <Icon.ExternalLink />
+                  </a>
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+
+            {j.userHint && (
+              <div className="card" style={{ marginBottom: 14 }}>
+                <div className="card-head"><h3>User hint</h3></div>
+                <div className="card-body">
+                  <p style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 13 }}>{j.userHint}</p>
+                </div>
+              </div>
+            )}
+
+            {j.errorCode && (
+              <div className="card" style={{ marginBottom: 14 }}>
+                <div className="card-head"><h3>Error</h3></div>
+                <div className="card-body">
+                  <div className="banner error">
+                    <div className="ic"><Icon.Alert /></div>
+                    <div>
+                      <b>Error code</b>
+                      <p style={{ margin: 0, fontSize: 13, marginTop: 2, fontFamily: 'var(--mono)' }}>{j.errorCode}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {j.events && j.events.length > 0 && (
+              <div className="card">
+                <div className="card-head"><h3>Events</h3></div>
+                <div className="card-body" style={{ padding: 0 }}>
+                  {j.events.map((ev) => (
+                    <div key={ev.id} style={{ padding: '8px 18px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
+                      <span className="mono" style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{fmtTs(ev.createdAt)}</span>
+                      <span className="semi">{ev.eventType}</span>
+                      {ev.payload && (
+                        <span className="mono" style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {JSON.stringify(ev.payload)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {confirmCancel && (
@@ -142,8 +251,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                 <p>Cancel job <strong>{confirmCancel}</strong>? Credits will be refunded.</p>
               </div>
               <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setConfirmCancel(null)}>Cancel</button>
-                <button className="btn danger" onClick={confirmCancelAction}><Icon.Ban /> Yes, cancel</button>
+                <button className="btn ghost" onClick={() => setConfirmCancel(null)} disabled={actioning}>Back</button>
+                <button className="btn danger" onClick={handleCancel} disabled={actioning}>
+                  <Icon.Ban /> Yes, cancel
+                </button>
               </div>
             </div>
           </div>
@@ -157,15 +268,15 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       <div className="page-head">
         <div>
           <h1>Jobs</h1>
-          <p className="lede">{MOCK_JOBS.length} total jobs · Monitor and manage try-on jobs.</p>
+          <p className="lede">{loading ? '…' : total.toLocaleString()} jobs &middot; Monitor and manage try-on jobs.</p>
         </div>
         <div className="head-tools">
           <div className="search">
             <Icon.Search />
             <input
-              placeholder="Search by ID or user email…"
+              placeholder="Search by job ID or user email…"
               value={query}
-              onChange={(e) => { setQuery(e.target.value); setPage(0); }}
+              onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
         </div>
@@ -173,62 +284,98 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
       <div className="tabs">
         {FILTERS.map((f) => (
-          <button key={f.k} className={`tab ${filter === f.k ? 'active' : ''}`} onClick={() => { setFilter(f.k); setPage(0); }}>
+          <button key={f.k} className={`tab ${filter === f.k ? 'active' : ''}`} onClick={() => handleFilter(f.k)}>
             {f.l}
           </button>
         ))}
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <Th k="id" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Job ID</Th>
-              <Th k="userEmail" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>User</Th>
-              <Th k="faceLabel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Face / Pose</Th>
-              <th>Add-ons</th>
-              <Th k="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Status</Th>
-              <Th k="creditsCharged" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Credits</Th>
-              <Th k="workerId" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Worker</Th>
-              <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Created</Th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {paged.map((j) => (
-              <tr key={j.id} onClick={() => setDetail(j)} style={{ cursor: 'pointer' }}>
-                <td><span className="mono sub">{j.id}</span></td>
-                <td><span className="semi">{j.userEmail}</span></td>
-                <td>
-                  <span className="semi">{j.faceLabel ?? '—'}</span>
-                  <span className="sub" style={{ display: 'block' }}>{j.poseLabel ?? '—'}</span>
-                </td>
-                <td>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    {j.hasLower && <span className="badge dot accent">Lower</span>}
-                    {j.hasShoe && <span className="badge dot warn">Shoe</span>}
-                    {!j.hasLower && !j.hasShoe && <span className="sub">—</span>}
-                  </div>
-                </td>
-                <td><StatusBadge status={j.status} /></td>
-                <td><span className="mono">{j.creditsCharged}</span></td>
-                <td><span className="mono sub">{j.workerId ?? '—'}</span></td>
-                <td><span className="mono sub">{j.createdAt}</span></td>
-                <td>
-                  {(j.status === 'QUEUED' || j.status === 'GENERATING') && (
-                    <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); handleCancel(j.id); }}><Icon.Ban /></button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {paged.length === 0 && (
-              <tr><td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No jobs found.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {loading ? (
+        <p style={{ color: 'var(--muted)', fontSize: 13, padding: '20px 0' }}>Loading&hellip;</p>
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <Th k="id" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Job ID</Th>
+                  <Th k="userEmail" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>User</Th>
+                  <Th k="faceLabel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Face / Pose</Th>
+                  <th>Add-ons</th>
+                  <Th k="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Status</Th>
+                  <Th k="creditsCharged" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Credits</Th>
+                  <Th k="workerId" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Worker</Th>
+                  <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Created</Th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((j) => (
+                  <tr key={j.id} onClick={() => openDetail(j)} style={{ cursor: 'pointer' }}>
+                    <td><span className="mono sub" style={{ fontSize: 11 }}>{j.id.slice(0, 8)}…</span></td>
+                    <td><span className="semi">{j.userEmail ?? '—'}</span></td>
+                    <td>
+                      <span className="semi">{j.faceLabel ?? '—'}</span>
+                      <span className="sub" style={{ display: 'block' }}>{j.poseLabel ?? '—'}</span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {j.hasLower && <span className="badge dot accent">Lower</span>}
+                        {j.hasShoe && <span className="badge dot warn">Shoe</span>}
+                        {!j.hasLower && !j.hasShoe && <span className="sub">—</span>}
+                      </div>
+                    </td>
+                    <td><StatusBadge status={j.status} /></td>
+                    <td><span className="mono">{j.creditsCharged}</span></td>
+                    <td><span className="mono sub" style={{ fontSize: 11 }}>{j.workerId ?? '—'}</span></td>
+                    <td><span className="mono sub" style={{ fontSize: 11 }}>{new Date(j.createdAt).toLocaleString()}</span></td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {(j.status === 'QUEUED' || j.status === 'GENERATING' || j.status === 'PREPROCESSING') && (
+                          <button className="btn sm ghost" title="Cancel" onClick={(e) => { e.stopPropagation(); setConfirmCancel(j.id); }}>
+                            <Icon.Ban />
+                          </button>
+                        )}
+                        {j.status === 'FAILED' && (
+                          <button className="btn sm ghost" title="Retry" onClick={(e) => { e.stopPropagation(); handleRetry(j.id); }}>
+                            <Icon.Refresh />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {sorted.length === 0 && (
+                  <tr>
+                    <td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>
+                      No jobs found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      <Pager page={page} totalPages={totalPages} onPage={setPage} totalItems={sorted.length} pageSize={PAGE_SIZE} />
+          <Pager page={page} totalPages={totalPages} onPage={setPage} totalItems={total} pageSize={PAGE_SIZE} />
+        </>
+      )}
+
+      {confirmCancel && (
+        <div className="modal-overlay" onClick={() => setConfirmCancel(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h3>Cancel job</h3></div>
+            <div className="modal-body">
+              <p>Cancel job <strong>{confirmCancel}</strong>? Credits will be refunded.</p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmCancel(null)} disabled={actioning}>Back</button>
+              <button className="btn danger" onClick={handleCancel} disabled={actioning}>
+                <Icon.Ban /> Yes, cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

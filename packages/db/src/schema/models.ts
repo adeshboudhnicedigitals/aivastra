@@ -1,4 +1,5 @@
 import { pgTable, uuid, text, boolean, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const modelFaces = pgTable('model_faces', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -48,6 +49,7 @@ export const modelPoses = pgTable('model_poses', {
   thumbnailKey: text('thumbnail_key').notNull(),
   showsLower: boolean('shows_lower').notNull().default(false),
   showsShoes: boolean('shows_shoes').notNull().default(false),
+  isTemplate: boolean('is_template').notNull().default(false),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -56,21 +58,8 @@ export const modelPoses = pgTable('model_poses', {
   subcategoryIdx: index('model_poses_subcategory_id_idx').on(table.subcategoryId),
   faceIdx: index('model_poses_face_id_idx').on(table.faceId),
   backgroundIdx: index('model_poses_background_id_idx').on(table.backgroundId),
-}));
-
-// One row per (subcategory × face × background) combination — 4×4 = 16 per subcategory
-export const subcategoryTemplates = pgTable('subcategory_templates', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  subcategoryId: uuid('subcategory_id').notNull().references(() => garmentSubcategories.id),
-  faceId: uuid('face_id').notNull().references(() => modelFaces.id),
-  backgroundId: uuid('background_id').notNull().references(() => modelBackgrounds.id),
-  r2Key: text('r2_key').notNull(),
-  thumbnailKey: text('thumbnail_key').notNull(),
-  isActive: boolean('is_active').notNull().default(true),
-  sortOrder: integer('sort_order').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({
-  subcategoryIdx: index('subcategory_templates_subcategory_id_idx').on(table.subcategoryId),
-  lookupIdx: uniqueIndex('subcategory_templates_lookup_idx').on(table.subcategoryId, table.faceId, table.backgroundId),
+  // Only one pose per cell can be the template
+  templateIdx: uniqueIndex('model_poses_template_idx')
+    .on(table.subcategoryId, table.faceId, table.backgroundId)
+    .where(sql`is_template = true`),
 }));

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
-import { eq, count, inArray } from 'drizzle-orm';
+import { eq, count, inArray, and } from 'drizzle-orm';
 import { z } from 'zod';
 import { CreateGarmentSubcategoryBody, PatchGarmentSubcategoryBody } from '@aivastra/types';
 import { requireAdmin } from './guard';
@@ -17,9 +17,10 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
       .from(schema.modelPoses)
       .groupBy(schema.modelPoses.subcategoryId);
     const tmplCounts = await app.db
-      .select({ subcategoryId: schema.subcategoryTemplates.subcategoryId, cnt: count() })
-      .from(schema.subcategoryTemplates)
-      .groupBy(schema.subcategoryTemplates.subcategoryId);
+      .select({ subcategoryId: schema.modelPoses.subcategoryId, cnt: count() })
+      .from(schema.modelPoses)
+      .where(eq(schema.modelPoses.isTemplate, true))
+      .groupBy(schema.modelPoses.subcategoryId);
     const poseMap = Object.fromEntries(poseCounts.map((r) => [r.subcategoryId, Number(r.cnt)]));
     const tmplMap = Object.fromEntries(tmplCounts.map((r) => [r.subcategoryId, Number(r.cnt)]));
     return {
@@ -50,9 +51,36 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
     schema: { params: uuidParam, body: PatchGarmentSubcategoryBody },
   }, async (req) => {
     const { id } = req.params as { id: string };
+    const body = req.body as { isActive?: boolean; [key: string]: unknown };
+
+    if (body.isActive === true) {
+      // Require at least one pose exists and every face×bg cell has a template
+      const allPoses = await app.db.select({
+        faceId: schema.modelPoses.faceId,
+        backgroundId: schema.modelPoses.backgroundId,
+        isTemplate: schema.modelPoses.isTemplate,
+      }).from(schema.modelPoses).where(eq(schema.modelPoses.subcategoryId, id));
+
+      if (allPoses.length === 0) {
+        throw new AppError('CONFLICT', 409, 'subcategory has no poses — upload poses and mark one as template per face×background cell before activating');
+      }
+
+      // Build a set of all unique cells and check each has a template
+      const cellMap = new Map<string, boolean>();
+      for (const p of allPoses) {
+        const key = `${p.faceId}:${p.backgroundId}`;
+        if (!cellMap.has(key)) cellMap.set(key, false);
+        if (p.isTemplate) cellMap.set(key, true);
+      }
+      const missingTemplate = [...cellMap.entries()].filter(([, hasTemplate]) => !hasTemplate);
+      if (missingTemplate.length > 0) {
+        throw new AppError('CONFLICT', 409, `${missingTemplate.length} face×background cell(s) have no template pose — set a template pose for each cell before activating`);
+      }
+    }
+
     const [updated] = await app.db
       .update(schema.garmentSubcategories)
-      .set({ ...(req.body as object), updatedAt: new Date() })
+      .set({ ...body, updatedAt: new Date() })
       .where(eq(schema.garmentSubcategories.id, id))
       .returning({ id: schema.garmentSubcategories.id });
     if (!updated) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
@@ -78,20 +106,10 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
       : [];
     if (poseJobRefs.length > 0) throw new AppError('CONFLICT', 409, 'subcategory has poses referenced by existing jobs');
 
-    const templates = await app.db.select().from(schema.subcategoryTemplates)
-      .where(eq(schema.subcategoryTemplates.subcategoryId, id));
-
-    const r2Keys = [
-      ...poses.flatMap((p) => [p.r2Key, p.thumbnailKey]),
-      ...templates.flatMap((t) => [t.r2Key, t.thumbnailKey]),
-    ];
+    const r2Keys = poses.flatMap((p) => [p.r2Key, p.thumbnailKey]);
     await Promise.allSettled(r2Keys.map((k) => app.storage.deleteObject(k)));
 
     await app.db.transaction(async (tx) => {
-      if (templates.length > 0) {
-        await tx.delete(schema.subcategoryTemplates)
-          .where(eq(schema.subcategoryTemplates.subcategoryId, id));
-      }
       if (poses.length > 0) {
         await tx.delete(schema.modelPoses)
           .where(eq(schema.modelPoses.subcategoryId, id));

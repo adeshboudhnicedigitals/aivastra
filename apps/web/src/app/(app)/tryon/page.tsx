@@ -10,7 +10,7 @@ import { Upload, ChevronRight, ChevronLeft, Check, Loader2 } from 'lucide-react'
 
 interface Subcategory { id: string; slug: string; label: string }
 interface FaceItem { id: string; label: string; thumbnailUrl: string; gender: string }
-interface BackgroundItem { id: string; label: string; thumbnailUrl: string }
+interface BackgroundItem { id: string; label: string; thumbnailUrl: string; previewUrl: string }
 interface PoseItem { id: string; label: string; thumbnailUrl: string; showsLower: boolean; showsShoes: boolean }
 
 const GENDERS = [
@@ -77,10 +77,16 @@ export default function TryOnPage() {
     enabled: !!gender && step >= 1,
   });
 
-  // Backgrounds filtered by faceId — only backgrounds that have at least 1 pose for selected face
+  // Backgrounds filtered by faceId + subcategoryId
+  // previewUrl = template pose thumbnail (model × bg composite) instead of raw background
   const { data: backgrounds } = useQuery<{ items: BackgroundItem[] }>({
-    queryKey: ['backgrounds', faceId],
-    queryFn: () => api.get(`/v1/models/backgrounds${faceId ? `?faceId=${faceId}` : ''}`),
+    queryKey: ['backgrounds', faceId, subcategoryId],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (faceId) params.set('faceId', faceId);
+      if (subcategoryId) params.set('subcategoryId', subcategoryId);
+      return api.get(`/v1/models/backgrounds?${params}`);
+    },
     enabled: !!faceId && step >= 2,
   });
 
@@ -254,7 +260,7 @@ export default function TryOnPage() {
           <div className="space-y-4">
             <h2 className="font-hand text-2xl">Select Background</h2>
             <p className="font-body text-sm text-muted-foreground">
-              Showing backgrounds available for <span className="font-medium text-foreground">{selectedFace?.label ?? 'selected model'}</span>.
+              Preview of <span className="font-medium text-foreground">{selectedFace?.label ?? 'selected model'}</span> in each background. Pick one to continue.
             </p>
             {!backgrounds ? (
               <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
@@ -263,7 +269,7 @@ export default function TryOnPage() {
             ) : (
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
                 {backgrounds.items.map((b) => (
-                  <SelectCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)} imageUrl={b.thumbnailUrl} label={b.label} />
+                  <SelectCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)} imageUrl={b.previewUrl} label={b.label} />
                 ))}
               </div>
             )}

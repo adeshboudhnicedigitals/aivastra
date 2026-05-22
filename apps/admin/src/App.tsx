@@ -8,11 +8,12 @@ import UsersPage from './pages/UsersPage';
 import JobsPage from './pages/JobsPage';
 import AssetsPage from './pages/AssetsPage';
 import SettingsPage from './pages/SettingsPage';
+import CreditRequestsPage from './pages/CreditRequestsPage';
 import LoginPage from './pages/LoginPage';
 import { useAuth } from './context/AuthContext';
 import type { ToastItem } from './types';
 
-type Page = 'dashboard' | 'assets' | 'catalog' | 'users' | 'jobs' | 'settings';
+type Page = 'dashboard' | 'assets' | 'catalog' | 'users' | 'jobs' | 'credits' | 'settings';
 type Theme = 'light' | 'dark';
 
 const PAGE_LABELS: Record<Page, string> = {
@@ -21,6 +22,7 @@ const PAGE_LABELS: Record<Page, string> = {
   catalog: 'Catalog',
   users: 'Users',
   jobs: 'Jobs',
+  credits: 'Credit Requests',
   settings: 'Settings',
 };
 
@@ -101,6 +103,7 @@ export default function App() {
           {page === 'catalog' && <CatalogPage {...pageProps} />}
           {page === 'users' && <UsersPage {...pageProps} />}
           {page === 'jobs' && <JobsPage {...pageProps} />}
+          {page === 'credits' && <CreditRequestsPage {...pageProps} />}
           {page === 'settings' && <SettingsPage {...settingsProps} />}
         </main>
       </div>

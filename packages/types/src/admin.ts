@@ -97,6 +97,7 @@ export const ConfirmModelPoseBody = z.object({
   thumbnailKey: z.string().min(1),
   showsLower: z.boolean().default(false),
   showsShoes: z.boolean().default(false),
+  isTemplate: z.boolean().default(false),
   sortOrder: z.number().int().default(0),
 });
 export const PatchModelPoseBody = z.object({
@@ -104,6 +105,7 @@ export const PatchModelPoseBody = z.object({
   faceId: z.string().uuid().optional(),
   backgroundId: z.string().uuid().optional(),
   isActive: z.boolean().optional(),
+  isTemplate: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   showsLower: z.boolean().optional(),
   showsShoes: z.boolean().optional(),
@@ -122,22 +124,3 @@ export const PatchGarmentSubcategoryBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
-// Subcategory templates (pre-rendered face×background combos)
-export const PresignSubcategoryTemplateBody = z.object({
-  subcategoryId: z.string().uuid(),
-  faceId: z.string().uuid(),
-  backgroundId: z.string().uuid(),
-  contentType: AssetContentType,
-});
-export const ConfirmSubcategoryTemplateBody = z.object({
-  subcategoryId: z.string().uuid(),
-  faceId: z.string().uuid(),
-  backgroundId: z.string().uuid(),
-  r2Key: z.string().min(1),
-  thumbnailKey: z.string().min(1),
-  sortOrder: z.number().int().default(0),
-});
-export const PatchSubcategoryTemplateBody = z.object({
-  isActive: z.boolean().optional(),
-  sortOrder: z.number().int().optional(),
-});

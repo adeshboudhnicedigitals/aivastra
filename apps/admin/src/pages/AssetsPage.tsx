@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type {
-  ModelFace, ModelBackground, GarmentSubcategory, ModelPose, SubcategoryTemplate, GenderSlug,
+  ModelFace, ModelBackground, GarmentSubcategory, ModelPose, GenderSlug,
 } from '../types';
 import { apiFetch } from '../lib/data';
 import { Icon } from '../components/Icons';
@@ -10,20 +10,21 @@ import { UploadModal } from '../components/UploadModal';
 import type { FieldDef } from '../components/UploadModal';
 import { BatchPoseUploadModal } from '../components/BatchPoseUploadModal';
 import { EditPoseModal } from '../components/EditPoseModal';
+import { EditBackgroundModal } from '../components/EditBackgroundModal';
+import { EditFaceModal } from '../components/EditFaceModal';
 
 type AssetTab = 'backgrounds' | 'faces' | 'subcategories';
 type GenderFilter = 'all' | GenderSlug;
 
 type SubView =
   | { kind: 'list' }
-  | { kind: 'subcategory'; sub: GarmentSubcategory; subTab: 'poses' | 'templates' };
+  | { kind: 'subcategory'; sub: GarmentSubcategory };
 
 type ConfirmDelete =
   | { type: 'background'; id: string; label: string }
   | { type: 'face'; id: string; label: string }
   | { type: 'subcategory'; id: string; label: string }
-  | { type: 'pose'; id: string; label: string }
-  | { type: 'template'; id: string; label: string };
+  | { type: 'pose'; id: string; label: string };
 
 interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
@@ -85,9 +86,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [faces, setFaces] = useState<ModelFace[]>([]);
   const [subcategories, setSubcategories] = useState<GarmentSubcategory[]>([]);
   const [poses, setPoses] = useState<ModelPose[]>([]);
-  const [templates, setTemplates] = useState<SubcategoryTemplate[]>([]);
-  const [poseFilterFace, setPoseFilterFace] = useState('');
-  const [poseFilterBg, setPoseFilterBg] = useState('');
+  const [filterFace, setFilterFace] = useState('');
+  const [filterBg, setFilterBg] = useState('');
+  const [filterPose, setFilterPose] = useState('');
   const [showSubcatModal, setShowSubcatModal] = useState(false);
   const [subcatForm, setSubcatForm] = useState({ slug: '', label: '', genderSlug: 'men' as GenderSlug });
   const [subcatSaving, setSubcatSaving] = useState(false);
@@ -97,10 +98,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   const [showBgUpload, setShowBgUpload] = useState(false);
   const [showFaceUpload, setShowFaceUpload] = useState(false);
-  const [showPoseUpload, setShowPoseUpload] = useState(false);
   const [showBatchPoseUpload, setShowBatchPoseUpload] = useState(false);
-  const [showTmplUpload, setShowTmplUpload] = useState(false);
   const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
+  const [editingBackground, setEditingBackground] = useState<ModelBackground | null>(null);
+  const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
 
   const loadBackgrounds = useCallback(async () => {
     setLoading(true);
@@ -138,25 +139,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   }, [toast]);
 
-  const loadPoses = useCallback(async (subcategoryId: string) => {
+  const loadSubcategoryAssets = useCallback(async (subcategoryId: string) => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ items: ModelPose[] }>(`/admin/assets/poses?subcategoryId=${subcategoryId}`);
-      setPoses(res.items);
+      const posesRes = await apiFetch<{ items: ModelPose[] }>(`/admin/assets/poses?subcategoryId=${subcategoryId}`);
+      setPoses(posesRes.items);
     } catch {
-      toast({ kind: 'error', title: 'Failed to load poses' });
-    } finally {
-      setLoading(false);
-    }
-  }, [toast]);
-
-  const loadTemplates = useCallback(async (subcategoryId: string) => {
-    setLoading(true);
-    try {
-      const res = await apiFetch<{ items: SubcategoryTemplate[] }>(`/admin/assets/templates?subcategoryId=${subcategoryId}`);
-      setTemplates(res.items);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load templates' });
+      toast({ kind: 'error', title: 'Failed to load assets' });
     } finally {
       setLoading(false);
     }
@@ -167,12 +156,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     else if (activeTab === 'faces') loadFaces();
     else if (activeTab === 'subcategories') {
       if (subView.kind === 'list') loadSubcategories();
-      else if (subView.subTab === 'poses') loadPoses(subView.sub.id);
-      else loadTemplates(subView.sub.id);
+      else loadSubcategoryAssets(subView.sub.id);
     }
-  }, [activeTab, subView, loadBackgrounds, loadFaces, loadSubcategories, loadPoses, loadTemplates]);
+  }, [activeTab, subView, loadBackgrounds, loadFaces, loadSubcategories, loadSubcategoryAssets]);
 
-  // Preload faces + backgrounds silently so pose upload selects + filters are populated
+  // Preload faces + backgrounds silently so upload selects + filters are populated
   useEffect(() => {
     apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
       .then((r) => setFaces(r.items)).catch(() => {});
@@ -222,17 +210,28 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
-  const toggleTemplate = async (id: string) => {
-    const item = templates.find((t) => t.id === id);
-    if (!item) return;
-    const next = !item.isActive;
-    setTemplates((prev) => prev.map((t) => t.id === id ? { ...t, isActive: next } : t));
+  const setAsTemplate = async (id: string) => {
+    const pose = poses.find((p) => p.id === id);
+    if (!pose || pose.isTemplate) return;
+    // Optimistically update: unset old template in same cell, set new one
+    setPoses((prev) => prev.map((p) => {
+      if (p.faceId === pose.faceId && p.backgroundId === pose.backgroundId && p.subcategoryId === pose.subcategoryId) {
+        return { ...p, isTemplate: p.id === id };
+      }
+      return p;
+    }));
     try {
-      await apiFetch(`/admin/assets/templates/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive: next }) });
-      toast({ title: `Template ${item.isActive ? 'deactivated' : 'activated'}` });
+      await apiFetch(`/admin/assets/poses/${id}`, { method: 'PATCH', body: JSON.stringify({ isTemplate: true }) });
+      toast({ title: `${pose.label} set as template` });
     } catch {
-      setTemplates((prev) => prev.map((t) => t.id === id ? { ...t, isActive: item.isActive } : t));
-      toast({ kind: 'error', title: 'Failed to update template' });
+      // Revert
+      setPoses((prev) => prev.map((p) => {
+        if (p.faceId === pose.faceId && p.backgroundId === pose.backgroundId && p.subcategoryId === pose.subcategoryId) {
+          return { ...p, isTemplate: p.id !== id && p.isTemplate };
+        }
+        return p;
+      }));
+      toast({ kind: 'error', title: 'Failed to set template' });
     }
   };
 
@@ -245,7 +244,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       face: `/admin/assets/faces/${id}`,
       subcategory: `/admin/assets/subcategories/${id}`,
       pose: `/admin/assets/poses/${id}`,
-      template: `/admin/assets/templates/${id}`,
     };
     try {
       await apiFetch(paths[type], { method: 'DELETE' });
@@ -255,7 +253,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         setSubcategories((prev) => prev.filter((s) => s.id !== id));
         setSubView({ kind: 'list' });
       } else if (type === 'pose') setPoses((prev) => prev.filter((p) => p.id !== id));
-      else if (type === 'template') setTemplates((prev) => prev.filter((t) => t.id !== id));
       toast({ title: `${label} deleted` });
     } catch {
       toast({ kind: 'error', title: `Failed to delete ${type}` });
@@ -265,33 +262,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const T = (item: { thumbnailKey: string; label: string }, w?: number, h?: number) => (
     <AssetThumb thumbnailKey={item.thumbnailKey} label={item.label} w={w} h={h} storageBase={storagePublicUrl} />
   );
-
-  const poseFields: FieldDef[] = [
-    { type: 'text', name: 'label', label: 'Label', required: true, placeholder: 'e.g. m1bg1p1' },
-    {
-      type: 'select', name: 'faceId', label: 'Model face (which model is in this image)',
-      options: faces.map((f) => ({ value: f.id, label: `[${f.gender}] ${f.label}` })),
-    },
-    {
-      type: 'select', name: 'backgroundId', label: 'Background (which background is in this image)',
-      options: backgrounds.map((b) => ({ value: b.id, label: b.label })),
-    },
-    { type: 'toggle', name: 'showsLower', label: 'Shows lower garment (legs/trousers visible)' },
-    { type: 'toggle', name: 'showsShoes', label: 'Shows shoes (feet visible)' },
-    { type: 'number', name: 'sortOrder', label: 'Sort order (lower = first)', min: 0, defaultValue: 0 },
-  ];
-
-  const tmplFields: FieldDef[] = [
-    {
-      type: 'select', name: 'faceId', label: 'Model face (pre-rendered with this face)',
-      options: faces.map((f) => ({ value: f.id, label: `[${f.gender}] ${f.label}` })),
-    },
-    {
-      type: 'select', name: 'backgroundId', label: 'Background (pre-rendered with this background)',
-      options: backgrounds.map((b) => ({ value: b.id, label: b.label })),
-    },
-    { type: 'number', name: 'sortOrder', label: 'Sort order (lower = first)', min: 0, defaultValue: 0 },
-  ];
 
   const TABS: { k: AssetTab; l: string }[] = [
     { k: 'backgrounds', l: 'Backgrounds' },
@@ -308,6 +278,16 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   ];
 
   const filteredFaces = faces.filter((f) => genderFilter === 'all' || f.gender === genderFilter);
+
+  // Poses available in current face×bg cell (for 3rd-dimension selector)
+  const posesInCell = poses.filter((p) =>
+    (!filterFace || p.faceId === filterFace) &&
+    (!filterBg || p.backgroundId === filterBg)
+  );
+
+  // Filtered poses for grid
+  const visiblePoses = posesInCell.filter((p) => !filterPose || p.id === filterPose);
+  const templateCount = poses.filter((p) => p.isTemplate).length;
 
   return (
     <>
@@ -331,8 +311,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           <p className="lede">
             {activeTab === 'backgrounds' && 'Global backgrounds sent to ComfyUI for all garment types.'}
             {activeTab === 'faces' && 'Model face images — select gender to filter.'}
-            {activeTab === 'subcategories' && subView.kind === 'list' && 'Garment subcategories. Click to manage poses and templates.'}
-            {activeTab === 'subcategories' && subView.kind === 'subcategory' && `Poses and templates for ${subView.sub.genderSlug} / ${subView.sub.slug}.`}
+            {activeTab === 'subcategories' && subView.kind === 'list' && 'Garment subcategories. Click to manage assets.'}
+            {activeTab === 'subcategories' && subView.kind === 'subcategory' && `Assets for ${subView.sub.genderSlug} / ${subView.sub.slug}. Filter by face or background to slice the tensor.`}
           </p>
         </div>
         <div className="head-tools">
@@ -348,20 +328,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               setShowSubcatModal(true);
             }}><Icon.Add /> Add subcategory</button>
           )}
-          {activeTab === 'subcategories' && subView.kind === 'subcategory' && subView.subTab === 'poses' && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn ghost" onClick={() => setShowPoseUpload(true)}><Icon.Add /> Single</button>
-              <button className="btn" onClick={() => setShowBatchPoseUpload(true)}><Icon.Upload /> Batch upload</button>
-            </div>
-          )}
-          {activeTab === 'subcategories' && subView.kind === 'subcategory' && subView.subTab === 'templates' && (
-            <button className="btn" onClick={() => {
-              if (faces.length === 0 || backgrounds.length === 0) {
-                toast({ kind: 'error', title: 'Load faces and backgrounds first (visit those tabs)' });
-                return;
-              }
-              setShowTmplUpload(true);
-            }}><Icon.Add /> Add template</button>
+          {activeTab === 'subcategories' && subView.kind === 'subcategory' && (
+            <button className="btn" onClick={() => setShowBatchPoseUpload(true)}><Icon.Upload /> Upload poses</button>
           )}
         </div>
       </div>
@@ -392,7 +360,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
                 <Switch checked={bg.isActive} onChange={() => toggleBg(bg.id)} />
-                <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'background', id: bg.id, label: bg.label })}><Icon.Trash /></button>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button className="btn sm ghost" onClick={() => setEditingBackground(bg)}><Icon.Edit /></button>
+                  <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'background', id: bg.id, label: bg.label })}><Icon.Trash /></button>
+                </div>
               </div>
             </div>
           ))}
@@ -427,7 +398,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
                   <Switch checked={face.isActive} onChange={() => toggleFace(face.id)} />
-                  <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'face', id: face.id, label: face.label })}><Icon.Trash /></button>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn sm ghost" onClick={() => setEditingFace(face)}><Icon.Edit /></button>
+                    <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'face', id: face.id, label: face.label })}><Icon.Trash /></button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -454,7 +428,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             <tbody>
               {subcategories.map((sub) => (
                 <tr key={sub.id} style={{ cursor: 'pointer' }}
-                  onClick={() => setSubView({ kind: 'subcategory', sub, subTab: 'poses' })}>
+                  onClick={() => { setFilterFace(''); setFilterBg(''); setFilterPose(''); setSubView({ kind: 'subcategory', sub }); }}>
                   <td>
                     <div>
                       <span className="semi">{sub.label}</span>
@@ -463,7 +437,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   </td>
                   <td><span className="badge dot accent">{sub.genderSlug}</span></td>
                   <td><span className="mono">{sub.poseCount ?? 0}</span></td>
-                  <td><span className="mono">{sub.templateCount ?? 0} / 16</span></td>
+                  <td><span className="mono">{sub.templateCount ?? 0} templates</span></td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <Switch checked={sub.isActive} onChange={async () => {
                       const next = !sub.isActive;
@@ -492,116 +466,94 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
       {!loading && activeTab === 'subcategories' && subView.kind === 'subcategory' && (
         <>
-          <div className="tabs" style={{ marginTop: -8 }}>
-            {(['poses', 'templates'] as const).map((t) => (
-              <button key={t} className={`tab ${subView.subTab === t ? 'active' : ''}`}
-                onClick={() => setSubView({ ...subView, subTab: t })}>
-                {t === 'poses' ? 'Poses' : 'Templates'}
-              </button>
-            ))}
+          {/* Face × background × pose filter bar */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+              {poses.length} poses · {templateCount} templates set
+            </span>
+            <select className="select" style={{ minWidth: 150 }} value={filterFace}
+              onChange={(e) => { setFilterFace(e.target.value); setFilterPose(''); }}>
+              <option value="">All faces</option>
+              {faces.map((f) => <option key={f.id} value={f.id}>[{f.gender}] {f.label}</option>)}
+            </select>
+            <select className="select" style={{ minWidth: 150 }} value={filterBg}
+              onChange={(e) => { setFilterBg(e.target.value); setFilterPose(''); }}>
+              <option value="">All backgrounds</option>
+              {backgrounds.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </select>
+            <select
+              className="select"
+              style={{ minWidth: 130 }}
+              value={filterPose}
+              disabled={posesInCell.length === 0}
+              onChange={(e) => setFilterPose(e.target.value)}
+            >
+              <option value="">All poses ({posesInCell.length})</option>
+              {posesInCell
+                .slice().sort((a, b) => a.sortOrder - b.sortOrder)
+                .map((p, i) => (
+                  <option key={p.id} value={p.id}>#{i + 1} {p.label}</option>
+                ))}
+            </select>
+            {(filterFace || filterBg || filterPose) && (
+              <button className="btn sm ghost" onClick={() => { setFilterFace(''); setFilterBg(''); setFilterPose(''); }}>Clear</button>
+            )}
           </div>
 
-          {subView.subTab === 'poses' && (
-            <>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 14, marginBottom: 4, flexWrap: 'wrap' }}>
-                <select
-                  className="select"
-                  style={{ minWidth: 160 }}
-                  value={poseFilterFace}
-                  onChange={(e) => setPoseFilterFace(e.target.value)}
-                >
-                  <option value="">All faces</option>
-                  {faces.map((f) => <option key={f.id} value={f.id}>[{f.gender}] {f.label}</option>)}
-                </select>
-                <select
-                  className="select"
-                  style={{ minWidth: 160 }}
-                  value={poseFilterBg}
-                  onChange={(e) => setPoseFilterBg(e.target.value)}
-                >
-                  <option value="">All backgrounds</option>
-                  {backgrounds.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
-                </select>
-                {(poseFilterFace || poseFilterBg) && (
-                  <button className="btn sm ghost" onClick={() => { setPoseFilterFace(''); setPoseFilterBg(''); }}>
-                    Clear filter
-                  </button>
-                )}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14, marginTop: 10 }}>
-                {poses
-                  .filter((p) =>
-                    (!poseFilterFace || p.faceId === poseFilterFace) &&
-                    (!poseFilterBg || p.backgroundId === poseFilterBg)
-                  )
-                  .map((pose) => {
-                    const faceName = faces.find((f) => f.id === pose.faceId)?.label ?? '?';
-                    const bgName = backgrounds.find((b) => b.id === pose.backgroundId)?.label ?? '?';
-                    return (
-                      <div key={pose.id} className="card" style={{ opacity: pose.isActive ? 1 : 0.6, padding: 14 }}>
-                        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                          {T(pose, 48, 64)}
-                          <div style={{ marginTop: 4 }}>
-                            <span className="semi">{pose.label}</span>
-                            <span className="sub mono" style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
-                              {faceName} × {bgName}
-                            </span>
-                            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                              {pose.showsLower && <span className="badge dot accent">Lower</span>}
-                              {pose.showsShoes && <span className="badge dot warn">Shoes</span>}
-                              {!pose.showsLower && !pose.showsShoes && <span className="badge dot">Upper</span>}
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                          <Switch checked={pose.isActive} onChange={() => togglePose(pose.id)} />
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <button className="btn sm ghost" onClick={() => setEditingPose(pose)}><Icon.Edit /></button>
-                            <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'pose', id: pose.id, label: pose.label })}><Icon.Trash /></button>
-                          </div>
-                        </div>
+          {/* Pose grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
+            {visiblePoses.map((pose) => {
+              const faceName = faces.find((f) => f.id === pose.faceId)?.label ?? '?';
+              const bgName = backgrounds.find((b) => b.id === pose.backgroundId)?.label ?? '?';
+              return (
+                <div key={pose.id} className="card" style={{
+                  opacity: pose.isActive ? 1 : 0.6, padding: 14,
+                  outline: pose.isTemplate ? '2px solid var(--accent, #2563eb)' : undefined,
+                }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    {T(pose, 48, 64)}
+                    <div style={{ marginTop: 4, minWidth: 0 }}>
+                      <span className="semi" style={{ fontSize: 13 }}>{pose.label}</span>
+                      <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                        <span className="badge dot">{faceName}</span>
+                        <span className="badge dot">{bgName}</span>
+                        {pose.isTemplate && <span className="badge dot accent">Template</span>}
+                        {pose.showsLower
+                          ? <span className="badge dot accent">Lower</span>
+                          : pose.showsShoes
+                          ? <span className="badge dot warn">Shoes</span>
+                          : <span className="badge dot">Upper</span>}
                       </div>
-                    );
-                  })}
-                {poses.filter((p) =>
-                  (!poseFilterFace || p.faceId === poseFilterFace) &&
-                  (!poseFilterBg || p.backgroundId === poseFilterBg)
-                ).length === 0 && (
-                  <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>
-                    {poses.length === 0 ? 'No poses yet.' : 'No poses match filter.'}
+                    </div>
                   </div>
-                )}
-              </div>
-            </>
-          )}
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                    {!pose.isTemplate && (
+                      <button
+                        className="btn sm ghost"
+                        style={{ width: '100%', marginBottom: 8, fontSize: 12 }}
+                        onClick={() => setAsTemplate(pose.id)}
+                      >
+                        Set as template
+                      </button>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Switch checked={pose.isActive} onChange={() => togglePose(pose.id)} />
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn sm ghost" onClick={() => setEditingPose(pose)}><Icon.Edit /></button>
+                        <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'pose', id: pose.id, label: pose.label })}><Icon.Trash /></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
 
-          {subView.subTab === 'templates' && (
-            <>
-              <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 8, marginBottom: 14 }}>
-                {templates.length} / 16 templates uploaded (4 model faces × 4 backgrounds).
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
-                {templates.map((tmpl) => (
-                  <div key={tmpl.id} className="card" style={{ opacity: tmpl.isActive ? 1 : 0.6, padding: 14 }}>
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                      {T({ thumbnailKey: tmpl.thumbnailKey, label: tmpl.faceLabel ?? '??' }, 48, 64)}
-                      <div style={{ marginTop: 4 }}>
-                        <span className="semi" style={{ fontSize: 12 }}>{tmpl.faceLabel}</span>
-                        <span className="sub mono" style={{ display: 'block', marginTop: 2, fontSize: 11 }}>× {tmpl.backgroundLabel}</span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                      <Switch checked={tmpl.isActive} onChange={() => toggleTemplate(tmpl.id)} />
-                      <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'template', id: tmpl.id, label: `${tmpl.faceLabel} × ${tmpl.backgroundLabel}` })}><Icon.Trash /></button>
-                    </div>
-                  </div>
-                ))}
-                {templates.length === 0 && (
-                  <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No templates yet.</div>
-                )}
+            {visiblePoses.length === 0 && (
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>
+                {poses.length === 0 ? 'No poses yet. Upload poses to get started.' : 'No poses match current filters.'}
               </div>
-            </>
-          )}
+            )}
+          </div>
         </>
       )}
 
@@ -645,19 +597,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           toast={toast}
         />
       )}
-      {showPoseUpload && subView.kind === 'subcategory' && (
-        <UploadModal
-          title="Add pose"
-          presignPath="/admin/assets/poses/presign"
-          presignExtra={{ subcategoryId: subView.sub.id }}
-          confirmPath="/admin/assets/poses/confirm"
-          confirmExtra={{ subcategoryId: subView.sub.id }}
-          fields={poseFields}
-          onDone={(row) => { setShowPoseUpload(false); setPoses((prev) => [...prev, row as ModelPose]); }}
-          onClose={() => setShowPoseUpload(false)}
-          toast={toast}
-        />
-      )}
       {showBatchPoseUpload && subView.kind === 'subcategory' && (
         <BatchPoseUploadModal
           subcategoryId={subView.sub.id}
@@ -668,20 +607,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           toast={toast}
         />
       )}
-      {showTmplUpload && subView.kind === 'subcategory' && (
-        <UploadModal
-          title="Add template"
-          presignPath="/admin/assets/templates/presign"
-          presignExtra={{ subcategoryId: subView.sub.id }}
-          confirmPath="/admin/assets/templates/confirm"
-          confirmExtra={{ subcategoryId: subView.sub.id }}
-          fields={tmplFields}
-          onDone={(row) => { setShowTmplUpload(false); setTemplates((prev) => [...prev, row as SubcategoryTemplate]); }}
-          onClose={() => setShowTmplUpload(false)}
-          toast={toast}
-        />
-      )}
-
       {editingPose && (
         <EditPoseModal
           pose={editingPose}
@@ -695,7 +620,28 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           toast={toast}
         />
       )}
-
+      {editingBackground && (
+        <EditBackgroundModal
+          background={editingBackground}
+          onSaved={(updated) => {
+            setBackgrounds((prev) => prev.map((b) => b.id === updated.id ? updated : b));
+            setEditingBackground(null);
+          }}
+          onClose={() => setEditingBackground(null)}
+          toast={toast}
+        />
+      )}
+      {editingFace && (
+        <EditFaceModal
+          face={editingFace}
+          onSaved={(updated) => {
+            setFaces((prev) => prev.map((f) => f.id === updated.id ? updated : f));
+            setEditingFace(null);
+          }}
+          onClose={() => setEditingFace(null)}
+          toast={toast}
+        />
+      )}
       {showSubcatModal && (
         <div className="modal-overlay" onClick={subcatSaving ? undefined : () => setShowSubcatModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, calc(100vw - 80px))' }}>

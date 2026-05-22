@@ -33,18 +33,20 @@ export async function modelsRoutes(app: FastifyInstance) {
 
   app.get('/v1/models/backgrounds', {
     preHandler: app.requireUser,
-    schema: { querystring: z.object({ faceId: z.string().uuid().optional() }) },
+    schema: { querystring: z.object({
+      faceId: z.string().uuid().optional(),
+      subcategoryId: z.string().uuid().optional(),
+    }) },
   }, async (req) => {
-    const { faceId } = req.query as { faceId?: string };
-    let items: { id: string; label: string; thumbnailUrl: string }[];
+    const { faceId, subcategoryId } = req.query as { faceId?: string; subcategoryId?: string };
 
     if (faceId) {
-      // Only return backgrounds that have ≥1 active pose for this face (3D tensor: bg ⊂ face)
-      items = await app.db
+      // Backgrounds that have ≥1 active pose for this face
+      const backs = await app.db
         .selectDistinct({
           id: schema.modelBackgrounds.id,
           label: schema.modelBackgrounds.label,
-          thumbnailUrl: schema.modelBackgrounds.thumbnailKey,
+          thumbnailKey: schema.modelBackgrounds.thumbnailKey,
         })
         .from(schema.modelBackgrounds)
         .innerJoin(
@@ -56,14 +58,50 @@ export async function modelsRoutes(app: FastifyInstance) {
           ),
         )
         .where(eq(schema.modelBackgrounds.isActive, true));
-    } else {
-      items = await app.db
-        .select({ id: schema.modelBackgrounds.id, label: schema.modelBackgrounds.label, thumbnailUrl: schema.modelBackgrounds.thumbnailKey })
-        .from(schema.modelBackgrounds)
-        .where(eq(schema.modelBackgrounds.isActive, true));
+
+      // When subcategoryId is known, fetch template pose thumbs for face × bg × subcategory
+      // so the card shows the composite model preview instead of the raw background
+      let templateMap = new Map<string, string>(); // backgroundId → thumbnailKey
+      if (subcategoryId) {
+        const templates = await app.db
+          .select({
+            backgroundId: schema.modelPoses.backgroundId,
+            thumbnailKey: schema.modelPoses.thumbnailKey,
+          })
+          .from(schema.modelPoses)
+          .where(and(
+            eq(schema.modelPoses.subcategoryId, subcategoryId),
+            eq(schema.modelPoses.faceId, faceId),
+            eq(schema.modelPoses.isTemplate, true),
+          ));
+        templateMap = new Map(templates.map((t) => [t.backgroundId, t.thumbnailKey]));
+      }
+
+      return {
+        items: backs.map((b) => {
+          const tmplKey = templateMap.get(b.id);
+          return {
+            id: b.id,
+            label: b.label,
+            thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
+            previewUrl: app.storage.publicUrl(tmplKey ?? b.thumbnailKey),
+          };
+        }),
+      };
     }
 
-    return { items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })) };
+    const rows = await app.db
+      .select({ id: schema.modelBackgrounds.id, label: schema.modelBackgrounds.label, thumbnailKey: schema.modelBackgrounds.thumbnailKey })
+      .from(schema.modelBackgrounds)
+      .where(eq(schema.modelBackgrounds.isActive, true));
+    return {
+      items: rows.map((i) => ({
+        id: i.id,
+        label: i.label,
+        thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
+        previewUrl: app.storage.publicUrl(i.thumbnailKey),
+      })),
+    };
   });
 
   app.get('/v1/models/poses', {

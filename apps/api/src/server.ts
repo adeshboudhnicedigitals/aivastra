@@ -26,7 +26,6 @@ import { adminConfigRoutes } from './modules/admin/config.routes';
 import { adminMeRoutes } from './modules/admin/me.routes';
 import { adminAssetsRoutes } from './modules/admin/models.routes';
 import { adminSubcategoriesRoutes } from './modules/admin/subcategories.routes';
-import { adminTemplatesRoutes } from './modules/admin/templates.routes';
 import { AppError } from './lib/errors';
 
 export async function buildServer(env: Env) {
@@ -72,7 +71,6 @@ export async function buildServer(env: Env) {
   await app.register(adminMeRoutes);
   await app.register(adminAssetsRoutes);
   await app.register(adminSubcategoriesRoutes);
-  await app.register(adminTemplatesRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
   return app;

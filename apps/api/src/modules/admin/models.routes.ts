@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
-import { eq, count, and } from 'drizzle-orm';
+import { eq, count, and, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { keys } from '@aivastra/storage';
@@ -21,9 +21,10 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.get('/admin/assets/faces', { preHandler: W }, async () => {
     const rows = await app.db.select().from(schema.modelFaces);
     const tmplCounts = await app.db
-      .select({ faceId: schema.subcategoryTemplates.faceId, cnt: count() })
-      .from(schema.subcategoryTemplates)
-      .groupBy(schema.subcategoryTemplates.faceId);
+      .select({ faceId: schema.modelPoses.faceId, cnt: count() })
+      .from(schema.modelPoses)
+      .where(eq(schema.modelPoses.isTemplate, true))
+      .groupBy(schema.modelPoses.faceId);
     const countMap = Object.fromEntries(tmplCounts.map((r) => [r.faceId, Number(r.cnt)]));
     return {
       items: rows.map((r) => ({ ...r, templateCount: countMap[r.id] ?? 0 })),
@@ -84,10 +85,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const jobRef = await app.db.select({ jobId: schema.jobInputs.jobId })
       .from(schema.jobInputs).where(eq(schema.jobInputs.faceId, id)).limit(1);
     if (jobRef.length > 0) throw new AppError('CONFLICT', 409, 'face is referenced by existing jobs');
-
-    const tmplRef = await app.db.select({ id: schema.subcategoryTemplates.id })
-      .from(schema.subcategoryTemplates).where(eq(schema.subcategoryTemplates.faceId, id)).limit(1);
-    if (tmplRef.length > 0) throw new AppError('CONFLICT', 409, 'face is used in subcategory templates — delete templates first');
 
     await Promise.allSettled([
       app.storage.deleteObject(face.r2Key),
@@ -160,10 +157,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .from(schema.jobInputs).where(eq(schema.jobInputs.backgroundId, id)).limit(1);
     if (jobRef.length > 0) throw new AppError('CONFLICT', 409, 'background is referenced by existing jobs');
 
-    const tmplRef = await app.db.select({ id: schema.subcategoryTemplates.id })
-      .from(schema.subcategoryTemplates).where(eq(schema.subcategoryTemplates.backgroundId, id)).limit(1);
-    if (tmplRef.length > 0) throw new AppError('CONFLICT', 409, 'background is used in subcategory templates — delete templates first');
-
     await Promise.allSettled([
       app.storage.deleteObject(bg.r2Key),
       app.storage.deleteObject(bg.thumbnailKey),
@@ -224,15 +217,28 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     preHandler: W,
     schema: { body: ConfirmModelPoseBody },
   }, async (req) => {
-    const { subcategoryId, faceId, backgroundId, label, r2Key, thumbnailKey, showsLower, showsShoes, sortOrder } = req.body as {
+    const { subcategoryId, faceId, backgroundId, label, r2Key, thumbnailKey, showsLower, showsShoes, isTemplate, sortOrder } = req.body as {
       subcategoryId: string; faceId: string; backgroundId: string;
       label: string; r2Key: string; thumbnailKey: string;
-      showsLower: boolean; showsShoes: boolean; sortOrder: number;
+      showsLower: boolean; showsShoes: boolean; isTemplate: boolean; sortOrder: number;
     };
-    const [row] = await app.db
-      .insert(schema.modelPoses)
-      .values({ subcategoryId, faceId, backgroundId, label, r2Key, thumbnailKey, showsLower, showsShoes, sortOrder })
-      .returning();
+    const row = await app.db.transaction(async (tx) => {
+      if (isTemplate) {
+        await tx.update(schema.modelPoses)
+          .set({ isTemplate: false, updatedAt: new Date() })
+          .where(and(
+            eq(schema.modelPoses.subcategoryId, subcategoryId),
+            eq(schema.modelPoses.faceId, faceId),
+            eq(schema.modelPoses.backgroundId, backgroundId),
+            eq(schema.modelPoses.isTemplate, true),
+          ));
+      }
+      const [inserted] = await tx
+        .insert(schema.modelPoses)
+        .values({ subcategoryId, faceId, backgroundId, label, r2Key, thumbnailKey, showsLower, showsShoes, isTemplate, sortOrder })
+        .returning();
+      return inserted;
+    });
     return row;
   });
 
@@ -241,12 +247,34 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     schema: { params: uuidParam, body: PatchModelPoseBody },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    const [updated] = await app.db
-      .update(schema.modelPoses)
-      .set({ ...(req.body as object), updatedAt: new Date() })
-      .where(eq(schema.modelPoses.id, id))
-      .returning({ id: schema.modelPoses.id });
-    if (!updated) throw new AppError('NOT_FOUND', 404, 'pose not found');
+    const body = req.body as { isTemplate?: boolean; [key: string]: unknown };
+
+    if (body.isTemplate === true) {
+      // Fetch this pose to know its cell
+      const [pose] = await app.db.select().from(schema.modelPoses).where(eq(schema.modelPoses.id, id));
+      if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
+      await app.db.transaction(async (tx) => {
+        // Unset previous template in same cell
+        await tx.update(schema.modelPoses)
+          .set({ isTemplate: false, updatedAt: new Date() })
+          .where(and(
+            eq(schema.modelPoses.subcategoryId, pose.subcategoryId),
+            eq(schema.modelPoses.faceId, pose.faceId),
+            eq(schema.modelPoses.backgroundId, pose.backgroundId),
+            eq(schema.modelPoses.isTemplate, true),
+          ));
+        await tx.update(schema.modelPoses)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(schema.modelPoses.id, id));
+      });
+    } else {
+      const [updated] = await app.db
+        .update(schema.modelPoses)
+        .set({ ...body, updatedAt: new Date() })
+        .where(eq(schema.modelPoses.id, id))
+        .returning({ id: schema.modelPoses.id });
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'pose not found');
+    }
     return { ok: true };
   });
 

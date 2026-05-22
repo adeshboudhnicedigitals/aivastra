@@ -47,6 +47,7 @@ export function BatchPoseUploadModal({ subcategoryId, faces, backgrounds, onDone
   const [showsLower, setShowsLower] = useState(false);
   const [showsShoes, setShowsShoes] = useState(false);
   const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [templateIdx, setTemplateIdx] = useState(0); // which file becomes the template for this cell
   const [running, setRunning] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -57,9 +58,10 @@ export function BatchPoseUploadModal({ subcategoryId, faces, backgrounds, onDone
     const files = Array.from(e.target.files ?? []);
     setEntries(files.map((f) => ({
       file: f,
-      label: f.name.replace(/\.[^.]+$/, ''), // strip extension for default label
+      label: f.name.replace(/\.[^.]+$/, ''),
       status: 'pending',
     })));
+    setTemplateIdx(0); // default first file as template
     setDoneCount(0);
   };
 
@@ -92,6 +94,7 @@ export function BatchPoseUploadModal({ subcategoryId, faces, backgrounds, onDone
             thumbnailKey: presign.thumbnailKey,
             showsLower,
             showsShoes,
+            isTemplate: i === templateIdx,
             sortOrder: i,
           }),
         });
@@ -112,7 +115,8 @@ export function BatchPoseUploadModal({ subcategoryId, faces, backgrounds, onDone
 
   const allDone = entries.length > 0 && entries.every((e) => e.status === 'done');
   const hasErrors = entries.some((e) => e.status === 'error');
-  const canUpload = !busy && faceId && backgroundId && entries.length > 0 && !allDone;
+  // templateIdx must point to a valid non-done entry
+  const canUpload = !busy && faceId && backgroundId && entries.length > 0 && !allDone && templateIdx < entries.length;
 
   return (
     <div className="modal-overlay" onClick={busy ? undefined : onClose}>
@@ -161,7 +165,7 @@ export function BatchPoseUploadModal({ subcategoryId, faces, backgrounds, onDone
 
           {/* File picker */}
           <div className="field">
-            <label>Images (select multiple — label defaults to filename)</label>
+            <label>Images — one file per pose (label defaults to filename, edit per row)</label>
             <input
               ref={fileInputRef}
               type="file"
@@ -185,39 +189,64 @@ export function BatchPoseUploadModal({ subcategoryId, faces, backgrounds, onDone
 
           {/* File list */}
           {entries.length > 0 && (
-            <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {entries.map((entry, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '6px 10px', borderRadius: 6,
-                  background: entry.status === 'done' ? 'var(--success-soft)'
-                    : entry.status === 'error' ? 'var(--danger-soft)'
-                    : 'var(--subtle)',
-                  border: `1px solid ${entry.status === 'done' ? 'var(--success-border)'
-                    : entry.status === 'error' ? 'var(--danger-border)'
-                    : 'var(--border)'}`,
-                }}>
-                  <span style={{ fontSize: 12, minWidth: 14, textAlign: 'center' }}>
-                    {entry.status === 'done' ? '✓'
-                      : entry.status === 'error' ? '✗'
-                      : entry.status === 'uploading' ? '↑'
-                      : `${i + 1}`}
-                  </span>
-                  <input
-                    className="input"
-                    value={entry.label}
-                    disabled={busy}
-                    onChange={(e) => updateEntry(i, { label: e.target.value })}
-                    style={{ flex: 1, fontSize: 13, padding: '3px 8px' }}
-                  />
-                  <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                    {(entry.file.size / 1024).toFixed(0)} KB
-                  </span>
-                  {entry.error && (
-                    <span style={{ fontSize: 11, color: 'var(--danger)' }}>{entry.error}</span>
-                  )}
-                </div>
-              ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* Column headers */}
+              <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 64px 60px', gap: 8, padding: '0 10px', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+                <span></span>
+                <span>Pose label (3rd dimension)</span>
+                <span style={{ textAlign: 'center' }}>Template</span>
+                <span>Size</span>
+              </div>
+              <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {entries.map((entry, i) => (
+                  <div key={i} style={{
+                    display: 'grid', gridTemplateColumns: '20px 1fr 64px 60px', gap: 8,
+                    alignItems: 'center', padding: '6px 10px', borderRadius: 6,
+                    background: i === templateIdx && entry.status !== 'error'
+                      ? 'var(--accent-soft, #f0f7ff)'
+                      : entry.status === 'done' ? 'var(--success-soft)'
+                      : entry.status === 'error' ? 'var(--danger-soft)'
+                      : 'var(--subtle)',
+                    border: `1px solid ${i === templateIdx && entry.status !== 'error'
+                      ? 'var(--accent, #2563eb)'
+                      : entry.status === 'done' ? 'var(--success-border)'
+                      : entry.status === 'error' ? 'var(--danger-border)'
+                      : 'var(--border)'}`,
+                  }}>
+                    <span style={{ fontSize: 12, textAlign: 'center' }}>
+                      {entry.status === 'done' ? '✓'
+                        : entry.status === 'error' ? '✗'
+                        : entry.status === 'uploading' ? '↑'
+                        : `${i + 1}`}
+                    </span>
+                    <input
+                      className="input"
+                      value={entry.label}
+                      disabled={busy}
+                      placeholder="e.g. Front view, Side angle, Pose 1…"
+                      onChange={(e) => updateEntry(i, { label: e.target.value })}
+                      style={{ fontSize: 13, padding: '3px 8px' }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                      <input
+                        type="radio"
+                        name="templatePose"
+                        checked={i === templateIdx}
+                        disabled={busy || entry.status === 'done'}
+                        onChange={() => setTemplateIdx(i)}
+                        title="Use this pose as the template for this face × background cell"
+                        style={{ cursor: busy ? 'default' : 'pointer', width: 16, height: 16 }}
+                      />
+                    </div>
+                    <span style={{ fontSize: 11, color: entry.error ? 'var(--danger)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      {entry.error ?? `${(entry.file.size / 1024).toFixed(0)} KB`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                The selected template pose is shown to users when they pick this face × background combination.
+              </p>
             </div>
           )}
 

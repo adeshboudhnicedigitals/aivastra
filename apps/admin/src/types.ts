@@ -38,7 +38,8 @@ export interface GarmentSubcategory {
   templateCount?: number;
 }
 
-// Poses are per (subcategory × face × background) combo, e.g. m1bg1p1
+// Poses are per (subcategory × face × background) combo
+// isTemplate: exactly one pose per face×background cell is the thumbnail shown to users
 export interface ModelPose {
   id: string;
   subcategoryId: string;
@@ -49,21 +50,7 @@ export interface ModelPose {
   r2Key: string;
   showsLower: boolean;
   showsShoes: boolean;
-  isActive: boolean;
-  sortOrder: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface SubcategoryTemplate {
-  id: string;
-  subcategoryId: string;
-  faceId: string;
-  faceLabel?: string;
-  backgroundId: string;
-  backgroundLabel?: string;
-  thumbnailKey: string;
-  r2Key: string;
+  isTemplate: boolean;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;
@@ -83,18 +70,24 @@ export interface CatalogItem {
 
 export interface User {
   id: string;
-  name: string;
   email: string;
-  role: string;
-  plan: string;
-  creditsRemaining: number;
-  creditLimit: number;
+  displayName: string | null;
+  tier: string;
+  isBanned: boolean;
+  banReason: string | null;
+  balance: number;
   totalJobs: number;
-  joinedAt: string;
-  lastActive: string;
-  emailVerified: boolean;
-  status: 'active' | 'suspended' | 'inactive';
-  recentJobs?: { id: string; status: string; createdAt: string; duration: string }[];
+  lastJobAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  recentJobs?: {
+    id: string;
+    status: string;
+    createdAt: string;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    creditsCharged: number;
+  }[];
 }
 
 export type JobStatus =
@@ -108,18 +101,20 @@ export type JobStatus =
 
 export interface Job {
   id: string;
-  userEmail: string;
+  userId?: string;
+  userEmail?: string | null;
   status: JobStatus;
   priority: boolean;
   creditsCharged: number;
   workerId: string | null;
+  attempts?: number;
   createdAt: string;
-  startedAt?: string;
-  completedAt?: string;
-  errorCode?: string;
-  faceLabel?: string;
-  backgroundLabel?: string;
-  poseLabel?: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  errorCode?: string | null;
+  faceLabel?: string | null;
+  backgroundLabel?: string | null;
+  poseLabel?: string | null;
   hasLower: boolean;
   hasShoe: boolean;
   outputUrl?: string;
