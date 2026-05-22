@@ -213,8 +213,8 @@ svg { width: 1em; height: 1em; flex-shrink: 0; }
 }
 .nav-item.alert .count { background: var(--danger); color: #fff; }
 
+.sidebar-spacer { flex: 1; }
 .sidebar-foot {
-  margin-top: auto;
   border-top: 1px solid var(--sidebar-border);
   padding-top: 14px;
   display: flex; align-items: center; gap: 10px;
@@ -225,13 +225,13 @@ svg { width: 1em; height: 1em; flex-shrink: 0; }
   display: grid; place-items: center;
   font-size: 12px; color: #fff; font-weight: 500;
 }
-.sidebar-foot .who { display: flex; flex-direction: column; line-height: 1.2; }
-.sidebar-foot .who b { font-size: 12.5px; color: var(--sidebar-text-active); font-weight: 500; }
-.sidebar-foot .who span { font-size: 10.5px; color: var(--sidebar-text-muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.sidebar-foot .who { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; flex: 1; }
+.sidebar-foot .who b { font-size: 12.5px; color: var(--sidebar-text-active); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-foot .who > span { font-size: 10.5px; color: var(--sidebar-text-muted); letter-spacing: 0; text-transform: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .role-pill {
-  margin-left: auto; font-size: 10px;
+  align-self: flex-start; margin-top: 4px; font-size: 9.5px;
   background: var(--accent); color: oklch(0.16 0.01 60);
-  padding: 2px 7px; border-radius: 99px;
+  padding: 1px 6px; border-radius: 99px;
   font-weight: 600; letter-spacing: 0.04em;
 }
 

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { RegisterBody, LoginBody } from '@aivastra/types';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
@@ -45,9 +46,24 @@ export async function authRoutes(app: FastifyInstance) {
       email: schema.users.email,
       displayName: schema.users.displayName,
       tier: schema.users.tier,
-    }).from(schema.users).where(eq(schema.users.id, (req as any).user.userId));
+    }).from(schema.users).where(eq(schema.users.id, req.userId));
     if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
     return user;
+  });
+
+  app.patch('/v1/me', {
+    preHandler: app.requireUser,
+    schema: {
+      body: z.object({ displayName: z.string().min(1).max(60).optional() }),
+    },
+  }, async (req) => {
+    const { displayName } = req.body as { displayName?: string };
+    const [updated] = await app.db.update(schema.users)
+      .set({ ...(displayName !== undefined ? { displayName } : {}) })
+      .where(eq(schema.users.id, req.userId))
+      .returning({ id: schema.users.id, email: schema.users.email, displayName: schema.users.displayName, tier: schema.users.tier });
+    if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
+    return updated;
   });
 
   app.post('/v1/auth/logout', { preHandler: app.requireUser }, async (req, reply) => {

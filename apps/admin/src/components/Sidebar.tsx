@@ -1,4 +1,5 @@
 import { Icon } from './Icons';
+import { useAuth } from '../context/AuthContext';
 
 interface SidebarProps {
   page: string;
@@ -22,11 +23,17 @@ const items: NavItem[] = [
   { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT'] },
   { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'credits', label: 'Credit Requests', icon: Icon.Credit, roles: ['SUPER_ADMIN', 'MODERATOR'] },
-  { k: 'settings', label: 'Settings', icon: Icon.Settings, roles: ['SUPER_ADMIN'] },
 ];
 
 export function Sidebar({ page, onNav, role }: SidebarProps) {
+  const { email } = useAuth();
   const visible = items.filter((item) => item.roles.includes(role));
+
+  const emailUser = email ? email.split('@')[0] : 'Admin';
+  const initials = emailUser.slice(0, 2).toUpperCase();
+  const displayEmail = email ?? '';
+
+  const showSettings = ['SUPER_ADMIN'].includes(role);
 
   return (
     <aside className="sidebar">
@@ -49,13 +56,23 @@ export function Sidebar({ page, onNav, role }: SidebarProps) {
           </button>
         ))}
       </nav>
+      <div className="sidebar-spacer" />
+      {showSettings && (
+        <button
+          className={`nav-item ${page === 'settings' ? 'active' : ''}`}
+          onClick={() => onNav('settings')}
+        >
+          <Icon.Settings />
+          <span>Settings</span>
+        </button>
+      )}
       <div className="sidebar-foot">
-        <span className="avatar">RM</span>
+        <span className="avatar">{initials}</span>
         <div className="who">
-          <b>Rohan Mehta</b>
-          <span>rohan@aivastra</span>
+          <b>{emailUser}</b>
+          <span>{displayEmail}</span>
+          <span className="role-pill">{role}</span>
         </div>
-        <span className="role-pill">{role}</span>
       </div>
     </aside>
   );

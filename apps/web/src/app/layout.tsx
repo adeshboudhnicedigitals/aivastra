@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Poppins, Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -25,8 +26,14 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('theme');if(t==='dark'||(t==null&&matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.dataset.theme='dark';}}catch(e){}` }} />
+      </head>
       <body className={`${poppins.variable} ${inter.variable} ${jetbrains.variable}`}>
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <ThemeToggle />
+        </Providers>
       </body>
     </html>
   );
