@@ -8,7 +8,7 @@ import { buildTree } from './tree';
 export async function catalogRoutes(app: FastifyInstance) {
   app.get('/v1/catalog/:type', {
     preHandler: app.requireUser,
-    schema: { params: z.object({ type: z.enum(['models', 'poses', 'backgrounds', 'lower']) }) },
+    schema: { params: z.object({ type: z.enum(['models', 'poses', 'backgrounds', 'lower', 'shoes']) }) },
   }, async (req) => {
     const { type } = req.params as { type: string };
     const [t] = await app.db.select().from(schema.catalogTypes).where(eq(schema.catalogTypes.slug, type));

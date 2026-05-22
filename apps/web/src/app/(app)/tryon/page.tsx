@@ -9,6 +9,12 @@ interface Subcategory { id: string; slug: string; label: string }
 interface FaceItem { id: string; label: string; thumbnailUrl: string; gender: string }
 interface BackgroundItem { id: string; label: string; thumbnailUrl: string; previewUrl: string }
 interface PoseItem { id: string; label: string; thumbnailUrl: string; showsLower: boolean; showsShoes: boolean }
+interface CatalogItem { id: string; label: string; thumbnailUrl: string }
+interface CatalogNode { id: number; slug: string; label: string; children: CatalogNode[]; items: CatalogItem[] }
+
+function flattenCatalog(nodes: CatalogNode[]): CatalogItem[] {
+  return nodes.flatMap((n) => [...n.items, ...flattenCatalog(n.children)]);
+}
 
 const GENDERS = [
   { value: 'women', label: 'Women' },
@@ -24,7 +30,8 @@ const STEPS = [
   'Setup Your Catalogue',
   'Select AI Models',
   'Select Backgrounds',
-  'Choose Templates & Generate',
+  'Choose Templates',
+  'Lower & Shoes',
 ];
 
 // ── Icons ──────────────────────────────────────────────────────────────
@@ -58,6 +65,11 @@ const BoltIcon = () => (
     <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
   </svg>
 );
+const ShirtIcon = () => (
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/>
+  </svg>
+);
 
 // ── Dropdown Select ────────────────────────────────────────────────────
 function Select({ value, options, onChange, placeholder }: { value: string; options: string[]; onChange: (v: string) => void; placeholder?: string }) {
@@ -89,7 +101,7 @@ function Select({ value, options, onChange, placeholder }: { value: string; opti
   );
 }
 
-// ── Selection card (model / bg / pose) ────────────────────────────────
+// ── Selection card (model / bg / pose / catalog) ──────────────────────
 function SelCard({ selected, onClick, imageUrl, label }: { selected: boolean; onClick: () => void; imageUrl: string; label: string }) {
   return (
     <button type="button" onClick={onClick} className={`av-sel-card ${selected ? 'on' : ''}`}>
@@ -99,6 +111,23 @@ function SelCard({ selected, onClick, imageUrl, label }: { selected: boolean; on
       <div className="av-sel-label">{label}</div>
       <div className="av-sel-check"><CheckIcon size={12} /></div>
     </button>
+  );
+}
+
+// ── Section header inside step ─────────────────────────────────────────
+function SectionHead({ title, sub, badge }: { title: string; sub?: string; badge?: string }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <h2 style={{ fontWeight: 700, fontSize: 20, letterSpacing: '-0.01em', margin: 0 }}>{title}</h2>
+        {badge && (
+          <span style={{ padding: '2px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: 'rgba(246,181,83,0.15)', color: 'var(--amber)', border: '1px solid rgba(246,181,83,0.25)' }}>
+            {badge}
+          </span>
+        )}
+      </div>
+      {sub && <p style={{ fontSize: 14, color: 'var(--mute)', margin: 0 }}>{sub}</p>}
+    </div>
   );
 }
 
@@ -133,7 +162,7 @@ function Guide() {
 export default function TryOnPage() {
   const router = useRouter();
 
-  // Wizard step (0–3)
+  // Wizard step (0–4)
   const [step, setStep] = useState(0);
 
   // Step 0: setup
@@ -149,10 +178,12 @@ export default function TryOnPage() {
   const [sampleIdx, setSampleIdx] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Steps 1–3
+  // Steps 1–4
   const [faceId, setFaceId] = useState('');
   const [backgroundId, setBackgroundId] = useState('');
   const [poseId, setPoseId] = useState('');
+  const [lowerCatalogId, setLowerCatalogId] = useState('');
+  const [shoeCatalogId, setShoeCatalogId] = useState('');
 
   // Submission
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -195,6 +226,25 @@ export default function TryOnPage() {
     enabled: !!(subcategoryId && faceId && backgroundId && step >= 3),
   });
 
+  const selectedPose = poses?.items.find((p) => p.id === poseId);
+  const needsLower = !!selectedPose?.showsLower;
+  const needsShoes = !!selectedPose?.showsShoes;
+
+  const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
+    queryKey: ['catalog', 'lower'],
+    queryFn: () => api.get('/v1/catalog/lower'),
+    enabled: step >= 4 && needsLower,
+  });
+
+  const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
+    queryKey: ['catalog', 'shoes'],
+    queryFn: () => api.get('/v1/catalog/shoes'),
+    enabled: step >= 4 && needsShoes,
+  });
+
+  const lowerItems = lowerCatalog ? flattenCatalog(lowerCatalog.tree) : [];
+  const shoeItems = shoesCatalog ? flattenCatalog(shoesCatalog.tree) : [];
+
   // Garment upload
   async function handleGarmentUpload(file: File) {
     setGarmentFile(file);
@@ -220,10 +270,19 @@ export default function TryOnPage() {
     setFaceId(id);
     setBackgroundId('');
     setPoseId('');
+    setLowerCatalogId('');
+    setShoeCatalogId('');
   }
   function handleBackgroundSelect(id: string) {
     setBackgroundId(id);
     setPoseId('');
+    setLowerCatalogId('');
+    setShoeCatalogId('');
+  }
+  function handlePoseSelect(id: string) {
+    setPoseId(id);
+    setLowerCatalogId('');
+    setShoeCatalogId('');
   }
 
   async function handleSubmit() {
@@ -232,7 +291,14 @@ export default function TryOnPage() {
     setSubmitError('');
     try {
       const { jobId } = await api.post<{ jobId: string }>('/v1/jobs/tryon', {
-        inputs: { upperGarmentKey: garmentKey, faceId, backgroundId, poseId },
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          backgroundId,
+          poseId,
+          lowerCatalogId: lowerCatalogId || undefined,
+          shoeCatalogId: shoeCatalogId || undefined,
+        },
       });
       router.push(`/jobs/${jobId}`);
     } catch (e) {
@@ -246,11 +312,17 @@ export default function TryOnPage() {
     if (step === 0) return !!gender && !!subcategoryId && (!!garmentFile || !!garmentKey);
     if (step === 1) return !!faceId;
     if (step === 2) return !!backgroundId;
-    return !!poseId;
+    if (step === 3) return !!poseId;
+    return true;
   };
 
+  const canGenerate =
+    !!poseId && !!garmentKey && !isUploading && !isSubmitting &&
+    (!needsLower || !!lowerCatalogId) &&
+    (!needsShoes || !!shoeCatalogId);
+
   function goNext() {
-    if (step < 3) {
+    if (step < 4) {
       setStep((s) => s + 1);
       showToast(`Step ${step + 2} · ${STEPS[step + 1]}`);
     }
@@ -259,7 +331,8 @@ export default function TryOnPage() {
 
   const selectedFace = faces?.items.find((f) => f.id === faceId);
   const selectedBg = backgrounds?.items.find((b) => b.id === backgroundId);
-  const selectedPose = poses?.items.find((p) => p.id === poseId);
+  const selectedLower = lowerItems.find((i) => i.id === lowerCatalogId);
+  const selectedShoe = shoeItems.find((i) => i.id === shoeCatalogId);
 
   return (
     <div className="av-main-inner">
@@ -348,7 +421,7 @@ export default function TryOnPage() {
                 </label>
                 <div className="av-upload-grid">
                   <label
-                    className={`av-dropzone ${!garmentFile ? '' : ''}`}
+                    className="av-dropzone"
                     onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('over'); }}
                     onDragLeave={(e) => e.currentTarget.classList.remove('over')}
                     onDrop={(e) => {
@@ -426,8 +499,7 @@ export default function TryOnPage() {
           {/* ── Step 1: Model ────────────────────────── */}
           {step === 1 && (
             <div>
-              <h2 style={{ fontWeight: 700, fontSize: 20, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Select AI Model</h2>
-              <p style={{ fontSize: 14, color: 'var(--mute)', margin: '0 0 20px' }}>Choose the model that will wear your garment.</p>
+              <SectionHead title="Select AI Model" sub="Choose the model that will wear your garment." />
               {!faces ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><SpinnerIcon /></div>
               ) : (
@@ -443,10 +515,10 @@ export default function TryOnPage() {
           {/* ── Step 2: Background ───────────────────── */}
           {step === 2 && (
             <div>
-              <h2 style={{ fontWeight: 700, fontSize: 20, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Select Background</h2>
-              <p style={{ fontSize: 14, color: 'var(--mute)', margin: '0 0 20px' }}>
-                Preview of <strong style={{ color: 'var(--ink)' }}>{selectedFace?.label ?? 'model'}</strong> in each background. Pick one to continue.
-              </p>
+              <SectionHead
+                title="Select Background"
+                sub={`Preview of ${selectedFace?.label ?? 'model'} in each background. Pick one to continue.`}
+              />
               {!backgrounds ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><SpinnerIcon /></div>
               ) : backgrounds.items.length === 0 ? (
@@ -461,13 +533,13 @@ export default function TryOnPage() {
             </div>
           )}
 
-          {/* ── Step 3: Pose + Generate ──────────────── */}
+          {/* ── Step 3: Pose ─────────────────────────── */}
           {step === 3 && (
             <div>
-              <h2 style={{ fontWeight: 700, fontSize: 20, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Choose Template & Generate</h2>
-              <p style={{ fontSize: 14, color: 'var(--mute)', margin: '0 0 20px' }}>
-                Showing poses for <strong style={{ color: 'var(--ink)' }}>{selectedFace?.label}</strong> on <strong style={{ color: 'var(--ink)' }}>{selectedBg?.label}</strong>.
-              </p>
+              <SectionHead
+                title="Choose Template"
+                sub={`Poses for ${selectedFace?.label ?? 'model'} on ${selectedBg?.label ?? 'background'}.`}
+              />
               {!poses ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><SpinnerIcon /></div>
               ) : poses.items.length === 0 ? (
@@ -475,35 +547,138 @@ export default function TryOnPage() {
               ) : (
                 <div className="av-sel-grid">
                   {poses.items.map((p) => (
-                    <SelCard key={p.id} selected={poseId === p.id} onClick={() => setPoseId(p.id)} imageUrl={p.thumbnailUrl} label={p.label} />
-                  ))}
-                </div>
-              )}
-
-              {/* Review summary */}
-              {poseId && (
-                <div className="av-review">
-                  {[
-                    ['Model', selectedFace?.label ?? '—'],
-                    ['Background', selectedBg?.label ?? '—'],
-                    ['Pose', selectedPose?.label ?? '—'],
-                    ['Garment', garmentFile?.name ?? (sampleIdx > 0 ? `Sample ${sampleIdx}` : '—')],
-                    ['Credits charged', '1'],
-                  ].map(([k, v]) => (
-                    <div key={k} className="av-review-row">
-                      <span className="av-review-key">{k}</span>
-                      <span className="av-review-val">{v}</span>
+                    <div key={p.id} style={{ position: 'relative' }}>
+                      <SelCard selected={poseId === p.id} onClick={() => handlePoseSelect(p.id)} imageUrl={p.thumbnailUrl} label={p.label} />
+                      {(p.showsLower || p.showsShoes) && (
+                        <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4, flexDirection: 'column', alignItems: 'flex-end', pointerEvents: 'none' }}>
+                          {p.showsLower && (
+                            <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(246,181,83,0.92)', color: '#7a5200', letterSpacing: '.02em' }}>LOWER</span>
+                          )}
+                          {p.showsShoes && (
+                            <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(32,158,70,0.92)', color: 'white', letterSpacing: '.02em' }}>SHOES</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
+              {(needsLower || needsShoes) && poseId && (
+                <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 12, background: 'rgba(246,181,83,0.08)', border: '1px solid rgba(246,181,83,0.2)' }}>
+                  <span style={{ fontSize: 18 }}>👕</span>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', margin: 0 }}>This template needs additional items</p>
+                    <p style={{ fontSize: 12, color: 'var(--mute)', margin: '2px 0 0' }}>
+                      Next step: pick {[needsLower && 'lower garment', needsShoes && 'shoes'].filter(Boolean).join(' & ')}.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 4: Lower & Shoes ────────────────── */}
+          {step === 4 && (
+            <div>
+              {!needsLower && !needsShoes ? (
+                /* Pose needs neither — show info + jump to review */
+                <div style={{ marginBottom: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '32px 24px', borderRadius: 16, background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+                  <div style={{ width: 56, height: 56, borderRadius: 16, background: 'var(--surface)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', marginBottom: 14, color: 'var(--mute)' }}>
+                    <ShirtIcon />
+                  </div>
+                  <p style={{ fontWeight: 700, fontSize: 16, margin: '0 0 6px' }}>No extra garments needed</p>
+                  <p style={{ fontSize: 13, color: 'var(--mute)', margin: 0, maxWidth: 320 }}>
+                    The selected template is a close-up crop — no lower garment or shoes will be visible in the output.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Lower garment section */}
+                  {needsLower && (
+                    <div style={{ marginBottom: 28 }}>
+                      <SectionHead
+                        title="Lower Garment"
+                        sub="Select a bottom — pants, skirt or shorts — that pairs with your top."
+                        badge="Required"
+                      />
+                      {!lowerCatalog ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0' }}><SpinnerIcon /></div>
+                      ) : lowerItems.length === 0 ? (
+                        <p style={{ fontSize: 14, color: 'var(--mute)' }}>No lower garment options available yet.</p>
+                      ) : (
+                        <div className="av-sel-grid">
+                          {lowerItems.map((item) => (
+                            <SelCard
+                              key={item.id}
+                              selected={lowerCatalogId === item.id}
+                              onClick={() => setLowerCatalogId(lowerCatalogId === item.id ? '' : item.id)}
+                              imageUrl={item.thumbnailUrl}
+                              label={item.label}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Shoes section */}
+                  {needsShoes && (
+                    <div style={{ marginBottom: 28 }}>
+                      {needsLower && <div style={{ height: 1, background: 'var(--line)', marginBottom: 28 }} />}
+                      <SectionHead
+                        title="Shoes"
+                        sub="Pick a footwear style to complete the look."
+                        badge="Required"
+                      />
+                      {!shoesCatalog ? (
+                        <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0' }}><SpinnerIcon /></div>
+                      ) : shoeItems.length === 0 ? (
+                        <p style={{ fontSize: 14, color: 'var(--mute)' }}>No shoe options available yet.</p>
+                      ) : (
+                        <div className="av-sel-grid">
+                          {shoeItems.map((item) => (
+                            <SelCard
+                              key={item.id}
+                              selected={shoeCatalogId === item.id}
+                              onClick={() => setShoeCatalogId(shoeCatalogId === item.id ? '' : item.id)}
+                              imageUrl={item.thumbnailUrl}
+                              label={item.label}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Divider */}
+              <div style={{ height: 1, background: 'var(--line)', margin: '4px 0 20px' }} />
+
+              {/* Review summary */}
+              <SectionHead title="Review & Generate" sub="Confirm your selections before generating." />
+              <div className="av-review">
+                {[
+                  ['Model', selectedFace?.label ?? '—'],
+                  ['Background', selectedBg?.label ?? '—'],
+                  ['Pose', selectedPose?.label ?? '—'],
+                  ['Garment', garmentFile?.name ?? (sampleIdx > 0 ? `Sample ${sampleIdx}` : '—')],
+                  ...(needsLower ? [['Lower', selectedLower?.label ?? '—'] as [string, string]] : []),
+                  ...(needsShoes ? [['Shoes', selectedShoe?.label ?? '—'] as [string, string]] : []),
+                  ['Credits charged', '1'],
+                ].map(([k, v]) => (
+                  <div key={k} className="av-review-row">
+                    <span className="av-review-key">{k}</span>
+                    <span className="av-review-val" style={{ color: v === '—' ? 'var(--mute)' : undefined }}>{v}</span>
+                  </div>
+                ))}
+              </div>
 
               {submitError && (
                 <div style={{ marginTop: 16, padding: '10px 14px', borderRadius: 10, border: '1px solid #f55c7a', background: 'rgba(245,92,122,0.06)', fontSize: 14, color: '#c0392b' }}>
                   {submitError}
                 </div>
               )}
-
               {isUploading && (
                 <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--mute)' }}>
                   <SpinnerIcon /> Uploading garment… {uploadProgress}%
@@ -519,11 +694,11 @@ export default function TryOnPage() {
 
       {/* Sticky footer */}
       <div className="av-footer">
-        <button type="button" className="av-btn av-btn-ghost" onClick={step === 0 ? () => { setGender(''); setSubcategoryId(''); setFaceId(''); setBackgroundId(''); setPoseId(''); setGarmentFile(null); setGarmentKey(''); setSampleIdx(0); setStep(0); showToast('Setup reset'); } : goBack}>
+        <button type="button" className="av-btn av-btn-ghost" onClick={step === 0 ? () => { setGender(''); setSubcategoryId(''); setFaceId(''); setBackgroundId(''); setPoseId(''); setLowerCatalogId(''); setShoeCatalogId(''); setGarmentFile(null); setGarmentKey(''); setSampleIdx(0); setStep(0); showToast('Setup reset'); } : goBack}>
           {step === 0 ? 'Reset' : '← Back'}
         </button>
 
-        {step < 3 ? (
+        {step < 4 ? (
           <button type="button" className="av-btn av-btn-primary" onClick={goNext} disabled={!canNext()}>
             Next Step →
           </button>
@@ -532,7 +707,7 @@ export default function TryOnPage() {
             type="button"
             className="av-btn av-btn-primary"
             onClick={handleSubmit}
-            disabled={!poseId || !garmentKey || isUploading || isSubmitting}
+            disabled={!canGenerate}
             style={{ gap: 8 }}
           >
             {isSubmitting ? (
