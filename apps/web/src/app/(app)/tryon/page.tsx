@@ -231,14 +231,14 @@ export default function TryOnPage() {
   const needsShoes = !!selectedPose?.showsShoes;
 
   const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
-    queryKey: ['catalog', 'lower'],
-    queryFn: () => api.get('/v1/catalog/lower'),
+    queryKey: ['catalog', 'lower', gender],
+    queryFn: () => api.get(`/v1/catalog/lower${gender ? `?gender=${gender}` : ''}`),
     enabled: step >= 4 && needsLower,
   });
 
   const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
-    queryKey: ['catalog', 'shoes'],
-    queryFn: () => api.get('/v1/catalog/shoes'),
+    queryKey: ['catalog', 'shoe', gender],
+    queryFn: () => api.get(`/v1/catalog/shoe${gender ? `?gender=${gender}` : ''}`),
     enabled: step >= 4 && needsShoes,
   });
 

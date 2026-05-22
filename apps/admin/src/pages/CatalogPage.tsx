@@ -117,11 +117,13 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
     {
       type: 'select',
       name: 'categoryId',
-      label: 'Category',
-      options: categories.map((c) => ({
-        value: String(c.id),
-        label: `[${c.typeSlug}] ${c.label}`,
-      })),
+      label: 'Category (gender)',
+      options: categories
+        .filter((c) => tab === 'all' || c.typeSlug === tab)
+        .map((c) => ({
+          value: String(c.id),
+          label: tab === 'all' ? `[${c.typeSlug}] ${c.label}` : c.label,
+        })),
     },
     { type: 'number', name: 'sortOrder', label: 'Sort order', min: 0, defaultValue: 0 },
   ];
