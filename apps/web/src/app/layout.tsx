@@ -1,20 +1,31 @@
 import type { Metadata } from 'next';
-import { Caveat, Inter } from 'next/font/google';
+import { Poppins, Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
 
-const caveat = Caveat({ subsets: ['latin'], variable: '--font-hand' });
-const inter = Inter({ subsets: ['latin'], variable: '--font-body' });
+const poppins = Poppins({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-poppins',
+  display: 'swap',
+});
+const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'swap' });
+const jetbrains = JetBrains_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-mono',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
-  title: 'AI Vastra — Virtual Try-On',
-  description: 'See how clothes look before you make them',
+  title: 'Ai Vastra — AI catalogues for fashion brands',
+  description: 'Generate premium ecommerce model shoots from your garment photos in minutes. No studio, no shoot day.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${inter.variable} ${caveat.variable}`}>
+      <body className={`${poppins.variable} ${inter.variable} ${jetbrains.variable}`}>
         <Providers>{children}</Providers>
       </body>
     </html>

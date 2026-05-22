@@ -7,6 +7,38 @@
 
 ## Log
 
+### 2026-05-22 — Full frontend redesign (vastra2.0 designer handoff)
+
+**Done**
+
+- `apps/web/src/app/globals.css`: complete rewrite — removed sketch utilities (`sketch-card`, `btn-sketch`, `underline-emph`), added full `av-` CSS class system (sidebar, stepper, cards, chips, dropzone, select, buttons, spinner), CSS vars matching warm cream palette (`--bg: #FBF8F3`, `--peach`, `--amber`, `--mint`, `--grad`, etc.), dark mode support
+- `apps/web/src/app/layout.tsx`: replaced Caveat font with Poppins (400/500/600/700/800) + JetBrains Mono; updated metadata
+- `apps/web/src/app/page.tsx`: full marketing landing page from `vastra2.0/Home.html` — hero, logos strip, how-it-works (4 steps), features grid, gallery (4 samples), pricing (3 cards), CTA, footer; `lp-` prefixed CSS via inline `<style>` tag; redirects to `/dashboard` if already logged in
+- `apps/web/public/samples/`: copied `sample-1..4.png` from `vastra2.0/assets/`
+- `apps/web/src/components/sidebar.tsx` (new): dark sidebar with credits bar (`/v1/credits`), user info (`/v1/me`), nav items (Studio/Catalogues/Credits), logout, initials avatar
+- `apps/web/src/app/(app)/layout.tsx`: replaced navbar with `<div className="av-app"><Sidebar /><main className="av-main">{children}</main></div>`
+- `apps/web/src/app/(app)/tryon/page.tsx`: 4-step wizard (Setup → Models → Backgrounds → Pose+Generate); garment upload starts immediately in step 0; Generate button gated on `garmentKey` set; `useEffect` fix for dropdown outside-click listener
+- `apps/web/src/app/(app)/dashboard/page.tsx`: restyled with `av-card`, status dots, badge chips
+- `apps/web/src/app/(app)/credits/page.tsx`: restyled with `av-card`, gradient balance display, package selector chips
+- `apps/web/src/app/(auth)/login/page.tsx`: clean centered layout, white card, tab pills
+- `apps/web/src/app/(auth)/register/page.tsx`: same structure as login
+- `apps/api/src/modules/auth/routes.ts`: added `GET /v1/me` endpoint for regular users (email, displayName, tier)
+
+**Failed / Not Done**
+
+- `apps/web/src/components/navbar.tsx`: still exists (unused — safe to delete later)
+- `apps/web/src/app/(app)/jobs/[id]/page.tsx`: still uses old sketch design (not redesigned)
+- Old UI components (`ui/button.tsx`, `badge.tsx`, `input.tsx`): still present but unused by new design
+
+**Open Questions / Decisions**
+
+- [ ] Jobs detail page (`/jobs/:id`) needs redesign to match new palette
+- [ ] Navbar component can be deleted
+- [ ] Lower garment step: conditional on `pose.showsLower === true` (still not added)
+- [ ] ComfyUI workflow template `templates/virtual-tryon-v1.json` still a stub
+
+---
+
 ### 2026-05-22 — Admin panel live data + credit requests + isTemplate + background preview
 
 **Done**

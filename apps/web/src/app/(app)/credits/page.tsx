@@ -2,19 +2,32 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Loader2, CheckCircle, Clock, XCircle } from 'lucide-react';
 
 interface CreditsResponse { balance: number; recent: { id: string; delta: number; reason: string; createdAt: string }[] }
 interface CreditRequest { id: string; creditsRequested: number; note: string | null; status: string; createdAt: string; creditsApproved: number | null }
 
-const STATUS_ICON: Record<string, React.ReactNode> = {
-  pending: <Clock className="h-4 w-4 text-muted-foreground" />,
-  approved: <CheckCircle className="h-4 w-4 text-green-700" />,
-  rejected: <XCircle className="h-4 w-4 text-destructive" />,
+const SpinnerIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="av-spin">
+    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+  </svg>
+);
+const CheckIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12l5 5L20 7"/>
+  </svg>
+);
+
+const STATUS_COLOR: Record<string, string> = {
+  pending: 'var(--amber)',
+  approved: 'var(--mint)',
+  rejected: 'var(--peach)',
 };
+
+const PACKAGES = [
+  { credits: 10, label: '10 credits', desc: '10 try-ons' },
+  { credits: 50, label: '50 credits', desc: '50 try-ons · best value' },
+  { credits: 100, label: '100 credits', desc: '100 try-ons' },
+];
 
 export default function CreditsPage() {
   const qc = useQueryClient();
@@ -38,14 +51,10 @@ export default function CreditsPage() {
     e.preventDefault();
     const amt = parseInt(amount, 10);
     if (!amt || amt < 1) { setError('Enter a valid amount'); return; }
-    setSubmitting(true);
-    setError('');
-    setSuccess(false);
+    setSubmitting(true); setError(''); setSuccess(false);
     try {
       await api.post('/v1/credits/request', { creditsRequested: amt, note: note || undefined });
-      setSuccess(true);
-      setAmount('');
-      setNote('');
+      setSuccess(true); setAmount(''); setNote('');
       void qc.invalidateQueries({ queryKey: ['credit-requests'] });
     } catch (e) {
       setError((e as Error).message);
@@ -54,114 +63,99 @@ export default function CreditsPage() {
     }
   }
 
-  const PACKAGES = [
-    { credits: 10, label: '10 credits', desc: '10 try-ons' },
-    { credits: 50, label: '50 credits', desc: '50 try-ons · best value' },
-    { credits: 100, label: '100 credits', desc: '100 try-ons' },
-  ];
-
   return (
-    <div className="max-w-2xl space-y-8">
-      <div>
-        <h1 className="font-hand text-4xl">Credits</h1>
-        <p className="mt-1 font-body text-sm text-muted-foreground">Request credits from the admin to run virtual try-ons.</p>
+    <div className="av-main-inner" style={{ maxWidth: 720 }}>
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontWeight: 700, fontSize: 26, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Credits</h1>
+        <p style={{ margin: 0, fontSize: 14, color: 'var(--mute)' }}>Request credits from the admin to run virtual try-ons.</p>
       </div>
 
-      {/* Current balance */}
-      <div className="sketch-card p-6">
-        <p className="font-hand text-[17px] text-muted-foreground">Current balance</p>
-        <p className="font-hand text-6xl mt-1">
-          <span className="text-primary">{credits?.balance ?? '—'}</span>
-          <span className="text-2xl text-muted-foreground ml-2">credits</span>
-        </p>
-        <p className="font-body text-xs text-muted-foreground mt-2">1 credit = 1 virtual try-on generation</p>
+      {/* Balance card */}
+      <div className="av-card" style={{ marginBottom: 24 }}>
+        <p style={{ fontSize: 13, color: 'var(--mute)', margin: '0 0 8px' }}>Current balance</p>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontWeight: 700, fontSize: 56, letterSpacing: '-0.03em', background: 'var(--grad)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            {credits?.balance ?? '—'}
+          </span>
+          <span style={{ fontSize: 18, color: 'var(--mute)', fontWeight: 500 }}>credits</span>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--mute)', margin: '8px 0 0' }}>1 credit = 1 virtual try-on generation</p>
       </div>
 
-      {/* Credit packages (informational) */}
-      <div>
-        <h2 className="font-hand text-2xl mb-4">Packages</h2>
-        <div className="grid grid-cols-3 gap-4">
+      {/* Packages */}
+      <div style={{ marginBottom: 24 }}>
+        <h2 style={{ fontWeight: 700, fontSize: 18, letterSpacing: '-0.01em', margin: '0 0 16px' }}>Packages</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
           {PACKAGES.map((p) => (
-            <button
-              key={p.credits}
-              type="button"
+            <button key={p.credits} type="button"
               onClick={() => setAmount(String(p.credits))}
-              className={[
-                'sketch-card p-4 text-left transition-all hover:-translate-x-0.5 hover:-translate-y-0.5',
-                amount === String(p.credits) ? 'ring-2 ring-primary' : '',
-              ].join(' ')}
+              className="av-card"
+              style={{ textAlign: 'left', cursor: 'pointer', border: amount === String(p.credits) ? '1.5px solid var(--peach)' : undefined, boxShadow: amount === String(p.credits) ? '0 0 0 3px rgba(245,92,122,0.12)' : undefined, transition: 'all .15s', fontFamily: 'inherit' }}
             >
-              <p className="font-hand text-3xl text-primary">{p.credits}</p>
-              <p className="font-hand text-lg mt-0.5">{p.label}</p>
-              <p className="font-body text-xs text-muted-foreground mt-1">{p.desc}</p>
+              <span style={{ fontWeight: 700, fontSize: 32, letterSpacing: '-0.03em', background: 'var(--grad)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', display: 'block' }}>{p.credits}</span>
+              <span style={{ fontWeight: 600, fontSize: 14, display: 'block', marginTop: 4 }}>{p.label}</span>
+              <span style={{ fontSize: 12, color: 'var(--mute)', display: 'block', marginTop: 2 }}>{p.desc}</span>
             </button>
           ))}
         </div>
       </div>
 
       {/* Request form */}
-      <div className="sketch-card p-6">
-        <h2 className="font-hand text-2xl mb-4">Request Credits</h2>
-        <p className="font-body text-sm text-muted-foreground mb-5">
-          Submit a request to the admin. They will review and add credits to your account.
-        </p>
+      <div className="av-card" style={{ marginBottom: 24 }}>
+        <h2 style={{ fontWeight: 700, fontSize: 18, letterSpacing: '-0.01em', margin: '0 0 8px' }}>Request Credits</h2>
+        <p style={{ fontSize: 14, color: 'var(--mute)', margin: '0 0 20px' }}>Submit a request to the admin. They will review and add credits to your account.</p>
 
         {success && (
-          <div className="mb-4 rounded border border-green-700 bg-green-50 px-3 py-2 font-body text-sm text-green-800 flex items-center gap-2">
-            <CheckCircle className="h-4 w-4" />
-            Request submitted — admin will review shortly.
+          <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, border: '1px solid var(--mint)', background: 'var(--mint-soft)', fontSize: 14, color: 'var(--mint)', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CheckIcon /> Request submitted — admin will review shortly.
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="font-hand text-[17px] block">Credits requested</label>
-            <Input
-              type="number"
-              min={1}
-              max={1000}
-              placeholder="e.g. 50"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div className="av-field">
+            <label className="av-field-label">Credits requested</label>
+            <input
+              type="number" min={1} max={1000} placeholder="e.g. 50"
+              value={amount} onChange={(e) => setAmount(e.target.value)}
+              style={{ height: 46, padding: '0 16px', background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 12, fontSize: 14, color: 'var(--ink)', fontFamily: 'inherit', outline: 'none' }}
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="font-hand text-[17px] block">Note <span className="font-body text-xs text-muted-foreground">(optional)</span></label>
-            <Input
-              type="text"
-              placeholder="Tell us what you're working on…"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
+          <div className="av-field">
+            <label className="av-field-label">Note <span className="av-field-hint">(optional)</span></label>
+            <input
+              type="text" placeholder="Tell us what you're working on…"
+              value={note} onChange={(e) => setNote(e.target.value)}
+              style={{ height: 46, padding: '0 16px', background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 12, fontSize: 14, color: 'var(--ink)', fontFamily: 'inherit', outline: 'none' }}
             />
           </div>
           {error && (
-            <p className="rounded border border-destructive bg-destructive/10 px-3 py-2 font-body text-sm text-destructive">{error}</p>
+            <div style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid var(--peach)', background: 'rgba(245,92,122,0.06)', fontSize: 14, color: 'var(--peach)' }}>{error}</div>
           )}
-          <Button type="submit" disabled={submitting || !amount}>
-            {submitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Submitting…</> : 'Submit request →'}
-          </Button>
+          <button type="submit" disabled={submitting || !amount} className="av-btn av-btn-primary" style={{ alignSelf: 'flex-start' }}>
+            {submitting ? <><SpinnerIcon /> Submitting…</> : 'Submit request →'}
+          </button>
         </form>
       </div>
 
       {/* Past requests */}
       {requests && requests.items.length > 0 && (
         <div>
-          <h2 className="font-hand text-2xl mb-4">Your Requests</h2>
-          <div className="sketch-card divide-y divide-foreground/10" style={{ padding: 0 }}>
-            {requests.items.map((r) => (
-              <div key={r.id} className="flex items-center gap-4 px-5 py-4">
-                <div>{STATUS_ICON[r.status] ?? <Clock className="h-4 w-4" />}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-hand text-lg">{r.creditsRequested} credits requested</p>
-                  {r.note && <p className="font-body text-xs text-muted-foreground truncate">{r.note}</p>}
-                  <p className="font-body text-xs text-muted-foreground">{new Date(r.createdAt).toLocaleDateString()}</p>
+          <h2 style={{ fontWeight: 700, fontSize: 18, letterSpacing: '-0.01em', margin: '0 0 16px' }}>Your Requests</h2>
+          <div className="av-card" style={{ padding: 0 }}>
+            {requests.items.map((r, i) => (
+              <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 24px', borderBottom: i < requests.items.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: STATUS_COLOR[r.status] ?? 'var(--mute)', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontWeight: 600, fontSize: 14, margin: 0, color: 'var(--ink)' }}>{r.creditsRequested} credits requested</p>
+                  {r.note && <p style={{ fontSize: 12, color: 'var(--mute)', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.note}</p>}
+                  <p style={{ fontSize: 12, color: 'var(--mute)', margin: '2px 0 0' }}>{new Date(r.createdAt).toLocaleDateString()}</p>
                 </div>
-                <div className="flex flex-col items-end gap-1">
-                  <Badge variant={r.status === 'approved' ? 'success' : r.status === 'rejected' ? 'destructive' : 'warning'}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                  <span style={{ padding: '3px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: r.status === 'approved' ? 'var(--mint-soft)' : r.status === 'rejected' ? 'rgba(245,92,122,0.10)' : 'rgba(246,181,83,0.10)', color: STATUS_COLOR[r.status] ?? 'var(--mute)' }}>
                     {r.status}
-                  </Badge>
+                  </span>
                   {r.creditsApproved != null && r.status === 'approved' && (
-                    <span className="font-body text-xs text-muted-foreground">+{r.creditsApproved} added</span>
+                    <span style={{ fontSize: 12, color: 'var(--mint)' }}>+{r.creditsApproved} added</span>
                   )}
                 </div>
               </div>

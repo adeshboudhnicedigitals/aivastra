@@ -1,12 +1,9 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import { api } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/cn';
-import { Upload, ChevronRight, ChevronLeft, Check, Loader2 } from 'lucide-react';
 
 interface Subcategory { id: string; slug: string; label: string }
 interface FaceItem { id: string; label: string; thumbnailUrl: string; gender: string }
@@ -20,51 +17,155 @@ const GENDERS = [
   { value: 'boys', label: 'Boys' },
 ];
 
-// Step order: Category → Model → Background → Pose → Garment → Review
-const STEPS = ['Category', 'Model', 'Background', 'Pose', 'Garment', 'Review'];
+const PLATFORMS = ['Amazon', 'Myntra', 'Flipkart', 'Ajio', 'Shopify', 'Meesho'];
+const ASPECTS = ['1:1', '4:5', '3:4', '9:16', '16:9'];
 
-function SelectCard({ selected, onClick, imageUrl, label }: { selected: boolean; onClick: () => void; imageUrl: string; label: string }) {
+const STEPS = [
+  'Setup Your Catalogue',
+  'Select AI Models',
+  'Select Backgrounds',
+  'Choose Templates & Generate',
+];
+
+// ── Icons ──────────────────────────────────────────────────────────────
+const CheckIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={size > 14 ? 2.6 : 2.8} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 12l5 5L20 7"/>
+  </svg>
+);
+const XIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 6l12 12M6 18L18 6"/>
+  </svg>
+);
+const UploadIcon = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/>
+  </svg>
+);
+const SpinnerIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="av-spin">
+    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+  </svg>
+);
+const ChevronDown = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 9l6 6 6-6"/>
+  </svg>
+);
+const BoltIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/>
+  </svg>
+);
+
+// ── Dropdown Select ────────────────────────────────────────────────────
+function Select({ value, options, onChange, placeholder }: { value: string; options: string[]; onChange: (v: string) => void; placeholder?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback((e: MouseEvent) => {
+    if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+  }, []);
+  useEffect(() => {
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [close]);
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'relative overflow-hidden transition-all focus-visible:outline-none sketch-card-sm',
-        selected ? 'ring-2 ring-primary ring-offset-1' : 'hover:ring-1 hover:ring-foreground/50',
-      )}
-      style={{ borderRadius: '4px' }}
-    >
-      <div className="aspect-[3/4] w-full relative">
-        <Image src={imageUrl} alt={label} fill className="object-cover" sizes="200px" />
+    <div className="av-select" ref={ref}>
+      <button type="button" className={`av-select-trigger ${open ? 'open' : ''}`} onClick={() => setOpen((o) => !o)}>
+        <span>{value || <span style={{ color: 'var(--mute-2)' }}>{placeholder}</span>}</span>
+        <span className="av-select-chev"><ChevronDown /></span>
+      </button>
+      <div className={`av-select-menu ${open ? 'open' : ''}`} role="listbox">
+        {options.map((opt) => (
+          <button key={opt} type="button" className={`av-select-opt ${opt === value ? 'selected' : ''}`}
+            onClick={() => { onChange(opt); setOpen(false); }}>
+            <span>{opt}</span>
+            <span className="av-select-check"><CheckIcon /></span>
+          </button>
+        ))}
       </div>
-      <div className="p-2 text-center">
-        <p className="font-body text-xs font-medium truncate">{label}</p>
+    </div>
+  );
+}
+
+// ── Selection card (model / bg / pose) ────────────────────────────────
+function SelCard({ selected, onClick, imageUrl, label }: { selected: boolean; onClick: () => void; imageUrl: string; label: string }) {
+  return (
+    <button type="button" onClick={onClick} className={`av-sel-card ${selected ? 'on' : ''}`}>
+      <div className="av-sel-img">
+        <Image src={imageUrl} alt={label} width={160} height={213} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       </div>
-      {selected && (
-        <div className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-primary border border-foreground">
-          <Check className="h-3 w-3 text-foreground" />
-        </div>
-      )}
+      <div className="av-sel-label">{label}</div>
+      <div className="av-sel-check"><CheckIcon size={12} /></div>
     </button>
   );
 }
 
+// ── Guide panel ────────────────────────────────────────────────────────
+function Guide() {
+  return (
+    <div className="av-guide">
+      <div className="av-guide-item">
+        <div className="av-guide-head">
+          <div className="av-guide-badge ok"><CheckIcon size={13} /></div>
+          <div className="av-guide-title">Works Best</div>
+        </div>
+        <div className="av-guide-body">Clean flat lay images with proper lighting, fully visible garments and plain backgrounds generate the most accurate, realistic catalogues.</div>
+        <ul className="av-guide-list">
+          <li>Even, diffuse daylight</li>
+          <li>Minimal wrinkles, garment laid flat</li>
+          <li>Plain, contrasting background</li>
+        </ul>
+      </div>
+      <div className="av-guide-item">
+        <div className="av-guide-head">
+          <div className="av-guide-badge no"><XIcon /></div>
+          <div className="av-guide-title">Avoid These</div>
+        </div>
+        <div className="av-guide-body">Blurry images, cluttered backgrounds, cropped garments, heavy shadows, folded outfits and mannequin photos reduce output quality.</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────
 export default function TryOnPage() {
   const router = useRouter();
+
+  // Wizard step (0–3)
   const [step, setStep] = useState(0);
-  const [gender, setGender] = useState<string>('');
-  const [subcategoryId, setSubcategoryId] = useState<string>('');
-  const [faceId, setFaceId] = useState<string>('');
-  const [backgroundId, setBackgroundId] = useState<string>('');
-  const [poseId, setPoseId] = useState<string>('');
+
+  // Step 0: setup
+  const [gender, setGender] = useState('');
+  const [subcategoryId, setSubcategoryId] = useState('');
+  const [platform, setPlatform] = useState('Amazon');
+  const [aspect, setAspect] = useState('1:1');
+  const [resolution, setResolution] = useState('2K');
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
-  const [garmentKey, setGarmentKey] = useState<string>('');
+  const [garmentKey, setGarmentKey] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState('');
+  const [sampleIdx, setSampleIdx] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Steps 1–3
+  const [faceId, setFaceId] = useState('');
+  const [backgroundId, setBackgroundId] = useState('');
+  const [poseId, setPoseId] = useState('');
+
+  // Submission
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+
+  // Toast
+  const [toast, setToast] = useState('');
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), 1800);
+  }, []);
+
+  // API queries
   const { data: subcategories } = useQuery<{ items: Subcategory[] }>({
     queryKey: ['subcategories', gender],
     queryFn: () => api.get(`/v1/models/subcategories?gender=${gender}`),
@@ -77,15 +178,13 @@ export default function TryOnPage() {
     enabled: !!gender && step >= 1,
   });
 
-  // Backgrounds filtered by faceId + subcategoryId
-  // previewUrl = template pose thumbnail (model × bg composite) instead of raw background
   const { data: backgrounds } = useQuery<{ items: BackgroundItem[] }>({
     queryKey: ['backgrounds', faceId, subcategoryId],
     queryFn: () => {
-      const params = new URLSearchParams();
-      if (faceId) params.set('faceId', faceId);
-      if (subcategoryId) params.set('subcategoryId', subcategoryId);
-      return api.get(`/v1/models/backgrounds?${params}`);
+      const p = new URLSearchParams();
+      if (faceId) p.set('faceId', faceId);
+      if (subcategoryId) p.set('subcategoryId', subcategoryId);
+      return api.get(`/v1/models/backgrounds?${p}`);
     },
     enabled: !!faceId && step >= 2,
   });
@@ -96,8 +195,10 @@ export default function TryOnPage() {
     enabled: !!(subcategoryId && faceId && backgroundId && step >= 3),
   });
 
+  // Garment upload
   async function handleGarmentUpload(file: File) {
     setGarmentFile(file);
+    setSampleIdx(0);
     setIsUploading(true);
     setUploadProgress(0);
     try {
@@ -108,11 +209,21 @@ export default function TryOnPage() {
       await api.uploadToR2WithProgress(uploadUrl, file, setUploadProgress);
       setGarmentKey(r2Key);
     } catch (e) {
-      alert(`Upload failed: ${(e as Error).message}`);
+      showToast(`Upload failed: ${(e as Error).message}`);
       setGarmentFile(null);
     } finally {
       setIsUploading(false);
     }
+  }
+
+  function handleFaceSelect(id: string) {
+    setFaceId(id);
+    setBackgroundId('');
+    setPoseId('');
+  }
+  function handleBackgroundSelect(id: string) {
+    setBackgroundId(id);
+    setPoseId('');
   }
 
   async function handleSubmit() {
@@ -130,261 +241,313 @@ export default function TryOnPage() {
     }
   }
 
-  function handleFaceSelect(id: string) {
-    setFaceId(id);
-    // Reset downstream when face changes
-    setBackgroundId('');
-    setPoseId('');
-  }
-
-  function handleBackgroundSelect(id: string) {
-    setBackgroundId(id);
-    // Reset pose when background changes
-    setPoseId('');
-  }
-
-  const canNext = () => {
-    if (step === 0) return !!gender && !!subcategoryId;
+  // Validation
+  const canNext = (): boolean => {
+    if (step === 0) return !!gender && !!subcategoryId && (!!garmentFile || !!garmentKey);
     if (step === 1) return !!faceId;
     if (step === 2) return !!backgroundId;
-    if (step === 3) return !!poseId;
-    if (step === 4) return !!garmentKey && !isUploading;
-    return true;
+    return !!poseId;
   };
+
+  function goNext() {
+    if (step < 3) {
+      setStep((s) => s + 1);
+      showToast(`Step ${step + 2} · ${STEPS[step + 1]}`);
+    }
+  }
+  function goBack() { if (step > 0) setStep((s) => s - 1); }
 
   const selectedFace = faces?.items.find((f) => f.id === faceId);
   const selectedBg = backgrounds?.items.find((b) => b.id === backgroundId);
   const selectedPose = poses?.items.find((p) => p.id === poseId);
 
   return (
-    <div className="space-y-6">
+    <div className="av-main-inner">
       {/* Page header */}
-      <div>
-        <h1 className="font-hand text-4xl">New Virtual Try-On</h1>
-        <p className="mt-1 font-body text-sm text-muted-foreground">Build your look step by step.</p>
+      <div className="av-page-head">
+        <h1>Start Creating Catalogue</h1>
+        <p>Generate premium ecommerce-ready model shoots from flat lay garments in minutes.</p>
       </div>
 
-      {/* Step indicator */}
-      <div className="flex items-center gap-1 flex-wrap">
-        {STEPS.map((s, i) => (
-          <div key={s} className="flex items-center gap-1">
-            <div className={cn(
-              'flex items-center rounded-full px-3 py-1 font-body text-[10px] uppercase tracking-wide border transition-colors',
-              i === step ? 'border-foreground bg-foreground text-background' :
-              i < step ? 'border-primary bg-accent text-foreground' :
-              'border-foreground/30 text-muted-foreground',
-            )}>
-              {i < step ? <Check className="h-3 w-3" /> : s}
+      {/* Stepper */}
+      <div className="av-stepper">
+        {STEPS.map((label, i) => {
+          const state = i < step ? 'done' : i === step ? 'active' : '';
+          return (
+            <div key={i} className={`av-step ${state}`}>
+              <div className="av-step-num">
+                {state === 'done' ? <CheckIcon /> : i + 1}
+              </div>
+              <div className="av-step-label">{label}</div>
             </div>
-            {i < STEPS.length - 1 && (
-              <div className={cn('h-px w-4', i < step ? 'bg-primary' : 'bg-foreground/20')} />
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Step content */}
-      <div className="sketch-card p-6">
-        {/* Step 0: Category */}
-        {step === 0 && (
-          <div className="space-y-6">
-            <h2 className="font-hand text-2xl">Select Category</h2>
-            <div>
-              <p className="mb-3 font-hand text-[17px] text-muted-foreground">Gender</p>
-              <div className="flex flex-wrap gap-2">
-                {GENDERS.map((g) => (
-                  <button
-                    key={g.value}
-                    type="button"
-                    onClick={() => { setGender(g.value); setSubcategoryId(''); }}
-                    className={cn(
-                      'rounded-full border px-4 py-1.5 font-hand text-[17px] transition-colors',
-                      gender === g.value
-                        ? 'border-foreground bg-foreground text-background'
-                        : 'border-foreground/50 text-muted-foreground hover:border-foreground hover:text-foreground',
-                    )}
+      {/* Content grid */}
+      <div className="av-work">
+        <div className="av-card">
+
+          {/* ── Step 0: Setup ────────────────────────── */}
+          {step === 0 && (
+            <>
+              <div className="av-row-2">
+                <div className="av-field">
+                  <label className="av-field-label">Catalogue For</label>
+                  <Select value={gender ? gender.charAt(0).toUpperCase() + gender.slice(1) : ''} options={GENDERS.map((g) => g.label)} onChange={(v) => { setGender(v.toLowerCase()); setSubcategoryId(''); }} placeholder="Select gender" />
+                </div>
+                <div className="av-field">
+                  <label className="av-field-label">Outfit Type</label>
+                  <Select
+                    value={subcategories?.items.find((s) => s.id === subcategoryId)?.label ?? ''}
+                    options={subcategories?.items.map((s) => s.label) ?? []}
+                    onChange={(v) => setSubcategoryId(subcategories?.items.find((s) => s.label === v)?.id ?? '')}
+                    placeholder={gender ? 'Select type' : 'Pick gender first'}
+                  />
+                </div>
+              </div>
+
+              <div className="av-field">
+                <label className="av-field-label">Publishing Platform</label>
+                <div className="av-chips">
+                  {PLATFORMS.map((p) => (
+                    <button key={p} type="button" className={`av-chip ${platform === p ? 'on' : ''}`} onClick={() => setPlatform(p)}>{p}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="av-field">
+                <label className="av-field-label">Aspect Ratio</label>
+                <div className="av-chips">
+                  {ASPECTS.map((a) => (
+                    <button key={a} type="button" className={`av-chip ${aspect === a ? 'on' : ''}`} onClick={() => setAspect(a)}>{a}</button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="av-field">
+                <label className="av-field-label">Output Resolution</label>
+                <div className="av-radio-row">
+                  {[{ id: '2K', meta: '4 credits' }, { id: '4K', meta: '8 credits' }].map((o) => (
+                    <button key={o.id} type="button" className={`av-radio ${resolution === o.id ? 'on' : ''}`} onClick={() => setResolution(o.id)}>
+                      <span className="av-radio-dot" />
+                      <span className="av-radio-ttl">{o.id}</span>
+                      <span className="av-radio-meta">({o.meta})</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="av-helper-row">
+                  <span className="av-helper-pip" />
+                  Credits deduct from your balance at generation time.
+                </div>
+              </div>
+
+              <div className="av-field">
+                <label className="av-field-label">
+                  Upload Product <span className="av-field-hint">or pick a sample</span>
+                </label>
+                <div className="av-upload-grid">
+                  <label
+                    className={`av-dropzone ${!garmentFile ? '' : ''}`}
+                    onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('over'); }}
+                    onDragLeave={(e) => e.currentTarget.classList.remove('over')}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.currentTarget.classList.remove('over');
+                      const f = e.dataTransfer.files?.[0];
+                      if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) handleGarmentUpload(f);
+                    }}
                   >
-                    {g.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {gender && (
-              <div>
-                <p className="mb-3 font-hand text-[17px] text-muted-foreground">Garment type</p>
-                {!subcategories ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {subcategories.items.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => setSubcategoryId(s.id)}
-                        className={cn(
-                          'rounded-full border px-4 py-1.5 font-hand text-[17px] transition-colors',
-                          subcategoryId === s.id
-                            ? 'border-foreground bg-foreground text-background'
-                            : 'border-foreground/50 text-muted-foreground hover:border-foreground hover:text-foreground',
+                    {garmentFile ? (
+                      <div className="av-uploaded">
+                        <img src={URL.createObjectURL(garmentFile)} alt={garmentFile.name} />
+                        <button className="av-uploaded-rm" type="button" onClick={(e) => { e.preventDefault(); setGarmentFile(null); setGarmentKey(''); }}>
+                          <XIcon />
+                        </button>
+                        {isUploading && (
+                          <div style={{ position: 'absolute', bottom: 8, left: 8, right: 8, background: 'rgba(255,255,255,0.9)', borderRadius: 8, padding: '6px 10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink)' }}>
+                              <SpinnerIcon /> Uploading… {uploadProgress}%
+                            </div>
+                            <div style={{ marginTop: 4, height: 4, borderRadius: 99, background: 'var(--line)', overflow: 'hidden' }}>
+                              <div style={{ height: '100%', width: `${uploadProgress}%`, background: 'var(--grad)', borderRadius: 99, transition: 'width .3s' }} />
+                            </div>
+                          </div>
                         )}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+                        {garmentKey && (
+                          <div style={{ position: 'absolute', top: 8, left: 8, background: 'var(--mint)', color: 'white', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <CheckIcon size={10} /> Uploaded
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="av-dropzone-ico"><UploadIcon /></div>
+                        <div className="av-dropzone-ttl">Drag & drop or click to browse</div>
+                        <div className="av-dropzone-sub">Supported formats: JPG, PNG, WebP · Max 10MB</div>
+                      </>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleGarmentUpload(f); }}
+                    />
+                  </label>
 
-        {/* Step 1: Select model/face */}
-        {step === 1 && (
-          <div className="space-y-4">
-            <h2 className="font-hand text-2xl">Select Model</h2>
-            <p className="font-body text-sm text-muted-foreground">Choose the model that will wear your garment.</p>
-            {!faces ? (
-              <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-            ) : (
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-                {faces.items.map((f) => (
-                  <SelectCard key={f.id} selected={faceId === f.id} onClick={() => handleFaceSelect(f.id)} imageUrl={f.thumbnailUrl} label={f.label} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Step 2: Select background (filtered by face) */}
-        {step === 2 && (
-          <div className="space-y-4">
-            <h2 className="font-hand text-2xl">Select Background</h2>
-            <p className="font-body text-sm text-muted-foreground">
-              Preview of <span className="font-medium text-foreground">{selectedFace?.label ?? 'selected model'}</span> in each background. Pick one to continue.
-            </p>
-            {!backgrounds ? (
-              <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-            ) : backgrounds.items.length === 0 ? (
-              <p className="font-body text-sm text-muted-foreground">No backgrounds available for this model yet. Try a different model.</p>
-            ) : (
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-                {backgrounds.items.map((b) => (
-                  <SelectCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)} imageUrl={b.previewUrl} label={b.label} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Step 3: Select pose (face × background subset) */}
-        {step === 3 && (
-          <div className="space-y-4">
-            <h2 className="font-hand text-2xl">Select Pose</h2>
-            <p className="font-body text-sm text-muted-foreground">
-              Showing poses for <span className="font-medium text-foreground">{selectedFace?.label}</span> on <span className="font-medium text-foreground">{selectedBg?.label}</span>.
-            </p>
-            {!poses ? (
-              <div className="flex justify-center py-8"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-            ) : poses.items.length === 0 ? (
-              <p className="font-body text-sm text-muted-foreground">No poses for this combination. Go back and try a different background.</p>
-            ) : (
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-                {poses.items.map((p) => (
-                  <SelectCard key={p.id} selected={poseId === p.id} onClick={() => setPoseId(p.id)} imageUrl={p.thumbnailUrl} label={p.label} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Step 4: Upload garment */}
-        {step === 4 && (
-          <div className="space-y-4">
-            <h2 className="font-hand text-2xl">Upload Garment</h2>
-            <p className="font-body text-sm text-muted-foreground">Clear photo on white background gives best results.</p>
-            <div
-              className={cn(
-                'flex flex-col items-center justify-center rounded p-12 transition-colors cursor-pointer sketch-border',
-                garmentFile ? 'bg-accent/30' : 'hover:bg-secondary border-dashed',
-              )}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleGarmentUpload(f); }}
-              />
-              {isUploading ? (
-                <div className="flex flex-col items-center gap-3">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  <p className="font-hand text-lg">Uploading… {uploadProgress}%</p>
-                  <div className="h-2 w-48 rounded-full border border-foreground overflow-hidden">
-                    <div className="h-full bg-primary transition-all" style={{ width: `${uploadProgress}%` }} />
+                  <div className="av-samples">
+                    <h4>Or use a sample product</h4>
+                    <div className="av-samples-grid">
+                      {[1, 2].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          className={`av-sample ${sampleIdx === n ? 'on' : ''}`}
+                          onClick={() => {
+                            setSampleIdx(sampleIdx === n ? 0 : n);
+                            if (garmentFile) { setGarmentFile(null); setGarmentKey(''); }
+                          }}
+                        >
+                          <img src={`/samples/sample-${n}.png`} alt={`Sample ${n}`} />
+                          <span className="av-sample-check"><CheckIcon size={11} /></span>
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--mute)', lineHeight: 1.5 }}>
+                      Try the generator first with a curated sample garment.
+                    </div>
                   </div>
                 </div>
-              ) : garmentFile ? (
-                <div className="flex flex-col items-center gap-3">
-                  <Check className="h-8 w-8 text-primary" />
-                  <p className="font-hand text-lg">{garmentFile.name}</p>
-                  <p className="font-body text-xs text-muted-foreground">Click to replace</p>
-                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── Step 1: Model ────────────────────────── */}
+          {step === 1 && (
+            <div>
+              <h2 style={{ fontWeight: 700, fontSize: 20, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Select AI Model</h2>
+              <p style={{ fontSize: 14, color: 'var(--mute)', margin: '0 0 20px' }}>Choose the model that will wear your garment.</p>
+              {!faces ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><SpinnerIcon /></div>
               ) : (
-                <div className="flex flex-col items-center gap-3">
-                  <Upload className="h-8 w-8 text-muted-foreground" />
-                  <div className="text-center">
-                    <p className="font-hand text-lg">Drop or click to upload</p>
-                    <p className="font-body text-xs text-muted-foreground">JPEG, PNG, WebP · max 10MB</p>
-                  </div>
+                <div className="av-sel-grid">
+                  {faces.items.map((f) => (
+                    <SelCard key={f.id} selected={faceId === f.id} onClick={() => handleFaceSelect(f.id)} imageUrl={f.thumbnailUrl} label={f.label} />
+                  ))}
                 </div>
               )}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Step 5: Review & submit */}
-        {step === 5 && (
-          <div className="space-y-5">
-            <h2 className="font-hand text-2xl">Review & Submit</h2>
-            <p className="font-body text-sm text-muted-foreground">Your try-on will use 1 credit. Results take about 1–2 minutes.</p>
-
-            <div className="sketch-card-sm p-4 space-y-2">
-              {[
-                ['Model', selectedFace?.label ?? '—'],
-                ['Background', selectedBg?.label ?? '—'],
-                ['Pose', selectedPose?.label ?? '—'],
-                ['Garment', garmentFile?.name ?? '—'],
-                ['Credits charged', '1'],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between font-body text-sm">
-                  <span className="text-muted-foreground">{k}</span>
-                  <span className="font-medium text-foreground">{v}</span>
+          {/* ── Step 2: Background ───────────────────── */}
+          {step === 2 && (
+            <div>
+              <h2 style={{ fontWeight: 700, fontSize: 20, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Select Background</h2>
+              <p style={{ fontSize: 14, color: 'var(--mute)', margin: '0 0 20px' }}>
+                Preview of <strong style={{ color: 'var(--ink)' }}>{selectedFace?.label ?? 'model'}</strong> in each background. Pick one to continue.
+              </p>
+              {!backgrounds ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><SpinnerIcon /></div>
+              ) : backgrounds.items.length === 0 ? (
+                <p style={{ fontSize: 14, color: 'var(--mute)' }}>No backgrounds available for this model yet. Try a different model.</p>
+              ) : (
+                <div className="av-sel-grid">
+                  {backgrounds.items.map((b) => (
+                    <SelCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)} imageUrl={b.previewUrl} label={b.label} />
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
+          )}
 
-            {submitError && (
-              <p className="rounded border border-destructive bg-destructive/10 px-3 py-2 font-body text-sm text-destructive">{submitError}</p>
+          {/* ── Step 3: Pose + Generate ──────────────── */}
+          {step === 3 && (
+            <div>
+              <h2 style={{ fontWeight: 700, fontSize: 20, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Choose Template & Generate</h2>
+              <p style={{ fontSize: 14, color: 'var(--mute)', margin: '0 0 20px' }}>
+                Showing poses for <strong style={{ color: 'var(--ink)' }}>{selectedFace?.label}</strong> on <strong style={{ color: 'var(--ink)' }}>{selectedBg?.label}</strong>.
+              </p>
+              {!poses ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><SpinnerIcon /></div>
+              ) : poses.items.length === 0 ? (
+                <p style={{ fontSize: 14, color: 'var(--mute)' }}>No poses for this combination. Go back and try a different background.</p>
+              ) : (
+                <div className="av-sel-grid">
+                  {poses.items.map((p) => (
+                    <SelCard key={p.id} selected={poseId === p.id} onClick={() => setPoseId(p.id)} imageUrl={p.thumbnailUrl} label={p.label} />
+                  ))}
+                </div>
+              )}
+
+              {/* Review summary */}
+              {poseId && (
+                <div className="av-review">
+                  {[
+                    ['Model', selectedFace?.label ?? '—'],
+                    ['Background', selectedBg?.label ?? '—'],
+                    ['Pose', selectedPose?.label ?? '—'],
+                    ['Garment', garmentFile?.name ?? (sampleIdx > 0 ? `Sample ${sampleIdx}` : '—')],
+                    ['Credits charged', '1'],
+                  ].map(([k, v]) => (
+                    <div key={k} className="av-review-row">
+                      <span className="av-review-key">{k}</span>
+                      <span className="av-review-val">{v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {submitError && (
+                <div style={{ marginTop: 16, padding: '10px 14px', borderRadius: 10, border: '1px solid #f55c7a', background: 'rgba(245,92,122,0.06)', fontSize: 14, color: '#c0392b' }}>
+                  {submitError}
+                </div>
+              )}
+
+              {isUploading && (
+                <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--mute)' }}>
+                  <SpinnerIcon /> Uploading garment… {uploadProgress}%
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Guide panel */}
+        <aside><Guide /></aside>
+      </div>
+
+      {/* Sticky footer */}
+      <div className="av-footer">
+        <button type="button" className="av-btn av-btn-ghost" onClick={step === 0 ? () => { setGender(''); setSubcategoryId(''); setFaceId(''); setBackgroundId(''); setPoseId(''); setGarmentFile(null); setGarmentKey(''); setSampleIdx(0); setStep(0); showToast('Setup reset'); } : goBack}>
+          {step === 0 ? 'Reset' : '← Back'}
+        </button>
+
+        {step < 3 ? (
+          <button type="button" className="av-btn av-btn-primary" onClick={goNext} disabled={!canNext()}>
+            Next Step →
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="av-btn av-btn-primary"
+            onClick={handleSubmit}
+            disabled={!poseId || !garmentKey || isUploading || isSubmitting}
+            style={{ gap: 8 }}
+          >
+            {isSubmitting ? (
+              <><SpinnerIcon /> Generating…</>
+            ) : isUploading ? (
+              <><SpinnerIcon /> Uploading…</>
+            ) : (
+              <><BoltIcon /> Generate</>
             )}
-            <Button onClick={handleSubmit} disabled={isSubmitting} size="lg">
-              {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Submitting…</> : 'Start Try-On →'}
-            </Button>
-          </div>
+          </button>
         )}
       </div>
 
-      {/* Navigation */}
-      <div className="flex justify-between">
-        <Button variant="outline" onClick={() => setStep((s) => s - 1)} disabled={step === 0}>
-          <ChevronLeft className="mr-1 h-4 w-4" />Back
-        </Button>
-        {step < STEPS.length - 1 && (
-          <Button onClick={() => setStep((s) => s + 1)} disabled={!canNext()}>
-            Next<ChevronRight className="ml-1 h-4 w-4" />
-          </Button>
-        )}
-      </div>
+      {/* Toast */}
+      <div className={`av-toast ${toast ? 'show' : ''}`}>{toast}</div>
     </div>
   );
 }

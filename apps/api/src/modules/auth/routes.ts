@@ -39,6 +39,17 @@ export async function authRoutes(app: FastifyInstance) {
     return issueTokens(app, row.userId, reply, 200);
   });
 
+  app.get('/v1/me', { preHandler: app.requireUser }, async (req) => {
+    const [user] = await app.db.select({
+      id: schema.users.id,
+      email: schema.users.email,
+      displayName: schema.users.displayName,
+      tier: schema.users.tier,
+    }).from(schema.users).where(eq(schema.users.id, (req as any).user.userId));
+    if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
+    return user;
+  });
+
   app.post('/v1/auth/logout', { preHandler: app.requireUser }, async (req, reply) => {
     const plain = req.cookies['refresh'];
     if (plain) {
