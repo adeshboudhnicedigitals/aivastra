@@ -132,7 +132,9 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
               onChange={(e) => { setQuery(e.target.value); setPage(0); }}
             />
           </div>
-          <button className="btn" onClick={() => setShowUpload(true)}><Icon.Add /> Add item</button>
+          {tab !== 'all' && (
+            <button className="btn" onClick={() => setShowUpload(true)}><Icon.Add /> Add item</button>
+          )}
         </div>
       </div>
 
