@@ -78,6 +78,23 @@ This is faster but means:
 - `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` seed first admin.
 - Postgres and Redis bind `127.0.0.1` only (never `0.0.0.0`).
 
+## Git Commit & Push Policy
+
+**Only commit and push when a meaningful unit of work is complete.** Do NOT commit after every minor UI tweak, typo fix, or single-line change.
+
+Commit when:
+- A full feature is working end-to-end (new wizard step, new admin page, new API endpoint)
+- A bug is fixed and verified
+- A migration + its corresponding API/UI changes are all done together
+- A refactor spanning multiple files is complete
+
+Do NOT commit for:
+- Single CSS property changes
+- Label/copy tweaks
+- One-liner fixes that are part of a larger in-progress task
+
+Batch related small changes into one commit with the larger task they belong to.
+
 ## Progress Tracking
 
 After every plan execution, update `docs/progress.md`:

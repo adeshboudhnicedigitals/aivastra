@@ -64,6 +64,23 @@ Not yet wired. When scaffolding, expose these at the root via pnpm:
 - `pnpm test --filter <pkg>` — single-package test run
 - `pnpm test --filter api -- <pattern>` — single test by name (Vitest `-t`)
 
+## Git Commit & Push Policy
+
+**Only commit and push when a meaningful unit of work is complete.** Do NOT commit after every minor UI tweak, typo fix, or single-line change.
+
+Commit when:
+- A full feature is working end-to-end (e.g., new wizard step, new admin page)
+- A bug is fixed and verified
+- A migration + its corresponding API/UI changes are all done together
+- A refactor that touches multiple files is complete
+
+Do NOT commit for:
+- Single CSS property changes
+- Label/copy tweaks
+- One-liner fixes that are part of a larger in-progress task
+
+Batch related small changes into one commit with the larger task they belong to.
+
 ## Progress Tracking
 
 After every plan execution (`superpowers/plan`, `workflow-execute-plans`, or any implementation plan), update `docs/progress.md` with:
