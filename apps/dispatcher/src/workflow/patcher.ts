@@ -18,24 +18,28 @@ function loadTemplate(): Workflow {
 
 export interface WorkflowInputs {
   // ComfyUI filenames returned by /upload/image
-  upperGarmentFile: string; // node 1314 — user garment
-  faceFile: string;         // node 1302 — model face
-  poseFile: string;         // node 1313 — pose reference image
-  backgroundFile: string;   // node 1310 — background
+  upperGarmentFile: string;  // node 1340 — user upper garment
+  faceFile: string;          // node 1332 — model face
+  poseFile: string;          // node 1333 — pose reference image
+  backgroundFile: string;    // node 1334 — background
+  lowerGarmentFile?: string; // node 1331 — lower garment (optional)
 }
 
 /**
- * Deep-clones the workflow template and patches the four LoadImage nodes
+ * Deep-clones the workflow template and patches the LoadImage nodes
  * with filenames previously uploaded to ComfyUI via /upload/image.
  * Returns the object suitable for the `prompt` field in POST /prompt.
  */
 export function patchWorkflow(inputs: WorkflowInputs): Record<string, unknown> {
   const workflow = JSON.parse(JSON.stringify(loadTemplate())) as Workflow;
 
-  workflow['1314']!.inputs['image'] = inputs.upperGarmentFile;
-  workflow['1302']!.inputs['image'] = inputs.faceFile;
-  workflow['1313']!.inputs['image'] = inputs.poseFile;
-  workflow['1310']!.inputs['image'] = inputs.backgroundFile;
+  workflow['1340']!.inputs['image'] = inputs.upperGarmentFile;
+  workflow['1332']!.inputs['image'] = inputs.faceFile;
+  workflow['1333']!.inputs['image'] = inputs.poseFile;
+  workflow['1334']!.inputs['image'] = inputs.backgroundFile;
+  if (inputs.lowerGarmentFile) {
+    workflow['1331']!.inputs['image'] = inputs.lowerGarmentFile;
+  }
 
   return workflow as unknown as Record<string, unknown>;
 }

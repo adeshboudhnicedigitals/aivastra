@@ -1,5 +1,5 @@
 {
-  "1286": {
+  "1316": {
     "inputs": {
       "style": "%Y%m%d%H%M%S"
     },
@@ -8,13 +8,13 @@
       "title": "Get Date Time String (JPS)"
     }
   },
-  "1287": {
+  "1317": {
     "inputs": {
       "upscale_method": "lanczos",
       "megapixels": 16,
       "resolution_steps": 1,
       "image": [
-        "1314",
+        "1340",
         0
       ]
     },
@@ -23,7 +23,7 @@
       "title": "ImageScaleToTotalPixels"
     }
   },
-  "1288": {
+  "1318": {
     "inputs": {
       "padding_left": 400,
       "padding_right": 400,
@@ -31,11 +31,11 @@
       "padding_bottom": 0,
       "return_list": false,
       "image": [
-        "1289",
+        "1343",
         0
       ],
       "mask": [
-        "1289",
+        "1343",
         1
       ]
     },
@@ -44,7 +44,115 @@
       "title": "Bounded Image Crop with Mask"
     }
   },
-  "1289": {
+  "1319": {
+    "inputs": {
+      "enabled": true,
+      "swap_model": "inswapper_128.onnx",
+      "facedetection": "YOLOv5n",
+      "face_restore_model": "codeformer-v0.1.0.pth",
+      "face_restore_visibility": 1,
+      "codeformer_weight": 1,
+      "detect_gender_input": "no",
+      "detect_gender_source": "no",
+      "input_faces_index": true,
+      "source_faces_index": true,
+      "console_log_level": 0,
+      "input_image": [
+        "1341:1197",
+        0
+      ],
+      "source_image": [
+        "1335",
+        0
+      ]
+    },
+    "class_type": "ReActorFaceSwap",
+    "_meta": {
+      "title": "ReActor 🌌 Fast Face Swap"
+    }
+  },
+  "1320": {
+    "inputs": {
+      "images": [
+        "1345:8",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "1322": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "width": 12048,
+      "height": 12048,
+      "crop": "disabled",
+      "image": [
+        "1340",
+        0
+      ]
+    },
+    "class_type": "ImageScale",
+    "_meta": {
+      "title": "Upscale Image"
+    }
+  },
+  "1323": {
+    "inputs": {
+      "padding_left": 117,
+      "padding_right": 60,
+      "padding_top": 59,
+      "padding_bottom": 0,
+      "return_list": false,
+      "image": [
+        "1335",
+        0
+      ],
+      "mask": [
+        "1335",
+        1
+      ]
+    },
+    "class_type": "Bounded Image Crop with Mask",
+    "_meta": {
+      "title": "Bounded Image Crop with Mask"
+    }
+  },
+  "1324": {
+    "inputs": {
+      "direction": "down",
+      "match_image_size": true,
+      "spacing_width": 0,
+      "spacing_color": "white",
+      "image1": [
+        "1323",
+        0
+      ],
+      "image2": [
+        "1336",
+        0
+      ]
+    },
+    "class_type": "ImageStitch",
+    "_meta": {
+      "title": "Image Stitch"
+    }
+  },
+  "1325": {
+    "inputs": {
+      "images": [
+        "1342",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "1327": {
     "inputs": {
       "model": "RMBG-2.0",
       "sensitivity": 1,
@@ -54,9 +162,9 @@
       "invert_output": false,
       "refine_foreground": false,
       "background": "Color",
-      "background_color": "#000000",
+      "background_color": "#ffffff",
       "image": [
-        "1287",
+        "1331",
         0
       ]
     },
@@ -65,7 +173,106 @@
       "title": "Remove Background (RMBG)"
     }
   },
-  "1290": {
+  "1328": {
+    "inputs": {
+      "padding_left": 200,
+      "padding_right": 200,
+      "padding_top": 100,
+      "padding_bottom": 100,
+      "return_list": false,
+      "image": [
+        "1327",
+        0
+      ],
+      "mask": [
+        "1327",
+        1
+      ]
+    },
+    "class_type": "Bounded Image Crop with Mask",
+    "_meta": {
+      "title": "Bounded Image Crop with Mask"
+    }
+  },
+  "1329": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": 256,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Color",
+      "background_color": "#000000",
+      "image": [
+        "1333",
+        0
+      ]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "1330": {
+    "inputs": {
+      "padding_left": 60,
+      "padding_right": 60,
+      "padding_top": 60,
+      "padding_bottom": 0,
+      "return_list": false,
+      "image": [
+        "1329",
+        0
+      ],
+      "mask": [
+        "1329",
+        1
+      ]
+    },
+    "class_type": "Bounded Image Crop with Mask",
+    "_meta": {
+      "title": "Bounded Image Crop with Mask"
+    }
+  },
+  "1331": {
+    "inputs": {
+      "image": "png-transparent-t-shirt-pants-clothing-pajamas-loose-pants-adidas-black-top-thumbnail (1).png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "lower garment"
+    }
+  },
+  "1332": {
+    "inputs": {
+      "image": "img 5 (1).png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "face"
+    }
+  },
+  "1333": {
+    "inputs": {
+      "image": "20260515103935_00001_.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "poseimage"
+    }
+  },
+  "1334": {
+    "inputs": {
+      "image": "ComfyUI_temp_ozjgv_00001_.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Background"
+    }
+  },
+  "1335": {
     "inputs": {
       "Skin": true,
       "Nose": true,
@@ -87,9 +294,9 @@
       "mask_offset": 0,
       "invert_output": false,
       "background": "Color",
-      "background_color": "#000000",
+      "background_color": "#ffffff",
       "images": [
-        "1302",
+        "1332",
         0
       ]
     },
@@ -98,69 +305,34 @@
       "title": "Face Segmentation (RMBG)"
     }
   },
-  "1291": {
+  "1336": {
     "inputs": {
-      "enabled": true,
-      "swap_model": "inswapper_128.onnx",
-      "facedetection": "YOLOv5n",
-      "face_restore_model": "codeformer-v0.1.0.pth",
-      "face_restore_visibility": 1,
-      "codeformer_weight": 1,
-      "detect_gender_input": "no",
-      "detect_gender_source": "no",
-      "input_faces_index": true,
-      "source_faces_index": true,
-      "console_log_level": 0,
-      "input_image": [
-        "1315:1197",
+      "direction": "right",
+      "match_image_size": true,
+      "spacing_width": 4,
+      "spacing_color": "white",
+      "image1": [
+        "1318",
         0
       ],
-      "source_image": [
-        "1290",
+      "image2": [
+        "1328",
         0
       ]
     },
-    "class_type": "ReActorFaceSwap",
+    "class_type": "ImageStitch",
     "_meta": {
-      "title": "ReActor 🌌 Fast Face Swap"
+      "title": "Image Stitch"
     }
   },
-  "1292": {
-    "inputs": {
-      "images": [
-        "1308:8",
-        0
-      ]
-    },
-    "class_type": "PreviewImage",
-    "_meta": {
-      "title": "Preview Image"
-    }
-  },
-  "1293": {
-    "inputs": {
-      "filename_prefix": [
-        "1286",
-        0
-      ],
-      "images": [
-        "1291",
-        0
-      ]
-    },
-    "class_type": "SaveImage",
-    "_meta": {
-      "title": "Save Image"
-    }
-  },
-  "1294": {
+  "1337": {
     "inputs": {
       "target_width": 1536,
       "target_height": 1536,
-      "padding_color": "black",
-      "interpolation": "lanczos",
+      "padding_color": "white",
+      "interpolation": "area",
       "image": [
-        "1299",
+        "1324",
         0
       ]
     },
@@ -169,83 +341,10 @@
       "title": "ResizeAndPadImage"
     }
   },
-  "1296": {
-    "inputs": {
-      "direction": "right",
-      "match_image_size": true,
-      "spacing_width": 0,
-      "spacing_color": "black",
-      "image1": [
-        "1288",
-        0
-      ]
-    },
-    "class_type": "ImageStitch",
-    "_meta": {
-      "title": "Image Stitch"
-    }
-  },
-  "1297": {
-    "inputs": {
-      "upscale_method": "lanczos",
-      "width": 12048,
-      "height": 12048,
-      "crop": "disabled",
-      "image": [
-        "1314",
-        0
-      ]
-    },
-    "class_type": "ImageScale",
-    "_meta": {
-      "title": "Upscale Image"
-    }
-  },
-  "1298": {
-    "inputs": {
-      "padding_left": 117,
-      "padding_right": 60,
-      "padding_top": 59,
-      "padding_bottom": 0,
-      "return_list": false,
-      "image": [
-        "1290",
-        0
-      ],
-      "mask": [
-        "1290",
-        1
-      ]
-    },
-    "class_type": "Bounded Image Crop with Mask",
-    "_meta": {
-      "title": "Bounded Image Crop with Mask"
-    }
-  },
-  "1299": {
-    "inputs": {
-      "direction": "down",
-      "match_image_size": false,
-      "spacing_width": 0,
-      "spacing_color": "black",
-      "image1": [
-        "1298",
-        0
-      ],
-      "image2": [
-        "1296",
-        0
-      ]
-    },
-    "class_type": "ImageStitch",
-    "_meta": {
-      "title": "Image Stitch"
-    }
-  },
-  "1300": {
+  "1338": {
     "inputs": {
       "images": [
-        "1311",
+        "1341:1197",
         0
       ]
     },
@@ -254,110 +353,42 @@
       "title": "Preview Image"
     }
   },
-  "1302": {
+  "1339": {
     "inputs": {
-      "image": "360_F_741504601_Rfc71WXaLZhVwd9DhWSfaw3VHb5PyW7J.jpg"
-    },
-    "class_type": "LoadImage",
-    "_meta": {
-      "title": "face"
-    }
-  },
-  "1304": {
-    "inputs": {
-      "padding_left": 200,
-      "padding_right": 200,
-      "padding_top": 100,
-      "padding_bottom": 100,
-      "return_list": false,
-      "image": [
-        "1290",
+      "filename_prefix": [
+        "1316",
         0
       ],
-      "mask": [
-        "1290",
-        1
-      ]
-    },
-    "class_type": "Bounded Image Crop with Mask",
-    "_meta": {
-      "title": "Bounded Image Crop with Mask"
-    }
-  },
-  "1305": {
-    "inputs": {
-      "model": "RMBG-2.0",
-      "sensitivity": 1,
-      "process_res": 256,
-      "mask_blur": 0,
-      "mask_offset": 0,
-      "invert_output": false,
-      "refine_foreground": false,
-      "background": "Color",
-      "background_color": "#000000",
-      "image": [
-        "1313",
-        0
-      ]
-    },
-    "class_type": "RMBG",
-    "_meta": {
-      "title": "Remove Background (RMBG)"
-    }
-  },
-  "1306": {
-    "inputs": {
-      "padding_left": 60,
-      "padding_right": 60,
-      "padding_top": 60,
-      "padding_bottom": 0,
-      "return_list": false,
-      "image": [
-        "1305",
-        0
-      ],
-      "mask": [
-        "1305",
-        1
-      ]
-    },
-    "class_type": "Bounded Image Crop with Mask",
-    "_meta": {
-      "title": "Bounded Image Crop with Mask"
-    }
-  },
-  "1309": {
-    "inputs": {
       "images": [
-        "1315:1197",
+        "1319",
         0
       ]
     },
-    "class_type": "PreviewImage",
+    "class_type": "SaveImage",
     "_meta": {
-      "title": "Preview Image"
+      "title": "Save Image"
     }
   },
-  "1310": {
+  "1340": {
     "inputs": {
-      "image": "ComfyUI_temp_smicj_00001_.png"
+      "image": "db4e7a58-66f9-4370-af59-566c5a045326.jpg"
     },
     "class_type": "LoadImage",
     "_meta": {
-      "title": "Background"
+      "title": "upper garment"
     }
   },
-  "1311": {
+  "1342": {
     "inputs": {
       "detect_hand": "enable",
       "detect_body": "enable",
       "detect_face": "enable",
-      "resolution": 1536,
-      "bbox_detector": "yolo_nas_s_fp16.onnx",
+      "resolution": 1024,
+      "bbox_detector": "yolox_l.onnx",
       "pose_estimator": "dw-ll_ucoco_384_bs5.torchscript.pt",
       "scale_stick_for_xinsr_cn": "disable",
       "image": [
-        "1306",
+        "1330",
         0
       ]
     },
@@ -366,10 +397,31 @@
       "title": "DWPose Estimator"
     }
   },
-  "1312": {
+  "1343": {
+    "inputs": {
+      "model": "RMBG-2.0",
+      "sensitivity": 1,
+      "process_res": 1024,
+      "mask_blur": 0,
+      "mask_offset": 0,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Color",
+      "background_color": "#ffffff",
+      "image": [
+        "1317",
+        0
+      ]
+    },
+    "class_type": "RMBG",
+    "_meta": {
+      "title": "Remove Background (RMBG)"
+    }
+  },
+  "1344": {
     "inputs": {
       "images": [
-        "1308:8",
+        "1345:8",
         0
       ]
     },
@@ -378,28 +430,10 @@
       "title": "Preview Image"
     }
   },
-  "1313": {
-    "inputs": {
-      "image": "a474db8f-7af9-4aba-9697-0832f1e4be29.jpg"
-    },
-    "class_type": "LoadImage",
-    "_meta": {
-      "title": "poseimage"
-    }
-  },
-  "1314": {
-    "inputs": {
-      "image": "image (23).png"
-    },
-    "class_type": "LoadImage",
-    "_meta": {
-      "title": "upper garment"
-    }
-  },
-  "1319": {
+  "1346": {
     "inputs": {
       "images": [
-        "1294",
+        "1337",
         0
       ]
     },
@@ -408,47 +442,7 @@
       "title": "Preview Image"
     }
   },
-  "1320": {
-    "inputs": {
-      "draw_body": true,
-      "draw_hands": true,
-      "draw_face": true,
-      "draw_feet": false,
-      "stick_width": 4,
-      "face_point_size": 3,
-      "score_threshold": 0.3,
-      "keypoints": [
-        "1311",
-        1
-      ]
-    },
-    "class_type": "SDPoseDrawKeypoints",
-    "_meta": {
-      "title": "SDPoseDrawKeypoints"
-    }
-  },
-  "1321": {
-    "inputs": {
-      "images": [
-        "1320",
-        0
-      ]
-    },
-    "class_type": "PreviewImage",
-    "_meta": {
-      "title": "Preview Image"
-    }
-  },
-  "1323": {
-    "inputs": {
-      "image": "6a2faacb-9590-43b7-82a2-c666e4e37ea8.jpg"
-    },
-    "class_type": "LoadImage",
-    "_meta": {
-      "title": "Load Image"
-    }
-  },
-  "1308:39": {
+  "1345:39": {
     "inputs": {
       "vae_name": "Qwen_Image-VAE.safetensors"
     },
@@ -457,14 +451,14 @@
       "title": "Load VAE"
     }
   },
-  "1308:8": {
+  "1345:8": {
     "inputs": {
       "samples": [
-        "1308:3",
+        "1345:3",
         0
       ],
       "vae": [
-        "1308:39",
+        "1345:39",
         0
       ]
     },
@@ -473,11 +467,11 @@
       "title": "VAE Decode"
     }
   },
-  "1308:75": {
+  "1345:75": {
     "inputs": {
       "strength": 1,
       "model": [
-        "1308:66",
+        "1345:66",
         0
       ]
     },
@@ -486,27 +480,27 @@
       "title": "CFGNorm"
     }
   },
-  "1308:111": {
+  "1345:111": {
     "inputs": {
-      "prompt": "person: use image2 exact face identity, exact hairstyle, exact facial structure, exact skin tone, exact body proportions, and exact outfit.\n\npose:image3\n\nIMPORTANT:use exact image1 for background and dont change its color features or anything.\n\nshoes:heels\n\nuse exact image1,image2,image3 to generate a image.\n\nIMPORTANT:keep the garment design and lace same dont add anything extra",
+      "prompt": "person: use image2 exact face identity, exact hairstyle, exact facial structure, exact skin tone, exact body proportions, and exact outfit.\n\npose: image3.\n\nbackground:use exact image1\n\nimportant:given garments are not formal wear.\n\nuse exact image1,image2,image3 to generate a image.",
       "clip": [
-        "1308:1215",
+        "1345:1215",
         1
       ],
       "vae": [
-        "1308:39",
+        "1345:39",
         0
       ],
       "image1": [
-        "1310",
+        "1334",
         0
       ],
       "image2": [
-        "1294",
+        "1337",
         0
       ],
       "image3": [
-        "1311",
+        "1342",
         0
       ]
     },
@@ -515,11 +509,11 @@
       "title": "TextEncodeQwenImageEditPlus"
     }
   },
-  "1308:66": {
+  "1345:66": {
     "inputs": {
       "shift": 100,
       "model": [
-        "1308:1215",
+        "1345:1215",
         0
       ]
     },
@@ -528,7 +522,7 @@
       "title": "ModelSamplingAuraFlow"
     }
   },
-  "1308:37": {
+  "1345:37": {
     "inputs": {
       "unet_name": "Qwen-Image-Edit-2509_fp8_e4m3fn.safetensors",
       "weight_dtype": "default"
@@ -538,7 +532,7 @@
       "title": "Load Diffusion Model"
     }
   },
-  "1308:38": {
+  "1345:38": {
     "inputs": {
       "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
       "type": "qwen_image",
@@ -549,17 +543,17 @@
       "title": "Load CLIP"
     }
   },
-  "1308:991": {
+  "1345:991": {
     "inputs": {
       "lora_name": "Qwen-Image-Edit-Unblur-Upscale_10.safetensors",
       "strength_model": 1,
       "strength_clip": 1,
       "model": [
-        "1308:37",
+        "1345:37",
         0
       ],
       "clip": [
-        "1308:38",
+        "1345:38",
         0
       ]
     },
@@ -568,17 +562,17 @@
       "title": "Load LoRA (Model and CLIP)"
     }
   },
-  "1308:499": {
+  "1345:499": {
     "inputs": {
       "lora_name": "realism_lora.safetensors",
       "strength_model": 1,
       "strength_clip": 100,
       "model": [
-        "1308:498",
+        "1345:498",
         0
       ],
       "clip": [
-        "1308:498",
+        "1345:498",
         1
       ]
     },
@@ -587,17 +581,17 @@
       "title": "Load LoRA (Model and CLIP)"
     }
   },
-  "1308:498": {
+  "1345:498": {
     "inputs": {
       "lora_name": "Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors",
       "strength_model": 0.4,
       "strength_clip": 100,
       "model": [
-        "1308:991",
+        "1345:991",
         0
       ],
       "clip": [
-        "1308:991",
+        "1345:991",
         1
       ]
     },
@@ -606,17 +600,17 @@
       "title": "Load LoRA (Model and CLIP)"
     }
   },
-  "1308:1215": {
+  "1345:1215": {
     "inputs": {
       "lora_name": "qwen-edit-skin.safetensors",
       "strength_model": 0.65,
       "strength_clip": 0.65,
       "model": [
-        "1308:499",
+        "1345:499",
         0
       ],
       "clip": [
-        "1308:499",
+        "1345:499",
         1
       ]
     },
@@ -625,27 +619,27 @@
       "title": "Load LoRA (Model and CLIP)"
     }
   },
-  "1308:110": {
+  "1345:110": {
     "inputs": {
       "prompt": "duplicate person, multiple people, ghost, transparent body, faded face, overlay, double exposure,\nsmall subject, far subject, wide shot, full room view, zoomed out, extra head,\nsplit background, collage, blended scene,\ndistorted body, bad anatomy, extra limbs, blur, low detail,\nhangers.wrong brands text and logos, wrong zip, wrong buttons,\nfold trouser legs.\nback ghost person.\ndual bodies.\n\ntiny person, miniature human, undersized body, distant subject, incorrect bench scale, unrealistic seating scale, bad perspective, oversized bench relative to human, small torso, tiny head, floating seated pose, wrong body-to-bench ratio, image1 outfit copied, clothing duplication, stiff posture, awkward pose, extra limbs, broken fingers, distorted hands, floating body, ghosting, double exposure, mannequin effect, unrealistic anatomy, distorted proportions, regenerated background, hallucinated environment, modified background",
       "clip": [
-        "1308:1215",
+        "1345:1215",
         1
       ],
       "vae": [
-        "1308:39",
+        "1345:39",
         0
       ],
       "image1": [
-        "1310",
+        "1334",
         0
       ],
       "image2": [
-        "1294",
+        "1337",
         0
       ],
       "image3": [
-        "1311",
+        "1342",
         0
       ]
     },
@@ -654,7 +648,7 @@
       "title": "TextEncodeQwenImageEditPlus"
     }
   },
-  "1308:3": {
+  "1345:3": {
     "inputs": {
       "seed": 12494,
       "steps": 8,
@@ -663,19 +657,19 @@
       "scheduler": "karras",
       "denoise": 1,
       "model": [
-        "1308:75",
+        "1345:75",
         0
       ],
       "positive": [
-        "1308:111",
+        "1345:111",
         0
       ],
       "negative": [
-        "1308:110",
+        "1345:110",
         0
       ],
       "latent_image": [
-        "1308:874",
+        "1345:874",
         0
       ]
     },
@@ -684,7 +678,7 @@
       "title": "KSampler"
     }
   },
-  "1308:874": {
+  "1345:874": {
     "inputs": {
       "width": 1536,
       "height": 1536,
@@ -695,7 +689,7 @@
       "title": "Empty Latent Image"
     }
   },
-  "1315:1196": {
+  "1341:1196": {
     "inputs": {
       "vae_name": "Qwen_Image-VAE.safetensors"
     },
@@ -704,14 +698,14 @@
       "title": "Load VAE"
     }
   },
-  "1315:1197": {
+  "1341:1197": {
     "inputs": {
       "samples": [
-        "1315:1208",
+        "1341:1208",
         0
       ],
       "vae": [
-        "1315:1196",
+        "1341:1196",
         0
       ]
     },
@@ -720,11 +714,11 @@
       "title": "VAE Decode"
     }
   },
-  "1315:1198": {
+  "1341:1198": {
     "inputs": {
       "strength": 1,
       "model": [
-        "1315:1201",
+        "1341:1201",
         0
       ]
     },
@@ -733,23 +727,27 @@
       "title": "CFGNorm"
     }
   },
-  "1315:1199": {
+  "1341:1199": {
     "inputs": {
-      "prompt": "use image1 as it is do not change any thing except clothing.\n\nreplace image2 as full garment to the person.\n\nimportant: all buttons should be kept.\n\nshoes:heels\n\nimportant: do not change any design or text on garments.\n\nimportant: use only image2 and image3 garments no other garments must in output.\n\nimportant:use exact image3 as background.",
+      "prompt": "use image1 as it is do not change any thing except clothing.\n\nimportant::use exact image2 as upper garment to the image1\n\nimportant:use exact image3 as lower garment to the image1\n\nimportant: do not change any design or text on garments.\n\nimportant: use only image2 and image3 garments no other garments must in output.\n\nimportant:do not generate extra hands,legs and fingers.",
       "clip": [
-        "1315:1217",
+        "1341:1217",
         1
       ],
       "vae": [
-        "1315:1196",
+        "1341:1196",
         0
       ],
       "image1": [
-        "1308:8",
+        "1345:8",
         0
       ],
       "image2": [
-        "1297",
+        "1322",
+        0
+      ],
+      "image3": [
+        "1331",
         0
       ]
     },
@@ -758,23 +756,27 @@
       "title": "TextEncodeQwenImageEditPlus"
     }
   },
-  "1315:1200": {
+  "1341:1200": {
     "inputs": {
       "prompt": "duplicate person, multiple people, ghost, transparent body, faded face, overlay, double exposure,\nsmall subject, far subject, wide shot, full room view, zoomed out, extra head,\nsplit background, collage, blended scene,\ndistorted body, bad anatomy, extra limbs, blur, low detail,\nhangers.wrong brands text and logos, wrong zip, wrong buttons,\nfold trouser legs.\nback ghost person.\ndual bodies.",
       "clip": [
-        "1315:1217",
+        "1341:1217",
         1
       ],
       "vae": [
-        "1315:1196",
+        "1341:1196",
         0
       ],
       "image1": [
-        "1308:8",
+        "1345:8",
         0
       ],
       "image2": [
-        "1297",
+        "1322",
+        0
+      ],
+      "image3": [
+        "1331",
         0
       ]
     },
@@ -783,11 +785,11 @@
       "title": "TextEncodeQwenImageEditPlus"
     }
   },
-  "1315:1201": {
+  "1341:1201": {
     "inputs": {
       "shift": 100,
       "model": [
-        "1315:1217",
+        "1341:1217",
         0
       ]
     },
@@ -796,7 +798,7 @@
       "title": "ModelSamplingAuraFlow"
     }
   },
-  "1315:1205": {
+  "1341:1205": {
     "inputs": {
       "unet_name": "Qwen-Image-Edit-2509_fp8_e4m3fn.safetensors",
       "weight_dtype": "default"
@@ -806,7 +808,7 @@
       "title": "Load Diffusion Model"
     }
   },
-  "1315:1206": {
+  "1341:1206": {
     "inputs": {
       "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
       "type": "qwen_image",
@@ -817,17 +819,17 @@
       "title": "Load CLIP"
     }
   },
-  "1315:1207": {
+  "1341:1207": {
     "inputs": {
       "lora_name": "Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors",
       "strength_model": 0.4,
       "strength_clip": 100,
       "model": [
-        "1315:1204",
+        "1341:1204",
         0
       ],
       "clip": [
-        "1315:1204",
+        "1341:1204",
         1
       ]
     },
@@ -836,17 +838,17 @@
       "title": "Load LoRA (Model and CLIP)"
     }
   },
-  "1315:1204": {
+  "1341:1204": {
     "inputs": {
       "lora_name": "Qwen-Image-Edit-Unblur-Upscale_10.safetensors",
       "strength_model": 1,
       "strength_clip": 1,
       "model": [
-        "1315:1205",
+        "1341:1205",
         0
       ],
       "clip": [
-        "1315:1206",
+        "1341:1206",
         0
       ]
     },
@@ -855,17 +857,17 @@
       "title": "Load LoRA (Model and CLIP)"
     }
   },
-  "1315:1203": {
+  "1341:1203": {
     "inputs": {
       "lora_name": "realism_lora.safetensors",
       "strength_model": 1,
       "strength_clip": 100,
       "model": [
-        "1315:1207",
+        "1341:1207",
         0
       ],
       "clip": [
-        "1315:1207",
+        "1341:1207",
         1
       ]
     },
@@ -874,17 +876,17 @@
       "title": "Load LoRA (Model and CLIP)"
     }
   },
-  "1315:1217": {
+  "1341:1217": {
     "inputs": {
       "lora_name": "qwen-edit-skin.safetensors",
       "strength_model": 0.65,
       "strength_clip": 0.65,
       "model": [
-        "1315:1203",
+        "1341:1203",
         0
       ],
       "clip": [
-        "1315:1203",
+        "1341:1203",
         1
       ]
     },
@@ -893,7 +895,7 @@
       "title": "Load LoRA (Model and CLIP)"
     }
   },
-  "1315:1208": {
+  "1341:1208": {
     "inputs": {
       "seed": 12345,
       "steps": 8,
@@ -902,19 +904,19 @@
       "scheduler": "karras",
       "denoise": 1,
       "model": [
-        "1315:1198",
+        "1341:1198",
         0
       ],
       "positive": [
-        "1315:1199",
+        "1341:1199",
         0
       ],
       "negative": [
-        "1315:1200",
+        "1341:1200",
         0
       ],
       "latent_image": [
-        "1315:1202",
+        "1341:1202",
         0
       ]
     },
@@ -923,7 +925,7 @@
       "title": "KSampler"
     }
   },
-  "1315:1202": {
+  "1341:1202": {
     "inputs": {
       "width": 1536,
       "height": 1536,

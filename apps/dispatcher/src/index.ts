@@ -1,6 +1,14 @@
 import { hostname } from 'node:os';
+import { setGlobalDispatcher, Agent } from 'undici';
 import { S3Client } from '@aws-sdk/client-s3';
 import { createLogger } from '@aivastra/logger';
+
+// Node's built-in fetch (undici) ignores NODE_TLS_REJECT_UNAUTHORIZED set via dotenv
+// because undici is initialised before env vars load. Override the global dispatcher
+// at the earliest possible moment so all subsequent fetch() calls inherit it.
+if (process.env['NODE_TLS_REJECT_UNAUTHORIZED'] === '0') {
+  setGlobalDispatcher(new Agent({ connect: { rejectUnauthorized: false } }));
+}
 import { loadEnv, workerUrl } from './env.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
@@ -35,6 +43,23 @@ async function main(): Promise<void> {
   const workers = workerIds.map((id) => ({ id, url: workerUrl(process.env, id) }));
   await registerWorkers(redis, workers);
   log.info({ workerIds }, 'workers registered');
+
+  // Startup connectivity check — verify each worker is reachable before accepting jobs
+  for (const w of workers) {
+    try {
+      const res = await fetch(`${w.url}/system_stats`, {
+        headers: { 'X-Api-Key': env.WORKER_API_KEY },
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (res.ok) {
+        log.info({ workerId: w.id, url: w.url }, 'ComfyUI worker reachable ✓');
+      } else {
+        log.warn({ workerId: w.id, url: w.url, status: res.status }, 'ComfyUI worker responded with non-OK status');
+      }
+    } catch (err) {
+      log.warn({ workerId: w.id, url: w.url, err }, 'ComfyUI worker unreachable — health monitor will retry');
+    }
+  }
 
   const processorCfg = {
     db,

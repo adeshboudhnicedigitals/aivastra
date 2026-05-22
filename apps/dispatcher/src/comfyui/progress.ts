@@ -1,5 +1,3 @@
-import WebSocket from 'ws';
-
 export interface ProgressUpdate {
   node: string | null;
   value: number;
@@ -9,63 +7,49 @@ export interface ProgressUpdate {
 export type ProgressCallback = (update: ProgressUpdate) => void;
 
 /**
- * Connects to ComfyUI WebSocket and waits for the given promptId to complete.
- * Calls onProgress for intermediate progress events.
- * Resolves when execution_complete; rejects on execution_error or timeout.
+ * Polls /history/{promptId} every 3s until outputs appear or timeout.
+ * More reliable than WebSocket for production use.
  */
-export function waitForCompletion(
+export async function waitForCompletion(
   workerUrl: string,
   apiKey: string,
-  clientUuid: string,
+  _clientUuid: string,
   promptId: string,
   timeoutMs: number = 300_000,
-  onProgress?: ProgressCallback,
+  _onProgress?: ProgressCallback,
+  log?: { info: (obj: unknown, msg: string) => void; debug: (obj: unknown, msg: string) => void },
 ): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const wsUrl = workerUrl.replace(/^https/, 'wss').replace(/^http/, 'ws');
-    const ws = new WebSocket(`${wsUrl}/ws?clientId=${clientUuid}`, {
+  const deadline = Date.now() + timeoutMs;
+  const url = `${workerUrl}/history/${promptId}`;
+  log?.info({ url, promptId }, 'polling ComfyUI /history for completion');
+
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3_000));
+
+    const res = await fetch(url, {
       headers: { 'X-Api-Key': apiKey },
-      // Honour NODE_TLS_REJECT_UNAUTHORIZED=0 for dev self-signed certs
-      rejectUnauthorized: process.env['NODE_TLS_REJECT_UNAUTHORIZED'] !== '0',
+      signal: AbortSignal.timeout(10_000),
     });
 
-    const timer = setTimeout(() => {
-      ws.close();
-      reject(new Error(`ComfyUI WS timeout after ${timeoutMs}ms for prompt ${promptId}`));
-    }, timeoutMs);
+    if (!res.ok) {
+      log?.debug({ status: res.status }, 'ComfyUI /history not ready yet');
+      continue;
+    }
 
-    ws.on('message', (raw) => {
-      let msg: { type: string; data?: Record<string, unknown> };
-      try {
-        msg = JSON.parse(raw.toString()) as typeof msg;
-      } catch {
-        return;
-      }
-      if (!msg.data || (msg.data['prompt_id'] as string | undefined) !== promptId) return;
+    const history = await res.json() as Record<string, unknown>;
+    const entry = history[promptId] as { outputs?: Record<string, unknown>; status?: { status_str?: string } } | undefined;
 
-      if (msg.type === 'progress') {
-        onProgress?.({
-          node: (msg.data['node'] as string | null) ?? null,
-          value: (msg.data['value'] as number) ?? 0,
-          max: (msg.data['max'] as number) ?? 1,
-        });
-      } else if (msg.type === 'execution_complete') {
-        clearTimeout(timer);
-        ws.close();
-        resolve();
-      } else if (msg.type === 'execution_error') {
-        clearTimeout(timer);
-        ws.close();
-        reject(new Error(`ComfyUI execution_error: ${JSON.stringify(msg.data)}`));
-      }
-    });
+    if (entry?.status?.status_str === 'error') {
+      throw new Error(`ComfyUI execution error for prompt ${promptId}`);
+    }
 
-    ws.on('error', (err) => { clearTimeout(timer); reject(err); });
-    ws.on('close', (code) => {
-      if (code !== 1000 && code !== 1005) {
-        clearTimeout(timer);
-        reject(new Error(`ComfyUI WS closed unexpectedly: code ${code}`));
-      }
-    });
-  });
+    if (entry?.outputs && Object.keys(entry.outputs).length > 0) {
+      log?.info({ promptId }, 'ComfyUI generation complete');
+      return;
+    }
+
+    log?.debug({ promptId }, 'ComfyUI still generating…');
+  }
+
+  throw new Error(`ComfyUI history polling timeout after ${timeoutMs}ms for prompt ${promptId}`);
 }

@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { Poppins, Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
-import { ThemeToggle } from '@/components/theme-toggle';
 
 const poppins = Poppins({
   subsets: ['latin'],
@@ -32,7 +31,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${poppins.variable} ${inter.variable} ${jetbrains.variable}`}>
         <Providers>
           {children}
-          <ThemeToggle />
         </Providers>
       </body>
     </html>

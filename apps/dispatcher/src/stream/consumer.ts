@@ -21,22 +21,30 @@ async function ensureGroups(redis: Redis, log: Logger): Promise<void> {
 
 type XReadGroupResult = Array<[string, Array<[string, string[]]>]> | null;
 
+function parseMessage(stream: string, result: XReadGroupResult): { stream: string; messageId: string; jobId: string; userId: string } | null {
+  if (!result || !result[0] || !result[0][1].length) return null;
+  const [messageId, fields] = result[0][1][0]!;
+  const fieldMap: Record<string, string> = {};
+  for (let i = 0; i < fields.length; i += 2) fieldMap[fields[i]!] = fields[i + 1]!;
+  if (!fieldMap['jobId'] || !fieldMap['userId']) return null;
+  return { stream, messageId, jobId: fieldMap['jobId'], userId: fieldMap['userId'] };
+}
+
 async function readOne(
   redis: Redis,
 ): Promise<{ stream: string; messageId: string; jobId: string; userId: string } | null> {
-  // Try priority queue first (non-blocking)
-  for (const [stream, blockMs] of [['jobs:priority', '0'], ['jobs:normal', '2000']] as const) {
-    const result = (await redis.xreadgroup(
-      'GROUP', GROUP, CONSUMER, 'COUNT', '1', 'BLOCK', blockMs, 'STREAMS', stream, '>',
-    )) as XReadGroupResult;
-    if (!result || !result[0] || !result[0][1].length) continue;
-    const [messageId, fields] = result[0][1][0]!;
-    const fieldMap: Record<string, string> = {};
-    for (let i = 0; i < fields.length; i += 2) fieldMap[fields[i]!] = fields[i + 1]!;
-    if (!fieldMap['jobId'] || !fieldMap['userId']) continue;
-    return { stream, messageId, jobId: fieldMap['jobId'], userId: fieldMap['userId'] };
-  }
-  return null;
+  // Check priority queue first — no BLOCK (truly non-blocking instant check)
+  const priority = (await redis.xreadgroup(
+    'GROUP', GROUP, CONSUMER, 'COUNT', '1', 'STREAMS', 'jobs:priority', '>',
+  )) as XReadGroupResult;
+  const pMsg = parseMessage('jobs:priority', priority);
+  if (pMsg) return pMsg;
+
+  // Block up to 2s on normal queue
+  const normal = (await redis.xreadgroup(
+    'GROUP', GROUP, CONSUMER, 'COUNT', '1', 'BLOCK', '2000', 'STREAMS', 'jobs:normal', '>',
+  )) as XReadGroupResult;
+  return parseMessage('jobs:normal', normal);
 }
 
 export async function runConsumer(

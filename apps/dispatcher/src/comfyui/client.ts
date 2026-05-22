@@ -20,8 +20,11 @@ export async function submitPrompt(
   apiKey: string,
   clientUuid: string,
   prompt: Record<string, unknown>,
+  log?: { info: (obj: unknown, msg: string) => void; error: (obj: unknown, msg: string) => void },
 ): Promise<ComfySubmitResult> {
-  const res = await fetch(`${workerUrl}/prompt`, {
+  const url = `${workerUrl}/prompt`;
+  log?.info({ url, clientUuid, nodeCount: Object.keys(prompt).length }, 'POST /prompt → ComfyUI');
+  const res = await fetch(url, {
     method: 'POST',
     headers: apiHeaders(apiKey),
     body: JSON.stringify({ prompt, client_id: clientUuid }),
@@ -29,9 +32,11 @@ export async function submitPrompt(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    log?.error({ url, status: res.status, body: text }, 'ComfyUI /prompt failed');
     throw new Error(`ComfyUI /prompt failed: ${res.status} ${text}`);
   }
   const json = await res.json() as { prompt_id: string };
+  log?.info({ url, promptId: json.prompt_id }, 'ComfyUI /prompt accepted');
   return { promptId: json.prompt_id };
 }
 
@@ -39,8 +44,11 @@ export async function fetchHistory(
   workerUrl: string,
   apiKey: string,
   promptId: string,
+  log?: { info: (obj: unknown, msg: string) => void },
 ): Promise<ComfyOutputImage[]> {
-  const res = await fetch(`${workerUrl}/history/${promptId}`, {
+  const url = `${workerUrl}/history/${promptId}`;
+  log?.info({ url }, 'GET /history → ComfyUI');
+  const res = await fetch(url, {
     headers: { 'X-Api-Key': apiKey },
     signal: AbortSignal.timeout(10_000),
   });
@@ -50,8 +58,10 @@ export async function fetchHistory(
   if (!entry?.outputs) return [];
   const images: ComfyOutputImage[] = [];
   for (const node of Object.values(entry.outputs)) {
-    if (node.images) images.push(...node.images);
+    // Only collect SaveImage outputs (type=output); skip PreviewImage (type=temp)
+    if (node.images) images.push(...node.images.filter((img) => img.type === 'output'));
   }
+  log?.info({ promptId, outputCount: images.length }, 'ComfyUI history fetched');
   return images;
 }
 
@@ -65,11 +75,14 @@ export async function uploadImageToComfy(
   imageBytes: Uint8Array,
   filename: string,
   contentType: string,
+  log?: { info: (obj: unknown, msg: string) => void; error: (obj: unknown, msg: string) => void },
 ): Promise<string> {
+  const url = `${workerUrl}/upload/image`;
+  log?.info({ url, filename, bytes: imageBytes.byteLength }, 'POST /upload/image → ComfyUI');
   const form = new FormData();
   form.append('image', new Blob([imageBytes], { type: contentType }), filename);
   form.append('overwrite', 'true');
-  const res = await fetch(`${workerUrl}/upload/image`, {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'X-Api-Key': apiKey }, // no Content-Type — FormData sets multipart boundary
     body: form,
@@ -77,9 +90,11 @@ export async function uploadImageToComfy(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    log?.error({ url, filename, status: res.status, body: text }, 'ComfyUI /upload/image failed');
     throw new Error(`ComfyUI /upload/image failed: ${res.status} ${text}`);
   }
   const json = await res.json() as { name: string };
+  log?.info({ url, filename, assignedName: json.name }, 'ComfyUI /upload/image ok');
   return json.name;
 }
 

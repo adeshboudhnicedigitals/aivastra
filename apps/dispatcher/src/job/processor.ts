@@ -66,6 +66,14 @@ export async function processJob(
   const bgKey = bgRow.r2Key;
   const poseKey = poseRow.r2Key;
 
+  // Resolve optional lower garment catalog ID → R2 key
+  let lowerKey: string | null = null;
+  if (inputs.lowerCatalogId) {
+    const [lowerRow] = await db.select({ r2Key: schema.catalogItems.r2Key }).from(schema.catalogItems).where(eq(schema.catalogItems.id, inputs.lowerCatalogId));
+    if (lowerRow) lowerKey = lowerRow.r2Key;
+    else jobLog.warn({ lowerCatalogId: inputs.lowerCatalogId }, 'lower garment catalog item not found — skipping');
+  }
+
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const worker = await selectWorker(redis);
@@ -90,41 +98,45 @@ export async function processJob(
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
       const bytes = await r2Download(key);
       const ext = key.split('.').pop() ?? 'jpg';
-      return uploadImageToComfy(w.url, workerApiKey, bytes, `${prefix}_${jobId}.${ext}`, `image/${ext === 'png' ? 'png' : 'jpeg'}`);
+      return uploadImageToComfy(w.url, workerApiKey, bytes, `${prefix}_${jobId}.${ext}`, `image/${ext === 'png' ? 'png' : 'jpeg'}`, jobLog);
     }
 
     jobLog.info('uploading inputs to ComfyUI');
-    const [upperGarmentFile, faceFile, poseFile, backgroundFile] = await Promise.all([
+    const uploadTasks: Promise<string>[] = [
       uploadToComfy(inputs.upperGarmentKey, 'garment'),
       uploadToComfy(modelKey, 'face'),
       uploadToComfy(poseKey, 'pose'),
       uploadToComfy(bgKey, 'bg'),
-    ]);
-    jobLog.info({ upperGarmentFile, faceFile, poseFile, backgroundFile }, 'inputs uploaded');
+    ];
+    if (lowerKey) uploadTasks.push(uploadToComfy(lowerKey, 'lower'));
+    const [upperGarmentFile, faceFile, poseFile, backgroundFile, lowerGarmentFile] = await Promise.all(uploadTasks);
+    jobLog.info({ upperGarmentFile, faceFile, poseFile, backgroundFile, lowerGarmentFile }, 'inputs uploaded');
 
     // 5. Patch workflow template with ComfyUI filenames
     const prompt = patchWorkflow({
-      upperGarmentFile,
-      faceFile,
-      poseFile,
-      backgroundFile,
+      upperGarmentFile: upperGarmentFile!,
+      faceFile: faceFile!,
+      poseFile: poseFile!,
+      backgroundFile: backgroundFile!,
+      lowerGarmentFile,
     });
 
     // 6. Submit to ComfyUI
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
-    const { promptId } = await submitPrompt(w.url, workerApiKey, clientUuid, prompt);
+    const { promptId } = await submitPrompt(w.url, workerApiKey, clientUuid, prompt, jobLog);
     jobLog.info({ promptId }, 'prompt submitted to ComfyUI');
 
     // 7. Wait for completion via WebSocket (5 min max)
     await waitForCompletion(
       w.url, workerApiKey, clientUuid, promptId, 300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
+      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
     );
 
     // 8. Fetch output metadata + download image
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
-    const outputImages = await fetchHistory(w.url, workerApiKey, promptId);
+    const outputImages = await fetchHistory(w.url, workerApiKey, promptId, jobLog);
     if (!outputImages.length) throw new Error('ComfyUI returned no output images');
 
     const imageBytes = await downloadOutputImage(

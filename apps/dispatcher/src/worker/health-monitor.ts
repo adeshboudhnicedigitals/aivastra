@@ -35,7 +35,7 @@ export function startHealthMonitor(
       const healthy = await probeWorker(id, entry.url, apiKey);
       if (healthy) {
         await redis.setex(healthKey(id), HEALTH_TTL_SEC, '1');
-        log.debug({ workerId: id }, 'worker healthy');
+        log.info({ workerId: id }, 'worker healthy');
       } else {
         log.warn({ workerId: id }, 'worker unhealthy — health key not renewed');
       }
