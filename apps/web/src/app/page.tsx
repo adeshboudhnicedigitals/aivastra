@@ -1,4 +1,3 @@
-import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -10,8 +9,7 @@ export const metadata: Metadata = {
 
 export default async function Home() {
   const cookieStore = await cookies();
-  const token = cookieStore.get('access_token');
-  if (token) redirect('/dashboard');
+  const isLoggedIn = !!cookieStore.get('access_token');
 
   return (
     <>
@@ -209,11 +207,20 @@ export default async function Home() {
             <a href="#pricing">Pricing</a>
           </nav>
           <div className="lp-nav-cta">
-            <Link className="lp-signin" href="/login">Sign in</Link>
-            <Link className="lp-btn-primary" href="/register">
-              Open Studio
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-            </Link>
+            {isLoggedIn ? (
+              <Link className="lp-btn-primary" href="/dashboard">
+                Go to Dashboard
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+              </Link>
+            ) : (
+              <>
+                <Link className="lp-signin" href="/login">Sign in</Link>
+                <Link className="lp-btn-primary" href="/register">
+                  Open Studio
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -236,8 +243,8 @@ export default async function Home() {
               Ai Vastra generates premium ecommerce model shoots from your garment photos — model, background, pose and platform-perfect crops, all in minutes. No studio, no shoot day, no rework.
             </p>
             <div className="lp-hero-cta">
-              <Link className="lp-btn-primary-lg" href="/register">
-                Start creating — it&apos;s free
+              <Link className="lp-btn-primary-lg" href={isLoggedIn ? '/tryon' : '/register'}>
+                {isLoggedIn ? 'Open Studio' : "Start creating — it's free"}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
               </Link>
               <a className="lp-btn-ghost-lg" href="#how">
@@ -473,8 +480,8 @@ export default async function Home() {
             <h2>Ship your next drop without booking a studio.</h2>
             <p>500 free credits. Start in 30 seconds. No card needed.</p>
             <div className="lp-ctas">
-              <Link className="lp-cta-btn-p" href="/register">
-                Open the Studio
+              <Link className="lp-cta-btn-p" href={isLoggedIn ? '/tryon' : '/register'}>
+                {isLoggedIn ? 'Open the Studio' : 'Start for free'}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
               </Link>
               <a className="lp-cta-btn-g" href="#pricing">See pricing</a>
