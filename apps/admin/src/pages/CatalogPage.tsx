@@ -39,6 +39,11 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
   const [sortKey, setSortKey] = useState<keyof CatalogItem>('sortOrder');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [editItem, setEditItem] = useState<CatalogItem | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const [editSortOrder, setEditSortOrder] = useState(0);
+  const [editCategoryId, setEditCategoryId] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -95,6 +100,40 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
     } catch {
       setItems((prev) => prev.map((c) => c.id === id ? { ...c, isActive: item.isActive } : c));
       toast({ kind: 'error', title: 'Failed to update item' });
+    }
+  };
+
+  const openEdit = (item: CatalogItem) => {
+    setEditItem(item);
+    setEditLabel(item.label);
+    setEditSortOrder(item.sortOrder);
+    const cat = categories.find((c) => (item as any).categoryId === c.id || c.typeSlug === item.type);
+    setEditCategoryId(cat ? String(cat.id) : '');
+  };
+
+  const saveEdit = async () => {
+    if (!editItem) return;
+    setEditSaving(true);
+    try {
+      await apiFetch(`/admin/catalog/items/${editItem.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          label: editLabel.trim() || editItem.label,
+          sortOrder: editSortOrder,
+          ...(editCategoryId ? { categoryId: Number(editCategoryId) } : {}),
+        }),
+      });
+      setItems((prev) => prev.map((c) =>
+        c.id === editItem.id
+          ? { ...c, label: editLabel.trim() || c.label, sortOrder: editSortOrder }
+          : c,
+      ));
+      toast({ title: `${editLabel || editItem.label} updated` });
+      setEditItem(null);
+    } catch {
+      toast({ kind: 'error', title: 'Failed to save changes' });
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -194,7 +233,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                   <td><span className="mono">{c.updatedAt.slice(0, 10)}</span></td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn sm ghost"><Icon.Edit /></button>
+                      <button className="btn sm ghost" onClick={() => openEdit(c)}><Icon.Edit /></button>
                       <button className="btn sm ghost" onClick={() => setConfirmDelete(c.id)}><Icon.Trash /></button>
                     </div>
                   </td>
@@ -209,6 +248,64 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       )}
 
       <Pager page={page} totalPages={totalPages} onPage={setPage} totalItems={sorted.length} pageSize={PAGE_SIZE} />
+
+      {editItem && (
+        <div className="modal-overlay" onClick={editSaving ? undefined : () => setEditItem(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Edit catalog item</h3>
+              <button className="btn sm ghost" onClick={() => setEditItem(null)} disabled={editSaving} style={{ marginLeft: 'auto' }}>
+                <Icon.Close />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="field">
+                <label>Label</label>
+                <input
+                  className="input"
+                  value={editLabel}
+                  disabled={editSaving}
+                  onChange={(e) => setEditLabel(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="field">
+                <label>Gender category</label>
+                <select
+                  className="select"
+                  value={editCategoryId}
+                  disabled={editSaving}
+                  onChange={(e) => setEditCategoryId(e.target.value)}
+                >
+                  {categories
+                    .filter((c) => c.typeSlug === editItem.type)
+                    .map((c) => (
+                      <option key={c.id} value={String(c.id)}>{c.label}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Sort order</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  value={editSortOrder}
+                  disabled={editSaving}
+                  onChange={(e) => setEditSortOrder(Number(e.target.value))}
+                  style={{ width: 100 }}
+                />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setEditItem(null)} disabled={editSaving}>Cancel</button>
+              <button className="btn primary" onClick={saveEdit} disabled={editSaving || !editLabel.trim()}>
+                {editSaving ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmDelete && (
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
