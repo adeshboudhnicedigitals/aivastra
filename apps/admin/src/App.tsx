@@ -36,6 +36,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('dashboard');
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const idRef = useRef(0);
 
   useEffect(() => {
@@ -93,8 +94,8 @@ export default function App() {
   const settingsProps = { onNav: handleNavWithFilter, toast, theme, onToggleTheme: toggleTheme };
 
   return (
-    <div className="app">
-      <Sidebar page={page} onNav={handleNav} role={role ?? ''} />
+    <div className={`app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
+      <Sidebar page={page} onNav={handleNav} role={role ?? ''} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((v) => !v)} />
       <div className="main">
         <Topbar trail={trail} onNavTrail={(i) => i === 0 && setPage('dashboard')} />
         <main className="content">
