@@ -181,7 +181,7 @@ export default function TryOnPage() {
   // Steps 1–4
   const [faceId, setFaceId] = useState('');
   const [backgroundId, setBackgroundId] = useState('');
-  const [poseId, setPoseId] = useState('');
+  const [poseIds, setPoseIds] = useState<string[]>([]);
   const [lowerCatalogId, setLowerCatalogId] = useState('');
   const [shoeCatalogId, setShoeCatalogId] = useState('');
 
@@ -226,9 +226,9 @@ export default function TryOnPage() {
     enabled: !!(subcategoryId && faceId && backgroundId && step >= 3),
   });
 
-  const selectedPose = poses?.items.find((p) => p.id === poseId);
-  const needsLower = !!selectedPose?.showsLower;
-  const needsShoes = !!selectedPose?.showsShoes;
+  const selectedPoses = poses?.items.filter((p) => poseIds.includes(p.id)) ?? [];
+  const needsLower = selectedPoses.some((p) => p.showsLower);
+  const needsShoes = selectedPoses.some((p) => p.showsShoes);
 
   const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
     queryKey: ['catalog', 'lower', gender],
@@ -269,38 +269,38 @@ export default function TryOnPage() {
   function handleFaceSelect(id: string) {
     setFaceId(id);
     setBackgroundId('');
-    setPoseId('');
+    setPoseIds([]);
     setLowerCatalogId('');
     setShoeCatalogId('');
   }
   function handleBackgroundSelect(id: string) {
     setBackgroundId(id);
-    setPoseId('');
+    setPoseIds([]);
     setLowerCatalogId('');
     setShoeCatalogId('');
   }
   function handlePoseSelect(id: string) {
-    setPoseId(id);
+    setPoseIds((prev) => prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]);
     setLowerCatalogId('');
     setShoeCatalogId('');
   }
 
   async function handleSubmit() {
-    if (!garmentKey || !faceId || !backgroundId || !poseId) return;
+    if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0) return;
     setIsSubmitting(true);
     setSubmitError('');
     try {
-      const { jobId } = await api.post<{ jobId: string }>('/v1/jobs/tryon', {
+      const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
         inputs: {
           upperGarmentKey: garmentKey,
           faceId,
           backgroundId,
-          poseId,
+          poseIds,
           lowerCatalogId: lowerCatalogId || undefined,
           shoeCatalogId: shoeCatalogId || undefined,
         },
       });
-      router.push(`/jobs/${jobId}`);
+      router.push(`/catalogues/${catalogueId}`);
     } catch (e) {
       setSubmitError((e as Error).message);
       setIsSubmitting(false);
@@ -312,12 +312,12 @@ export default function TryOnPage() {
     if (step === 0) return !!gender && !!subcategoryId && (!!garmentFile || !!garmentKey);
     if (step === 1) return !!faceId;
     if (step === 2) return !!backgroundId;
-    if (step === 3) return !!poseId;
+    if (step === 3) return poseIds.length > 0;
     return true;
   };
 
   const canGenerate =
-    !!poseId && !!garmentKey && !isUploading && !isSubmitting &&
+    poseIds.length > 0 && !!garmentKey && !isUploading && !isSubmitting &&
     (!needsLower || !!lowerCatalogId) &&
     (!needsShoes || !!shoeCatalogId);
 
@@ -538,8 +538,14 @@ export default function TryOnPage() {
             <div>
               <SectionHead
                 title="Choose Template"
-                sub={`Poses for ${selectedFace?.label ?? 'model'} on ${selectedBg?.label ?? 'background'}.`}
+                sub={`Poses for ${selectedFace?.label ?? 'model'} on ${selectedBg?.label ?? 'background'}. Select one or more.`}
               />
+              {poseIds.length > 0 && (
+                <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--peach)' }}>{poseIds.length} selected</span>
+                  <button type="button" onClick={() => setPoseIds([])} style={{ fontSize: 12, color: 'var(--mute)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear</button>
+                </div>
+              )}
               {!poses ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0' }}><SpinnerIcon /></div>
               ) : poses.items.length === 0 ? (
@@ -548,7 +554,7 @@ export default function TryOnPage() {
                 <div className="av-sel-grid">
                   {poses.items.map((p) => (
                     <div key={p.id} style={{ position: 'relative' }}>
-                      <SelCard selected={poseId === p.id} onClick={() => handlePoseSelect(p.id)} imageUrl={p.thumbnailUrl} label={p.label} />
+                      <SelCard selected={poseIds.includes(p.id)} onClick={() => handlePoseSelect(p.id)} imageUrl={p.thumbnailUrl} label={p.label} />
                       {(p.showsLower || p.showsShoes) && (
                         <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4, flexDirection: 'column', alignItems: 'flex-end', pointerEvents: 'none' }}>
                           {p.showsLower && (
@@ -563,7 +569,7 @@ export default function TryOnPage() {
                   ))}
                 </div>
               )}
-              {(needsLower || needsShoes) && poseId && (
+              {(needsLower || needsShoes) && poseIds.length > 0 && (
                 <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 12, background: 'rgba(246,181,83,0.08)', border: '1px solid rgba(246,181,83,0.2)' }}>
                   <span style={{ fontSize: 18 }}>👕</span>
                   <div>
@@ -661,11 +667,11 @@ export default function TryOnPage() {
                 {[
                   ['Model', selectedFace?.label ?? '—'],
                   ['Background', selectedBg?.label ?? '—'],
-                  ['Pose', selectedPose?.label ?? '—'],
+                  ['Poses', poseIds.length > 0 ? `${poseIds.length} selected` : '—'],
                   ['Garment', garmentFile?.name ?? (sampleIdx > 0 ? `Sample ${sampleIdx}` : '—')],
                   ...(needsLower ? [['Lower', selectedLower?.label ?? '—'] as [string, string]] : []),
                   ...(needsShoes ? [['Shoes', selectedShoe?.label ?? '—'] as [string, string]] : []),
-                  ['Credits charged', '1'],
+                  ['Credits charged', String(poseIds.length)],
                 ].map(([k, v]) => (
                   <div key={k} className="av-review-row">
                     <span className="av-review-key">{k}</span>
@@ -694,7 +700,7 @@ export default function TryOnPage() {
 
       {/* Sticky footer */}
       <div className="av-footer">
-        <button type="button" className="av-btn av-btn-ghost" onClick={step === 0 ? () => { setGender(''); setSubcategoryId(''); setFaceId(''); setBackgroundId(''); setPoseId(''); setLowerCatalogId(''); setShoeCatalogId(''); setGarmentFile(null); setGarmentKey(''); setSampleIdx(0); setStep(0); showToast('Setup reset'); } : goBack}>
+        <button type="button" className="av-btn av-btn-ghost" onClick={step === 0 ? () => { setGender(''); setSubcategoryId(''); setFaceId(''); setBackgroundId(''); setPoseIds([]); setLowerCatalogId(''); setShoeCatalogId(''); setGarmentFile(null); setGarmentKey(''); setSampleIdx(0); setStep(0); showToast('Setup reset'); } : goBack}>
           {step === 0 ? 'Reset' : '← Back'}
         </button>
 

@@ -3,11 +3,17 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-interface Job {
+interface JobSummary {
   id: string;
   status: string;
   createdAt: string;
   creditsCharged: number;
+}
+
+interface Catalogue {
+  catalogueId: string;
+  jobs: JobSummary[];
+  createdAt: string;
 }
 
 const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
@@ -30,55 +36,71 @@ const FailIcon = () => (
   </svg>
 );
 
-function CatalogueCard({ job }: { job: Job }) {
-  const isCompleted = job.status === 'COMPLETED';
-  const isFailed = job.status === 'FAILED';
-  const isActive = !TERMINAL.includes(job.status);
+function CoverImage({ catalogueId, jobs }: { catalogueId: string; jobs: JobSummary[] }) {
+  const completedJob = jobs.find((j) => j.status === 'COMPLETED');
+  const hasActive = jobs.some((j) => !TERMINAL.includes(j.status));
+  const allFailed = jobs.every((j) => j.status === 'FAILED');
 
   const { data: result } = useQuery<{ url: string }>({
-    queryKey: ['job-result', job.id],
-    queryFn: () => api.get(`/v1/jobs/${job.id}/result`),
-    enabled: isCompleted,
-    staleTime: 4 * 60 * 1000, // presign valid 5 min, refresh at 4
+    queryKey: ['job-result', completedJob?.id],
+    queryFn: () => api.get(`/v1/jobs/${completedJob!.id}/result`),
+    enabled: !!completedJob,
+    staleTime: 4 * 60 * 1000,
   });
 
+  if (completedJob && result?.url) {
+    return <img src={result.url} alt={`Catalogue ${catalogueId.slice(0, 8)}`} />;
+  }
+  if (allFailed) {
+    return (
+      <div className="av-cat-placeholder av-cat-failed">
+        <FailIcon /><span>Failed</span>
+      </div>
+    );
+  }
   return (
-    <Link href={`/jobs/${job.id}`} className="av-cat-card" style={{ textDecoration: 'none' }}>
+    <div className="av-cat-placeholder av-cat-generating">
+      <SpinnerIcon />
+      <span>{hasActive ? 'Generating…' : jobs[0]?.status?.toLowerCase().replace('_', ' ')}</span>
+    </div>
+  );
+}
+
+function CatalogueCard({ catalogue }: { catalogue: Catalogue }) {
+  const { catalogueId, jobs } = catalogue;
+  const hasActive = jobs.some((j) => !TERMINAL.includes(j.status));
+  const completedCount = jobs.filter((j) => j.status === 'COMPLETED').length;
+
+  return (
+    <Link href={`/catalogues/${catalogueId}`} className="av-cat-card" style={{ textDecoration: 'none' }}>
       <div className="av-cat-img">
-        {isCompleted && result?.url ? (
-          <img src={result.url} alt={`Catalogue ${job.id.slice(0, 8)}`} />
-        ) : isFailed ? (
-          <div className="av-cat-placeholder av-cat-failed">
-            <FailIcon />
-            <span>Failed</span>
-          </div>
-        ) : (
-          <div className="av-cat-placeholder av-cat-generating">
-            <SpinnerIcon />
-            <span>{job.status.toLowerCase().replace('_', ' ')}</span>
-          </div>
+        <CoverImage catalogueId={catalogueId} jobs={jobs} />
+        {hasActive && <div className="av-cat-pulse" />}
+        {jobs.length > 1 && (
+          <div className="av-cat-count">{completedCount}/{jobs.length}</div>
         )}
-        {isActive && <div className="av-cat-pulse" />}
       </div>
       <div className="av-cat-meta">
-        <span className="av-cat-id">#{job.id.slice(0, 8)}</span>
-        <span className="av-cat-date">{new Date(job.createdAt).toLocaleDateString()}</span>
+        <span className="av-cat-id">#{catalogueId.slice(0, 8)}</span>
+        <span className="av-cat-date">{new Date(catalogue.createdAt).toLocaleDateString()}</span>
       </div>
     </Link>
   );
 }
 
 export default function DashboardPage() {
-  const { data: jobs, isLoading } = useQuery<Job[]>({
-    queryKey: ['jobs'],
-    queryFn: () => api.get('/v1/jobs'),
+  const { data: catalogues, isLoading } = useQuery<Catalogue[]>({
+    queryKey: ['catalogues'],
+    queryFn: () => api.get('/v1/catalogues'),
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return false;
-      const hasActive = data.some((j) => !TERMINAL.includes(j.status));
+      const hasActive = data.some((c) => c.jobs.some((j) => !TERMINAL.includes(j.status)));
       return hasActive ? 3000 : false;
     },
   });
+
+  const totalCompleted = catalogues?.reduce((acc, c) => acc + c.jobs.filter((j) => j.status === 'COMPLETED').length, 0) ?? 0;
 
   return (
     <div className="av-main-inner">
@@ -86,7 +108,7 @@ export default function DashboardPage() {
         <div>
           <h1 style={{ fontWeight: 700, fontSize: 26, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Your Catalogues</h1>
           <p style={{ margin: 0, fontSize: 14, color: 'var(--mute)' }}>
-            {jobs ? `${jobs.filter((j) => j.status === 'COMPLETED').length} generated` : 'Loading…'}
+            {catalogues ? `${totalCompleted} image${totalCompleted !== 1 ? 's' : ''} generated` : 'Loading…'}
           </p>
         </div>
         <Link href="/tryon" className="av-btn av-btn-primary" style={{ textDecoration: 'none' }}>
@@ -100,7 +122,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {!isLoading && (!jobs || jobs.length === 0) && (
+      {!isLoading && (!catalogues || catalogues.length === 0) && (
         <div className="av-card" style={{ textAlign: 'center', padding: '64px 24px' }}>
           <div style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--surface-2)', border: '1px solid var(--line)', display: 'grid', placeItems: 'center', margin: '0 auto 16px', color: 'var(--mute)' }}>
             <WandIcon />
@@ -113,9 +135,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {jobs && jobs.length > 0 && (
+      {catalogues && catalogues.length > 0 && (
         <div className="av-cat-grid">
-          {jobs.map((job) => <CatalogueCard key={job.id} job={job} />)}
+          {catalogues.map((cat) => <CatalogueCard key={cat.catalogueId} catalogue={cat} />)}
         </div>
       )}
     </div>

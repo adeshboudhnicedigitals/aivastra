@@ -7,6 +7,106 @@
 
 ## Log
 
+### 2026-05-23 (uncommitted) — Multi-pose per job + catalogue grouping
+
+**Done**
+
+- `api`: `POST /v1/jobs/tryon` now accepts `poseIds` array (1–6); creates 1 job per pose under shared `catalogueId`; partial enqueue failure handling (refund + fail individual jobs, throw only if all fail)
+- `api`: `GET /v1/catalogues` — groups jobs by `catalogueId`, newest first, 200 limit
+- `api`: `GET /v1/catalogues/:id` — all jobs for one catalogue, ordered by `createdAt`
+- `db`: migration `0007_catalogue_id.sql` — `ALTER TABLE jobs ADD COLUMN catalogue_id uuid`
+- `db/schema/jobs.ts`: added `catalogueId` column
+- `types`: `CreateTryOnJobRequest.inputs.poseId` → `poseIds: z.array(z.string().uuid()).min(1).max(6)`
+- `web`: catalogue detail page scaffolded at `apps/web/src/app/(app)/catalogues/[id]/page.tsx`
+- `web`: catalogue grid CSS (`.av-cdet-grid`, `.av-cdet-card`, `.av-cdet-img`, `.av-cdet-footer`) in globals.css
+- `web`: dashboard — live data fetch, image grid with lazy thumbnails, status badges
+- `web`: wizard — multi-pose selection UI (checkboxes, count badge)
+- `web`: cleanup — replace hardcoded `#FFF` with CSS vars, dropzone bg uses `--surface-2`
+
+**Failed / Not Done**
+
+- Catalogue listing page (`GET /v1/catalogues`) only returns job metadata — no output thumbnails, no preview in catalogue grid
+- Dashboard still uses mock stats (not live aggregate from API)
+- Migration 0007 not yet applied to dev DB
+- `apps/web/src/app/(app)/catalogues/[id]/page.tsx` — needs full UI polish
+
+**Open Questions / Decisions**
+
+- [ ] Catalogue page UX: show first output thumbnail per catalogue? Show status summary (X done / Y total)?
+- [ ] Jobs detail page redesign — still old sketch palette
+
+---
+
+### 2026-05-22 → 2026-05-23 — End-to-end pipeline + lower garments + theme toggle + account page
+
+**Done**
+
+*Dispatcher pipeline fixed (end-to-end)*
+
+- Fixed `WORKER_A_URL` protocol + port (`http://38.247.187.234:8000`)
+- Added `setGlobalDispatcher` TLS bypass for undici (`NODE_TLS_REJECT_UNAUTHORIZED`)
+- Fixed stream consumer `BLOCK 0` deadlock on `jobs:priority` queue
+- Switched `waitForCompletion` from WebSocket to `/history` polling (more reliable)
+- Added `undici` dep, startup connectivity check per worker, info-level WS logs
+- Updated workflow patcher to `twopiece.json` node IDs (1332/1333/1334/1340/1331)
+- Added lower garment resolution + upload in processor
+- Fixed `fetchHistory` to filter `type=output` only
+- Workflow template `templates/virtual-tryon-v1.json` now real ComfyUI export (538 lines)
+
+*Wizard step 5 — lower garment + shoes*
+
+- `api`: wire catalog routes for lower garments + shoes (`GET /v1/catalog/items?typeSlug=lower_garments|shoes`)
+- `api`: job creation validates `lowerCatalogId` + `shoeCatalogId`
+- `db`: seed catalog types (migration `0006`) — `lower_garments`, `shoes`
+- `admin`: catalog batch upload modal (`BatchCatalogUploadModal.tsx`) with per-file status + retry
+- `admin`: catalog item edit wired (edit button updates label/isActive)
+- `admin`: fix "Add item" button always opens modal, hidden on All Items tab
+- `web`: wizard step 5 — lower garment + shoes selection carousel, conditionally shown per `pose.showsLower`/`pose.showsShoes`
+
+*Home page + nav*
+
+- Home page (`/`) always visible to unauthenticated users (marketing landing)
+- `/home` route alias for sidebar link
+- Sidebar `Home` link added
+
+*Theme toggle + sidebar collapse*
+
+- `theme-toggle.tsx` component — sun/moon icon, reads/writes `localStorage.theme`, toggles `dark` class on `<html>`
+- Sidebar collapsible: hamburger button, collapsed state shows only icons, `--sidebar-width` CSS var toggles `64px` / `240px`
+- TopBar removed — theme toggle + sign-out moved into sidebar
+
+*Account page*
+
+- `apps/web/src/app/(app)/account/page.tsx` — display name, email, tier, credit balance, change password, job history
+- Styled with `av-card` layout matching new palette
+
+*Dashboard grid*
+
+- Replaced flat job list with image grid — lazy-loaded output thumbnails, status overlay badges, retry on failed
+- Grid layout `.av-dash-grid` with responsive `auto-fill, minmax(220px, 1fr)`
+
+*Admin profile*
+
+- Dynamic sidebar profile section — reads user data from auth context (initials avatar, email)
+
+*Tests*
+
+- `vitest.config.ts` updated for dispatcher (undici mock)
+
+**Failed / Not Done**
+
+- Dashboard stats still mock data (not live aggregate)
+- Jobs detail page still old sketch palette
+- `apps/web/src/components/navbar.tsx` unused but still exists
+
+**Open Questions / Decisions**
+
+- [ ] Lower garment thumbnail resolution in dispatcher — PNG flatten + upload to R2 confirmed working
+- [ ] `/history` polling interval for ComfyUI output — currently 2s, adjust if GPU node overloaded
+- [ ] Dispatcher TLS bypass (`NODE_TLS_REJECT_UNAUTHORIZED=0`) — needs proper cert in prod
+
+---
+
 ### 2026-05-22 — Full frontend redesign (vastra2.0 designer handoff)
 
 **Done**
