@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app
 
@@ -11,7 +11,7 @@ RUN pnpm --filter @aivastra/db build && \
     pnpm --filter @aivastra/types build && \
     pnpm --filter @aivastra/dispatcher build
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app
 COPY --from=build /app /app
