@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -16,7 +16,7 @@ const inputStyle: React.CSSProperties = {
   transition: 'border-color .15s, box-shadow .15s',
 };
 
-export default function LoginPage(): React.ReactElement {
+function LoginFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/dashboard';
@@ -45,7 +45,6 @@ export default function LoginPage(): React.ReactElement {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 24px', background: 'var(--bg)' }}>
       <div style={{ width: '100%', maxWidth: 380 }}>
-        {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ width: 48, height: 48, borderRadius: 14, background: 'linear-gradient(135deg,#F55C7A,#F6B553)', display: 'grid', placeItems: 'center', margin: '0 auto 16px', color: 'white', fontWeight: 800, fontSize: 20 }}>
             Av
@@ -54,9 +53,7 @@ export default function LoginPage(): React.ReactElement {
           <p style={{ fontSize: 14, color: 'var(--mute)', margin: 0 }}>Sign in to your Ai Vastra studio.</p>
         </div>
 
-        {/* Card */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 20, padding: 28, boxShadow: 'var(--shadow-card)' }}>
-          {/* Tab row */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
             <span style={{ padding: '6px 14px', borderRadius: 99, background: 'var(--ink)', color: 'var(--surface)', fontSize: 12, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase' }}>Login</span>
             <Link href="/register" style={{ padding: '6px 14px', borderRadius: 99, border: '1px solid var(--line)', color: 'var(--mute)', fontSize: 12, fontWeight: 600, letterSpacing: '.04em', textTransform: 'uppercase', transition: 'all .15s' }}>Sign up</Link>
@@ -90,5 +87,13 @@ export default function LoginPage(): React.ReactElement {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage(): React.ReactElement {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: 'var(--bg)' }} />}>
+      <LoginFormInner />
+    </Suspense>
   );
 }
