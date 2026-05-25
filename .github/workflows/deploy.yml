@@ -1,0 +1,41 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    name: SSH → git pull → docker compose up
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          command_timeout: 25m
+          script: |
+            set -e
+            echo "→ pulling latest code"
+            cd ${{ secrets.DEPLOY_PATH }}
+            git pull origin master
+
+            echo "→ building images"
+            docker compose -f infra/docker-compose.prod.yml \
+              --env-file .env.production \
+              build
+
+            echo "→ restarting services"
+            docker compose -f infra/docker-compose.prod.yml \
+              --env-file .env.production \
+              up -d
+
+            echo "→ cleaning old images"
+            docker image prune -f
+
+            echo "✓ deploy done"
