@@ -2,8 +2,10 @@ name: aivastra-prod
 
 # Env file lives at repo root as .env.production (git-ignored, created manually on VPS)
 # CloudPanel NGINX reverse proxies:
-#   app.yourdomain.com  → localhost:3000
-#   api.yourdomain.com  → localhost:4000
+#   rankplex.cloud/webtool  → localhost:3000
+#   rankplex.cloud/v1/      → localhost:4000
+#   rankplex.cloud/minio/   → localhost:9000  (MinIO pass-through for presigned URLs)
+#   rankplex.cloud/admin/   → localhost:4000
 
 services:
   postgres:
@@ -39,6 +41,46 @@ services:
     networks:
       - aivastra-net
 
+  minio:
+    image: minio/minio:latest
+    container_name: aivastra-prod-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      # 9000 bound to host so CloudPanel NGINX can proxy /minio/ prefix
+      - "127.0.0.1:9000:9000"
+      # 9001 console — access via SSH tunnel only; do NOT expose publicly
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - aivastra-net
+
+  minio-bootstrap:
+    image: minio/mc:latest
+    container_name: aivastra-prod-minio-bootstrap
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/${R2_BUCKET} &&
+      mc anonymous set download local/${R2_BUCKET} &&
+      echo 'minio bucket ready: ${R2_BUCKET}'
+      "
+    networks:
+      - aivastra-net
+
   api:
     build:
       context: ..
@@ -61,6 +103,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - aivastra-net
 
@@ -78,6 +122,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - aivastra-net
 
@@ -87,6 +133,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     container_name: aivastra-prod-web
     restart: unless-stopped
     ports:
@@ -97,6 +144,7 @@ services:
 volumes:
   pgdata:
   redisdata:
+  miniodata:
 
 networks:
   aivastra-net:
