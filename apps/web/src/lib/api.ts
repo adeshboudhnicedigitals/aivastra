@@ -1,4 +1,5 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 function getToken(): string | null {
   if (typeof document === 'undefined') return null;
@@ -8,7 +9,7 @@ function getToken(): string | null {
 
 async function tryRefresh(): Promise<string | null> {
   try {
-    const res = await fetch('/api/auth/refresh', { method: 'POST' });
+    const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
     if (!res.ok) return null;
     const data = await res.json() as { accessToken: string };
     return data.accessToken;
@@ -40,7 +41,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       headers['Authorization'] = `Bearer ${refreshed}`;
       res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
     } else {
-      if (typeof window !== 'undefined') window.location.href = '/login';
+      if (typeof window !== 'undefined') window.location.href = `${BASE}/login`;
       throw new Error('Unauthorized');
     }
   }

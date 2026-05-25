@@ -10,6 +10,10 @@ const nextConfig: NextConfig = {
     return config;
   },
   images: {
+    // Image optimizer fetches local images without basePath prefix → 404.
+    // Disable optimization so Next.js renders plain <img> with the full
+    // basePath-prefixed URL that NGINX can route correctly.
+    unoptimized: true,
     remotePatterns: [
       { protocol: 'http', hostname: '127.0.0.1' },
       { protocol: 'https', hostname: '*.r2.cloudflarestorage.com' },

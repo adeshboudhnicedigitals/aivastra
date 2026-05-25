@@ -3,6 +3,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import type { Metadata } from 'next';
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 export const metadata: Metadata = {
   title: 'Ai Vastra — AI catalogues for fashion brands',
 };
@@ -271,7 +273,7 @@ export default async function Home() {
             <div className="lp-stage-cards">
               <div className="lp-input-card">
                 <div className="lp-card-img">
-                  <Image src="/samples/sample-1.png" alt="Input garment" width={200} height={250} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <Image src={`${BASE}/samples/sample-1.png`} alt="Input garment" width={200} height={250} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 </div>
                 <div className="lp-card-caption">
                   <span className="lp-card-lab">Input · Flat lay</span>
@@ -409,10 +411,10 @@ export default async function Home() {
           </div>
           <div className="lp-gallery-grid">
             {[
-              { src: '/samples/sample-1.png', meta: 'PINK · TOP · WOMEN' },
-              { src: '/samples/sample-2.png', meta: 'IVORY · WRAP · WOMEN' },
-              { src: '/samples/sample-3.png', meta: 'SAREE · WOMEN' },
-              { src: '/samples/sample-4.png', meta: 'KURTA · WOMEN' },
+              { src: `${BASE}/samples/sample-1.png`, meta: 'PINK · TOP · WOMEN' },
+              { src: `${BASE}/samples/sample-2.png`, meta: 'IVORY · WRAP · WOMEN' },
+              { src: `${BASE}/samples/sample-3.png`, meta: 'SAREE · WOMEN' },
+              { src: `${BASE}/samples/sample-4.png`, meta: 'KURTA · WOMEN' },
             ].map((g) => (
               <div key={g.meta} className="lp-gal">
                 <Image src={g.src} alt={g.meta} fill style={{ objectFit: 'cover' }} sizes="300px" />

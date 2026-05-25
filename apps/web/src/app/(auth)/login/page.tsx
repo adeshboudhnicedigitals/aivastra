@@ -9,6 +9,8 @@ import type { z } from 'zod';
 
 type LoginForm = z.infer<typeof LoginBody>;
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 const inputStyle: React.CSSProperties = {
   display: 'block', width: '100%', height: 46, padding: '0 16px',
   background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 12,
@@ -28,7 +30,7 @@ function LoginFormInner() {
 
   async function onSubmit(data: LoginForm) {
     setError('');
-    const res = await fetch('/api/auth/login', {
+    const res = await fetch(`${BASE}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
