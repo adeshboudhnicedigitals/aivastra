@@ -16,7 +16,7 @@ const inputStyle: React.CSSProperties = {
   transition: 'border-color .15s, box-shadow .15s',
 };
 
-export default function LoginPage() {
+export default function LoginPage(): React.ReactElement {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/dashboard';

@@ -16,7 +16,7 @@ const inputStyle: React.CSSProperties = {
   transition: 'border-color .15s, box-shadow .15s',
 };
 
-export default function RegisterPage() {
+export default function RegisterPage(): React.ReactElement {
   const router = useRouter();
   const [error, setError] = useState('');
 

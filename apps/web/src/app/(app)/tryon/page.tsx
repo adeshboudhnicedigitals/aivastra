@@ -159,7 +159,7 @@ function Guide() {
 }
 
 // ── Main page ──────────────────────────────────────────────────────────
-export default function TryOnPage() {
+export default function TryOnPage(): React.ReactElement {
   const router = useRouter();
 
   // Wizard step (0–4)

@@ -29,7 +29,7 @@ const PACKAGES = [
   { credits: 100, label: '100 credits', desc: '100 try-ons' },
 ];
 
-export default function CreditsPage() {
+export default function CreditsPage(): React.ReactElement {
   const qc = useQueryClient();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');

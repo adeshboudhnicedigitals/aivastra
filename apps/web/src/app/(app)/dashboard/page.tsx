@@ -88,7 +88,7 @@ function CatalogueCard({ catalogue }: { catalogue: Catalogue }) {
   );
 }
 
-export default function DashboardPage() {
+export default function DashboardPage(): React.ReactElement {
   const { data: catalogues, isLoading } = useQuery<Catalogue[]>({
     queryKey: ['catalogues'],
     queryFn: () => api.get('/v1/catalogues'),

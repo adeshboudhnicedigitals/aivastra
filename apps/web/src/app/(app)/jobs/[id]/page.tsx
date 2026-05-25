@@ -42,7 +42,7 @@ function StepIndicator({ currentStatus }: { currentStatus: string }) {
   );
 }
 
-export default function JobDetailPage() {
+export default function JobDetailPage(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
   const [resultUrl, setResultUrl] = useState<string | null>(null);

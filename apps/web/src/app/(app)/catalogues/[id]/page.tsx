@@ -84,7 +84,7 @@ function ImageCard({ job }: { job: Job }) {
   );
 }
 
-export default function CataloguePage({ params }: { params: Promise<{ id: string }> }) {
+export default function CataloguePage({ params }: { params: Promise<{ id: string }> }): React.ReactElement {
   const { id } = use(params);
 
   const { data, isLoading } = useQuery<CatalogueDetail>({
