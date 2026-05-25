@@ -3,9 +3,9 @@ import { CreateTryOnJobRequest } from '@aivastra/types';
 import { schema } from '@aivastra/db';
 import { eq, and, desc } from 'drizzle-orm';
 import { z } from 'zod';
-import { AppError } from '../../lib/errors';
-import { createJob } from './create';
-import { sseHandler } from './sse';
+import { AppError } from '../../lib/errors.js';
+import { createJob } from './create.js';
+import { sseHandler } from './sse.js';
 import { keys } from '@aivastra/storage';
 
 export async function jobsRoutes(app: FastifyInstance) {

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { SystemConfigBody } from '@aivastra/types';
 import { schema } from '@aivastra/db';
 import { eq, gte, lte, and, lt, count, countDistinct, sum, sql } from 'drizzle-orm';
-import { requireAdmin } from './guard';
+import { requireAdmin } from './guard.js';
 
 const KEY = 'config:system';
 

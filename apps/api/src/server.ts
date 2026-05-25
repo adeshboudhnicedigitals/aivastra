@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import { ZodTypeProvider, validatorCompiler, serializerCompiler } from 'fastify-type-provider-zod';
 import helmet from '@fastify/helmet';
 import cors from '@fastify/cors';
@@ -6,27 +6,27 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import { createLogger } from '@aivastra/logger';
-import type { Env } from './env';
-import { dbPlugin } from './plugins/db';
-import { redisPlugin } from './plugins/redis';
-import { storagePlugin } from './plugins/storage';
-import { authPlugin } from './plugins/auth';
-import { authRoutes } from './modules/auth/routes';
-import { creditsRoutes } from './modules/credits/routes';
-import { catalogRoutes } from './modules/catalog/routes';
-import { uploadsRoutes } from './modules/uploads/routes';
-import { jobsRoutes } from './modules/jobs/routes';
+import type { Env } from './env.js';
+import { dbPlugin } from './plugins/db.js';
+import { redisPlugin } from './plugins/redis.js';
+import { storagePlugin } from './plugins/storage.js';
+import { authPlugin } from './plugins/auth.js';
+import { authRoutes } from './modules/auth/routes.js';
+import { creditsRoutes } from './modules/credits/routes.js';
+import { catalogRoutes } from './modules/catalog/routes.js';
+import { uploadsRoutes } from './modules/uploads/routes.js';
+import { jobsRoutes } from './modules/jobs/routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
-import { adminUsersRoutes } from './modules/admin/users.routes';
-import { adminCreditsRoutes } from './modules/admin/credits.routes';
-import { adminCatalogRoutes } from './modules/admin/catalog.routes';
-import { adminJobsRoutes } from './modules/admin/jobs.routes';
-import { adminWorkersRoutes } from './modules/admin/workers.routes';
-import { adminConfigRoutes } from './modules/admin/config.routes';
-import { adminMeRoutes } from './modules/admin/me.routes';
-import { adminAssetsRoutes } from './modules/admin/models.routes';
-import { adminSubcategoriesRoutes } from './modules/admin/subcategories.routes';
-import { AppError } from './lib/errors';
+import { adminUsersRoutes } from './modules/admin/users.routes.js';
+import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
+import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
+import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
+import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
+import { adminConfigRoutes } from './modules/admin/config.routes.js';
+import { adminMeRoutes } from './modules/admin/me.routes.js';
+import { adminAssetsRoutes } from './modules/admin/models.routes.js';
+import { adminSubcategoriesRoutes } from './modules/admin/subcategories.routes.js';
+import { AppError } from './lib/errors.js';
 
 export async function buildServer(env: Env) {
   const app = Fastify({ loggerInstance: createLogger('api') }).withTypeProvider<ZodTypeProvider>();
@@ -50,7 +50,7 @@ export async function buildServer(env: Env) {
       return reply.code(err.statusCode).send({ error: { code: err.code, message: err.message } });
     }
     if ((err as { validation?: unknown }).validation) {
-      return reply.code(400).send({ error: { code: 'VALIDATION', message: err.message } });
+      return reply.code(400).send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
     app.log.error({ err }, 'unhandled');
     return reply.code(500).send({ error: { code: 'INTERNAL', message: 'internal error' } });
@@ -73,5 +73,5 @@ export async function buildServer(env: Env) {
   await app.register(adminSubcategoriesRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
-  return app;
+  return app as unknown as FastifyInstance;
 }

@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { RegisterBody, LoginBody } from '@aivastra/types';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { AppError } from '../../lib/errors';
-import { hashPassword, verifyPassword, signAccess, newRefreshToken, hashRefresh } from './service';
+import { AppError } from '../../lib/errors.js';
+import { hashPassword, verifyPassword, signAccess, newRefreshToken, hashRefresh } from './service.js';
 
 export async function authRoutes(app: FastifyInstance) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);

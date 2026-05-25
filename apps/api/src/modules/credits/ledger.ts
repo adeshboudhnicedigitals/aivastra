@@ -1,7 +1,7 @@
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { eq, sql, and, gte } from 'drizzle-orm';
-import { AppError } from '../../lib/errors';
+import { AppError } from '../../lib/errors.js';
 
 export async function atomicDeduct(db: DB, userId: string, amount: number, jobId: string) {
   return db.transaction(async (tx) => {

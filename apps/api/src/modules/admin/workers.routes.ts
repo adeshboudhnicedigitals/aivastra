@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireAdmin } from './guard';
+import { requireAdmin } from './guard.js';
 
 export async function adminWorkersRoutes(app: FastifyInstance) {
   app.get('/admin/workers', { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']) }, async () => {

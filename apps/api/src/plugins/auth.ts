@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
-import { verifyAccess } from '../modules/auth/service';
-import { AppError } from '../lib/errors';
+import { verifyAccess } from '../modules/auth/service.js';
+import { AppError } from '../lib/errors.js';
 declare module 'fastify' {
   interface FastifyInstance { requireUser: (req: any, reply: any) => Promise<void> }
   interface FastifyRequest { userId: string }

@@ -3,7 +3,7 @@ import { schema } from '@aivastra/db';
 import { eq, sql, desc, count, ilike, or } from 'drizzle-orm';
 import { z } from 'zod';
 import { UpdateUserBody } from '@aivastra/types';
-import { requireAdmin } from './guard';
+import { requireAdmin } from './guard.js';
 
 const PaginatedSearch = z.object({
   page: z.coerce.number().int().min(1).default(1),

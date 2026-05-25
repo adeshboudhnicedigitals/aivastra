@@ -5,5 +5,5 @@ export interface StorageProvider {
   deleteObject(key: string): Promise<void>;
   publicUrl(key: string): string;
 }
-export { keys } from './keys';
-export { createR2Provider } from './r2';
+export { keys } from './keys.js';
+export { createR2Provider } from './r2.js';

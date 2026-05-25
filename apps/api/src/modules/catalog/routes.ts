@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
-import { AppError } from '../../lib/errors';
-import { buildTree } from './tree';
+import { AppError } from '../../lib/errors.js';
+import { buildTree } from './tree.js';
 
 export async function catalogRoutes(app: FastifyInstance) {
   app.get('/v1/catalog/:type', {

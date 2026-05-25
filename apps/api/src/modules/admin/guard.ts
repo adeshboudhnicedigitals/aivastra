@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { schema } from '@aivastra/db';
-import { AppError } from '../../lib/errors';
+import { AppError } from '../../lib/errors.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 declare module 'fastify' { interface FastifyRequest { adminRole?: string } }

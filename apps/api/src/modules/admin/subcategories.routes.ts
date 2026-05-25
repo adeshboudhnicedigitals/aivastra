@@ -3,8 +3,8 @@ import { schema } from '@aivastra/db';
 import { eq, count, inArray, and } from 'drizzle-orm';
 import { z } from 'zod';
 import { CreateGarmentSubcategoryBody, PatchGarmentSubcategoryBody } from '@aivastra/types';
-import { requireAdmin } from './guard';
-import { AppError } from '../../lib/errors';
+import { requireAdmin } from './guard.js';
+import { AppError } from '../../lib/errors.js';
 
 export async function adminSubcategoriesRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
