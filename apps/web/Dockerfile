@@ -2,19 +2,9 @@ FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app
 
-FROM base AS deps
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
-COPY apps/web/package.json apps/web/
-COPY packages/types/package.json packages/types/
-COPY packages/logger/package.json packages/logger/
-COPY packages/storage/package.json packages/storage/
-COPY packages/db/package.json packages/db/
-RUN pnpm install --no-frozen-lockfile
-
 FROM base AS build
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# NEXT_PUBLIC_* are baked in at build time
+RUN pnpm install --no-frozen-lockfile
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_BASE_PATH
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
