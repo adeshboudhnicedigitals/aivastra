@@ -1,9 +1,14 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // basePath for subpath hosting (e.g. /webtool). Empty string = root (dev default).
   basePath: process.env.NEXT_PUBLIC_BASE_PATH || '',
   transpilePackages: ['@aivastra/types'],
+  webpack: (config) => {
+    config.resolve.extensionAlias = {
+      '.js': ['.ts', '.tsx', '.js', '.jsx'],
+    };
+    return config;
+  },
   images: {
     remotePatterns: [
       { protocol: 'http', hostname: '127.0.0.1' },
