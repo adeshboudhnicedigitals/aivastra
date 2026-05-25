@@ -1,13 +1,16 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+// Middleware receives the FULL path (including basePath).
+// But NextResponse.redirect with url.pathname = '/login' has Next.js
+// automatically prepend basePath → /webtool/login. Never manually add it.
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || '';
 const PUBLIC_PATHS = ['/login', '/register', '/home'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Strip basePath prefix — Next.js passes full path (inc. basePath) to middleware
+  // Strip basePath to get the logical path for comparison
   const path =
     BASE_PATH && pathname.startsWith(BASE_PATH)
       ? pathname.slice(BASE_PATH.length) || '/'
@@ -21,8 +24,9 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get('access_token')?.value;
   if (!token) {
     const url = request.nextUrl.clone();
-    url.pathname = `${BASE_PATH}/login`;
-    url.searchParams.set('next', path); // path without basePath — router.push handles it
+    // Do NOT add BASE_PATH — Next.js prepends it automatically
+    url.pathname = '/login';
+    url.searchParams.set('next', path); // without basePath; router.push handles it
     return NextResponse.redirect(url);
   }
   return NextResponse.next();
