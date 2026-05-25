@@ -11,6 +11,13 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      - name: Debug secrets presence
+        run: |
+          echo "VPS_HOST set: ${{ secrets.VPS_HOST != '' }}"
+          echo "VPS_USER set: ${{ secrets.VPS_USER != '' }}"
+          echo "VPS_SSH_KEY set: ${{ secrets.VPS_SSH_KEY != '' }}"
+          echo "DEPLOY_PATH set: ${{ secrets.DEPLOY_PATH != '' }}"
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
