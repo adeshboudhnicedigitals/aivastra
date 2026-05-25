@@ -35,7 +35,7 @@ const SpinnerIcon = () => (
 );
 
 
-export default function AccountPage() {
+export default function AccountPage(): React.ReactElement {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('profile');
 
