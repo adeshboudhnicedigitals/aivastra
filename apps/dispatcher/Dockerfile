@@ -9,7 +9,7 @@ COPY packages/db/package.json packages/db/
 COPY packages/logger/package.json packages/logger/
 COPY packages/storage/package.json packages/storage/
 COPY packages/types/package.json packages/types/
-RUN pnpm install --frozen-lockfile --prod=false
+RUN pnpm install --no-frozen-lockfile --prod=false
 
 FROM deps AS build
 COPY apps/dispatcher/ apps/dispatcher/
@@ -30,7 +30,7 @@ COPY packages/db/package.json packages/db/
 COPY packages/logger/package.json packages/logger/
 COPY packages/storage/package.json packages/storage/
 COPY packages/types/package.json packages/types/
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --no-frozen-lockfile --prod
 COPY --from=build /app/apps/dispatcher/dist ./apps/dispatcher/dist
 COPY --from=build /app/packages/db/dist ./packages/db/dist
 COPY --from=build /app/packages/logger/dist ./packages/logger/dist
