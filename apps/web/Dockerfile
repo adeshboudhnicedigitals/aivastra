@@ -7,6 +7,8 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/web/package.json apps/web/
 COPY packages/types/package.json packages/types/
 COPY packages/logger/package.json packages/logger/
+COPY packages/storage/package.json packages/storage/
+COPY packages/db/package.json packages/db/
 RUN pnpm install --no-frozen-lockfile
 
 FROM base AS build
@@ -23,7 +25,6 @@ RUN pnpm --filter @aivastra/web build
 FROM base AS runner
 ENV NODE_ENV=production
 WORKDIR /app
-# Only copy what next start needs
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/web/.next ./apps/web/.next
 COPY --from=build /app/apps/web/public ./apps/web/public
