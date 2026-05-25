@@ -136,6 +136,9 @@ services:
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
     container_name: aivastra-prod-web
     restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/webtool}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     ports:
       - "127.0.0.1:3000:3000"
     networks:
