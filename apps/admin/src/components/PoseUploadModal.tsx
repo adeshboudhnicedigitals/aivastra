@@ -81,7 +81,8 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug: _genderS
         setPromptGarmentPhase(first.defaultGarmentPhasePrompt);
       }
     }).catch(() => toast({ kind: 'error', title: 'Failed to load workflow options' }));
-  }, [toast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleWorkflowChange = (val: string) => {
     setWorkflowTemplate(val);
@@ -125,11 +126,13 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug: _genderS
         putFile(presign.thumbnailUploadUrl, poseFile),
         putFile(presign.faceSideUploadUrl, faceSideFile),
       ];
-      if (faceMode === 'new' && presign.newFaceUploadUrl && presign.newFaceThumbnailUploadUrl) {
+      if (faceMode === 'new') {
+        if (!presign.newFaceUploadUrl || !presign.newFaceThumbnailUploadUrl) throw new Error('Server did not return face upload URLs');
         uploads.push(putFile(presign.newFaceUploadUrl, newFaceFile!));
         uploads.push(putFile(presign.newFaceThumbnailUploadUrl, newFaceFile!));
       }
-      if (bgMode === 'new' && presign.newBgUploadUrl && presign.newBgThumbnailUploadUrl) {
+      if (bgMode === 'new') {
+        if (!presign.newBgUploadUrl || !presign.newBgThumbnailUploadUrl) throw new Error('Server did not return background upload URLs');
         uploads.push(putFile(presign.newBgUploadUrl, newBgFile!));
         uploads.push(putFile(presign.newBgThumbnailUploadUrl, newBgFile!));
       }
@@ -320,7 +323,7 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug: _genderS
             <div className="field">
               <label>Sort order</label>
               <input className="input" type="number" min={0} value={sortOrder} disabled={uploading}
-                onChange={(e) => setSortOrder(Number(e.target.value))} style={{ width: 100 }} />
+                onChange={(e) => { const n = Number(e.target.value); setSortOrder(Number.isNaN(n) ? 0 : n); }} style={{ width: 100 }} />
             </div>
             <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 'auto 0 0' }}>
               <input type="checkbox" id="isTemplate" checked={isTemplate} disabled={uploading}

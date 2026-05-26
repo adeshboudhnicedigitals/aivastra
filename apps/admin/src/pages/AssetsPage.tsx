@@ -98,7 +98,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   const [showBgUpload, setShowBgUpload] = useState(false);
   const [showFaceUpload, setShowFaceUpload] = useState(false);
-  const [showBatchPoseUpload, setShowBatchPoseUpload] = useState(false);
+  const [showPoseUpload, setShowPoseUpload] = useState(false);
   const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
   const [editingBackground, setEditingBackground] = useState<ModelBackground | null>(null);
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
@@ -329,7 +329,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             }}><Icon.Add /> Add subcategory</button>
           )}
           {activeTab === 'subcategories' && subView.kind === 'subcategory' && (
-            <button className="btn" onClick={() => setShowBatchPoseUpload(true)}><Icon.Upload /> Upload poses</button>
+            <button className="btn" onClick={() => setShowPoseUpload(true)}><Icon.Upload /> Upload poses</button>
           )}
         </div>
       </div>
@@ -597,14 +597,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           toast={toast}
         />
       )}
-      {showBatchPoseUpload && subView.kind === 'subcategory' && (
+      {showPoseUpload && subView.kind === 'subcategory' && (
         <PoseUploadModal
           subcategoryId={subView.sub.id}
           subcategoryGenderSlug={subView.sub.genderSlug}
           faces={faces}
           backgrounds={backgrounds}
-          onDone={(added) => { setShowBatchPoseUpload(false); setPoses((prev) => [...prev, added]); }}
-          onClose={() => setShowBatchPoseUpload(false)}
+          onDone={(added) => { setShowPoseUpload(false); setPoses((prev) => [...prev, added]); }}
+          onClose={() => setShowPoseUpload(false)}
           toast={toast}
         />
       )}
