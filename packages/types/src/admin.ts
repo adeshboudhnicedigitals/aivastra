@@ -45,7 +45,7 @@ export const SystemConfigBody = z.object({
 
 // ── Model asset upload schemas ────────────────────────────────────────────
 
-const AssetContentType = z.enum(['image/jpeg', 'image/png', 'image/webp']);
+export const AssetContentType = z.enum(['image/jpeg', 'image/png', 'image/webp']);
 const GenderEnum = z.enum(['men', 'women', 'boys', 'girls']);
 
 export const PresignModelFaceBody = z.object({
@@ -155,6 +155,8 @@ export const PatchModelPoseBody = z.object({
   workflowTemplate: WorkflowTemplateEnum.optional(),
   promptFacePhase: z.string().min(1).optional(),
   promptGarmentPhase: z.string().min(1).optional(),
+  /** Updated after re-uploading the side/tilt face via presign-faceside */
+  faceSideR2Key: z.string().min(1).optional(),
 });
 
 // Garment subcategories

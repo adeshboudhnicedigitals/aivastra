@@ -11,7 +11,7 @@ import {
   PresignModelFaceBody, ConfirmModelFaceBody, PatchModelFaceBody,
   PresignModelBackgroundBody, ConfirmModelBackgroundBody, PatchModelBackgroundBody,
   PresignModelPoseBody, ConfirmModelPoseBody, PatchModelPoseBody,
-  WorkflowTemplateEnum,
+  WorkflowTemplateEnum, AssetContentType,
 } from '@aivastra/types';
 import { requireAdmin } from './guard.js';
 import { AppError } from '../../lib/errors.js';
@@ -389,6 +389,22 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     });
 
     return row;
+  });
+
+  // ── Pose face-side re-upload ──────────────────────────────────────────────
+  // Returns a presigned URL to replace just the face_side_r2_key on an existing pose.
+  // Client: PUT file → then PATCH pose with { faceSideR2Key }.
+  app.post('/admin/assets/poses/:id/presign-faceside', {
+    preHandler: W,
+    schema: { params: uuidParam, body: z.object({ contentType: AssetContentType }) },
+  }, async (req) => {
+    const { id } = req.params as { id: string };
+    const { contentType } = req.body as { contentType: string };
+    const [pose] = await app.db.select({ id: schema.modelPoses.id }).from(schema.modelPoses).where(eq(schema.modelPoses.id, id));
+    if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
+    const r2Key = keys.modelPoseFaceSide(id);
+    const uploadUrl = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
+    return { uploadUrl, r2Key };
   });
 
   app.patch('/admin/assets/poses/:id', {
