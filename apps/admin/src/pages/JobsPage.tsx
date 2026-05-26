@@ -230,9 +230,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                     <div key={ev.id} style={{ padding: '8px 18px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
                       <span className="mono" style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{fmtTs(ev.createdAt)}</span>
                       <span className="semi">{ev.eventType}</span>
-                      {ev.payload && (
+                      {ev.payload != null && (
                         <span className="mono" style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {JSON.stringify(ev.payload)}
+                          {JSON.stringify(ev.payload as Record<string, unknown>)}
                         </span>
                       )}
                     </div>

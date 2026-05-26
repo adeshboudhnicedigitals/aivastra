@@ -11,7 +11,7 @@ async function probeWorker(
   apiKey: string,
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${workerUrl}/system_stats`, {
+    const res = await fetch(`${workerUrl.replace(/\/$/, '')}/system_stats`, {
       headers: { 'X-Api-Key': apiKey },
       signal: AbortSignal.timeout(5_000),
     });

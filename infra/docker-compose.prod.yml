@@ -144,6 +144,17 @@ services:
     networks:
       - aivastra-net
 
+  admin:
+    build:
+      context: ..
+      dockerfile: apps/admin/Dockerfile
+    container_name: aivastra-prod-admin
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3001:80"
+    networks:
+      - aivastra-net
+
 volumes:
   pgdata:
   redisdata:

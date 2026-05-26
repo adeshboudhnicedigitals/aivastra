@@ -14,6 +14,8 @@ const Env = z.object({
   R2_BUCKET: z.string(),
   R2_PUBLIC_URL: z.string().url(),
   R2_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+  /** Public-facing base URL for browser-side presigned uploads, e.g. https://rankplex.cloud/minio */
+  R2_PUBLIC_PRESIGN_BASE: z.string().url().optional(),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8).optional(),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),

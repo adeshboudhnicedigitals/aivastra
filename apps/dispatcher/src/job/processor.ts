@@ -78,8 +78,10 @@ export async function processJob(
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const worker = await selectWorker(redis);
   if (!worker) {
-    jobLog.warn('no idle worker — re-enqueuing');
+    jobLog.warn('no idle worker — re-enqueuing with backoff');
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+    // Wait 10s before re-enqueuing to prevent stream flood when all workers are unhealthy
+    await new Promise((resolve) => setTimeout(resolve, 10_000));
     await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     return;

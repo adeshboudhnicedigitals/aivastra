@@ -9,5 +9,6 @@ export const storagePlugin = fp(async (app) => {
     bucket: app.env.R2_BUCKET,
     publicUrl: app.env.R2_PUBLIC_URL,
     forcePathStyle: app.env.R2_FORCE_PATH_STYLE,
+    presignBaseUrl: app.env.R2_PUBLIC_PRESIGN_BASE,
   }));
 });

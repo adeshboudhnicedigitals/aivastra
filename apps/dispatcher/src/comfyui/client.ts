@@ -22,7 +22,7 @@ export async function submitPrompt(
   prompt: Record<string, unknown>,
   log?: { info: (obj: unknown, msg: string) => void; error: (obj: unknown, msg: string) => void },
 ): Promise<ComfySubmitResult> {
-  const url = `${workerUrl}/prompt`;
+  const url = `${workerUrl.replace(/\/$/, '')}/prompt`;
   log?.info({ url, clientUuid, nodeCount: Object.keys(prompt).length }, 'POST /prompt → ComfyUI');
   const res = await fetch(url, {
     method: 'POST',
@@ -46,7 +46,7 @@ export async function fetchHistory(
   promptId: string,
   log?: { info: (obj: unknown, msg: string) => void },
 ): Promise<ComfyOutputImage[]> {
-  const url = `${workerUrl}/history/${promptId}`;
+  const url = `${workerUrl.replace(/\/$/, '')}/history/${promptId}`;
   log?.info({ url }, 'GET /history → ComfyUI');
   const res = await fetch(url, {
     headers: { 'X-Api-Key': apiKey },
@@ -77,7 +77,7 @@ export async function uploadImageToComfy(
   contentType: string,
   log?: { info: (obj: unknown, msg: string) => void; error: (obj: unknown, msg: string) => void },
 ): Promise<string> {
-  const url = `${workerUrl}/upload/image`;
+  const url = `${workerUrl.replace(/\/$/, '')}/upload/image`;
   log?.info({ url, filename, bytes: imageBytes.byteLength }, 'POST /upload/image → ComfyUI');
   const form = new FormData();
   form.append('image', new Blob([imageBytes], { type: contentType }), filename);
@@ -103,7 +103,7 @@ export async function downloadOutputImage(
   apiKey: string,
   filename: string,
 ): Promise<Uint8Array> {
-  const url = `${workerUrl}/view?filename=${encodeURIComponent(filename)}&type=output`;
+  const url = `${workerUrl.replace(/\/$/, '')}/view?filename=${encodeURIComponent(filename)}&type=output`;
   const res = await fetch(url, {
     headers: { 'X-Api-Key': apiKey },
     signal: AbortSignal.timeout(30_000),

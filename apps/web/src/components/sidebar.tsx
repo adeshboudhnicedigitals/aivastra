@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 interface CreditsResponse { balance: number }
 interface MeResponse { email: string; displayName: string | null }
 
@@ -107,7 +109,7 @@ const SidebarToggleIcon = () => (
 // eslint-disable-next-line @next/next/no-img-element
 const LogoImg = () => (
   <img
-    src="/logo.png"
+    src={`${BASE}/logo.png`}
     alt="Ai Vastra"
     style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 8 }}
   />

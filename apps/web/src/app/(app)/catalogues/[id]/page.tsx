@@ -1,7 +1,7 @@
 'use client';
-import { use } from 'react';
+import { use, useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
 interface Job {
@@ -35,11 +35,22 @@ const DownloadIcon = () => (
     <line x1="12" y1="15" x2="12" y2="3"/>
   </svg>
 );
+const TrashIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"/>
+    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+    <path d="M10 11v6M14 11v6"/>
+    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+  </svg>
+);
 
-function ImageCard({ job }: { job: Job }) {
+function ImageCard({ job, catalogueId }: { job: Job; catalogueId: string }) {
   const isCompleted = job.status === 'COMPLETED';
   const isFailed = job.status === 'FAILED';
   const isActive = !TERMINAL.includes(job.status);
+  const isTerminal = TERMINAL.includes(job.status);
+  const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: result } = useQuery<{ url: string }>({
     queryKey: ['job-result', job.id],
@@ -47,6 +58,24 @@ function ImageCard({ job }: { job: Job }) {
     enabled: isCompleted,
     staleTime: 4 * 60 * 1000,
   });
+
+  async function handleDelete() {
+    if (!confirm('Delete this image? This cannot be undone.')) return;
+    setDeleting(true);
+    try {
+      await api.del(`/v1/jobs/${job.id}`);
+      // Remove from catalogue cache immediately
+      queryClient.setQueryData<CatalogueDetail>(['catalogue', catalogueId], (old) => {
+        if (!old) return old;
+        return { ...old, jobs: old.jobs.filter((j) => j.id !== job.id) };
+      });
+      // Invalidate dashboard catalogues list
+      queryClient.invalidateQueries({ queryKey: ['catalogues'] });
+    } catch {
+      alert('Failed to delete image. Please try again.');
+      setDeleting(false);
+    }
+  }
 
   return (
     <div className="av-cdet-card">
@@ -67,18 +96,31 @@ function ImageCard({ job }: { job: Job }) {
       </div>
       <div className="av-cdet-footer">
         <span style={{ fontSize: 12, color: 'var(--mute)', fontFamily: 'var(--font-mono)' }}>#{job.id.slice(0, 8)}</span>
-        {isCompleted && result?.url && (
-          <a
-            href={result.url}
-            download={`aivastra-${job.id.slice(0, 8)}.jpg`}
-            target="_blank"
-            rel="noreferrer"
-            className="av-btn av-btn-ghost"
-            style={{ padding: '4px 10px', fontSize: 12, gap: 5 }}
-          >
-            <DownloadIcon /> Download
-          </a>
-        )}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {isCompleted && result?.url && (
+            <a
+              href={result.url}
+              download={`aivastra-${job.id.slice(0, 8)}.jpg`}
+              target="_blank"
+              rel="noreferrer"
+              className="av-btn av-btn-ghost"
+              style={{ padding: '4px 10px', fontSize: 12, gap: 5 }}
+            >
+              <DownloadIcon /> Download
+            </a>
+          )}
+          {isTerminal && (
+            <button
+              className="av-btn av-btn-ghost"
+              style={{ padding: '4px 8px', fontSize: 12, color: 'var(--danger, #e05)', opacity: deleting ? 0.5 : 1 }}
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Delete image"
+            >
+              {deleting ? <SpinnerIcon /> : <TrashIcon />}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -125,7 +167,7 @@ export default function CataloguePage({ params }: { params: Promise<{ id: string
       {data && (
         <div className="av-cdet-grid">
           {data.jobs.map((job) => (
-            <ImageCard key={job.id} job={job} />
+            <ImageCard key={job.id} job={job} catalogueId={id} />
           ))}
         </div>
       )}

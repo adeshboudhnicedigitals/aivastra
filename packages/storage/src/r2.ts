@@ -10,6 +10,11 @@ export interface R2Config {
   publicUrl: string;
   forcePathStyle: boolean;
   region?: string;
+  /** Public-facing base URL for presigned PUT/GET URLs sent to the browser.
+   *  e.g. "https://rankplex.cloud/minio"
+   *  When set, the internal endpoint origin in the generated URL is replaced
+   *  with this value so browsers can reach it. */
+  presignBaseUrl?: string;
 }
 
 export function createR2Provider(cfg: R2Config): StorageProvider {
@@ -22,10 +27,16 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
-  const sign = async (cmd: PutObjectCommand | GetObjectCommand, expiresIn: number): Promise<PresignResult> => ({
-    url: await getSignedUrl(s3, cmd, { expiresIn }),
-    expiresIn,
-  });
+  const sign = async (cmd: PutObjectCommand | GetObjectCommand, expiresIn: number): Promise<PresignResult> => {
+    let url = await getSignedUrl(s3, cmd, { expiresIn });
+    // Rewrite internal endpoint to public URL so browsers can reach it over HTTPS
+    if (cfg.presignBaseUrl) {
+      const internalOrigin = new URL(cfg.endpoint).origin; // e.g. "http://minio:9000"
+      const publicBase = cfg.presignBaseUrl.replace(/\/$/, ''); // e.g. "https://rankplex.cloud/minio"
+      url = url.replace(internalOrigin, publicBase);
+    }
+    return { url, expiresIn };
+  };
   return {
     // ContentLength omitted from PutObjectCommand: including it forces content-length into
     // X-Amz-SignedHeaders, causing SignatureDoesNotMatch when the real file size differs.

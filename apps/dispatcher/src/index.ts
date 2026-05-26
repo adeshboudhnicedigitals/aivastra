@@ -47,7 +47,7 @@ async function main(): Promise<void> {
   // Startup connectivity check — verify each worker is reachable before accepting jobs
   for (const w of workers) {
     try {
-      const res = await fetch(`${w.url}/system_stats`, {
+      const res = await fetch(`${w.url.replace(/\/$/, '')}/system_stats`, {
         headers: { 'X-Api-Key': env.WORKER_API_KEY },
         signal: AbortSignal.timeout(5_000),
       });

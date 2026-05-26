@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import { api } from '@/lib/api';
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 interface Subcategory { id: string; slug: string; label: string }
 interface FaceItem { id: string; label: string; thumbnailUrl: string; gender: string }
 interface BackgroundItem { id: string; label: string; thumbnailUrl: string; previewUrl: string }
@@ -107,9 +109,10 @@ function SelCard({ selected, onClick, imageUrl, label }: { selected: boolean; on
     <button type="button" onClick={onClick} className={`av-sel-card ${selected ? 'on' : ''}`}>
       <div className="av-sel-img">
         <Image src={imageUrl} alt={label} width={160} height={213} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        <div className="av-sel-overlay" />
+        <div className="av-sel-check"><CheckIcon size={22} /></div>
       </div>
       <div className="av-sel-label">{label}</div>
-      <div className="av-sel-check"><CheckIcon size={12} /></div>
     </button>
   );
 }
@@ -482,7 +485,7 @@ export default function TryOnPage(): React.ReactElement {
                             if (garmentFile) { setGarmentFile(null); setGarmentKey(''); }
                           }}
                         >
-                          <img src={`/samples/sample-${n}.png`} alt={`Sample ${n}`} />
+                          <img src={`${BASE}/samples/sample-${n}.png`} alt={`Sample ${n}`} />
                           <span className="av-sample-check"><CheckIcon size={11} /></span>
                         </button>
                       ))}
@@ -526,7 +529,7 @@ export default function TryOnPage(): React.ReactElement {
               ) : (
                 <div className="av-sel-grid">
                   {backgrounds.items.map((b) => (
-                    <SelCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)} imageUrl={b.previewUrl} label={b.label} />
+                    <SelCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)} imageUrl={b.thumbnailUrl} label={b.label} />
                   ))}
                 </div>
               )}
@@ -542,8 +545,7 @@ export default function TryOnPage(): React.ReactElement {
               />
               {poseIds.length > 0 && (
                 <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--peach)' }}>{poseIds.length} selected</span>
-                  <button type="button" onClick={() => setPoseIds([])} style={{ fontSize: 12, color: 'var(--mute)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear</button>
+                  <button type="button" onClick={() => setPoseIds([])} style={{ fontSize: 12, color: 'var(--mute)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>Clear all</button>
                 </div>
               )}
               {!poses ? (

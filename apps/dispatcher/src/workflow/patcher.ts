@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_PATH = resolve(__dirname, '../../../../templates/virtual-tryon-v1.json');
+const TEMPLATE_PATH = resolve(__dirname, '../../../../templates/virtual-tryon-v2.json');
 
 type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta?: unknown };
 type Workflow = Record<string, WorkflowNode>;
@@ -34,6 +34,8 @@ export function patchWorkflow(inputs: WorkflowInputs): Record<string, unknown> {
   const workflow = JSON.parse(JSON.stringify(loadTemplate())) as Workflow;
 
   workflow['1340']!.inputs['image'] = inputs.upperGarmentFile;
+  // node 1352 is a second upper-garment reference used in the twopiece layout panel (v2 template)
+  if (workflow['1352']) workflow['1352']!.inputs['image'] = inputs.upperGarmentFile;
   workflow['1332']!.inputs['image'] = inputs.faceFile;
   workflow['1333']!.inputs['image'] = inputs.poseFile;
   workflow['1334']!.inputs['image'] = inputs.backgroundFile;

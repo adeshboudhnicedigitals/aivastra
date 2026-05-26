@@ -112,14 +112,21 @@ export default function DashboardPage({ onNav, toast }: Props) {
           >
             <div className="lbl">{st.icon}{st.lbl}</div>
             <div className="val">{st.val}</div>
-            {'delta' in st && st.delta !== null && st.delta !== undefined && (
-              <div className={`delta ${st.deltaDir === 'down' ? (st.delta <= 0 ? 'up' : 'down') : (st.delta >= 0 ? 'up' : 'down')}`}>
-                <span style={{ fontFamily: 'var(--mono)' }}>
-                  {st.delta > 0 ? '↑' : '↓'} {Math.abs(st.delta)}%
-                </span>
-                <span style={{ color: 'var(--muted)' }}>vs yesterday</span>
-              </div>
-            )}
+            {(() => {
+              const s = st as Record<string, unknown>;
+              const delta = s['delta'] as number | null | undefined;
+              if (delta === null || delta === undefined) return null;
+              const dir = s['deltaDir'] as string | undefined;
+              const cls = dir === 'down' ? (delta <= 0 ? 'up' : 'down') : (delta >= 0 ? 'up' : 'down');
+              return (
+                <div className={`delta ${cls}`}>
+                  <span style={{ fontFamily: 'var(--mono)' }}>
+                    {delta > 0 ? '↑' : '↓'} {Math.abs(delta)}%
+                  </span>
+                  <span style={{ color: 'var(--muted)' }}>vs yesterday</span>
+                </div>
+              );
+            })()}
             {'sub' in st && !('delta' in st) && (
               <div className="delta"><span style={{ color: 'var(--muted)' }}>{(st as any).sub}</span></div>
             )}

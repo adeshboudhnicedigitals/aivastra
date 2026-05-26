@@ -90,6 +90,31 @@ export async function jobsRoutes(app: FastifyInstance) {
     return { url, expiresIn };
   });
 
+  // Delete a terminal job (COMPLETED / FAILED / CANCELLED) — also removes R2 output
+  app.delete('/v1/jobs/:id', {
+    preHandler: app.requireUser,
+    schema: { params: z.object({ id: z.string().uuid() }) },
+  }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const [job] = await app.db.select().from(schema.jobs)
+      .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
+    if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+    const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
+    if (!TERMINAL.includes(job.status)) {
+      throw new AppError('CONFLICT', 409, 'cannot delete an active job');
+    }
+    // Delete R2 output object if it exists
+    if (job.status === 'COMPLETED') {
+      try { await app.storage.deleteObject(keys.output(id)); } catch { /* ignore if missing */ }
+    }
+    // Delete child rows explicitly before the parent to avoid FK ordering issues
+    await app.db.delete(schema.jobInputs).where(eq(schema.jobInputs.jobId, id));
+    await app.db.delete(schema.jobEvents).where(eq(schema.jobEvents.jobId, id));
+    await app.db.delete(schema.jobOutputs).where(eq(schema.jobOutputs.jobId, id));
+    await app.db.delete(schema.jobs).where(eq(schema.jobs.id, id));
+    reply.code(204).send();
+  });
+
   app.get('/v1/jobs/:id/events', {
     preHandler: app.requireUser,
     schema: { params: z.object({ id: z.string().uuid() }) },

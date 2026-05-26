@@ -20,7 +20,7 @@ export async function waitForCompletion(
   log?: { info: (obj: unknown, msg: string) => void; debug: (obj: unknown, msg: string) => void },
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  const url = `${workerUrl}/history/${promptId}`;
+  const url = `${workerUrl.replace(/\/$/, '')}/history/${promptId}`;
   log?.info({ url, promptId }, 'polling ComfyUI /history for completion');
 
   while (Date.now() < deadline) {

@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { Icon } from './Icons';
 import { useAuth } from '../context/AuthContext';
 
@@ -12,7 +13,7 @@ interface SidebarProps {
 interface NavItem {
   k: string;
   label: string;
-  icon: () => JSX.Element;
+  icon: () => ReactElement;
   roles: string[];
   count?: number;
   alert?: boolean;
