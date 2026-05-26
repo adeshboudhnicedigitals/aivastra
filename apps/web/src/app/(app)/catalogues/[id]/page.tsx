@@ -143,34 +143,49 @@ export default function CataloguePage({ params }: { params: Promise<{ id: string
   const total = data?.jobs.length ?? 0;
 
   return (
-    <div className="av-main-inner">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-        <Link href="/dashboard" className="av-btn av-btn-ghost" style={{ textDecoration: 'none', padding: '6px 12px', fontSize: 13 }}>
-          ← Back
-        </Link>
-        <div>
-          <h1 style={{ fontWeight: 700, fontSize: 22, letterSpacing: '-0.01em', margin: '0 0 4px' }}>
-            Catalogue <span style={{ color: 'var(--mute)', fontWeight: 500, fontSize: 16, fontFamily: 'var(--font-mono)' }}>#{id.slice(0, 8)}</span>
-          </h1>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--mute)' }}>
-            {isLoading ? 'Loading…' : `${completedCount} of ${total} image${total !== 1 ? 's' : ''} ready`}
-          </p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      {/* TopBar */}
+      <div className="av-topbar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Link href="/dashboard" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--mute)', display: 'flex', textDecoration: 'none' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+          </Link>
+          <div>
+            <div className="av-topbar-title">
+              Catalogue <span style={{ color: 'var(--mute)', fontWeight: 500, fontSize: 14 }}>#{id.slice(0, 8)}</span>
+            </div>
+            <div className="av-topbar-sub">
+              {isLoading ? 'Loading…' : `${completedCount} of ${total} image${total !== 1 ? 's' : ''} ready`}
+            </div>
+          </div>
         </div>
+        <button className="av-btn av-btn-ghost" style={{ gap: 8 }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Download All
+        </button>
       </div>
 
-      {isLoading && (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '64px 0' }}>
-          <SpinnerIcon />
-        </div>
-      )}
-
-      {data && (
-        <div className="av-cdet-grid">
-          {data.jobs.map((job) => (
-            <ImageCard key={job.id} job={job} catalogueId={id} />
-          ))}
-        </div>
-      )}
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+        {isLoading && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '64px 0' }}>
+            <SpinnerIcon />
+          </div>
+        )}
+        {data && (
+          <div className="av-cdet-grid">
+            {data.jobs.map((job) => (
+              <ImageCard key={job.id} job={job} catalogueId={id} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
