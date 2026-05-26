@@ -8,7 +8,7 @@ import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
 import { UploadModal } from '../components/UploadModal';
 import type { FieldDef } from '../components/UploadModal';
-import { BatchPoseUploadModal } from '../components/BatchPoseUploadModal';
+import { PoseUploadModal } from '../components/PoseUploadModal';
 import { EditPoseModal } from '../components/EditPoseModal';
 import { EditBackgroundModal } from '../components/EditBackgroundModal';
 import { EditFaceModal } from '../components/EditFaceModal';
@@ -598,11 +598,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         />
       )}
       {showBatchPoseUpload && subView.kind === 'subcategory' && (
-        <BatchPoseUploadModal
+        <PoseUploadModal
           subcategoryId={subView.sub.id}
+          subcategoryGenderSlug={subView.sub.genderSlug}
           faces={faces}
           backgrounds={backgrounds}
-          onDone={(added) => { setShowBatchPoseUpload(false); setPoses((prev) => [...prev, ...added]); }}
+          onDone={(added) => { setShowBatchPoseUpload(false); setPoses((prev) => [...prev, added]); }}
           onClose={() => setShowBatchPoseUpload(false)}
           toast={toast}
         />

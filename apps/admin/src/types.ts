@@ -38,6 +38,15 @@ export interface GarmentSubcategory {
   templateCount?: number;
 }
 
+export type WorkflowTemplate = 'twopiece' | 'onepiece' | 'hijab';
+
+export interface WorkflowOption {
+  value: WorkflowTemplate;
+  label: string;
+  defaultFacePhasePrompt: string;
+  defaultGarmentPhasePrompt: string;
+}
+
 // Poses are per (subcategory × face × background) combo
 // isTemplate: exactly one pose per face×background cell is the thumbnail shown to users
 export interface ModelPose {
@@ -48,6 +57,10 @@ export interface ModelPose {
   label: string;
   thumbnailKey: string;
   r2Key: string;
+  faceSideR2Key: string | null;
+  workflowTemplate: WorkflowTemplate;
+  promptFacePhase: string | null;
+  promptGarmentPhase: string | null;
   showsLower: boolean;
   showsShoes: boolean;
   isTemplate: boolean;
