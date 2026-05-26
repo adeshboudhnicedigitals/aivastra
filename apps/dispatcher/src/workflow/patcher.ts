@@ -3,44 +3,118 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATE_PATH = resolve(__dirname, '../../../../templates/virtual-tryon-v2.json');
+const TEMPLATES_DIR = resolve(__dirname, '../../../../templates');
 
 type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta?: unknown };
 type Workflow = Record<string, WorkflowNode>;
 
-let _template: Workflow | null = null;
+export type WorkflowTemplate = 'twopiece' | 'onepiece' | 'hijab';
 
-function loadTemplate(): Workflow {
-  if (_template) return _template;
-  _template = JSON.parse(readFileSync(TEMPLATE_PATH, 'utf-8')) as Workflow;
-  return _template;
+interface TemplateConfig {
+  file: string;
+  nodes: {
+    face: string;
+    pose: string;
+    bg: string;
+    upper: string[];
+    lower: string | null;
+    facePhasePromptNode: string;
+    garmentPhasePromptNode: string;
+  };
+}
+
+const TEMPLATE_CONFIG: Record<WorkflowTemplate, TemplateConfig> = {
+  twopiece: {
+    file: 'virtual-tryon-v2.json',
+    nodes: {
+      face: '1332',
+      pose: '1333',
+      bg: '1334',
+      upper: ['1340', '1352'],
+      lower: '1331',
+      facePhasePromptNode: '1345:111',
+      garmentPhasePromptNode: '1341:1199',
+    },
+  },
+  onepiece: {
+    file: 'onepiece.json',
+    nodes: {
+      face: '1302',
+      pose: '1313',
+      bg: '1310',
+      upper: ['1314'],
+      lower: '1323',
+      facePhasePromptNode: '1308:111',
+      garmentPhasePromptNode: '1315:1199',
+    },
+  },
+  hijab: {
+    file: 'hijab.json',
+    nodes: {
+      face: '1392',
+      pose: '1379',
+      bg: '1391',
+      upper: ['1382'],
+      lower: null,
+      facePhasePromptNode: '1383:111',
+      garmentPhasePromptNode: '1381:1199',
+    },
+  },
+};
+
+// Cache loaded templates in memory
+const templateCache = new Map<string, Workflow>();
+
+function loadTemplate(file: string): Workflow {
+  if (templateCache.has(file)) return templateCache.get(file)!;
+  const raw = JSON.parse(readFileSync(resolve(TEMPLATES_DIR, file), 'utf-8')) as Workflow;
+  templateCache.set(file, raw);
+  return raw;
 }
 
 export interface WorkflowInputs {
-  // ComfyUI filenames returned by /upload/image
-  upperGarmentFile: string;  // node 1340 — user upper garment
-  faceFile: string;          // node 1332 — model face
-  poseFile: string;          // node 1333 — pose reference image
-  backgroundFile: string;    // node 1334 — background
-  lowerGarmentFile?: string; // node 1331 — lower garment (optional)
+  workflowTemplate: WorkflowTemplate;
+  upperGarmentFile: string;
+  /** Side/tilt face image — patched into the face LoadImage node for ComfyUI */
+  faceSideFile: string;
+  poseFile: string;
+  backgroundFile: string;
+  lowerGarmentFile?: string;
+  /** If provided, overwrites the template default */
+  promptFacePhase?: string;
+  /** If provided, overwrites the template default */
+  promptGarmentPhase?: string;
 }
 
 /**
- * Deep-clones the workflow template and patches the LoadImage nodes
+ * Deep-clones the selected workflow template and patches LoadImage nodes
  * with filenames previously uploaded to ComfyUI via /upload/image.
+ * Also patches positive prompt nodes if overrides are provided.
  * Returns the object suitable for the `prompt` field in POST /prompt.
  */
 export function patchWorkflow(inputs: WorkflowInputs): Record<string, unknown> {
-  const workflow = JSON.parse(JSON.stringify(loadTemplate())) as Workflow;
+  const cfg = TEMPLATE_CONFIG[inputs.workflowTemplate];
+  const template = loadTemplate(cfg.file);
+  const workflow = JSON.parse(JSON.stringify(template)) as Workflow;
+  const n = cfg.nodes;
 
-  workflow['1340']!.inputs['image'] = inputs.upperGarmentFile;
-  // node 1352 is a second upper-garment reference used in the twopiece layout panel (v2 template)
-  if (workflow['1352']) workflow['1352']!.inputs['image'] = inputs.upperGarmentFile;
-  workflow['1332']!.inputs['image'] = inputs.faceFile;
-  workflow['1333']!.inputs['image'] = inputs.poseFile;
-  workflow['1334']!.inputs['image'] = inputs.backgroundFile;
-  if (inputs.lowerGarmentFile) {
-    workflow['1331']!.inputs['image'] = inputs.lowerGarmentFile;
+  // Patch image nodes
+  workflow[n.face]!.inputs['image'] = inputs.faceSideFile;
+  workflow[n.pose]!.inputs['image'] = inputs.poseFile;
+  workflow[n.bg]!.inputs['image'] = inputs.backgroundFile;
+  for (const nodeId of n.upper) {
+    if (workflow[nodeId]) workflow[nodeId]!.inputs['image'] = inputs.upperGarmentFile;
+  }
+  if (n.lower && inputs.lowerGarmentFile && workflow[n.lower]) {
+    workflow[n.lower]!.inputs['image'] = inputs.lowerGarmentFile;
+  }
+
+  // Patch positive prompts if overridden
+  if (inputs.promptFacePhase && workflow[n.facePhasePromptNode]) {
+    workflow[n.facePhasePromptNode]!.inputs['prompt'] = inputs.promptFacePhase;
+  }
+  if (inputs.promptGarmentPhase && workflow[n.garmentPhasePromptNode]) {
+    workflow[n.garmentPhasePromptNode]!.inputs['prompt'] = inputs.promptGarmentPhase;
   }
 
   return workflow as unknown as Record<string, unknown>;
