@@ -59,13 +59,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   app.get('/admin/workflows', { preHandler: W }, async () => {
     return Object.entries(WORKFLOW_CONFIG).map(([value, cfg]) => {
-      const defaults = getWorkflowDefaults(value as keyof typeof WORKFLOW_CONFIG);
-      return {
-        value,
-        label: cfg.label,
-        defaultFacePhasePrompt: defaults.defaultFacePhasePrompt,
-        defaultGarmentPhasePrompt: defaults.defaultGarmentPhasePrompt,
-      };
+      let defaultFacePhasePrompt = '';
+      let defaultGarmentPhasePrompt = '';
+      try {
+        const defaults = getWorkflowDefaults(value as keyof typeof WORKFLOW_CONFIG);
+        defaultFacePhasePrompt = defaults.defaultFacePhasePrompt;
+        defaultGarmentPhasePrompt = defaults.defaultGarmentPhasePrompt;
+      } catch {
+        // Template file missing or malformed — return empty defaults
+      }
+      return { value, label: cfg.label, defaultFacePhasePrompt, defaultGarmentPhasePrompt };
     });
   });
 
@@ -324,13 +327,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   }, async (req) => {
     const body = req.body as z.infer<typeof ConfirmModelPoseBody>;
 
+    // Validate subcategoryId exists
+    const [subCheck] = await app.db.select({ genderSlug: schema.garmentSubcategories.genderSlug })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, body.subcategoryId));
+    if (!subCheck) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+
     const row = await app.db.transaction(async (tx) => {
-      let resolvedFaceId = body.faceId!;
+      let resolvedFaceId = body.faceId ?? '';
       if (body.newFace) {
-        const [sub] = await tx.select({ genderSlug: schema.garmentSubcategories.genderSlug })
-          .from(schema.garmentSubcategories)
-          .where(eq(schema.garmentSubcategories.id, body.subcategoryId));
-        const gender = sub?.genderSlug ?? 'men';
+        const gender = subCheck.genderSlug;
         const autoLabel = body.newFace.filename.replace(/\.[^.]+$/, '');
         const [newFaceRow] = await tx
           .insert(schema.modelFaces)
@@ -339,7 +345,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         resolvedFaceId = newFaceRow!.id;
       }
 
-      let resolvedBgId = body.backgroundId!;
+      let resolvedBgId = body.backgroundId ?? '';
       if (body.newBackground) {
         const autoLabel = body.newBackground.filename.replace(/\.[^.]+$/, '');
         const [newBgRow] = await tx
