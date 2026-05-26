@@ -3,18 +3,71 @@ import { schema } from '@aivastra/db';
 import { eq, count, and, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { keys } from '@aivastra/storage';
 import {
   PresignModelFaceBody, ConfirmModelFaceBody, PatchModelFaceBody,
   PresignModelBackgroundBody, ConfirmModelBackgroundBody, PatchModelBackgroundBody,
   PresignModelPoseBody, ConfirmModelPoseBody, PatchModelPoseBody,
+  WorkflowTemplateEnum,
 } from '@aivastra/types';
 import { requireAdmin } from './guard.js';
 import { AppError } from '../../lib/errors.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TEMPLATES_DIR = resolve(__dirname, '../../../../../templates');
+
+type WorkflowNode = { inputs: Record<string, unknown>; class_type: string };
+type WorkflowJson = Record<string, WorkflowNode>;
+
+const WORKFLOW_CONFIG = {
+  twopiece: {
+    file: 'virtual-tryon-v2.json',
+    label: 'Two-Piece (Upper + Lower)',
+    facePhaseNode: '1345:111',
+    garmentPhaseNode: '1341:1199',
+  },
+  onepiece: {
+    file: 'onepiece.json',
+    label: 'One-Piece / Full Outfit',
+    facePhaseNode: '1308:111',
+    garmentPhaseNode: '1315:1199',
+  },
+  hijab: {
+    file: 'hijab.json',
+    label: 'Hijab / Head Cover',
+    facePhaseNode: '1383:111',
+    garmentPhaseNode: '1381:1199',
+  },
+} as const;
+
+function getWorkflowDefaults(template: keyof typeof WORKFLOW_CONFIG): { defaultFacePhasePrompt: string; defaultGarmentPhasePrompt: string } {
+  const cfg = WORKFLOW_CONFIG[template];
+  const raw = JSON.parse(readFileSync(resolve(TEMPLATES_DIR, cfg.file), 'utf-8')) as WorkflowJson;
+  const facePrompt = (raw[cfg.facePhaseNode]?.inputs?.['prompt'] ?? '') as string;
+  const garmentPrompt = (raw[cfg.garmentPhaseNode]?.inputs?.['prompt'] ?? '') as string;
+  return { defaultFacePhasePrompt: facePrompt, defaultGarmentPhasePrompt: garmentPrompt };
+}
+
 export async function adminAssetsRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
   const uuidParam = z.object({ id: z.string().uuid() });
+
+  // ── Workflow metadata ─────────────────────────────────────────────────────
+
+  app.get('/admin/workflows', { preHandler: W }, async () => {
+    return Object.entries(WORKFLOW_CONFIG).map(([value, cfg]) => {
+      const defaults = getWorkflowDefaults(value as keyof typeof WORKFLOW_CONFIG);
+      return {
+        value,
+        label: cfg.label,
+        defaultFacePhasePrompt: defaults.defaultFacePhasePrompt,
+        defaultGarmentPhasePrompt: defaults.defaultGarmentPhasePrompt,
+      };
+    });
+  });
 
   // ── Faces ─────────────────────────────────────────────────────────────────
 
@@ -191,54 +244,144 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     preHandler: W,
     schema: { body: PresignModelPoseBody },
   }, async (req) => {
-    const { subcategoryId, faceId, backgroundId, contentType } = req.body as {
-      subcategoryId: string; faceId: string; backgroundId: string; contentType: string;
-    };
+    const body = req.body as z.infer<typeof PresignModelPoseBody>;
+    const { subcategoryId, contentType, faceSideContentType } = body;
+
     const [sub] = await app.db.select().from(schema.garmentSubcategories)
       .where(eq(schema.garmentSubcategories.id, subcategoryId));
     if (!sub) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
-    const [face] = await app.db.select({ id: schema.modelFaces.id }).from(schema.modelFaces)
-      .where(eq(schema.modelFaces.id, faceId));
-    if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
-    const [bg] = await app.db.select({ id: schema.modelBackgrounds.id }).from(schema.modelBackgrounds)
-      .where(eq(schema.modelBackgrounds.id, backgroundId));
-    if (!bg) throw new AppError('NOT_FOUND', 404, 'background not found');
+
+    if (body.faceId) {
+      const [face] = await app.db.select({ id: schema.modelFaces.id })
+        .from(schema.modelFaces).where(eq(schema.modelFaces.id, body.faceId));
+      if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
+    }
+
+    if (body.backgroundId) {
+      const [bg] = await app.db.select({ id: schema.modelBackgrounds.id })
+        .from(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, body.backgroundId));
+      if (!bg) throw new AppError('NOT_FOUND', 404, 'background not found');
+    }
+
     const newId = randomUUID();
     const r2Key = keys.modelPose(newId);
     const thumbKey = keys.modelPoseThumb(newId);
-    const [main, thumb] = await Promise.all([
+    const faceSideKey = keys.modelPoseFaceSide(newId);
+
+    const presignTasks: Promise<{ url: string }>[] = [
       app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
       app.storage.presignPut(thumbKey, contentType, 1_000_000, 300),
-    ]);
-    return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey: thumbKey };
+      app.storage.presignPut(faceSideKey, faceSideContentType, 10_000_000, 300),
+    ];
+
+    const newFaceId = body.newFaceContentType ? randomUUID() : null;
+    const newFaceR2Key = newFaceId ? keys.modelFace(newFaceId) : null;
+    const newFaceThumbKey = newFaceId ? keys.modelFaceThumb(newFaceId) : null;
+    if (newFaceId && body.newFaceContentType && newFaceR2Key && newFaceThumbKey) {
+      presignTasks.push(app.storage.presignPut(newFaceR2Key, body.newFaceContentType, 10_000_000, 300));
+      presignTasks.push(app.storage.presignPut(newFaceThumbKey, body.newFaceContentType, 1_000_000, 300));
+    }
+
+    const newBgId = body.newBgContentType ? randomUUID() : null;
+    const newBgR2Key = newBgId ? keys.modelBackground(newBgId) : null;
+    const newBgThumbKey = newBgId ? keys.modelBackgroundThumb(newBgId) : null;
+    if (newBgId && body.newBgContentType && newBgR2Key && newBgThumbKey) {
+      presignTasks.push(app.storage.presignPut(newBgR2Key, body.newBgContentType, 10_000_000, 300));
+      presignTasks.push(app.storage.presignPut(newBgThumbKey, body.newBgContentType, 1_000_000, 300));
+    }
+
+    const results = await Promise.all(presignTasks);
+    let idx = 0;
+    const uploadUrl = results[idx++]!.url;
+    const thumbnailUploadUrl = results[idx++]!.url;
+    const faceSideUploadUrl = results[idx++]!.url;
+
+    const response: Record<string, unknown> = {
+      uploadUrl, r2Key, thumbnailUploadUrl, thumbnailKey: thumbKey,
+      faceSideUploadUrl, faceSideR2Key: faceSideKey,
+    };
+
+    if (newFaceId && newFaceR2Key && newFaceThumbKey) {
+      response['newFaceUploadUrl'] = results[idx++]!.url;
+      response['newFaceR2Key'] = newFaceR2Key;
+      response['newFaceThumbnailUploadUrl'] = results[idx++]!.url;
+      response['newFaceThumbnailKey'] = newFaceThumbKey;
+    }
+
+    if (newBgId && newBgR2Key && newBgThumbKey) {
+      response['newBgUploadUrl'] = results[idx++]!.url;
+      response['newBgR2Key'] = newBgR2Key;
+      response['newBgThumbnailUploadUrl'] = results[idx++]!.url;
+      response['newBgThumbnailKey'] = newBgThumbKey;
+    }
+
+    return response;
   });
 
   app.post('/admin/assets/poses/confirm', {
     preHandler: W,
     schema: { body: ConfirmModelPoseBody },
   }, async (req) => {
-    const { subcategoryId, faceId, backgroundId, label, r2Key, thumbnailKey, showsLower, showsShoes, isTemplate, sortOrder } = req.body as {
-      subcategoryId: string; faceId: string; backgroundId: string;
-      label: string; r2Key: string; thumbnailKey: string;
-      showsLower: boolean; showsShoes: boolean; isTemplate: boolean; sortOrder: number;
-    };
+    const body = req.body as z.infer<typeof ConfirmModelPoseBody>;
+
     const row = await app.db.transaction(async (tx) => {
-      if (isTemplate) {
+      let resolvedFaceId = body.faceId!;
+      if (body.newFace) {
+        const [sub] = await tx.select({ genderSlug: schema.garmentSubcategories.genderSlug })
+          .from(schema.garmentSubcategories)
+          .where(eq(schema.garmentSubcategories.id, body.subcategoryId));
+        const gender = sub?.genderSlug ?? 'men';
+        const autoLabel = body.newFace.filename.replace(/\.[^.]+$/, '');
+        const [newFaceRow] = await tx
+          .insert(schema.modelFaces)
+          .values({ label: autoLabel, gender, r2Key: body.newFace.r2Key, thumbnailKey: body.newFace.thumbnailKey, sortOrder: 0 })
+          .returning({ id: schema.modelFaces.id });
+        resolvedFaceId = newFaceRow!.id;
+      }
+
+      let resolvedBgId = body.backgroundId!;
+      if (body.newBackground) {
+        const autoLabel = body.newBackground.filename.replace(/\.[^.]+$/, '');
+        const [newBgRow] = await tx
+          .insert(schema.modelBackgrounds)
+          .values({ label: autoLabel, r2Key: body.newBackground.r2Key, thumbnailKey: body.newBackground.thumbnailKey, sortOrder: 0 })
+          .returning({ id: schema.modelBackgrounds.id });
+        resolvedBgId = newBgRow!.id;
+      }
+
+      if (body.isTemplate) {
         await tx.update(schema.modelPoses)
           .set({ isTemplate: false, updatedAt: new Date() })
           .where(and(
-            eq(schema.modelPoses.subcategoryId, subcategoryId),
-            eq(schema.modelPoses.faceId, faceId),
-            eq(schema.modelPoses.backgroundId, backgroundId),
+            eq(schema.modelPoses.subcategoryId, body.subcategoryId),
+            eq(schema.modelPoses.faceId, resolvedFaceId),
+            eq(schema.modelPoses.backgroundId, resolvedBgId),
             eq(schema.modelPoses.isTemplate, true),
           ));
       }
+
       const [inserted] = await tx
         .insert(schema.modelPoses)
-        .values({ subcategoryId, faceId, backgroundId, label, r2Key, thumbnailKey, showsLower, showsShoes, isTemplate, sortOrder })
+        .values({
+          subcategoryId: body.subcategoryId,
+          faceId: resolvedFaceId,
+          backgroundId: resolvedBgId,
+          label: body.label,
+          r2Key: body.r2Key,
+          thumbnailKey: body.thumbnailKey,
+          faceSideR2Key: body.faceSideR2Key,
+          workflowTemplate: body.workflowTemplate,
+          promptFacePhase: body.promptFacePhase,
+          promptGarmentPhase: body.promptGarmentPhase,
+          showsLower: body.showsLower,
+          showsShoes: body.showsShoes,
+          isTemplate: body.isTemplate,
+          sortOrder: body.sortOrder,
+        })
         .returning();
       return inserted;
     });
+
     return row;
   });
 

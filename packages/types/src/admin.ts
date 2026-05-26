@@ -81,25 +81,68 @@ export const PatchModelBackgroundBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+export const WorkflowTemplateEnum = z.enum(['twopiece', 'onepiece', 'hijab']);
+
 // Poses are per (subcategory × face × background) combo, e.g. m1bg1p1
 export const PresignModelPoseBody = z.object({
   subcategoryId: z.string().uuid(),
-  faceId: z.string().uuid(),
-  backgroundId: z.string().uuid(),
+  // Exactly one of faceId (existing) or newFaceContentType (upload new)
+  faceId: z.string().uuid().optional(),
+  newFaceContentType: AssetContentType.optional(),
+  // Exactly one of backgroundId (existing) or newBgContentType (upload new)
+  backgroundId: z.string().uuid().optional(),
+  newBgContentType: AssetContentType.optional(),
+  // Pose body image
   contentType: AssetContentType,
-});
+  // Side/tilt face for ComfyUI (always required)
+  faceSideContentType: AssetContentType,
+}).refine(
+  (d) => Boolean(d.faceId) !== Boolean(d.newFaceContentType),
+  'Provide either faceId or newFaceContentType, not both',
+).refine(
+  (d) => Boolean(d.backgroundId) !== Boolean(d.newBgContentType),
+  'Provide either backgroundId or newBgContentType, not both',
+);
+
 export const ConfirmModelPoseBody = z.object({
   subcategoryId: z.string().uuid(),
-  faceId: z.string().uuid(),
-  backgroundId: z.string().uuid(),
+  // Exactly one of faceId (existing) or newFace (inline upload)
+  faceId: z.string().uuid().optional(),
+  newFace: z.object({
+    r2Key: z.string().min(1),
+    thumbnailKey: z.string().min(1),
+    filename: z.string().min(1),
+  }).optional(),
+  // Exactly one of backgroundId (existing) or newBackground (inline upload)
+  backgroundId: z.string().uuid().optional(),
+  newBackground: z.object({
+    r2Key: z.string().min(1),
+    thumbnailKey: z.string().min(1),
+    filename: z.string().min(1),
+  }).optional(),
+  // Pose body image
   label: z.string().min(1).max(120),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
+  // Side/tilt face (backend only — goes to ComfyUI face node)
+  faceSideR2Key: z.string().min(1),
+  // Workflow
+  workflowTemplate: WorkflowTemplateEnum,
+  promptFacePhase: z.string().min(1),
+  promptGarmentPhase: z.string().min(1),
+  // Existing fields
   showsLower: z.boolean().default(false),
   showsShoes: z.boolean().default(false),
   isTemplate: z.boolean().default(false),
   sortOrder: z.number().int().default(0),
-});
+}).refine(
+  (d) => Boolean(d.faceId) !== Boolean(d.newFace),
+  'Provide either faceId or newFace, not both',
+).refine(
+  (d) => Boolean(d.backgroundId) !== Boolean(d.newBackground),
+  'Provide either backgroundId or newBackground, not both',
+);
+
 export const PatchModelPoseBody = z.object({
   label: z.string().min(1).max(120).optional(),
   faceId: z.string().uuid().optional(),
@@ -109,6 +152,9 @@ export const PatchModelPoseBody = z.object({
   sortOrder: z.number().int().optional(),
   showsLower: z.boolean().optional(),
   showsShoes: z.boolean().optional(),
+  workflowTemplate: WorkflowTemplateEnum.optional(),
+  promptFacePhase: z.string().min(1).optional(),
+  promptGarmentPhase: z.string().min(1).optional(),
 });
 
 // Garment subcategories
