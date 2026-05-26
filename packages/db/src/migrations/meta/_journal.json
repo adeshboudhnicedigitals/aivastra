@@ -57,6 +57,13 @@
       "when": 1748300000000,
       "tag": "0007_catalogue_id",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1748300100000,
+      "tag": "0008_pose_workflow_columns",
+      "breakpoints": true
     }
   ]
 }

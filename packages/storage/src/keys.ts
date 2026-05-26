@@ -9,6 +9,7 @@ export const keys = {
   modelBackgroundThumb: (id: string) => `models/backgrounds/${id}.thumb.jpg`,
   modelPose: (id: string) => `models/poses/${id}.jpg`,
   modelPoseThumb: (id: string) => `models/poses/${id}.thumb.jpg`,
+  modelPoseFaceSide: (id: string) => `models/poses/${id}.faceside.jpg`,
   subcategoryTemplate: (id: string) => `models/templates/${id}.jpg`,
   subcategoryTemplateThumb: (id: string) => `models/templates/${id}.thumb.jpg`,
 };

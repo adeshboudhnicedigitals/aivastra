@@ -52,6 +52,10 @@ export const modelPoses = pgTable('model_poses', {
   isTemplate: boolean('is_template').notNull().default(false),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
+  workflowTemplate: text('workflow_template').notNull().default('twopiece'),
+  promptFacePhase: text('prompt_face_phase'),
+  promptGarmentPhase: text('prompt_garment_phase'),
+  faceSideR2Key: text('face_side_r2_key'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
