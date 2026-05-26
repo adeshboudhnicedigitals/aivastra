@@ -49,7 +49,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
       <aside className="sidebar sidebar--collapsed" onClick={onToggleCollapse} style={{ cursor: 'pointer' }}>
         <div className="brand brand--collapsed">
           <button className="brand-mark brand-mark--logo" onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }} title="Expand sidebar">
-            <img src="/logo.png" alt="Ai Vastra" />
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Ai Vastra" />
           </button>
         </div>
         <nav>
@@ -86,7 +86,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
     <aside className="sidebar">
       <div className="brand">
         <span className="brand-mark brand-mark--logo">
-          <img src="/logo.png" alt="Ai Vastra" />
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Ai Vastra" />
         </span>
         <span className="brand-word">aivastra</span>
         <span className="brand-sub">admin</span>
