@@ -1,20 +1,28 @@
 'use client';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-type Tab = 'profile' | 'billing' | 'invoices' | 'activity';
+type Tab = 'profile' | 'billing' | 'invoices' | 'creditHistory';
 
 interface MeResponse { id: string; email: string; displayName: string | null; tier: string }
 interface CreditsResponse { balance: number; recent: { id: string; delta: number; reason: string; createdAt: string }[] }
 interface CreditRequest { id: string; creditsRequested: number; creditsApproved: number | null; note: string | null; status: string; createdAt: string }
 
 const TABS: { k: Tab; label: string }[] = [
-  { k: 'profile', label: 'Profile' },
+  { k: 'profile', label: 'Profile Details' },
   { k: 'billing', label: 'Billing' },
+  { k: 'creditHistory', label: 'Credit History' },
   { k: 'invoices', label: 'Invoices' },
-  { k: 'activity', label: 'Credit Activity' },
 ];
+
+const LogOutIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+    <path d="M16 17l5-5-5-5M21 12H9"/>
+  </svg>
+);
 
 const PACKAGES = [
   { credits: 10, desc: '10 try-ons' },
@@ -36,6 +44,7 @@ const SpinnerIcon = () => (
 
 
 export default function AccountPage(): React.ReactElement {
+  const router = useRouter();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('profile');
 
@@ -86,6 +95,12 @@ export default function AccountPage(): React.ReactElement {
     }
   }
 
+  async function handleSignOut() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    router.push('/login');
+    router.refresh();
+  }
+
   async function handleReqSubmit(e: React.FormEvent) {
     e.preventDefault();
     const amt = parseInt(reqAmount, 10);
@@ -105,27 +120,37 @@ export default function AccountPage(): React.ReactElement {
   const fillPct = Math.min(100, Math.round((balance / maxBalance) * 100));
 
   return (
-    <div className="av-main-inner" style={{ maxWidth: 760 }}>
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontWeight: 700, fontSize: 26, letterSpacing: '-0.01em', margin: '0 0 6px' }}>Account</h1>
-        <p style={{ margin: 0, fontSize: 14, color: 'var(--mute)' }}>Manage your profile, billing and activity.</p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      {/* TopBar */}
+      <div className="av-topbar">
+        <div>
+          <div className="av-topbar-title">Account Settings</div>
+          <div className="av-topbar-sub">Manage your profile, billing, credits, and account activity.</div>
+        </div>
+        <button onClick={() => void handleSignOut()} style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px',
+          borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)',
+          fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: 'var(--ink)',
+        }}>
+          <LogOutIcon /> Log Out
+        </button>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--line)', paddingBottom: 0 }}>
-        {TABS.map((t) => (
-          <button key={t.k} onClick={() => setTab(t.k)}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-              padding: '8px 16px', fontSize: 14, fontWeight: 600,
-              color: tab === t.k ? 'var(--ink)' : 'var(--mute)',
-              borderBottom: tab === t.k ? '2px solid var(--ink)' : '2px solid transparent',
-              marginBottom: -1, transition: 'color .15s',
-            }}
-          >{t.label}</button>
-        ))}
-      </div>
+      <div className="av-main-inner" style={{ overflowY: 'auto', maxWidth: 760 }}>
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--line)' }}>
+          {TABS.map((t) => (
+            <button key={t.k} onClick={() => setTab(t.k)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                padding: '10px 20px', fontSize: 14, fontWeight: 600,
+                color: tab === t.k ? 'var(--ink)' : 'var(--mute)',
+                borderBottom: tab === t.k ? '2px solid var(--ink)' : '2px solid transparent',
+                marginBottom: -1, transition: 'color .15s', whiteSpace: 'nowrap',
+              }}
+            >{t.label}</button>
+          ))}
+        </div>
 
       {/* ── Profile ── */}
       {tab === 'profile' && (
@@ -264,8 +289,8 @@ export default function AccountPage(): React.ReactElement {
         </div>
       )}
 
-      {/* ── Credit Activity ── */}
-      {tab === 'activity' && (
+      {/* ── Credit History ── */}
+      {tab === 'creditHistory' && (
         <div className="av-card" style={{ padding: 0 }}>
           {!credits?.recent.length ? (
             <div style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--mute)', fontSize: 14 }}>No activity yet.</div>
@@ -291,6 +316,7 @@ export default function AccountPage(): React.ReactElement {
         </div>
       )}
 
+      </div>
     </div>
   );
 }
