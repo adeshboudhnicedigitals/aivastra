@@ -28,13 +28,9 @@ const GENDERS = [
 const PLATFORMS = ['Amazon', 'Myntra', 'Flipkart', 'Ajio', 'Shopify', 'Meesho'];
 const ASPECTS = ['1:1', '4:5', '3:4', '9:16', '16:9'];
 
-const STEPS = [
-  'Setup Your Catalogue',
-  'Select AI Models',
-  'Select Backgrounds',
-  'Choose Templates',
-  'Lower & Shoes',
-];
+const STEPS = ['Setup', 'AI Models', 'Backgrounds', 'Generate'];
+// Map internal step index (0–4) to visible stepper index (0–3)
+function visibleStep(s: number) { return Math.min(s, 3); }
 
 // ── Icons ──────────────────────────────────────────────────────────────
 const CheckIcon = ({ size = 14 }: { size?: number }) => (
@@ -338,30 +334,43 @@ export default function TryOnPage(): React.ReactElement {
   const selectedShoe = shoeItems.find((i) => i.id === shoeCatalogId);
 
   return (
-    <div className="av-main-inner">
-      {/* Page header */}
-      <div className="av-page-head">
-        <h1>Start Creating Catalogue</h1>
-        <p>Generate premium ecommerce-ready model shoots from flat lay garments in minutes.</p>
-      </div>
-
-      {/* Stepper */}
-      <div className="av-stepper">
-        {STEPS.map((label, i) => {
-          const state = i < step ? 'done' : i === step ? 'active' : '';
-          return (
-            <div key={i} className={`av-step ${state}`}>
-              <div className="av-step-num">
-                {state === 'done' ? <CheckIcon /> : i + 1}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      {/* TopBar with stepper */}
+      <div className="av-topbar">
+        <div>
+          <div className="av-topbar-title">Create Catalogue</div>
+          <div className="av-topbar-sub">Create premium AI catalogue shoots from flat lay garments in minutes.</div>
+        </div>
+        {/* Stepper */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+          {STEPS.map((s, i) => {
+            const vs = visibleStep(step);
+            const done = i < vs;
+            const active = i === vs;
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{
+                    width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: active ? '#141414' : done ? 'var(--grad)' : 'var(--line)',
+                    fontSize: 10, fontWeight: 600, color: (active || done) ? '#FEFEFE' : 'var(--mute)', flexShrink: 0,
+                  }}>
+                    {done ? <CheckIcon /> : i + 1}
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: active ? 'var(--ink)' : 'var(--mute)', whiteSpace: 'nowrap' }}>{s}</span>
+                </div>
+                {i < STEPS.length - 1 && <div style={{ width: 32, height: 1, background: 'var(--line)', margin: '0 8px' }} />}
               </div>
-              <div className="av-step-label">{label}</div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
-      {/* Content grid */}
-      <div className="av-work">
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="av-main-inner">
+          {/* Content grid */}
+          <div className="av-work">
         <div className="av-card">
 
           {/* ── Step 0: Setup ────────────────────────── */}
@@ -698,6 +707,8 @@ export default function TryOnPage(): React.ReactElement {
 
         {/* Guide panel */}
         <aside><Guide /></aside>
+      </div>
+        </div>
       </div>
 
       {/* Sticky footer */}
