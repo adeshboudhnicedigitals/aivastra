@@ -7,6 +7,29 @@
 
 ## Log
 
+### 2026-05-26 — Web UI restyle (vastra3.0 design)
+
+#### Done
+- Root redirect: landing page replaced with auth-aware redirect (logged in → /tryon, else → /login)
+- `apps/web/src/app/home/page.tsx` deleted
+- Logo assets copied to `apps/web/public/assets/` (logo-icon, logo-icon-large, logo-wordmark, logo-wordmark-large, auth-bg)
+- New CSS utility classes added to `globals.css`: `.av-auth-shell`, `.av-auth-form-col`, `.av-auth-image-col`, `.av-auth-divider`, `.av-btn-dark`, `.av-btn-grad`, `.av-topbar`, `.av-pricing-table` (+ sub-classes), `.av-cat-date-group`, `.av-assets-grid`, `.av-asset-card`
+- Sidebar: new nav (Studio/Catalogues/Assets/Pricing/Settings), PNG logo, credits widget, logout icon — dark mode toggle removed
+- Auth pages: two-column layout (600px form + auth-bg.png image panel) for login and register; Google button (UI only)
+- Assets page: new `/assets` route with mock garment data grid (UI only)
+- Pricing page: full plan comparison table (Starter/Growth/Pro) above existing credit request form
+- Catalogues: date-grouped catalogue grid, new TopBar with "Create Catalogue" gradient button + search bar
+- View Catalogue: new TopBar with back arrow + "Download All" button
+- Studio: new TopBar with 4-step stepper (Setup / AI Models / Backgrounds / Generate), old `av-page-head` + `av-stepper` replaced
+- Settings/Account: renamed tabs (Profile Details / Billing / Credit History / Invoices), new TopBar with Log Out button
+
+#### Open Questions
+- Google OAuth: button renders on auth pages but no wiring (intentional for now)
+- Assets page: needs real API endpoint for listing/uploading user garments
+- Pricing "Buy" buttons: UI only, no payment integration yet
+
+---
+
 ### 2026-05-23 (uncommitted) — Multi-pose per job + catalogue grouping
 
 **Done**
