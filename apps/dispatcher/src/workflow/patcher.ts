@@ -67,9 +67,13 @@ const templateCache = new Map<string, Workflow>();
 
 function loadTemplate(file: string): Workflow {
   if (templateCache.has(file)) return templateCache.get(file)!;
-  const raw = JSON.parse(readFileSync(resolve(TEMPLATES_DIR, file), 'utf-8')) as Workflow;
-  templateCache.set(file, raw);
-  return raw;
+  try {
+    const raw = JSON.parse(readFileSync(resolve(TEMPLATES_DIR, file), 'utf-8')) as Workflow;
+    templateCache.set(file, raw);
+    return raw;
+  } catch (e) {
+    throw new Error(`Failed to load workflow template "${file}": ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 export interface WorkflowInputs {
@@ -110,10 +114,10 @@ export function patchWorkflow(inputs: WorkflowInputs): Record<string, unknown> {
   }
 
   // Patch positive prompts if overridden
-  if (inputs.promptFacePhase && workflow[n.facePhasePromptNode]) {
+  if (inputs.promptFacePhase !== undefined && workflow[n.facePhasePromptNode]) {
     workflow[n.facePhasePromptNode]!.inputs['prompt'] = inputs.promptFacePhase;
   }
-  if (inputs.promptGarmentPhase && workflow[n.garmentPhasePromptNode]) {
+  if (inputs.promptGarmentPhase !== undefined && workflow[n.garmentPhasePromptNode]) {
     workflow[n.garmentPhasePromptNode]!.inputs['prompt'] = inputs.promptGarmentPhase;
   }
 

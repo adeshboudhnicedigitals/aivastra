@@ -71,12 +71,18 @@ export async function processJob(
   const bgKey = bgRow.r2Key;
   const poseKey = poseRow.r2Key;
   // Use pose's side-face key for ComfyUI; fall back to display face for legacy poses without it
-  const faceSideKey = poseRow.faceSideR2Key ?? faceRow?.r2Key ?? null;
+  const faceSideKey = poseRow.faceSideR2Key ?? faceRow.r2Key ?? null;
   if (!faceSideKey) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog);
     return;
   }
-  const workflowTemplate = (poseRow.workflowTemplate ?? 'twopiece') as 'twopiece' | 'onepiece' | 'hijab';
+  const VALID_TEMPLATES = ['twopiece', 'onepiece', 'hijab'] as const;
+  const rawTemplate = poseRow.workflowTemplate ?? 'twopiece';
+  if (!VALID_TEMPLATES.includes(rawTemplate as typeof VALID_TEMPLATES[number])) {
+    await markFailed(cfg, jobId, userId, stream, messageId, 'INVALID_WORKFLOW_TEMPLATE', jobLog);
+    return;
+  }
+  const workflowTemplate = rawTemplate as 'twopiece' | 'onepiece' | 'hijab';
 
   // Resolve optional lower garment catalog ID → R2 key
   let lowerKey: string | null = null;
