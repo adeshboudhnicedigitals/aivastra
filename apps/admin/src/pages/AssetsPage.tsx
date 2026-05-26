@@ -12,8 +12,13 @@ import { PoseUploadModal } from '../components/PoseUploadModal';
 import { EditPoseModal } from '../components/EditPoseModal';
 import { EditBackgroundModal } from '../components/EditBackgroundModal';
 import { EditFaceModal } from '../components/EditFaceModal';
+import { Pager } from '../components/Pager';
+import { Th } from '../components/Th';
+import type { SortDir } from '../components/Th';
+import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
+import type { CatalogItem } from '../types';
 
-type AssetTab = 'backgrounds' | 'faces' | 'subcategories';
+type AssetTab = 'subcategories' | 'faces' | 'backgrounds' | 'lower' | 'shoe';
 type GenderFilter = 'all' | GenderSlug;
 
 type SubView =
@@ -78,7 +83,7 @@ function AssetThumb({ thumbnailKey, label, w = 64, h = 64, storageBase }: {
 
 export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const { storagePublicUrl } = useAuth();
-  const [activeTab, setActiveTab] = useState<AssetTab>('backgrounds');
+  const [activeTab, setActiveTab] = useState<AssetTab>('subcategories');
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
   const [subView, setSubView] = useState<SubView>({ kind: 'list' });
 
@@ -102,6 +107,21 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
   const [editingBackground, setEditingBackground] = useState<ModelBackground | null>(null);
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
+
+  // Catalog (lower / shoe) state
+  const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
+  const [catalogCategories, setCatalogCategories] = useState<{ id: number; label: string; typeSlug: string }[]>([]);
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogPage, setCatalogPage] = useState(0);
+  const [catalogSortKey, setCatalogSortKey] = useState<keyof CatalogItem>('sortOrder');
+  const [catalogSortDir, setCatalogSortDir] = useState<SortDir>('asc');
+  const [confirmDeleteCatalog, setConfirmDeleteCatalog] = useState<string | null>(null);
+  const [editCatalogItem, setEditCatalogItem] = useState<CatalogItem | null>(null);
+  const [editCatalogLabel, setEditCatalogLabel] = useState('');
+  const [editCatalogSortOrder, setEditCatalogSortOrder] = useState(0);
+  const [editCatalogCategoryId, setEditCatalogCategoryId] = useState('');
+  const [editCatalogSaving, setEditCatalogSaving] = useState(false);
+  const [showCatalogUpload, setShowCatalogUpload] = useState(false);
 
   const loadBackgrounds = useCallback(async () => {
     setLoading(true);
@@ -151,14 +171,31 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   }, [toast]);
 
+  const loadCatalog = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [itemsRes, catsRes] = await Promise.all([
+        apiFetch<CatalogItem[]>('/admin/catalog/items'),
+        apiFetch<{ id: number; label: string; typeSlug: string }[]>('/admin/catalog/categories'),
+      ]);
+      setCatalogItems(itemsRes);
+      setCatalogCategories(catsRes);
+    } catch {
+      toast({ kind: 'error', title: 'Failed to load catalog' });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     if (activeTab === 'backgrounds') loadBackgrounds();
     else if (activeTab === 'faces') loadFaces();
+    else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog();
     else if (activeTab === 'subcategories') {
       if (subView.kind === 'list') loadSubcategories();
       else loadSubcategoryAssets(subView.sub.id);
     }
-  }, [activeTab, subView, loadBackgrounds, loadFaces, loadSubcategories, loadSubcategoryAssets]);
+  }, [activeTab, subView, loadBackgrounds, loadFaces, loadSubcategories, loadSubcategoryAssets, loadCatalog]);
 
   // Preload faces + backgrounds silently so upload selects + filters are populated
   useEffect(() => {
@@ -264,9 +301,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   );
 
   const TABS: { k: AssetTab; l: string }[] = [
-    { k: 'backgrounds', l: 'Backgrounds' },
-    { k: 'faces', l: 'Model Faces' },
     { k: 'subcategories', l: 'Subcategories' },
+    { k: 'faces', l: 'Model Faces' },
+    { k: 'backgrounds', l: 'Backgrounds' },
+    { k: 'lower', l: 'Lower garments' },
+    { k: 'shoe', l: 'Shoes' },
   ];
 
   const GENDER_TABS: { k: GenderFilter; l: string }[] = [
@@ -305,6 +344,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           <h1>
             {activeTab === 'backgrounds' ? 'Backgrounds'
               : activeTab === 'faces' ? 'Model Faces'
+              : activeTab === 'lower' ? 'Lower garments'
+              : activeTab === 'shoe' ? 'Shoes'
               : subView.kind === 'subcategory' ? subView.sub.label
               : 'Subcategories'}
           </h1>
@@ -313,6 +354,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             {activeTab === 'faces' && 'Model face images — select gender to filter.'}
             {activeTab === 'subcategories' && subView.kind === 'list' && 'Garment subcategories. Click to manage assets.'}
             {activeTab === 'subcategories' && subView.kind === 'subcategory' && `Assets for ${subView.sub.genderSlug} / ${subView.sub.slug}. Filter by face or background to slice the tensor.`}
+            {(activeTab === 'lower' || activeTab === 'shoe') && 'Optional add-ons shown when pose permits.'}
           </p>
         </div>
         <div className="head-tools">
@@ -330,6 +372,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           )}
           {activeTab === 'subcategories' && subView.kind === 'subcategory' && (
             <button className="btn" onClick={() => setShowPoseUpload(true)}><Icon.Upload /> Upload poses</button>
+          )}
+          {(activeTab === 'lower' || activeTab === 'shoe') && (
+            <button className="btn" onClick={() => setShowCatalogUpload(true)}><Icon.Add /> Add item</button>
           )}
         </div>
       </div>
@@ -557,6 +602,94 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         </>
       )}
 
+      {!loading && (activeTab === 'lower' || activeTab === 'shoe') && (() => {
+        const filtered = catalogItems.filter((c) => c.type === activeTab && (!catalogQuery || c.label.toLowerCase().includes(catalogQuery.toLowerCase()) || c.id.toLowerCase().includes(catalogQuery.toLowerCase())));
+        const sorted = [...filtered].sort((a, b) => {
+          const aVal = a[catalogSortKey] ?? '';
+          const bVal = b[catalogSortKey] ?? '';
+          let cmp: number;
+          if (typeof aVal === 'boolean') cmp = Number(bVal as boolean) - Number(aVal);
+          else if (typeof aVal === 'string') cmp = aVal.localeCompare(bVal as string);
+          else cmp = (aVal as number) - (bVal as number);
+          return catalogSortDir === 'asc' ? cmp : -cmp;
+        });
+        const PAGE_SIZE = 25;
+        const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+        const paged = sorted.slice(catalogPage * PAGE_SIZE, (catalogPage + 1) * PAGE_SIZE);
+        return (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <input className="input" placeholder="Search by label or ID…" value={catalogQuery}
+                onChange={(e) => { setCatalogQuery(e.target.value); setCatalogPage(0); }}
+                style={{ maxWidth: 320 }} />
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <Th k="label" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Label</Th>
+                    <Th k="sortOrder" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Order</Th>
+                    <Th k="isActive" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Active</Th>
+                    <Th k="updatedAt" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Updated</Th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paged.map((c) => (
+                    <tr key={c.id}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {storagePublicUrl && c.thumbnailKey ? (
+                            <img src={`${storagePublicUrl}/${c.thumbnailKey}`} alt={c.label}
+                              style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          ) : (
+                            <div style={{ width: 40, height: 40, borderRadius: 6, background: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon.Image /></div>
+                          )}
+                          <div>
+                            <span className="semi">{c.label}</span>
+                            <span className="sub mono" style={{ display: 'block' }}>{c.id.slice(0, 8)}…</span>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span className="mono">{c.sortOrder}</span></td>
+                      <td><Switch checked={c.isActive} onChange={async () => {
+                        const next = !c.isActive;
+                        setCatalogItems((prev) => prev.map((x) => x.id === c.id ? { ...x, isActive: next } : x));
+                        try {
+                          await apiFetch(`/admin/catalog/items/${c.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: next }) });
+                          toast({ title: `${c.label} ${c.isActive ? 'deactivated' : 'activated'}` });
+                        } catch {
+                          setCatalogItems((prev) => prev.map((x) => x.id === c.id ? { ...x, isActive: c.isActive } : x));
+                          toast({ kind: 'error', title: 'Failed to update item' });
+                        }
+                      }} /></td>
+                      <td><span className="mono">{c.updatedAt.slice(0, 10)}</span></td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button className="btn sm ghost" onClick={() => {
+                            setEditCatalogItem(c);
+                            setEditCatalogLabel(c.label);
+                            setEditCatalogSortOrder(c.sortOrder);
+                            const cat = catalogCategories.find((x) => x.typeSlug === c.type);
+                            setEditCatalogCategoryId(cat ? String(cat.id) : '');
+                          }}><Icon.Edit /></button>
+                          <button className="btn sm ghost" onClick={() => setConfirmDeleteCatalog(c.id)}><Icon.Trash /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {paged.length === 0 && (
+                    <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No items found.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pager page={catalogPage} totalPages={totalPages} onPage={setCatalogPage} totalItems={sorted.length} pageSize={PAGE_SIZE} />
+          </>
+        );
+      })()}
+
       {confirmDelete && (
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -715,6 +848,116 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             </div>
           </div>
         </div>
+      )}
+      {confirmDeleteCatalog && (
+        <div className="modal-overlay" onClick={() => setConfirmDeleteCatalog(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h3>Delete catalog item</h3></div>
+            <div className="modal-body">
+              <p>Delete <strong>{catalogItems.find((c) => c.id === confirmDeleteCatalog)?.label ?? confirmDeleteCatalog}</strong>? This cannot be undone.</p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmDeleteCatalog(null)}>Cancel</button>
+              <button className="btn danger" onClick={async () => {
+                const id = confirmDeleteCatalog;
+                setConfirmDeleteCatalog(null);
+                try {
+                  await apiFetch(`/admin/catalog/items/${id}`, { method: 'DELETE' });
+                  setCatalogItems((prev) => prev.filter((c) => c.id !== id));
+                  toast({ title: 'Item deleted' });
+                } catch {
+                  toast({ kind: 'error', title: 'Failed to delete item' });
+                }
+              }}><Icon.Trash /> Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editCatalogItem && (
+        <div className="modal-overlay" onClick={editCatalogSaving ? undefined : () => setEditCatalogItem(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Edit catalog item</h3>
+              <button className="btn sm ghost" onClick={() => setEditCatalogItem(null)} disabled={editCatalogSaving} style={{ marginLeft: 'auto' }}><Icon.Close /></button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="field">
+                <label>Label</label>
+                <input className="input" value={editCatalogLabel} disabled={editCatalogSaving} autoFocus
+                  onChange={(e) => setEditCatalogLabel(e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Gender category</label>
+                <select className="select" value={editCatalogCategoryId} disabled={editCatalogSaving}
+                  onChange={(e) => setEditCatalogCategoryId(e.target.value)}>
+                  {catalogCategories.filter((c) => c.typeSlug === editCatalogItem.type).map((c) => (
+                    <option key={c.id} value={String(c.id)}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Sort order</label>
+                <input className="input" type="number" min={0} value={editCatalogSortOrder} disabled={editCatalogSaving}
+                  onChange={(e) => { const n = Number(e.target.value); setEditCatalogSortOrder(Number.isNaN(n) ? 0 : n); }}
+                  style={{ width: 100 }} />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setEditCatalogItem(null)} disabled={editCatalogSaving}>Cancel</button>
+              <button className="btn primary" disabled={editCatalogSaving || !editCatalogLabel.trim()} onClick={async () => {
+                setEditCatalogSaving(true);
+                try {
+                  await apiFetch(`/admin/catalog/items/${editCatalogItem.id}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                      label: editCatalogLabel.trim() || editCatalogItem.label,
+                      sortOrder: editCatalogSortOrder,
+                      ...(editCatalogCategoryId ? { categoryId: Number(editCatalogCategoryId) } : {}),
+                    }),
+                  });
+                  setCatalogItems((prev) => prev.map((c) =>
+                    c.id === editCatalogItem.id ? { ...c, label: editCatalogLabel.trim() || c.label, sortOrder: editCatalogSortOrder } : c,
+                  ));
+                  toast({ title: `${editCatalogLabel || editCatalogItem.label} updated` });
+                  setEditCatalogItem(null);
+                } catch {
+                  toast({ kind: 'error', title: 'Failed to save changes' });
+                } finally {
+                  setEditCatalogSaving(false);
+                }
+              }}>{editCatalogSaving ? 'Saving…' : 'Save changes'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showCatalogUpload && (
+        catalogCategories.length === 0 ? (
+          <div className="modal-overlay" onClick={() => setShowCatalogUpload(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head"><h3>No categories found</h3></div>
+              <div className="modal-body">
+                <p>Run <code>pnpm db:migrate</code> to seed the lower &amp; shoe categories, then reload.</p>
+              </div>
+              <div className="modal-foot">
+                <button className="btn ghost" onClick={() => setShowCatalogUpload(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <BatchCatalogUploadModal
+            typeSlug={activeTab === 'shoe' ? 'shoe' : 'lower'}
+            categories={catalogCategories}
+            onDone={(added) => {
+              setShowCatalogUpload(false);
+              setCatalogItems((prev) => [...prev, ...(added as unknown as CatalogItem[])]);
+              apiFetch<CatalogItem[]>('/admin/catalog/items').then(setCatalogItems).catch(() => {
+                toast({ kind: 'error', title: 'Items added but failed to refresh list' });
+              });
+            }}
+            onClose={() => setShowCatalogUpload(false)}
+            toast={toast}
+          />
+        )
       )}
     </>
   );

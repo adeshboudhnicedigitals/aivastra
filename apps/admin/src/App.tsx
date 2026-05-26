@@ -3,7 +3,6 @@ import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { ToastStack } from './components/ToastStack';
 import DashboardPage from './pages/DashboardPage';
-import CatalogPage from './pages/CatalogPage';
 import UsersPage from './pages/UsersPage';
 import JobsPage from './pages/JobsPage';
 import AssetsPage from './pages/AssetsPage';
@@ -13,13 +12,12 @@ import LoginPage from './pages/LoginPage';
 import { useAuth } from './context/AuthContext';
 import type { ToastItem } from './types';
 
-type Page = 'dashboard' | 'assets' | 'catalog' | 'users' | 'jobs' | 'credits' | 'settings';
+type Page = 'dashboard' | 'assets' | 'users' | 'jobs' | 'credits' | 'settings';
 type Theme = 'light' | 'dark';
 
 const PAGE_LABELS: Record<Page, string> = {
   dashboard: 'Dashboard',
   assets: 'Assets',
-  catalog: 'Catalog',
   users: 'Users',
   jobs: 'Jobs',
   credits: 'Credit Requests',
@@ -101,7 +99,6 @@ export default function App() {
         <main className="content">
           {page === 'dashboard' && <DashboardPage {...pageProps} />}
           {page === 'assets' && <AssetsPage {...pageProps} />}
-          {page === 'catalog' && <CatalogPage {...pageProps} />}
           {page === 'users' && <UsersPage {...pageProps} />}
           {page === 'jobs' && <JobsPage {...pageProps} />}
           {page === 'credits' && <CreditRequestsPage {...pageProps} />}
