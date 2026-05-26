@@ -142,7 +142,7 @@ export async function processJob(
       lowerGarmentFile,
       promptFacePhase: poseRow.promptFacePhase ?? undefined,
       promptGarmentPhase: poseRow.promptGarmentPhase ?? undefined,
-    });
+    }, jobLog);
 
     // 6. Submit to ComfyUI
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);

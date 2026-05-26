@@ -96,21 +96,33 @@ export interface WorkflowInputs {
  * Also patches positive prompt nodes if overrides are provided.
  * Returns the object suitable for the `prompt` field in POST /prompt.
  */
-export function patchWorkflow(inputs: WorkflowInputs): Record<string, unknown> {
+type PatchLog = { warn: (msg: string, ...args: unknown[]) => void };
+
+function requireNode(workflow: Workflow, nodeId: string, role: string): WorkflowNode {
+  const node = workflow[nodeId];
+  if (!node) throw new Error(`Workflow node "${nodeId}" (${role}) not found in template — template may be out of sync with TEMPLATE_CONFIG`);
+  return node;
+}
+
+export function patchWorkflow(inputs: WorkflowInputs, log?: PatchLog): Record<string, unknown> {
   const cfg = TEMPLATE_CONFIG[inputs.workflowTemplate];
   const template = loadTemplate(cfg.file);
   const workflow = JSON.parse(JSON.stringify(template)) as Workflow;
   const n = cfg.nodes;
 
-  // Patch image nodes
-  workflow[n.face]!.inputs['image'] = inputs.faceSideFile;
-  workflow[n.pose]!.inputs['image'] = inputs.poseFile;
-  workflow[n.bg]!.inputs['image'] = inputs.backgroundFile;
+  // Patch required image nodes (throws with clear message if node missing in JSON)
+  requireNode(workflow, n.face, 'face').inputs['image'] = inputs.faceSideFile;
+  requireNode(workflow, n.pose, 'pose').inputs['image'] = inputs.poseFile;
+  requireNode(workflow, n.bg, 'bg').inputs['image'] = inputs.backgroundFile;
   for (const nodeId of n.upper) {
     if (workflow[nodeId]) workflow[nodeId]!.inputs['image'] = inputs.upperGarmentFile;
   }
-  if (n.lower && inputs.lowerGarmentFile && workflow[n.lower]) {
-    workflow[n.lower]!.inputs['image'] = inputs.lowerGarmentFile;
+  if (n.lower && inputs.lowerGarmentFile) {
+    if (workflow[n.lower]) {
+      workflow[n.lower]!.inputs['image'] = inputs.lowerGarmentFile;
+    }
+  } else if (!n.lower && inputs.lowerGarmentFile) {
+    log?.warn(`patchWorkflow: lower garment provided for template "${inputs.workflowTemplate}" which has no lower node — skipping`);
   }
 
   // Patch positive prompts if overridden

@@ -98,10 +98,10 @@ export const PresignModelPoseBody = z.object({
   faceSideContentType: AssetContentType,
 }).refine(
   (d) => Boolean(d.faceId) !== Boolean(d.newFaceContentType),
-  'Provide either faceId or newFaceContentType, not both',
+  { message: 'Provide either faceId or newFaceContentType, not both', path: ['faceId'] },
 ).refine(
   (d) => Boolean(d.backgroundId) !== Boolean(d.newBgContentType),
-  'Provide either backgroundId or newBgContentType, not both',
+  { message: 'Provide either backgroundId or newBgContentType, not both', path: ['backgroundId'] },
 );
 
 export const ConfirmModelPoseBody = z.object({
@@ -137,10 +137,10 @@ export const ConfirmModelPoseBody = z.object({
   sortOrder: z.number().int().default(0),
 }).refine(
   (d) => Boolean(d.faceId) !== Boolean(d.newFace),
-  'Provide either faceId or newFace, not both',
+  { message: 'Provide either faceId or newFace, not both', path: ['faceId'] },
 ).refine(
   (d) => Boolean(d.backgroundId) !== Boolean(d.newBackground),
-  'Provide either backgroundId or newBackground, not both',
+  { message: 'Provide either backgroundId or newBackground, not both', path: ['backgroundId'] },
 );
 
 export const PatchModelPoseBody = z.object({

@@ -43,14 +43,15 @@ async function putFile(url: string, file: File): Promise<void> {
   });
 }
 
-export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug: _genderSlug, faces, backgrounds, onDone, onClose, toast }: Props) {
+export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, backgrounds, onDone, onClose, toast }: Props) {
+  const filteredFaces = faces.filter((f) => f.gender === subcategoryGenderSlug);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [workflowTemplate, setWorkflowTemplate] = useState<string>('twopiece');
   const [promptFacePhase, setPromptFacePhase] = useState('');
   const [promptGarmentPhase, setPromptGarmentPhase] = useState('');
 
   const [faceMode, setFaceMode] = useState<'existing' | 'new'>('existing');
-  const [faceId, setFaceId] = useState(faces[0]?.id ?? '');
+  const [faceId, setFaceId] = useState(filteredFaces[0]?.id ?? '');
   const [newFaceFile, setNewFaceFile] = useState<File | null>(null);
   const newFaceRef = useRef<HTMLInputElement>(null);
 
@@ -232,7 +233,7 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug: _genderS
             </div>
             {faceMode === 'existing' ? (
               <select className="select" value={faceId} disabled={uploading} onChange={(e) => setFaceId(e.target.value)}>
-                {faces.map((f) => <option key={f.id} value={f.id}>[{f.gender}] {f.label}</option>)}
+                {filteredFaces.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
               </select>
             ) : (
               <>

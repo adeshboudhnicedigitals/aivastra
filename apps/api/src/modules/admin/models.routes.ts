@@ -57,7 +57,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   // ── Workflow metadata ─────────────────────────────────────────────────────
 
-  app.get('/admin/workflows', { preHandler: W }, async () => {
+  app.get('/admin/workflows', { preHandler: W }, async (req) => {
     return Object.entries(WORKFLOW_CONFIG).map(([value, cfg]) => {
       let defaultFacePhasePrompt = '';
       let defaultGarmentPhasePrompt = '';
@@ -65,10 +65,10 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const defaults = getWorkflowDefaults(value as keyof typeof WORKFLOW_CONFIG);
         defaultFacePhasePrompt = defaults.defaultFacePhasePrompt;
         defaultGarmentPhasePrompt = defaults.defaultGarmentPhasePrompt;
-      } catch {
-        // Template file missing or malformed — return empty defaults
+      } catch (e) {
+        req.log.warn({ template: value, err: e }, 'Failed to read workflow template defaults — returning empty prompts');
       }
-      return { value, label: cfg.label, defaultFacePhasePrompt, defaultGarmentPhasePrompt };
+      return { value: value as z.infer<typeof WorkflowTemplateEnum>, label: cfg.label, defaultFacePhasePrompt, defaultGarmentPhasePrompt };
     });
   });
 
