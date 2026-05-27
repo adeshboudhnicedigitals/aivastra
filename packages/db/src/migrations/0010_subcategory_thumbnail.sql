@@ -1,2 +1,2 @@
 ALTER TABLE "garment_subcategories"
-  ADD COLUMN "thumbnail_key" text;
+  ADD COLUMN IF NOT EXISTS "thumbnail_key" text;
