@@ -349,7 +349,17 @@ export default function StudioPage(): React.ReactElement {
         {step === 1 && <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>{faceId ? '1 model selected' : 'No model selected'}</span>}
         {step === 2 && <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>{backgroundId ? '1 background selected' : 'No background selected'}</span>}
         {step === 3 && <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>{poseIds.length} pose{poseIds.length !== 1 ? 's' : ''} selected</span>}
-        <button onClick={reset} style={ghostBtn}>Reset</button>
+        <button onClick={reset} style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          width: 85, height: 44, borderRadius: 8,
+          border: '1px solid #EEEEEE',
+          background: '#F9F9F9',
+          padding: '12px 20px',
+          fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+          fontWeight: 600, fontSize: 16, lineHeight: '20px',
+          color: '#626262',
+          cursor: 'pointer', textAlign: 'center',
+        }}>Reset</button>
         <button onClick={goBack} disabled={step === 0} style={{ ...ghostBtn, opacity: step === 0 ? 0.3 : 1 }}><ArrowLeft /> Back</button>
         {step < 3 ? (
           <DarkBtn onClick={goNext} disabled={!canNext()} style={{ padding: '10px 24px', gap: 8 }}>Next Step <ChevronRight /></DarkBtn>

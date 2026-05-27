@@ -32,8 +32,7 @@ CREATE TABLE IF NOT EXISTS "workflow_templates" (
   "updated_at" timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX "workflow_templates_active_idx" ON "workflow_templates" ("is_active");
-
+CREATE INDEX IF NOT EXISTS "workflow_templates_active_idx" ON "workflow_templates" ("is_active");
 -- Step 4: Add FK column to poses (IF NOT EXISTS — safe on re-run)
 ALTER TABLE "model_poses"
   ADD COLUMN IF NOT EXISTS "workflow_template_id" uuid NOT NULL REFERENCES "workflow_templates"("id");

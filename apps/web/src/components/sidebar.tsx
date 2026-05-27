@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { C, gradSubtle } from './tokens';
+import { C } from './tokens';
 import { SettingsIcon, LogOutIcon, PlusIcon, DotsIcon } from './icons';
 
 interface CreditsResponse { balance: number }
@@ -15,7 +15,7 @@ const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 const NAV = [
   { id: 'studio',     href: '/studio',     label: 'Studio',     icon: `${BASE}/assets/studio-icon.svg` },
   { id: 'catalogues', href: '/catalogues', label: 'Catalogues', icon: `${BASE}/assets/catalog-icon.svg` },
-  { id: 'assets',     href: '/assets',     label: 'Assets',     icon: `${BASE}/assets/asset-icon.svg` },
+  { id: 'assets',     href: '/assets',     label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
   { id: 'pricing',    href: '/pricing',    label: 'Pricing',    icon: `${BASE}/assets/pricing-icon.svg` },
 ];
 
@@ -112,12 +112,17 @@ export function Sidebar() {
                     opacity: logoHover ? 1 : 0,
                     transition: 'opacity .18s ease',
                     pointerEvents: logoHover ? 'auto' : 'none',
-                    transform: 'rotate(180deg)',
                     padding: 0,
                   }}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`${BASE}/assets/dock-to-right.svg`} alt="Expand" width={22} height={22} style={{ filter: 'brightness(0) invert(0.5)' }} />
+                  <div style={{
+                    width: 30, height: 30, borderRadius: 8,
+                    background: logoHover ? '#F9F9F91A' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'background .18s ease',
+                  }}>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EEEEEE" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/></svg>
+                  </div>
                 </button>
               )}
             </div>
@@ -129,39 +134,27 @@ export function Sidebar() {
                 title="Collapse sidebar"
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
-                  display: 'flex', padding: 4, flexShrink: 0,
+                  display: 'flex', padding: 0, flexShrink: 0,
                 }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`${BASE}/assets/dock-to-right.svg`} alt="Collapse" width={20} height={20} style={{ filter: 'brightness(0) invert(0.5)' }} />
+                <div style={{
+                  width: 30, height: 30, borderRadius: 8,
+                  background: '#F9F9F91A',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EEEEEE" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/></svg>
+                </div>
               </button>
             )}
           </div>
         </div>
 
         {/* Nav */}
-        <nav style={{ padding: '16px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <nav style={{ padding: '16px 10px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {NAV.map((item) => {
             const isActive = activeId === item.id;
-            return (
-              <Link
-                key={item.id}
-                href={item.href}
-                onClick={(e) => e.stopPropagation()}
-                title={collapsed ? item.label : undefined}
-                style={{
-                  display: 'flex', alignItems: 'center',
-                  gap: collapsed ? 0 : 12,
-                  padding: collapsed ? '10px 0' : '10px 14px',
-                  borderRadius: 8, textDecoration: 'none',
-                  justifyContent: collapsed ? 'center' : 'flex-start',
-                  background: isActive ? gradSubtle : 'transparent',
-                  color: C.white, fontWeight: 500, fontSize: 14,
-                  transition: 'background .15s, padding .22s ease, gap .22s ease',
-                }}
-                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
-              >
+            const linkContent = (
+              <>
                 <span style={{ opacity: isActive ? 1 : 0.6, display: 'flex', flexShrink: 0 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.icon} alt="" width={20} height={20} />
@@ -174,6 +167,63 @@ export function Sidebar() {
                 }}>
                   {item.label}
                 </span>
+              </>
+            );
+
+            if (isActive) {
+              return (
+                <div key={item.id} style={{
+                  borderRadius: 8,
+                  padding: 1,
+                  background: 'linear-gradient(90deg, rgba(245, 92, 122, 0.5) 0%, rgba(246, 181, 83, 0.5) 100%)',
+                  width: collapsed ? undefined : 220,
+                  height: 40,
+                  boxSizing: 'border-box',
+                  overflow: 'hidden',
+                }}>
+                  <Link
+                    href={item.href}
+                    onClick={(e) => e.stopPropagation()}
+                    title={collapsed ? item.label : undefined}
+                    style={{
+                      display: 'flex', alignItems: 'center',
+                      gap: collapsed ? 0 : 8,
+                      padding: collapsed ? '10px 0' : '10px 16px',
+                      borderRadius: 7, textDecoration: 'none',
+                      justifyContent: collapsed ? 'center' : 'flex-start',
+                      width: '100%', height: '100%',
+                      backgroundColor: '#141414',
+                      backgroundImage: 'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 100%)',
+                      color: C.white, fontWeight: 500, fontSize: 14,
+                    }}
+                  >
+                    {linkContent}
+                  </Link>
+                </div>
+              );
+            }
+
+            return (
+              <Link
+                key={item.id}
+                href={item.href}
+                onClick={(e) => e.stopPropagation()}
+                title={collapsed ? item.label : undefined}
+                style={{
+                  display: 'flex', alignItems: 'center',
+                  gap: collapsed ? 0 : 8,
+                  padding: collapsed ? '10px 0' : '10px 16px',
+                  borderRadius: 8, textDecoration: 'none',
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                  width: collapsed ? undefined : 220, height: 40,
+                  background: 'transparent',
+                  color: isActive ? C.white : '#EEEEEE', fontWeight: 500, fontSize: 14,
+                  transition: 'background .15s',
+                }}
+                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+              >
+                {linkContent}
               </Link>
             );
           })}
@@ -203,7 +253,7 @@ export function Sidebar() {
               width: '100%', padding: '7px 12px', borderRadius: 6,
               background: 'rgba(255,255,255,0.08)', color: C.white, fontSize: 13, fontWeight: 500,
             }}>
-              <PlusIcon /> Credit Top-up
+              <PlusIcon /> Buy Credits
             </Link>
           </div>
         </div>
