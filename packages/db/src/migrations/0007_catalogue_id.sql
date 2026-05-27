@@ -1,1 +1,1 @@
-ALTER TABLE "jobs" ADD COLUMN "catalogue_id" uuid;
+ALTER TABLE "jobs" ADD COLUMN IF NOT EXISTS "catalogue_id" uuid;

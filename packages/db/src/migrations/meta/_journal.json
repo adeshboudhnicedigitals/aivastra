@@ -9,9 +9,9 @@
     { "idx": 4, "version": "7", "when": 1748995200000, "tag": "0004_credit_requests", "breakpoints": true },
     { "idx": 5, "version": "7", "when": 1748081600000, "tag": "0005_pose_istemplate_drop_templates", "breakpoints": true },
     { "idx": 6, "version": "7", "when": 1748167200000, "tag": "0006_catalog_types_seed", "breakpoints": true },
-    { "idx": 7, "version": "7", "when": 1748300000000, "tag": "0007_catalogue_id", "breakpoints": true },
-    { "idx": 8, "version": "7", "when": 1748300100000, "tag": "0008_pose_workflow_columns", "breakpoints": true },
-    { "idx": 9, "version": "7", "when": 1748400000000, "tag": "0009_workflow_templates", "breakpoints": true },
-    { "idx": 10, "version": "7", "when": 1748386500000, "tag": "0010_subcategory_thumbnail", "breakpoints": true }
+    { "idx": 7, "version": "7", "when": 1779926400001, "tag": "0007_catalogue_id", "breakpoints": true },
+    { "idx": 8, "version": "7", "when": 1779926400002, "tag": "0008_pose_workflow_columns", "breakpoints": true },
+    { "idx": 9, "version": "7", "when": 1779926400003, "tag": "0009_workflow_templates", "breakpoints": true },
+    { "idx": 10, "version": "7", "when": 1779926400004, "tag": "0010_subcategory_thumbnail", "breakpoints": true }
   ]
 }
