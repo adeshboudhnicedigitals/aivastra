@@ -31,5 +31,5 @@ export const oauthAccounts = pgTable('oauth_accounts', {
   avatarUrl: text('avatar_url'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex('oauth_accounts_provider_provider_id_idx').on(t.provider, t.providerId),
+  uniqueIndex('oauth_accounts_provider_provider_id_unique').on(t.provider, t.providerId),
 ]);
