@@ -87,7 +87,7 @@ export function Sidebar() {
                 }}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`${BASE}/assets/logo-icon.png`} alt="Ai Vastra" style={{ height: 28, width: 'auto', flexShrink: 0 }} />
+                <img src={`${BASE}/assets/logo.svg`} alt="Ai Vastra" style={{ height: 28, width: 'auto', flexShrink: 0 }} />
                 <div style={{
                   overflow: 'hidden',
                   maxWidth: collapsed ? 0 : 120,
@@ -96,7 +96,7 @@ export function Sidebar() {
                   display: 'flex', alignItems: 'center',
                 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`${BASE}/assets/logo-wordmark.png`} alt="" style={{ height: 22, width: 'auto', filter: 'brightness(0) invert(1)', flexShrink: 0 }} />
+                  <img src={`${BASE}/assets/logo-text.svg`} alt="" style={{ height: 34, width: 'auto', flexShrink: 0 }} />
                 </div>
               </Link>
 
