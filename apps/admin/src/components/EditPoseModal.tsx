@@ -1,14 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
 import { apiFetch } from '../lib/data';
-import type { ModelFace, ModelBackground, ModelPose, WorkflowTemplate } from '../types';
-
-const WORKFLOW_OPTIONS: { value: WorkflowTemplate; label: string }[] = [
-  { value: 'twopiece', label: 'Two-Piece (Upper + Lower)' },
-  { value: 'onepiece', label: 'One-Piece / Full Outfit' },
-  { value: 'hijab', label: 'Hijab / Head Cover' },
-];
+import type { ModelFace, ModelBackground, ModelPose, WorkflowOption } from '../types';
 
 interface Props {
   pose: ModelPose;
@@ -39,13 +33,27 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
     showsLower: pose.showsLower,
     showsShoes: pose.showsShoes,
     sortOrder: pose.sortOrder,
-    workflowTemplate: pose.workflowTemplate,
+    workflowTemplateId: pose.workflowTemplateId,
     promptFacePhase: pose.promptFacePhase ?? '',
     promptGarmentPhase: pose.promptGarmentPhase ?? '',
   });
+
+  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [faceSideFile, setFaceSideFile] = useState<File | null>(null);
   const faceSideRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
+
+  // Fetch workflows from DB on mount
+  useEffect(() => {
+    apiFetch<WorkflowOption[]>('/admin/workflows')
+      .then((wfs) => setWorkflows(wfs.filter((w) => w.isActive)))
+      .catch(() => toast({ kind: 'error', title: 'Failed to load workflow options' }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleWorkflowChange = (id: string) => {
+    setForm((f) => ({ ...f, workflowTemplateId: id }));
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -180,13 +188,16 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
             <label>Workflow template</label>
             <select
               className="select"
-              value={form.workflowTemplate}
-              disabled={saving}
-              onChange={(e) => setForm((f) => ({ ...f, workflowTemplate: e.target.value as WorkflowTemplate }))}
+              value={form.workflowTemplateId}
+              disabled={saving || workflows.length === 0}
+              onChange={(e) => handleWorkflowChange(e.target.value)}
             >
-              {WORKFLOW_OPTIONS.map((w) => (
-                <option key={w.value} value={w.value}>{w.label}</option>
+              {workflows.map((w) => (
+                <option key={w.id} value={w.id}>{w.label}</option>
               ))}
+              {workflows.length === 0 && (
+                <option value={form.workflowTemplateId}>Loading…</option>
+              )}
             </select>
           </div>
 

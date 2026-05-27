@@ -3,74 +3,19 @@ import { schema } from '@aivastra/db';
 import { eq, count, and, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { keys } from '@aivastra/storage';
 import {
   PresignModelFaceBody, ConfirmModelFaceBody, PatchModelFaceBody,
   PresignModelBackgroundBody, ConfirmModelBackgroundBody, PatchModelBackgroundBody,
   PresignModelPoseBody, ConfirmModelPoseBody, PatchModelPoseBody,
-  WorkflowTemplateEnum, AssetContentType,
+  AssetContentType,
 } from '@aivastra/types';
 import { requireAdmin } from './guard.js';
 import { AppError } from '../../lib/errors.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = resolve(__dirname, '../../../../../templates');
-
-type WorkflowNode = { inputs: Record<string, unknown>; class_type: string };
-type WorkflowJson = Record<string, WorkflowNode>;
-
-const WORKFLOW_CONFIG = {
-  twopiece: {
-    file: 'virtual-tryon-v2.json',
-    label: 'Two-Piece (Upper + Lower)',
-    facePhaseNode: '1345:111',
-    garmentPhaseNode: '1341:1199',
-  },
-  onepiece: {
-    file: 'onepiece.json',
-    label: 'One-Piece / Full Outfit',
-    facePhaseNode: '1308:111',
-    garmentPhaseNode: '1315:1199',
-  },
-  hijab: {
-    file: 'hijab.json',
-    label: 'Hijab / Head Cover',
-    facePhaseNode: '1383:111',
-    garmentPhaseNode: '1381:1199',
-  },
-} as const;
-
-function getWorkflowDefaults(template: keyof typeof WORKFLOW_CONFIG): { defaultFacePhasePrompt: string; defaultGarmentPhasePrompt: string } {
-  const cfg = WORKFLOW_CONFIG[template];
-  const raw = JSON.parse(readFileSync(resolve(TEMPLATES_DIR, cfg.file), 'utf-8')) as WorkflowJson;
-  const facePrompt = (raw[cfg.facePhaseNode]?.inputs?.['prompt'] ?? '') as string;
-  const garmentPrompt = (raw[cfg.garmentPhaseNode]?.inputs?.['prompt'] ?? '') as string;
-  return { defaultFacePhasePrompt: facePrompt, defaultGarmentPhasePrompt: garmentPrompt };
-}
-
 export async function adminAssetsRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
   const uuidParam = z.object({ id: z.string().uuid() });
-
-  // ── Workflow metadata ─────────────────────────────────────────────────────
-
-  app.get('/admin/workflows', { preHandler: W }, async (req) => {
-    return Object.entries(WORKFLOW_CONFIG).map(([value, cfg]) => {
-      let defaultFacePhasePrompt = '';
-      let defaultGarmentPhasePrompt = '';
-      try {
-        const defaults = getWorkflowDefaults(value as keyof typeof WORKFLOW_CONFIG);
-        defaultFacePhasePrompt = defaults.defaultFacePhasePrompt;
-        defaultGarmentPhasePrompt = defaults.defaultGarmentPhasePrompt;
-      } catch (e) {
-        req.log.warn({ template: value, err: e }, 'Failed to read workflow template defaults — returning empty prompts');
-      }
-      return { value: value as z.infer<typeof WorkflowTemplateEnum>, label: cfg.label, defaultFacePhasePrompt, defaultGarmentPhasePrompt };
-    });
-  });
 
   // ── Faces ─────────────────────────────────────────────────────────────────
 
@@ -333,6 +278,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .where(eq(schema.garmentSubcategories.id, body.subcategoryId));
     if (!subCheck) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
 
+    // Validate workflowTemplateId exists and is active
+    const [wfCheck] = await app.db
+      .select({ id: schema.workflowTemplates.id })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, body.workflowTemplateId));
+    if (!wfCheck) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
+
     const row = await app.db.transaction(async (tx) => {
       let resolvedFaceId = body.faceId ?? '';
       if (body.newFace) {
@@ -376,7 +328,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           r2Key: body.r2Key,
           thumbnailKey: body.thumbnailKey,
           faceSideR2Key: body.faceSideR2Key,
-          workflowTemplate: body.workflowTemplate,
+          workflowTemplateId: body.workflowTemplateId,
           promptFacePhase: body.promptFacePhase,
           promptGarmentPhase: body.promptGarmentPhase,
           showsLower: body.showsLower,
@@ -392,8 +344,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   });
 
   // ── Pose face-side re-upload ──────────────────────────────────────────────
-  // Returns a presigned URL to replace just the face_side_r2_key on an existing pose.
-  // Client: PUT file → then PATCH pose with { faceSideR2Key }.
   app.post('/admin/assets/poses/:id/presign-faceside', {
     preHandler: W,
     schema: { params: uuidParam, body: z.object({ contentType: AssetContentType }) },
@@ -412,14 +362,21 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     schema: { params: uuidParam, body: PatchModelPoseBody },
   }, async (req) => {
     const { id } = req.params as { id: string };
-    const body = req.body as { isTemplate?: boolean; [key: string]: unknown };
+    const body = req.body as { isTemplate?: boolean; workflowTemplateId?: string; [key: string]: unknown };
+
+    // Validate workflowTemplateId if provided
+    if (body.workflowTemplateId) {
+      const [wfCheck] = await app.db
+        .select({ id: schema.workflowTemplates.id })
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, body.workflowTemplateId));
+      if (!wfCheck) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
+    }
 
     if (body.isTemplate === true) {
-      // Fetch this pose to know its cell
       const [pose] = await app.db.select().from(schema.modelPoses).where(eq(schema.modelPoses.id, id));
       if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
       await app.db.transaction(async (tx) => {
-        // Unset previous template in same cell
         await tx.update(schema.modelPoses)
           .set({ isTemplate: false, updatedAt: new Date() })
           .where(and(

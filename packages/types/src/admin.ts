@@ -81,7 +81,39 @@ export const PatchModelBackgroundBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
-export const WorkflowTemplateEnum = z.enum(['twopiece', 'onepiece', 'hijab']);
+// ── Workflow template schemas ─────────────────────────────────────────────
+
+export const CreateWorkflowBody = z.object({
+  slug: z.string().regex(/^[a-z0-9_]+$/, 'Slug must be snake_case (lowercase letters, digits, underscores only)'),
+  label: z.string().min(1).max(120),
+  jsonContent: z.record(z.any()),
+  faceNodeId: z.string().min(1),
+  poseNodeId: z.string().min(1),
+  bgNodeId: z.string().min(1),
+  upperNodeIds: z.array(z.string().min(1)).min(1).max(4),
+  lowerNodeId: z.string().min(1).optional(),
+  facePhasePromptNode: z.string().min(1),
+  garmentPhasePromptNode: z.string().min(1),
+});
+
+export const ParseWorkflowBody = z.object({
+  jsonContent: z.record(z.any()),
+});
+
+export const UpdateWorkflowBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  isActive: z.boolean().optional(),
+  // Allow updating node mappings (not the JSON itself)
+  faceNodeId: z.string().min(1).optional(),
+  poseNodeId: z.string().min(1).optional(),
+  bgNodeId: z.string().min(1).optional(),
+  upperNodeIds: z.array(z.string().min(1)).min(1).max(4).optional(),
+  lowerNodeId: z.string().min(1).nullable().optional(),
+  facePhasePromptNode: z.string().min(1).optional(),
+  garmentPhasePromptNode: z.string().min(1).optional(),
+});
+
+// ── Pose schemas ──────────────────────────────────────────────────────────
 
 // Poses are per (subcategory × face × background) combo, e.g. m1bg1p1
 export const PresignModelPoseBody = z.object({
@@ -126,8 +158,8 @@ export const ConfirmModelPoseBody = z.object({
   thumbnailKey: z.string().min(1),
   // Side/tilt face (backend only — goes to ComfyUI face node)
   faceSideR2Key: z.string().min(1),
-  // Workflow
-  workflowTemplate: WorkflowTemplateEnum,
+  // Workflow — now a UUID FK instead of an enum string
+  workflowTemplateId: z.string().uuid(),
   promptFacePhase: z.string().min(1),
   promptGarmentPhase: z.string().min(1),
   // Existing fields
@@ -152,7 +184,7 @@ export const PatchModelPoseBody = z.object({
   sortOrder: z.number().int().optional(),
   showsLower: z.boolean().optional(),
   showsShoes: z.boolean().optional(),
-  workflowTemplate: WorkflowTemplateEnum.optional(),
+  workflowTemplateId: z.string().uuid().optional(),
   promptFacePhase: z.string().min(1).optional(),
   promptGarmentPhase: z.string().min(1).optional(),
   /** Updated after re-uploading the side/tilt face via presign-faceside */
@@ -171,4 +203,3 @@ export const PatchGarmentSubcategoryBody = z.object({
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });
-

@@ -58,7 +58,7 @@ export async function processJob(
   const [poseRow] = await db.select({
     r2Key: schema.modelPoses.r2Key,
     faceSideR2Key: schema.modelPoses.faceSideR2Key,
-    workflowTemplate: schema.modelPoses.workflowTemplate,
+    workflowTemplateId: schema.modelPoses.workflowTemplateId,
     promptFacePhase: schema.modelPoses.promptFacePhase,
     promptGarmentPhase: schema.modelPoses.promptGarmentPhase,
   }).from(schema.modelPoses).where(eq(schema.modelPoses.id, inputs.poseId));
@@ -76,13 +76,7 @@ export async function processJob(
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog);
     return;
   }
-  const VALID_TEMPLATES = ['twopiece', 'onepiece', 'hijab'] as const;
-  const rawTemplate = poseRow.workflowTemplate ?? 'twopiece';
-  if (!VALID_TEMPLATES.includes(rawTemplate as typeof VALID_TEMPLATES[number])) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'INVALID_WORKFLOW_TEMPLATE', jobLog);
-    return;
-  }
-  const workflowTemplate = rawTemplate as 'twopiece' | 'onepiece' | 'hijab';
+  const workflowTemplateId = poseRow.workflowTemplateId;
 
   // Resolve optional lower garment catalog ID → R2 key
   let lowerKey: string | null = null;
@@ -132,9 +126,9 @@ export async function processJob(
     const [upperGarmentFile, faceSideFile, poseFile, backgroundFile, lowerGarmentFile] = await Promise.all(uploadTasks);
     jobLog.info({ upperGarmentFile, faceSideFile, poseFile, backgroundFile, lowerGarmentFile }, 'inputs uploaded');
 
-    // 5. Patch workflow template with ComfyUI filenames
-    const prompt = patchWorkflow({
-      workflowTemplate,
+    // 5. Patch workflow template with ComfyUI filenames (loads from DB with 5-min TTL cache)
+    const prompt = await patchWorkflow({
+      workflowTemplateId,
       upperGarmentFile: upperGarmentFile!,
       faceSideFile: faceSideFile!,
       poseFile: poseFile!,
@@ -142,7 +136,7 @@ export async function processJob(
       lowerGarmentFile,
       promptFacePhase: poseRow.promptFacePhase ?? undefined,
       promptGarmentPhase: poseRow.promptGarmentPhase ?? undefined,
-    }, jobLog);
+    }, db, jobLog);
 
     // 6. Submit to ComfyUI
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);

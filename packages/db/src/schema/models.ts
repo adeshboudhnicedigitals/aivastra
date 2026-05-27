@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, integer, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const modelFaces = pgTable('model_faces', {
@@ -37,6 +37,33 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Workflow templates — defined BEFORE modelPoses because modelPoses has a FK to this table
+export const workflowTemplates = pgTable('workflow_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: text('slug').notNull().unique(),
+  label: text('label').notNull(),
+  jsonContent: jsonb('json_content').notNull().$type<Record<string, unknown>>(),
+
+  // Node ID mappings (ComfyUI node IDs as strings — may contain colons e.g. "1345:111")
+  faceNodeId: text('face_node_id').notNull(),
+  poseNodeId: text('pose_node_id').notNull(),
+  bgNodeId: text('bg_node_id').notNull(),
+  upperNodeIds: text('upper_node_ids').array().notNull(),
+  lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
+
+  // Prompt node IDs
+  facePhasePromptNode: text('face_phase_prompt_node').notNull(),
+  garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),
+
+  // Default prompts extracted from JSON at upload time
+  defaultFacePhasePrompt: text('default_face_phase_prompt').notNull().default(''),
+  defaultGarmentPhasePrompt: text('default_garment_phase_prompt').notNull().default(''),
+
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Poses belong to a garment subcategory AND are per (face × background) combo
 // e.g. m1bg1p1 → face=model1, background=bg1, pose variant 1
 export const modelPoses = pgTable('model_poses', {
@@ -52,7 +79,7 @@ export const modelPoses = pgTable('model_poses', {
   isTemplate: boolean('is_template').notNull().default(false),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
-  workflowTemplate: text('workflow_template').notNull().default('twopiece'),
+  workflowTemplateId: uuid('workflow_template_id').notNull().references(() => workflowTemplates.id),
   promptFacePhase: text('prompt_face_phase'),
   promptGarmentPhase: text('prompt_garment_phase'),
   faceSideR2Key: text('face_side_r2_key'),
@@ -62,6 +89,7 @@ export const modelPoses = pgTable('model_poses', {
   subcategoryIdx: index('model_poses_subcategory_id_idx').on(table.subcategoryId),
   faceIdx: index('model_poses_face_id_idx').on(table.faceId),
   backgroundIdx: index('model_poses_background_id_idx').on(table.backgroundId),
+  workflowIdx: index('model_poses_workflow_template_id_idx').on(table.workflowTemplateId),
   // Only one pose per cell can be the template
   templateIdx: uniqueIndex('model_poses_template_idx')
     .on(table.subcategoryId, table.faceId, table.backgroundId)

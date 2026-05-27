@@ -26,6 +26,7 @@ import { adminConfigRoutes } from './modules/admin/config.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminSubcategoriesRoutes } from './modules/admin/subcategories.routes.js';
+import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { AppError } from './lib/errors.js';
 
 export async function buildServer(env: Env) {
@@ -71,6 +72,7 @@ export async function buildServer(env: Env) {
   await app.register(adminMeRoutes);
   await app.register(adminAssetsRoutes);
   await app.register(adminSubcategoriesRoutes);
+  await app.register(adminWorkflowsRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
   return app as unknown as FastifyInstance;

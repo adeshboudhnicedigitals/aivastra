@@ -46,7 +46,7 @@ async function putFile(url: string, file: File): Promise<void> {
 export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, backgrounds, onDone, onClose, toast }: Props) {
   const filteredFaces = faces.filter((f) => f.gender === subcategoryGenderSlug);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
-  const [workflowTemplate, setWorkflowTemplate] = useState<string>('twopiece');
+  const [workflowTemplateId, setWorkflowTemplateId] = useState<string>('');
   const [promptFacePhase, setPromptFacePhase] = useState('');
   const [promptGarmentPhase, setPromptGarmentPhase] = useState('');
 
@@ -74,10 +74,11 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, b
 
   useEffect(() => {
     apiFetch<WorkflowOption[]>('/admin/workflows').then((wfs) => {
-      setWorkflows(wfs);
-      if (wfs.length > 0) {
-        const first = wfs[0]!;
-        setWorkflowTemplate(first.value);
+      const active = wfs.filter((w) => w.isActive);
+      setWorkflows(active);
+      if (active.length > 0) {
+        const first = active[0]!;
+        setWorkflowTemplateId(first.id);
         setPromptFacePhase(first.defaultFacePhasePrompt);
         setPromptGarmentPhase(first.defaultGarmentPhasePrompt);
       }
@@ -85,9 +86,9 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, b
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleWorkflowChange = (val: string) => {
-    setWorkflowTemplate(val);
-    const wf = workflows.find((w) => w.value === val);
+  const handleWorkflowChange = (id: string) => {
+    setWorkflowTemplateId(id);
+    const wf = workflows.find((w) => w.id === id);
     if (wf) {
       setPromptFacePhase(wf.defaultFacePhasePrompt);
       setPromptGarmentPhase(wf.defaultGarmentPhasePrompt);
@@ -145,7 +146,7 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, b
         r2Key: presign.r2Key,
         thumbnailKey: presign.thumbnailKey,
         faceSideR2Key: presign.faceSideR2Key,
-        workflowTemplate,
+        workflowTemplateId,
         promptFacePhase: promptFacePhase.trim(),
         promptGarmentPhase: promptGarmentPhase.trim(),
         showsLower,
@@ -186,7 +187,7 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, b
     }
   };
 
-  const canSubmit = !uploading && poseFile && faceSideFile && label.trim() &&
+  const canSubmit = !uploading && poseFile && faceSideFile && label.trim() && workflowTemplateId &&
     (faceMode === 'existing' ? Boolean(faceId) : Boolean(newFaceFile)) &&
     (bgMode === 'existing' ? Boolean(bgId) : Boolean(newBgFile)) &&
     promptFacePhase.trim() && promptGarmentPhase.trim();
@@ -269,10 +270,10 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, b
           {/* Workflow */}
           <div className="field">
             <label>Workflow template</label>
-            <select className="select" value={workflowTemplate} disabled={uploading || workflows.length === 0}
+            <select className="select" value={workflowTemplateId} disabled={uploading || workflows.length === 0}
               onChange={(e) => handleWorkflowChange(e.target.value)}>
-              {workflows.map((w) => <option key={w.value} value={w.value}>{w.label}</option>)}
-              {workflows.length === 0 && <option value="twopiece">Loading…</option>}
+              {workflows.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
+              {workflows.length === 0 && <option value="">Loading…</option>}
             </select>
           </div>
 

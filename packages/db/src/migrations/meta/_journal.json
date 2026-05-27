@@ -64,6 +64,13 @@
       "when": 1748300100000,
       "tag": "0008_pose_workflow_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1748400000000,
+      "tag": "0009_workflow_templates",
+      "breakpoints": true
     }
   ]
 }

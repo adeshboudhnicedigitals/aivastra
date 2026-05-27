@@ -38,13 +38,15 @@ export interface GarmentSubcategory {
   templateCount?: number;
 }
 
-export type WorkflowTemplate = 'twopiece' | 'onepiece' | 'hijab';
-
 export interface WorkflowOption {
-  value: WorkflowTemplate;
+  id: string;          // UUID from workflow_templates table
+  slug: string;
   label: string;
+  isActive: boolean;
+  poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  createdAt: string;
 }
 
 // Poses are per (subcategory × face × background) combo
@@ -58,7 +60,7 @@ export interface ModelPose {
   thumbnailKey: string;
   r2Key: string;
   faceSideR2Key: string | null;
-  workflowTemplate: WorkflowTemplate;
+  workflowTemplateId: string;  // UUID FK to workflow_templates
   promptFacePhase: string | null;
   promptGarmentPhase: string | null;
   showsLower: boolean;
