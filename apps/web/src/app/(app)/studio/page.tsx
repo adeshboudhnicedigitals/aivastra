@@ -87,7 +87,7 @@ const ghostBtn: React.CSSProperties = { padding: '10px 24px', borderRadius: 8, b
 
 export default function StudioPage(): React.ReactElement {
   const router = useRouter();
-  const [step, setStep] = useState(0); // 0..4
+  const [step, setStep] = useState(0); // 0..3
 
   const [gender, setGender] = useState('women');
   const [subcategoryId, setSubcategoryId] = useState('');
@@ -105,8 +105,6 @@ export default function StudioPage(): React.ReactElement {
   const [poseIds, setPoseIds] = useState<string[]>([]);
   const [lowerCatalogId, setLowerCatalogId] = useState('');
   const [shoeCatalogId, setShoeCatalogId] = useState('');
-  const [qty, setQty] = useState(4);
-  const [quality, setQuality] = useState<'HD' | '2K' | '4K'>('HD');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -126,8 +124,8 @@ export default function StudioPage(): React.ReactElement {
   const needsLower = selectedPoses.some((p) => p.showsLower);
   const needsShoes = selectedPoses.some((p) => p.showsShoes);
 
-  const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({ queryKey: ['catalog', 'lower', gender], queryFn: () => api.get(`/v1/catalog/lower${gender ? `?gender=${gender}` : ''}`), enabled: step >= 4 && needsLower });
-  const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({ queryKey: ['catalog', 'shoe', gender], queryFn: () => api.get(`/v1/catalog/shoe${gender ? `?gender=${gender}` : ''}`), enabled: step >= 4 && needsShoes });
+  const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({ queryKey: ['catalog', 'lower', gender], queryFn: () => api.get(`/v1/catalog/lower${gender ? `?gender=${gender}` : ''}`), enabled: step >= 3 });
+  const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({ queryKey: ['catalog', 'shoe', gender], queryFn: () => api.get(`/v1/catalog/shoe${gender ? `?gender=${gender}` : ''}`), enabled: step >= 3 });
   const lowerItems = lowerCatalog ? flattenCatalog(lowerCatalog.tree) : [];
   const shoeItems = shoesCatalog ? flattenCatalog(shoesCatalog.tree) : [];
 
@@ -160,19 +158,16 @@ export default function StudioPage(): React.ReactElement {
     if (step === 0) return !!gender && !!subcategoryId && (!!garmentFile || !!garmentKey);
     if (step === 1) return !!faceId;
     if (step === 2) return !!backgroundId;
-    if (step === 3) return poseIds.length > 0;
     return true;
   };
-  const canGenerate = poseIds.length > 0 && !!garmentKey && !isUploading && !isSubmitting && (!needsLower || !!lowerCatalogId) && (!needsShoes || !!shoeCatalogId);
+  const canGenerate = poseIds.length > 0 && !!garmentKey && !isUploading && !isSubmitting;
 
-  function goNext() { if (step < 4) setStep((s) => s + 1); }
+  function goNext() { if (step < 3) setStep((s) => s + 1); }
   function goBack() { if (step > 0) setStep((s) => s - 1); }
   function reset() { setGender(''); setSubcategoryId(''); setFaceId(''); setBackgroundId(''); setPoseIds([]); setLowerCatalogId(''); setShoeCatalogId(''); setGarmentFile(null); setGarmentKey(''); setStep(0); showToast('Setup reset'); }
 
-  const selectedFace = faces?.items.find((f) => f.id === faceId);
-  const selectedBg = backgrounds?.items.find((b) => b.id === backgroundId);
   const credits = poseIds.length;
-  const visibleStep = Math.min(step, 3) + 1;
+  const visibleStep = step + 1; // 0..3 → 1..4
 
   return (
     <>
@@ -305,107 +300,64 @@ export default function StudioPage(): React.ReactElement {
 
         {/* ── Step 3: Poses ── */}
         {step === 3 && (
-          <section>
-            <SectionHead title="Choose Poses" />
-            {!poses ? <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0', color: C.mid }}><SpinnerIcon /></div>
-              : poses.items.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No poses for this combination. Go back and try a different background.</p>
-              : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-                  {poses.items.map((p) => (
-                    <SelCard key={p.id} selected={poseIds.includes(p.id)} onClick={() => handlePoseSelect(p.id)} imageUrl={p.thumbnailUrl} label={p.label} w={160} h={220}
-                      badges={(p.showsLower || p.showsShoes) && (
-                        <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 4, flexDirection: 'column', pointerEvents: 'none' }}>
-                          {p.showsLower && <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(246,181,83,0.92)', color: '#7a5200' }}>LOWER</span>}
-                          {p.showsShoes && <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(32,158,70,0.92)', color: 'white' }}>SHOES</span>}
-                        </div>
-                      )}
-                    />
-                  ))}
-                </div>
-              )}
-          </section>
-        )}
-
-        {/* ── Step 4: Generate ── */}
-        {step === 4 && (
           <>
-            {(needsLower || needsShoes) && (
-              <>
-                {needsLower && (
-                  <section>
-                    <SectionHead title="Lower Garment" />
-                    {!lowerCatalog ? <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0', color: C.mid }}><SpinnerIcon /></div>
-                      : lowerItems.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No lower garment options available yet.</p>
-                      : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>{lowerItems.map((i) => <SelCard key={i.id} selected={lowerCatalogId === i.id} onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)} imageUrl={i.thumbnailUrl} label={i.label} />)}</div>}
-                  </section>
-                )}
-                {needsShoes && (
-                  <section>
-                    <SectionHead title="Shoes" />
-                    {!shoesCatalog ? <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0', color: C.mid }}><SpinnerIcon /></div>
-                      : shoeItems.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
-                      : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>{shoeItems.map((i) => <SelCard key={i.id} selected={shoeCatalogId === i.id} onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)} imageUrl={i.thumbnailUrl} label={i.label} />)}</div>}
-                  </section>
-                )}
-              </>
-            )}
-
             <section>
-              <SectionHead title="Generation Settings" />
-              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>Images per pose</div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {[1, 2, 4, 8].map((n) => <button key={n} onClick={() => setQty(n)} style={{ width: 44, height: 44, borderRadius: 8, border: `1px solid ${qty === n ? C.pink : C.border2}`, background: qty === n ? 'rgba(245,92,122,0.08)' : C.white, color: qty === n ? C.pink : C.text, fontFamily: 'inherit', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{n}</button>)}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>Output Quality</div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {([{ l: 'HD', c: 25 }, { l: '2K', c: 35 }, { l: '4K', c: 40 }] as const).map((q) => (
-                      <button key={q.l} onClick={() => setQuality(q.l)} style={{ padding: '8px 18px', borderRadius: 8, border: `1px solid ${quality === q.l ? C.pink : C.border2}`, background: quality === q.l ? 'rgba(245,92,122,0.08)' : C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: quality === q.l ? C.pink : C.text }}>
-                        <div style={{ fontWeight: 600 }}>{q.l}</div>
-                        <div style={{ fontSize: 10, opacity: 0.7 }}>{q.c} credits</div>
-                      </button>
+              <SectionHead title="Choose Poses" />
+              {!poses ? <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0', color: C.mid }}><SpinnerIcon /></div>
+                : poses.items.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No poses for this combination. Go back and try a different background.</p>
+                : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                    {poses.items.map((p) => (
+                      <SelCard key={p.id} selected={poseIds.includes(p.id)} onClick={() => handlePoseSelect(p.id)} imageUrl={p.thumbnailUrl} label={p.label} w={160} h={220}
+                        badges={(p.showsLower || p.showsShoes) && (
+                          <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 4, flexDirection: 'column', pointerEvents: 'none' }}>
+                            {p.showsLower && <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(246,181,83,0.92)', color: '#7a5200' }}>LOWER</span>}
+                            {p.showsShoes && <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(32,158,70,0.92)', color: 'white' }}>SHOES</span>}
+                          </div>
+                        )}
+                      />
                     ))}
                   </div>
-                </div>
-              </div>
+                )}
             </section>
 
-            <div style={{ background: '#FAFAFA', border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-              <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
-                {([['Model', selectedFace?.label ?? '—'], ['Background', selectedBg?.label ?? '—'], ['Poses', String(poseIds.length)], ['Quality', quality]] as [string, string][]).map(([k, v]) => (
-                  <div key={k}><div style={{ fontSize: 12, color: C.mid, marginBottom: 2 }}>{k}</div><div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>{v}</div></div>
-                ))}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 12, color: C.mid, marginBottom: 2 }}>Credits Required</div>
-                <div style={{ fontSize: 28, fontWeight: 700, background: grad, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{credits}</div>
-              </div>
-            </div>
+            <section>
+              <SectionHead title="Lower Garment" />
+              <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>Optional — select if your pose shows lower body</p>
+              {!lowerCatalog ? <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0', color: C.mid }}><SpinnerIcon /></div>
+                : lowerItems.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No lower garment options available yet.</p>
+                : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>{lowerItems.map((i) => <SelCard key={i.id} selected={lowerCatalogId === i.id} onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)} imageUrl={i.thumbnailUrl} label={i.label} />)}</div>}
+            </section>
 
-            {submitError && <div style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.pink}`, background: 'rgba(245,92,122,0.06)', fontSize: 14, color: C.pink }}>{submitError}</div>}
+            <section>
+              <SectionHead title="Shoes" />
+              <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>Optional — select if your pose shows feet</p>
+              {!shoesCatalog ? <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0', color: C.mid }}><SpinnerIcon /></div>
+                : shoeItems.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
+                : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>{shoeItems.map((i) => <SelCard key={i.id} selected={shoeCatalogId === i.id} onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)} imageUrl={i.thumbnailUrl} label={i.label} />)}</div>}
+            </section>
           </>
+        )}
+
+        {step === 3 && submitError && (
+          <div style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.pink}`, background: 'rgba(245,92,122,0.06)', fontSize: 14, color: C.pink }}>{submitError}</div>
         )}
       </div>
 
       {/* Footer */}
-      <div style={{ borderTop: `1px solid ${C.border}`, padding: '16px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.white, flexShrink: 0 }}>
-        <button onClick={goBack} disabled={step === 0} style={{ ...ghostBtn, opacity: step === 0 ? 0 : 1, pointerEvents: step === 0 ? 'none' : 'auto' }}><ArrowLeft /> Back</button>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          {step === 1 && <span style={{ fontSize: 13, color: C.mid }}>{faceId ? '1 model selected' : 'No model selected'}</span>}
-          {step === 2 && <span style={{ fontSize: 13, color: C.mid }}>{backgroundId ? '1 background selected' : 'No background selected'}</span>}
-          {step === 3 && <span style={{ fontSize: 13, color: C.mid }}>{poseIds.length} pose{poseIds.length !== 1 ? 's' : ''} selected</span>}
-          <button onClick={reset} style={ghostBtn}>Reset</button>
-          {step < 4 ? (
-            <DarkBtn onClick={goNext} disabled={!canNext()} style={{ padding: '10px 24px', gap: 8 }}>Next Step <ChevronRight /></DarkBtn>
-          ) : (
-            <GradBtn onClick={handleSubmit} disabled={!canGenerate} style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}>
-              {isSubmitting ? <><SpinnerIcon size={16} /> Generating…</> : isUploading ? <><SpinnerIcon size={16} /> Uploading…</> : <><SparkleIcon /> Generate Catalogue ({credits} credits)</>}
-            </GradBtn>
-          )}
-        </div>
+      <div style={{ borderTop: `1px solid ${C.border}`, padding: '16px 28px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, background: C.white, flexShrink: 0 }}>
+        {step === 1 && <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>{faceId ? '1 model selected' : 'No model selected'}</span>}
+        {step === 2 && <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>{backgroundId ? '1 background selected' : 'No background selected'}</span>}
+        {step === 3 && <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>{poseIds.length} pose{poseIds.length !== 1 ? 's' : ''} selected</span>}
+        <button onClick={reset} style={ghostBtn}>Reset</button>
+        <button onClick={goBack} disabled={step === 0} style={{ ...ghostBtn, opacity: step === 0 ? 0.3 : 1 }}><ArrowLeft /> Back</button>
+        {step < 3 ? (
+          <DarkBtn onClick={goNext} disabled={!canNext()} style={{ padding: '10px 24px', gap: 8 }}>Next Step <ChevronRight /></DarkBtn>
+        ) : (
+          <GradBtn onClick={handleSubmit} disabled={!canGenerate} style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}>
+            {isSubmitting ? <><SpinnerIcon size={16} /> Generating…</> : isUploading ? <><SpinnerIcon size={16} /> Uploading…</> : <><SparkleIcon /> Generate Catalogue ({credits} credits)</>}
+          </GradBtn>
+        )}
       </div>
 
       {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: C.dark, color: C.white, padding: '10px 20px', borderRadius: 8, fontSize: 13, zIndex: 1000 }}>{toast}</div>}

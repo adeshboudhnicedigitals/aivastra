@@ -639,6 +639,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 <thead>
                   <tr>
                     <Th k="label" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Label</Th>
+                    <th>Category</th>
                     <Th k="sortOrder" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Order</Th>
                     <Th k="isActive" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Active</Th>
                     <Th k="updatedAt" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Updated</Th>
@@ -663,6 +664,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                           </div>
                         </div>
                       </td>
+                      <td><span className="badge">{catalogCategories.find((x) => x.id === c.categoryId)?.label ?? '—'}</span></td>
                       <td><span className="mono">{c.sortOrder}</span></td>
                       <td><Switch checked={c.isActive} onChange={async () => {
                         const next = !c.isActive;
@@ -682,8 +684,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                             setEditCatalogItem(c);
                             setEditCatalogLabel(c.label);
                             setEditCatalogSortOrder(c.sortOrder);
-                            const cat = catalogCategories.find((x) => x.typeSlug === c.type);
-                            setEditCatalogCategoryId(cat ? String(cat.id) : '');
+                            setEditCatalogCategoryId(c.categoryId ? String(c.categoryId) : '');
                           }}><Icon.Edit /></button>
                           <button className="btn sm ghost" onClick={() => setConfirmDeleteCatalog(c.id)}><Icon.Trash /></button>
                         </div>
@@ -691,7 +692,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     </tr>
                   ))}
                   {paged.length === 0 && (
-                    <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No items found.</td></tr>
+                    <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No items found.</td></tr>
                   )}
                 </tbody>
               </table>
