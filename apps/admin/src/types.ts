@@ -30,6 +30,7 @@ export interface GarmentSubcategory {
   genderSlug: GenderSlug;
   slug: string;
   label: string;
+  thumbnailKey?: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;

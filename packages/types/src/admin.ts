@@ -197,9 +197,14 @@ export const CreateGarmentSubcategoryBody = z.object({
   slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
   label: z.string().min(1).max(120),
   sortOrder: z.number().int().default(0),
+  thumbnailKey: z.string().optional(),
 });
 export const PatchGarmentSubcategoryBody = z.object({
   label: z.string().min(1).max(120).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  thumbnailKey: z.string().nullable().optional(),
+});
+export const PresignSubcategoryBody = z.object({
+  contentType: AssetContentType,
 });

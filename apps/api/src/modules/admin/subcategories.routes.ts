@@ -2,7 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
 import { eq, count, inArray, and } from 'drizzle-orm';
 import { z } from 'zod';
-import { CreateGarmentSubcategoryBody, PatchGarmentSubcategoryBody } from '@aivastra/types';
+import { randomUUID } from 'node:crypto';
+import { CreateGarmentSubcategoryBody, PatchGarmentSubcategoryBody, PresignSubcategoryBody } from '@aivastra/types';
+import { keys } from '@aivastra/storage';
 import { requireAdmin } from './guard.js';
 import { AppError } from '../../lib/errors.js';
 
@@ -32,16 +34,27 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
     };
   });
 
+  app.post('/admin/assets/subcategories/presign', {
+    preHandler: W,
+    schema: { body: PresignSubcategoryBody },
+  }, async (req) => {
+    const { contentType } = req.body as { contentType: string };
+    const newId = randomUUID();
+    const thumbKey = keys.subcategoryThumb(newId);
+    const { url } = await app.storage.presignPut(thumbKey, contentType, 5_000_000, 300);
+    return { uploadUrl: url, thumbnailKey: thumbKey };
+  });
+
   app.post('/admin/assets/subcategories', {
     preHandler: W,
     schema: { body: CreateGarmentSubcategoryBody },
   }, async (req) => {
-    const { genderSlug, slug, label, sortOrder } = req.body as {
-      genderSlug: string; slug: string; label: string; sortOrder: number;
+    const { genderSlug, slug, label, sortOrder, thumbnailKey } = req.body as {
+      genderSlug: string; slug: string; label: string; sortOrder: number; thumbnailKey?: string;
     };
     const [row] = await app.db
       .insert(schema.garmentSubcategories)
-      .values({ genderSlug, slug, label, sortOrder })
+      .values({ genderSlug, slug, label, sortOrder, thumbnailKey })
       .returning();
     return row;
   });

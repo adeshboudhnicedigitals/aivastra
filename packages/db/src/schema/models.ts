@@ -31,6 +31,7 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   genderSlug: text('gender_slug').notNull(),
   slug: text('slug').notNull(),
   label: text('label').notNull(),
+  thumbnailKey: text('thumbnail_key'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

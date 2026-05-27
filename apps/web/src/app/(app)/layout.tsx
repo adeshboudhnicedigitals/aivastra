@@ -2,9 +2,11 @@ import { Sidebar } from '@/components/sidebar';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="av-app">
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <Sidebar />
-      <main className="av-main">{children}</main>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        {children}
+      </div>
     </div>
   );
 }

@@ -97,6 +97,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [showSubcatModal, setShowSubcatModal] = useState(false);
   const [subcatForm, setSubcatForm] = useState({ slug: '', label: '', genderSlug: 'men' as GenderSlug });
   const [subcatSaving, setSubcatSaving] = useState(false);
+  const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
+
+  const [editingSubcat, setEditingSubcat] = useState<GarmentSubcategory | null>(null);
+  const [editSubcatImageFile, setEditSubcatImageFile] = useState<File | null>(null);
+  const [editSubcatSaving, setEditSubcatSaving] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDelete | null>(null);
@@ -475,9 +480,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 <tr key={sub.id} style={{ cursor: 'pointer' }}
                   onClick={() => { setFilterFace(''); setFilterBg(''); setFilterPose(''); setSubView({ kind: 'subcategory', sub }); }}>
                   <td>
-                    <div>
-                      <span className="semi">{sub.label}</span>
-                      <span className="sub mono" style={{ display: 'block' }}>{sub.slug}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <AssetThumb thumbnailKey={sub.thumbnailKey ?? undefined} label={sub.label} w={40} h={40} storageBase={storagePublicUrl} />
+                      <div>
+                        <span className="semi">{sub.label}</span>
+                        <span className="sub mono" style={{ display: 'block' }}>{sub.slug}</span>
+                      </div>
                     </div>
                   </td>
                   <td><span className="badge dot accent">{sub.genderSlug}</span></td>
@@ -497,7 +505,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     }} />
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
-                    <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'subcategory', id: sub.id, label: sub.label })}><Icon.Trash /></button>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn sm ghost" onClick={() => { setEditingSubcat(sub); setEditSubcatImageFile(null); }}><Icon.Edit /></button>
+                      <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'subcategory', id: sub.id, label: sub.label })}><Icon.Trash /></button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -777,65 +788,80 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         />
       )}
       {showSubcatModal && (
-        <div className="modal-overlay" onClick={subcatSaving ? undefined : () => setShowSubcatModal(false)}>
+        <div className="modal-overlay" onClick={subcatSaving ? undefined : () => { setShowSubcatModal(false); setSubcatImageFile(null); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, calc(100vw - 80px))' }}>
             <div className="modal-head">
               <h3>Add subcategory</h3>
-              <button className="btn sm ghost" onClick={() => setShowSubcatModal(false)} disabled={subcatSaving} style={{ marginLeft: 'auto' }}>
+              <button className="btn sm ghost" onClick={() => { setShowSubcatModal(false); setSubcatImageFile(null); }} disabled={subcatSaving} style={{ marginLeft: 'auto' }}>
                 <Icon.Close />
               </button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="field">
                 <label>Label</label>
-                <input
-                  className="input"
-                  placeholder="Full Sleeve Shirt"
-                  value={subcatForm.label}
-                  disabled={subcatSaving}
-                  onChange={(e) => setSubcatForm((f) => ({ ...f, label: e.target.value }))}
-                />
+                <input className="input" placeholder="Full Sleeve Shirt" value={subcatForm.label} disabled={subcatSaving}
+                  onChange={(e) => setSubcatForm((f) => ({ ...f, label: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Slug</label>
-                <input
-                  className="input"
-                  placeholder="fullsleeveshirt"
-                  value={subcatForm.slug}
-                  disabled={subcatSaving}
-                  onChange={(e) => setSubcatForm((f) => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))}
-                />
+                <input className="input" placeholder="fullsleeveshirt" value={subcatForm.slug} disabled={subcatSaving}
+                  onChange={(e) => setSubcatForm((f) => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))} />
               </div>
               <div className="field">
                 <label>Gender</label>
-                <select
-                  className="select"
-                  value={subcatForm.genderSlug}
-                  disabled={subcatSaving}
-                  onChange={(e) => setSubcatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug }))}
-                >
+                <select className="select" value={subcatForm.genderSlug} disabled={subcatSaving}
+                  onChange={(e) => setSubcatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug }))}>
                   <option value="men">Men</option>
                   <option value="women">Women</option>
                   <option value="boys">Boys</option>
                   <option value="girls">Girls</option>
                 </select>
               </div>
+              <div className="field">
+                <label>Thumbnail image <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span></label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {subcatImageFile ? (
+                    <img src={URL.createObjectURL(subcatImageFile)} alt="preview"
+                      style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                  ) : (
+                    <div style={{ width: 48, height: 48, borderRadius: 6, background: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Icon.Image />
+                    </div>
+                  )}
+                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                    {subcatImageFile ? 'Change image' : 'Upload image'}
+                    <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) setSubcatImageFile(f); }} />
+                  </label>
+                  {subcatImageFile && (
+                    <button className="btn sm ghost" onClick={() => setSubcatImageFile(null)}><Icon.Close /></button>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setShowSubcatModal(false)} disabled={subcatSaving}>Cancel</button>
+              <button className="btn ghost" onClick={() => { setShowSubcatModal(false); setSubcatImageFile(null); }} disabled={subcatSaving}>Cancel</button>
               <button
                 className="btn primary"
                 disabled={subcatSaving || !subcatForm.label.trim() || !subcatForm.slug.trim()}
                 onClick={async () => {
                   setSubcatSaving(true);
                   try {
+                    let thumbnailKey: string | undefined;
+                    if (subcatImageFile) {
+                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>('/admin/assets/subcategories/presign', {
+                        method: 'POST', body: JSON.stringify({ contentType: subcatImageFile.type }),
+                      });
+                      await fetch(presign.uploadUrl, { method: 'PUT', headers: { 'Content-Type': subcatImageFile.type }, body: subcatImageFile });
+                      thumbnailKey = presign.thumbnailKey;
+                    }
                     const row = await apiFetch<GarmentSubcategory>('/admin/assets/subcategories', {
-                      method: 'POST',
-                      body: JSON.stringify(subcatForm),
+                      method: 'POST', body: JSON.stringify({ ...subcatForm, thumbnailKey }),
                     });
                     setSubcategories((prev) => [...prev, row]);
                     toast({ title: `${row.label} created` });
                     setShowSubcatModal(false);
+                    setSubcatImageFile(null);
                   } catch {
                     toast({ kind: 'error', title: 'Failed to create subcategory' });
                   } finally {
@@ -843,7 +869,78 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   }
                 }}
               >
-                <Icon.Add /> Create
+                <Icon.Add /> {subcatSaving ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingSubcat && (
+        <div className="modal-overlay" onClick={editSubcatSaving ? undefined : () => { setEditingSubcat(null); setEditSubcatImageFile(null); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, calc(100vw - 80px))' }}>
+            <div className="modal-head">
+              <h3>Edit subcategory image</h3>
+              <button className="btn sm ghost" onClick={() => { setEditingSubcat(null); setEditSubcatImageFile(null); }} disabled={editSubcatSaving} style={{ marginLeft: 'auto' }}>
+                <Icon.Close />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)' }}>{editingSubcat.label}</div>
+              <div className="field">
+                <label>Thumbnail image</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {editSubcatImageFile ? (
+                    <img src={URL.createObjectURL(editSubcatImageFile)} alt="preview"
+                      style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                  ) : editingSubcat.thumbnailKey && storagePublicUrl ? (
+                    <img src={`${storagePublicUrl}/${editingSubcat.thumbnailKey}`} alt={editingSubcat.label}
+                      style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                  ) : (
+                    <div style={{ width: 64, height: 64, borderRadius: 6, background: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: 'var(--muted)', fontSize: 12 }}>
+                      No image
+                    </div>
+                  )}
+                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                    {(editSubcatImageFile || editingSubcat.thumbnailKey) ? 'Replace image' : 'Upload image'}
+                    <input type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) setEditSubcatImageFile(f); }} />
+                  </label>
+                  {editSubcatImageFile && (
+                    <button className="btn sm ghost" onClick={() => setEditSubcatImageFile(null)}><Icon.Close /></button>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => { setEditingSubcat(null); setEditSubcatImageFile(null); }} disabled={editSubcatSaving}>Cancel</button>
+              <button
+                className="btn primary"
+                disabled={editSubcatSaving || !editSubcatImageFile}
+                onClick={async () => {
+                  if (!editSubcatImageFile) return;
+                  setEditSubcatSaving(true);
+                  try {
+                    const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>('/admin/assets/subcategories/presign', {
+                      method: 'POST', body: JSON.stringify({ contentType: editSubcatImageFile.type }),
+                    });
+                    await fetch(presign.uploadUrl, { method: 'PUT', headers: { 'Content-Type': editSubcatImageFile.type }, body: editSubcatImageFile });
+                    await apiFetch(`/admin/assets/subcategories/${editingSubcat.id}`, {
+                      method: 'PATCH', body: JSON.stringify({ thumbnailKey: presign.thumbnailKey }),
+                    });
+                    setSubcategories((prev) => prev.map((s) => s.id === editingSubcat.id ? { ...s, thumbnailKey: presign.thumbnailKey } : s));
+                    toast({ title: `${editingSubcat.label} image updated` });
+                    setEditingSubcat(null);
+                    setEditSubcatImageFile(null);
+                  } catch {
+                    toast({ kind: 'error', title: 'Failed to upload image' });
+                  } finally {
+                    setEditSubcatSaving(false);
+                  }
+                }}
+              >
+                {editSubcatSaving ? 'Uploading…' : 'Save image'}
               </button>
             </div>
           </div>

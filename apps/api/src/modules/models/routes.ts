@@ -11,10 +11,15 @@ export async function modelsRoutes(app: FastifyInstance) {
   }, async (req) => {
     const { gender } = req.query as { gender: string };
     const items = await app.db
-      .select({ id: schema.garmentSubcategories.id, slug: schema.garmentSubcategories.slug, label: schema.garmentSubcategories.label, sortOrder: schema.garmentSubcategories.sortOrder })
+      .select({ id: schema.garmentSubcategories.id, slug: schema.garmentSubcategories.slug, label: schema.garmentSubcategories.label, sortOrder: schema.garmentSubcategories.sortOrder, thumbnailKey: schema.garmentSubcategories.thumbnailKey })
       .from(schema.garmentSubcategories)
       .where(and(eq(schema.garmentSubcategories.genderSlug, gender), eq(schema.garmentSubcategories.isActive, true)));
-    return { items };
+    return {
+      items: items.map((i) => ({
+        ...i,
+        thumbnailUrl: i.thumbnailKey ? app.storage.publicUrl(i.thumbnailKey) : null,
+      })),
+    };
   });
 
   app.get('/v1/models/faces', {

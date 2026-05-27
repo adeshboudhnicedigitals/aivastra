@@ -42,7 +42,21 @@
       "Bash(PGPASSWORD=tryon_dev_pw PGUSER=tryon PGHOST=127.0.0.1 PGPORT=5432 PGDATABASE=tryon_dev /usr/bin/psql -c \"\\\\d model_poses\")",
       "Read(//usr/**)",
       "Read(//opt/**)",
-      "Read(//usr/lib/**)"
+      "Read(//usr/lib/**)",
+      "Bash(ssh -o StrictHostKeyChecking=no root@72.61.171.138 \"cd /opt/aivastra && docker compose -f infra/docker-compose.prod.yml logs api --tail=30 2>/dev/null\")",
+      "Read(//tmp/vastra-design/**)",
+      "Bash(mv index.html index.tar.gz)",
+      "Bash(gunzip -k index.tar.gz)",
+      "Bash(tar -xf index.tar)",
+      "Bash(grep -rhoE \"\\(get|post|patch|delete|route\\)\\\\\\(\\\\s*['\\\\\"\\\\`][^'\\\\\"\\\\`]+\" jobs/routes.ts credits/routes.ts catalog/routes.ts uploads/routes.ts models/routes.ts auth/routes.ts)",
+      "Bash(timeout 300 npx next build)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(curl *)",
+      "Bash(netstat -tlnp)",
+      "Bash(node -e ' *)",
+      "Bash(node --env-file=.env -e ' *)",
+      "Bash(node -e \"require\\('child_process'\\).execSync\\('pnpm --filter @aivastra/db run migrate', {stdio:'inherit'}\\)\")",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

@@ -1,87 +1,42 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-
-const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+import { C, gradSubtle } from './tokens';
+import { SettingsIcon, LogOutIcon, PlusIcon, DotsIcon } from './icons';
 
 interface CreditsResponse { balance: number }
 interface MeResponse { email: string; displayName: string | null }
 
-const StudioIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>
-  </svg>
-);
-const CatalogueIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
-  </svg>
-);
-const AssetsIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
-    <path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/>
-  </svg>
-);
-const PricingIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm0 0v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-  </svg>
-);
-const SettingsIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="3"/>
-    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
-  </svg>
-);
-const PlusIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 5v14M5 12h14"/>
-  </svg>
-);
-const LogOutIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
-    <path d="M16 17l5-5-5-5M21 12H9"/>
-  </svg>
-);
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-const NAV_ITEMS = [
-  { id: 'studio',     href: '/tryon',     label: 'Studio',     icon: <StudioIcon /> },
-  { id: 'catalogues', href: '/dashboard', label: 'Catalogues', icon: <CatalogueIcon /> },
-  { id: 'assets',     href: '/assets',    label: 'Assets',     icon: <AssetsIcon /> },
-  { id: 'pricing',    href: '/credits',   label: 'Pricing',    icon: <PricingIcon /> },
-  { id: 'settings',   href: '/account',   label: 'Settings',   icon: <SettingsIcon /> },
+const NAV = [
+  { id: 'studio',     href: '/studio',     label: 'Studio',     icon: `${BASE}/assets/studio-icon.svg` },
+  { id: 'catalogues', href: '/catalogues', label: 'Catalogues', icon: `${BASE}/assets/catalog-icon.svg` },
+  { id: 'assets',     href: '/assets',     label: 'Assets',     icon: `${BASE}/assets/asset-icon.svg` },
+  { id: 'pricing',    href: '/pricing',    label: 'Pricing',    icon: `${BASE}/assets/pricing-icon.svg` },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [collapsed, setCollapsed] = useState(false);
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [logoHover, setLogoHover] = useState(false);
+  const popupRef = useRef<HTMLDivElement>(null);
 
-  const { data: credits } = useQuery<CreditsResponse>({
-    queryKey: ['credits'],
-    queryFn: () => api.get('/v1/credits'),
-  });
-
-  const { data: me } = useQuery<MeResponse>({
-    queryKey: ['me'],
-    queryFn: () => api.get('/v1/me'),
-    retry: false,
-  });
+  const { data: credits } = useQuery<CreditsResponse>({ queryKey: ['credits'], queryFn: () => api.get('/v1/credits') });
+  const { data: me } = useQuery<MeResponse>({ queryKey: ['me'], queryFn: () => api.get('/v1/me'), retry: false });
 
   const balance = credits?.balance ?? 0;
   const maxBalance = 2500;
-
   const email = me?.email ?? '';
   const displayName = me?.displayName ?? email.split('@')[0] ?? 'User';
   const initials = displayName.slice(0, 2).toUpperCase() || 'U';
 
-  const activeId = NAV_ITEMS.find(
-    (item) => pathname === item.href || pathname.startsWith(item.href + '/')
-  )?.id;
+  const activeId = NAV.find((item) => pathname === item.href || pathname.startsWith(item.href + '/'))?.id;
 
   async function handleSignOut() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -89,109 +44,241 @@ export function Sidebar() {
     router.refresh();
   }
 
+  const W = collapsed ? 68 : 260;
+
   return (
-    <aside style={{
-      width: 260, minWidth: 260, height: '100vh',
-      background: '#141414',
-      display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-      borderRight: '1px solid #282828',
-      position: 'sticky', top: 0, flexShrink: 0,
-    }}>
-      {/* Top */}
+    <div
+      onClick={() => { if (collapsed) setCollapsed(false); }}
+      style={{
+        width: W, minWidth: W, height: '100vh', background: C.dark,
+        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+        borderRight: `1px solid ${C.dark2}`, position: 'sticky', top: 0, flexShrink: 0,
+        transition: 'width .22s ease, min-width .22s ease',
+        cursor: collapsed ? 'pointer' : 'default',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Top: logo + nav */}
       <div>
         {/* Logo row */}
-        <div style={{
-          padding: '24px 20px 20px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <Link href="/tryon" style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`${BASE}/assets/logo-icon.png`} alt="" style={{ height: 24, width: 'auto' }} />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`${BASE}/assets/logo-wordmark.png`} alt="Ai Vastra" style={{ height: 20, width: 'auto', filter: 'brightness(0) invert(1)' }} />
-          </Link>
+        <div
+          onMouseEnter={() => setLogoHover(true)}
+          onMouseLeave={() => setLogoHover(false)}
+          style={{
+            padding: '20px 16px',
+            borderBottom: '1px solid rgba(255,255,255,0.07)',
+            display: 'flex', alignItems: 'center',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            minHeight: 68,
+          }}
+        >
+          {/* Logo + dock */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            {/* Logo — crossfades only when collapsed */}
+            <div style={{ position: 'relative', height: 32, display: 'flex', alignItems: 'center' }}>
+              <Link
+                href="/studio"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6,
+                  opacity: collapsed && logoHover ? 0 : 1,
+                  transition: 'opacity .18s ease',
+                  pointerEvents: collapsed && logoHover ? 'none' : 'auto',
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`${BASE}/assets/logo-icon.png`} alt="Ai Vastra" style={{ height: 28, width: 'auto', flexShrink: 0 }} />
+                <div style={{
+                  overflow: 'hidden',
+                  maxWidth: collapsed ? 0 : 120,
+                  opacity: collapsed ? 0 : 1,
+                  transition: 'max-width .22s ease, opacity .18s ease',
+                  display: 'flex', alignItems: 'center',
+                }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`${BASE}/assets/logo-wordmark.png`} alt="" style={{ height: 22, width: 'auto', filter: 'brightness(0) invert(1)', flexShrink: 0 }} />
+                </div>
+              </Link>
+
+              {/* Dock button — overlaid (crossfade) only when collapsed */}
+              {collapsed && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setCollapsed(false); setLogoHover(false); }}
+                  title="Expand sidebar"
+                  style={{
+                    position: 'absolute', inset: 0,
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: logoHover ? 1 : 0,
+                    transition: 'opacity .18s ease',
+                    pointerEvents: logoHover ? 'auto' : 'none',
+                    transform: 'rotate(180deg)',
+                    padding: 0,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={`${BASE}/assets/dock-to-right.svg`} alt="Expand" width={22} height={22} style={{ filter: 'brightness(0) invert(0.5)' }} />
+                </button>
+              )}
+            </div>
+
+            {/* Dock button (expanded) — always visible */}
+            {!collapsed && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setCollapsed(true); setLogoHover(false); }}
+                title="Collapse sidebar"
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  display: 'flex', padding: 4, flexShrink: 0,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`${BASE}/assets/dock-to-right.svg`} alt="Collapse" width={20} height={20} style={{ filter: 'brightness(0) invert(0.5)' }} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Nav */}
-        <nav style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {NAV_ITEMS.map((item) => {
+        <nav style={{ padding: '16px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {NAV.map((item) => {
             const isActive = activeId === item.id;
             return (
               <Link
                 key={item.id}
                 href={item.href}
+                onClick={(e) => e.stopPropagation()}
+                title={collapsed ? item.label : undefined}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '10px 16px', borderRadius: 8,
-                  background: isActive
-                    ? 'linear-gradient(135deg, rgba(245,92,122,0.15), rgba(246,181,83,0.15))'
-                    : 'transparent',
-                  color: '#FEFEFE',
-                  fontFamily: 'var(--font-poppins, inherit)',
-                  fontWeight: 500, fontSize: 14,
-                  textDecoration: 'none',
-                  transition: 'background .15s',
+                  display: 'flex', alignItems: 'center',
+                  gap: collapsed ? 0 : 12,
+                  padding: collapsed ? '10px 0' : '10px 14px',
+                  borderRadius: 8, textDecoration: 'none',
+                  justifyContent: collapsed ? 'center' : 'flex-start',
+                  background: isActive ? gradSubtle : 'transparent',
+                  color: C.white, fontWeight: 500, fontSize: 14,
+                  transition: 'background .15s, padding .22s ease, gap .22s ease',
                 }}
                 onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
                 onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
               >
-                <span style={{ opacity: isActive ? 1 : 0.6 }}>{item.icon}</span>
-                <span style={{ opacity: isActive ? 1 : 0.8 }}>{item.label}</span>
+                <span style={{ opacity: isActive ? 1 : 0.6, display: 'flex', flexShrink: 0 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={item.icon} alt="" width={20} height={20} />
+                </span>
+                <span style={{
+                  opacity: collapsed ? 0 : (isActive ? 1 : 0.8),
+                  maxWidth: collapsed ? 0 : 160,
+                  overflow: 'hidden', whiteSpace: 'nowrap',
+                  transition: 'max-width .22s ease, opacity .18s ease',
+                }}>
+                  {item.label}
+                </span>
               </Link>
             );
           })}
         </nav>
       </div>
 
-      {/* Bottom */}
-      <div style={{ padding: '0 20px 20px' }}>
-        {/* Credits widget */}
+      {/* Bottom: credits + profile */}
+      <div style={{ padding: '0 10px 16px' }}>
+        {/* Credits widget — hidden when collapsed */}
         <div style={{
-          borderRadius: 12,
-          background: 'rgba(249,249,249,0.05)',
-          border: '1px solid rgba(227,227,227,0.10)',
-          padding: '14px 16px',
-          marginBottom: 12,
+          maxHeight: collapsed ? 0 : 120,
+          opacity: collapsed ? 0 : 1,
+          overflow: 'hidden',
+          transition: 'max-height .22s ease, opacity .18s ease',
+          marginBottom: collapsed ? 0 : 12,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 14 }}>🔗</span>
-              <span style={{ color: '#FEFEFE', fontSize: 13, fontWeight: 500 }}>Credits Left:</span>
+          <div style={{ borderRadius: 12, background: 'rgba(249,249,249,0.05)', border: '1px solid rgba(227,227,227,0.1)', padding: '14px 16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 14 }}>🔗</span>
+                <span style={{ color: C.white, fontSize: 13, fontWeight: 500 }}>Credits Left:</span>
+              </div>
+              <span style={{ color: C.white, fontSize: 13, fontWeight: 500 }}>{balance}<span style={{ color: '#888', fontSize: 11 }}>/{maxBalance}</span></span>
             </div>
-            <span style={{ color: '#FEFEFE', fontSize: 13, fontWeight: 500 }}>
-              {balance}<span style={{ color: '#888', fontSize: 11 }}>/{maxBalance}</span>
-            </span>
+            <Link href="/pricing" onClick={(e) => e.stopPropagation()} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, textDecoration: 'none',
+              width: '100%', padding: '7px 12px', borderRadius: 6,
+              background: 'rgba(255,255,255,0.08)', color: C.white, fontSize: 13, fontWeight: 500,
+            }}>
+              <PlusIcon /> Credit Top-up
+            </Link>
           </div>
-          <Link href="/credits" style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            width: '100%', padding: '7px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
-            background: 'rgba(255,255,255,0.08)', color: '#FEFEFE',
-            fontFamily: 'var(--font-poppins, inherit)', fontSize: 13, fontWeight: 500,
-            textDecoration: 'none',
-          }}>
-            <PlusIcon /> Credit Top-up
-          </Link>
         </div>
 
-        {/* User row */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Link href="/account" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', flex: 1, minWidth: 0 }}>
+        {/* Profile row with popup */}
+        <div ref={popupRef} style={{ position: 'relative' }}>
+          {/* Popup */}
+          {popupOpen && (
+            <>
+              <div onClick={(e) => { e.stopPropagation(); setPopupOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
+              <div style={{
+                position: 'absolute', bottom: 'calc(100% + 8px)', left: 0,
+                width: 200,
+                background: '#1E1E1E', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 10, overflow: 'hidden', zIndex: 100,
+                boxShadow: '0 -8px 24px rgba(0,0,0,0.4)',
+              }}>
+                <Link href="/settings" onClick={(e) => { e.stopPropagation(); setPopupOpen(false); }} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '12px 16px', textDecoration: 'none', color: C.white,
+                  fontSize: 13, fontWeight: 500,
+                }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                  <span style={{ opacity: 0.6, display: 'flex' }}><SettingsIcon /></span>
+                  Settings
+                </Link>
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '0 16px' }} />
+                <button onClick={(e) => { e.stopPropagation(); setPopupOpen(false); void handleSignOut(); }} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer',
+                  color: '#F87171', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', textAlign: 'left',
+                }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(248,113,113,0.08)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                  <span style={{ opacity: 0.8, display: 'flex' }}><LogOutIcon /></span>
+                  Log Out
+                </button>
+              </div>
+            </>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: 8 }}>
+            {/* Avatar */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setPopupOpen((v) => !v); }}
+              title={collapsed ? 'Account options' : undefined}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
+            >
+              <div style={{ width: 38, height: 38, borderRadius: 8, background: '#FCE8CA', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: C.dark }}>{initials}</div>
+            </button>
+
+            {/* Name + email + dots — hidden when collapsed */}
             <div style={{
-              width: 38, height: 38, borderRadius: 8, background: '#FCE8CA',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 13, fontWeight: 600, color: '#141414', flexShrink: 0,
-            }}>{initials}</div>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: '#FEFEFE', fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
-              {email && <div style={{ color: '#EEEEEE', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>}
+              display: 'flex', alignItems: 'center', flex: 1, minWidth: 0,
+              maxWidth: collapsed ? 0 : 160,
+              opacity: collapsed ? 0 : 1,
+              overflow: 'hidden',
+              transition: 'max-width .22s ease, opacity .18s ease',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: C.white, fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+                {email && <div style={{ color: '#EEEEEE', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>}
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); setPopupOpen((v) => !v); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: popupOpen ? C.white : '#888', flexShrink: 0, padding: 4 }}
+                title="Account options"
+              >
+                <DotsIcon />
+              </button>
             </div>
-          </Link>
-          <button onClick={() => void handleSignOut()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', flexShrink: 0, padding: 4 }} title="Sign out">
-            <LogOutIcon />
-          </button>
+          </div>
         </div>
       </div>
-    </aside>
+    </div>
   );
 }

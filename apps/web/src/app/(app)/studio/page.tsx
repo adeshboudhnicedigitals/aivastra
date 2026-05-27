@@ -1,0 +1,414 @@
+'use client';
+import { useState, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { C, grad } from '@/components/tokens';
+import { TopBar } from '@/components/topbar';
+import { StepBar } from '@/components/step-indicator';
+import { DarkBtn } from '@/components/ui/dark-btn';
+import { GradBtn } from '@/components/ui/grad-btn';
+import { CheckIcon, ChevronRight, ArrowLeft, UploadIcon, SparkleIcon, SpinnerIcon, XIcon, SearchIcon } from '@/components/icons';
+
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
+interface Subcategory { id: string; slug: string; label: string; thumbnailUrl?: string | null }
+interface FaceItem { id: string; label: string; thumbnailUrl: string; gender: string }
+interface BackgroundItem { id: string; label: string; thumbnailUrl: string; previewUrl: string }
+interface PoseItem { id: string; label: string; thumbnailUrl: string; showsLower: boolean; showsShoes: boolean }
+interface CatalogItem { id: string; label: string; thumbnailUrl: string }
+interface CatalogNode { id: number; slug: string; label: string; children: CatalogNode[]; items: CatalogItem[] }
+
+function flattenCatalog(nodes: CatalogNode[]): CatalogItem[] {
+  return nodes.flatMap((n) => [...n.items, ...flattenCatalog(n.children)]);
+}
+
+const GENDERS = [
+  { value: 'women', label: 'Women', img: `${BASE}/assets/seg-women.png` },
+  { value: 'men',   label: 'Men',   img: `${BASE}/assets/seg-men.png` },
+  { value: 'boys',  label: 'Boy',   img: `${BASE}/assets/seg-boy.png` },
+  { value: 'girls', label: 'Girl',  img: `${BASE}/assets/seg-girl.png` },
+];
+const PLATFORMS = ['Amazon', 'Myntra', 'Flipkart', 'Meesho', 'Shopify'];
+const ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
+const OUTFIT_IMG: Record<string, string> = {
+  kurta: `${BASE}/assets/outfit-kurta.png`,
+  saree: `${BASE}/assets/outfit-saree.png`,
+  top: `${BASE}/assets/outfit-top.png`,
+};
+
+// ── Visual card (gender / outfit) ──
+function VisualCard({ selected, onClick, img, label, imgStyle }: { selected: boolean; onClick: () => void; img: string | null; label: string; imgStyle?: React.CSSProperties }) {
+  return (
+    <div onClick={onClick} style={{ cursor: 'pointer', textAlign: 'center', flexShrink: 0 }}>
+      <div style={{ width: 100, height: 110, borderRadius: 8, overflow: 'hidden', position: 'relative', border: selected ? '2px solid transparent' : `2px solid ${C.border}`, backgroundImage: selected ? grad : 'none', padding: selected ? 2 : 0, boxSizing: 'border-box' }}>
+        <div style={{ width: '100%', height: '100%', borderRadius: 6, overflow: 'hidden', background: '#f0f0f0' }}>
+          {img ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={img} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', ...imgStyle }} />
+          ) : (
+            <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #f5f5f5, #e8e8e8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: 11 }}>{label}</div>
+          )}
+        </div>
+        {selected && <div style={{ position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: '50%', background: grad, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CheckIcon color={C.white} size={11} /></div>}
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>{label}</div>
+    </div>
+  );
+}
+
+// ── Selection card (model / bg / pose / catalog) ──
+function SelCard({ selected, onClick, imageUrl, label, w = 130, h = 170, badges }: { selected: boolean; onClick: () => void; imageUrl: string; label: string; w?: number; h?: number; badges?: React.ReactNode }) {
+  return (
+    <div onClick={onClick} style={{ cursor: 'pointer', textAlign: 'center', flexShrink: 0 }}>
+      <div style={{ width: w, height: h, borderRadius: 10, overflow: 'hidden', position: 'relative', border: selected ? '2px solid transparent' : `2px solid ${C.border}`, background: selected ? grad : 'transparent', padding: selected ? 2 : 0, boxSizing: 'border-box' }}>
+        <div style={{ width: '100%', height: '100%', borderRadius: 8, overflow: 'hidden', background: '#f0f0f0' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageUrl} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        </div>
+        {selected && <div style={{ position: 'absolute', top: 8, right: 8, width: 20, height: 20, borderRadius: '50%', background: grad, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CheckIcon color={C.white} size={11} /></div>}
+        {badges}
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>{label}</div>
+    </div>
+  );
+}
+
+function SectionHead({ title }: { title: string }) {
+  return <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, marginBottom: 14 }}>{title}</h3>;
+}
+
+const pill = (active: boolean): React.CSSProperties => ({
+  padding: '7px 14px', borderRadius: 8, border: `1px solid ${active ? C.pink : C.border2}`,
+  background: active ? 'rgba(245,92,122,0.08)' : C.white, color: active ? C.pink : C.text,
+  fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer',
+});
+const ghostBtn: React.CSSProperties = { padding: '10px 24px', borderRadius: 8, border: `1px solid ${C.border2}`, background: C.white, fontFamily: 'inherit', fontSize: 14, cursor: 'pointer', color: C.text, display: 'flex', alignItems: 'center', gap: 6 };
+
+export default function StudioPage(): React.ReactElement {
+  const router = useRouter();
+  const [step, setStep] = useState(0); // 0..4
+
+  const [gender, setGender] = useState('women');
+  const [subcategoryId, setSubcategoryId] = useState('');
+  const [platform, setPlatform] = useState('Amazon');
+  const [aspect, setAspect] = useState('4:5');
+  const [garmentFile, setGarmentFile] = useState<File | null>(null);
+  const [garmentKey, setGarmentKey] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [modelFilter, setModelFilter] = useState('All');
+  const [faceId, setFaceId] = useState('');
+  const [backgroundId, setBackgroundId] = useState('');
+  const [poseIds, setPoseIds] = useState<string[]>([]);
+  const [lowerCatalogId, setLowerCatalogId] = useState('');
+  const [shoeCatalogId, setShoeCatalogId] = useState('');
+  const [qty, setQty] = useState(4);
+  const [quality, setQuality] = useState<'HD' | '2K' | '4K'>('HD');
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [toast, setToast] = useState('');
+  const showToast = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(''), 1800); }, []);
+
+  const { data: subcategories } = useQuery<{ items: Subcategory[] }>({ queryKey: ['subcategories', gender], queryFn: () => api.get(`/v1/models/subcategories?gender=${gender}`), enabled: !!gender });
+  const { data: faces } = useQuery<{ items: FaceItem[] }>({ queryKey: ['faces', gender], queryFn: () => api.get(`/v1/models/faces?gender=${gender}`), enabled: !!gender && step >= 1 });
+  const { data: backgrounds } = useQuery<{ items: BackgroundItem[] }>({
+    queryKey: ['backgrounds', faceId, subcategoryId],
+    queryFn: () => { const p = new URLSearchParams(); if (faceId) p.set('faceId', faceId); if (subcategoryId) p.set('subcategoryId', subcategoryId); return api.get(`/v1/models/backgrounds?${p}`); },
+    enabled: !!faceId && step >= 2,
+  });
+  const { data: poses } = useQuery<{ items: PoseItem[] }>({ queryKey: ['poses', subcategoryId, faceId, backgroundId], queryFn: () => api.get(`/v1/models/poses?subcategoryId=${subcategoryId}&faceId=${faceId}&backgroundId=${backgroundId}`), enabled: !!(subcategoryId && faceId && backgroundId && step >= 3) });
+
+  const selectedPoses = poses?.items.filter((p) => poseIds.includes(p.id)) ?? [];
+  const needsLower = selectedPoses.some((p) => p.showsLower);
+  const needsShoes = selectedPoses.some((p) => p.showsShoes);
+
+  const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({ queryKey: ['catalog', 'lower', gender], queryFn: () => api.get(`/v1/catalog/lower${gender ? `?gender=${gender}` : ''}`), enabled: step >= 4 && needsLower });
+  const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({ queryKey: ['catalog', 'shoe', gender], queryFn: () => api.get(`/v1/catalog/shoe${gender ? `?gender=${gender}` : ''}`), enabled: step >= 4 && needsShoes });
+  const lowerItems = lowerCatalog ? flattenCatalog(lowerCatalog.tree) : [];
+  const shoeItems = shoesCatalog ? flattenCatalog(shoesCatalog.tree) : [];
+
+  async function handleGarmentUpload(file: File) {
+    setGarmentFile(file); setIsUploading(true); setUploadProgress(0);
+    try {
+      const { uploadUrl, r2Key } = await api.post<{ uploadUrl: string; r2Key: string; expiresIn: number }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, setUploadProgress);
+      setGarmentKey(r2Key);
+    } catch (e) { showToast(`Upload failed: ${(e as Error).message}`); setGarmentFile(null); }
+    finally { setIsUploading(false); }
+  }
+
+  function handleFaceSelect(id: string) { setFaceId(id); setBackgroundId(''); setPoseIds([]); setLowerCatalogId(''); setShoeCatalogId(''); }
+  function handleBackgroundSelect(id: string) { setBackgroundId(id); setPoseIds([]); setLowerCatalogId(''); setShoeCatalogId(''); }
+  function handlePoseSelect(id: string) { setPoseIds((prev) => prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]); setLowerCatalogId(''); setShoeCatalogId(''); }
+
+  async function handleSubmit() {
+    if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0) return;
+    setIsSubmitting(true); setSubmitError('');
+    try {
+      const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
+        inputs: { upperGarmentKey: garmentKey, faceId, backgroundId, poseIds, lowerCatalogId: lowerCatalogId || undefined, shoeCatalogId: shoeCatalogId || undefined },
+      });
+      router.push(`/catalogues/${catalogueId}`);
+    } catch (e) { setSubmitError((e as Error).message); setIsSubmitting(false); }
+  }
+
+  const canNext = (): boolean => {
+    if (step === 0) return !!gender && !!subcategoryId && (!!garmentFile || !!garmentKey);
+    if (step === 1) return !!faceId;
+    if (step === 2) return !!backgroundId;
+    if (step === 3) return poseIds.length > 0;
+    return true;
+  };
+  const canGenerate = poseIds.length > 0 && !!garmentKey && !isUploading && !isSubmitting && (!needsLower || !!lowerCatalogId) && (!needsShoes || !!shoeCatalogId);
+
+  function goNext() { if (step < 4) setStep((s) => s + 1); }
+  function goBack() { if (step > 0) setStep((s) => s - 1); }
+  function reset() { setGender(''); setSubcategoryId(''); setFaceId(''); setBackgroundId(''); setPoseIds([]); setLowerCatalogId(''); setShoeCatalogId(''); setGarmentFile(null); setGarmentKey(''); setStep(0); showToast('Setup reset'); }
+
+  const selectedFace = faces?.items.find((f) => f.id === faceId);
+  const selectedBg = backgrounds?.items.find((b) => b.id === backgroundId);
+  const credits = poseIds.length;
+  const visibleStep = Math.min(step, 3) + 1;
+
+  return (
+    <>
+      <TopBar
+        title="Create Catalogue"
+        subtitle="Create premium AI catalogue shoots from flat lay garments in minutes."
+        right={<StepBar step={visibleStep} />}
+      />
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 28 }}>
+        {/* ── Step 0: Setup ── */}
+        {step === 0 && (
+          <>
+            <section>
+              <SectionHead title="Catalogue For" />
+              <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                {GENDERS.map((g) => <VisualCard key={g.value} img={g.img} label={g.label} selected={gender === g.value} onClick={() => { setGender(g.value); setSubcategoryId(''); }} imgStyle={{ transform: 'scale(2.5)', transformOrigin: 'top center' }} />)}
+              </div>
+            </section>
+
+            <section>
+              <SectionHead title="Outfit Type" />
+              {!gender ? <p style={{ fontSize: 13, color: C.mid }}>Select a segment first.</p>
+                : !subcategories ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.mid }}><SpinnerIcon size={16} /> Loading…</div>
+                : (
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                    {subcategories.items.map((s) => {
+                      // Use DB thumbnail if available, fall back to static OUTFIT_IMG map
+                      const fallbackKey = Object.keys(OUTFIT_IMG).find((k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k));
+                      const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
+                      return <VisualCard key={s.id} img={img} label={s.label} selected={subcategoryId === s.id} onClick={() => setSubcategoryId(subcategoryId === s.id ? '' : s.id)} />;
+                    })}
+                  </div>
+                )}
+            </section>
+
+            <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap' }}>
+              <section style={{ flex: 1, minWidth: 280 }}>
+                <SectionHead title="Publishing Platform" />
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {PLATFORMS.map((p) => <button key={p} onClick={() => setPlatform(p)} style={pill(platform === p)}>{p}</button>)}
+                </div>
+              </section>
+              <section style={{ flex: 1, minWidth: 200 }}>
+                <SectionHead title="Aspect Ratio" />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {ASPECTS.map((r) => <button key={r} onClick={() => setAspect(r)} style={pill(aspect === r)}>{r}</button>)}
+                </div>
+              </section>
+            </div>
+
+            <section>
+              <SectionHead title="Upload Garment Image" />
+              <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                <label
+                  style={{ flex: 1, minWidth: 200, maxWidth: 320, border: `1.5px dashed ${C.border2}`, borderRadius: 10, padding: '28px 20px', textAlign: 'center', background: C.white, cursor: 'pointer', display: 'block', position: 'relative' }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) handleGarmentUpload(f); }}
+                >
+                  {garmentFile ? (
+                    <div style={{ position: 'relative', width: '100%', paddingBottom: '120%' }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={URL.createObjectURL(garmentFile)} alt={garmentFile.name} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }} />
+                      <button type="button" onClick={(e) => { e.preventDefault(); setGarmentFile(null); setGarmentKey(''); }} style={{ position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><XIcon size={14} /></button>
+                      {isUploading && (
+                        <div style={{ position: 'absolute', bottom: 8, left: 8, right: 8, background: 'rgba(255,255,255,0.95)', borderRadius: 8, padding: '6px 10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.text }}><SpinnerIcon size={14} /> {uploadProgress}%</div>
+                          <div style={{ marginTop: 4, height: 4, borderRadius: 99, background: C.border, overflow: 'hidden' }}><div style={{ height: '100%', width: `${uploadProgress}%`, background: grad, borderRadius: 99, transition: 'width .3s' }} /></div>
+                        </div>
+                      )}
+                      {garmentKey && <div style={{ position: 'absolute', top: 8, left: 8, background: C.mint, color: 'white', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><CheckIcon color="#fff" size={10} /> Uploaded</div>}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 36, marginBottom: 10, opacity: 0.4 }}>👗</div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: C.text, marginBottom: 6 }}>Upload Garment</div>
+                      <div style={{ fontSize: 12, color: C.light, marginBottom: 14 }}>Drag and drop an image here · JPG, PNG · Max 10MB</div>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: `1px solid ${C.border2}`, background: C.white, fontSize: 13, fontWeight: 500, color: C.text }}><UploadIcon /> Browse Image</div>
+                    </>
+                  )}
+                  <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleGarmentUpload(f); }} />
+                </label>
+                <div style={{ flex: 1.2, minWidth: 240, background: '#FAFAFA', borderRadius: 10, border: `1px solid ${C.border}`, padding: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}><span style={{ fontSize: 14 }}>💡</span><span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>Use clean flat lay images for best AI catalogue results.</span></div>
+                  <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {['Even, diffuse daylight', 'Minimal wrinkles, garment laid flat', 'Plain, contrasting background'].map((t) => <li key={t} style={{ fontSize: 12, color: C.mid }}>{t}</li>)}
+                  </ul>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
+
+        {/* ── Step 1: Model ── */}
+        {step === 1 && (
+          <section>
+            <SectionHead title="Choose your model" />
+            {faces && faces.items.length > 0 && (
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+                {['All', ...Array.from(new Set(faces.items.map((f) => f.gender)))].map((f) => (
+                  <button key={f} onClick={() => setModelFilter(f)} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', background: modelFilter === f ? C.text : C.white, color: modelFilter === f ? C.white : C.text, fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', boxShadow: modelFilter === f ? 'none' : `0 0 0 1px ${C.border2}` }}>{f === 'All' ? `All (${faces.items.length})` : f}</button>
+                ))}
+                <div style={{ marginLeft: 'auto', position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.mid }}><SearchIcon /></span>
+                  <input placeholder="Search models..." style={{ paddingLeft: 34, height: 36, borderRadius: 8, border: `1px solid ${C.border2}`, fontFamily: 'inherit', fontSize: 13, outline: 'none', background: C.white, width: 200 }} />
+                </div>
+              </div>
+            )}
+            {!faces ? <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0', color: C.mid }}><SpinnerIcon /></div>
+              : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                  {faces.items.filter((f) => modelFilter === 'All' || f.gender === modelFilter).map((f) => <SelCard key={f.id} selected={faceId === f.id} onClick={() => handleFaceSelect(f.id)} imageUrl={f.thumbnailUrl} label={f.label} />)}
+                </div>
+              )}
+          </section>
+        )}
+
+        {/* ── Step 2: Background ── */}
+        {step === 2 && (
+          <section>
+            <SectionHead title="Select Background" />
+            {!backgrounds ? <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0', color: C.mid }}><SpinnerIcon /></div>
+              : backgrounds.items.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No backgrounds available for this model yet. Try a different model.</p>
+              : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                  {backgrounds.items.map((b) => <SelCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)} imageUrl={b.thumbnailUrl} label={b.label} w={130} h={100} />)}
+                </div>
+              )}
+          </section>
+        )}
+
+        {/* ── Step 3: Poses ── */}
+        {step === 3 && (
+          <section>
+            <SectionHead title="Choose Poses" />
+            {!poses ? <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0', color: C.mid }}><SpinnerIcon /></div>
+              : poses.items.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No poses for this combination. Go back and try a different background.</p>
+              : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                  {poses.items.map((p) => (
+                    <SelCard key={p.id} selected={poseIds.includes(p.id)} onClick={() => handlePoseSelect(p.id)} imageUrl={p.thumbnailUrl} label={p.label} w={160} h={220}
+                      badges={(p.showsLower || p.showsShoes) && (
+                        <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 4, flexDirection: 'column', pointerEvents: 'none' }}>
+                          {p.showsLower && <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(246,181,83,0.92)', color: '#7a5200' }}>LOWER</span>}
+                          {p.showsShoes && <span style={{ padding: '2px 7px', borderRadius: 6, fontSize: 10, fontWeight: 700, background: 'rgba(32,158,70,0.92)', color: 'white' }}>SHOES</span>}
+                        </div>
+                      )}
+                    />
+                  ))}
+                </div>
+              )}
+          </section>
+        )}
+
+        {/* ── Step 4: Generate ── */}
+        {step === 4 && (
+          <>
+            {(needsLower || needsShoes) && (
+              <>
+                {needsLower && (
+                  <section>
+                    <SectionHead title="Lower Garment" />
+                    {!lowerCatalog ? <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0', color: C.mid }}><SpinnerIcon /></div>
+                      : lowerItems.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No lower garment options available yet.</p>
+                      : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>{lowerItems.map((i) => <SelCard key={i.id} selected={lowerCatalogId === i.id} onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)} imageUrl={i.thumbnailUrl} label={i.label} />)}</div>}
+                  </section>
+                )}
+                {needsShoes && (
+                  <section>
+                    <SectionHead title="Shoes" />
+                    {!shoesCatalog ? <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0', color: C.mid }}><SpinnerIcon /></div>
+                      : shoeItems.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
+                      : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>{shoeItems.map((i) => <SelCard key={i.id} selected={shoeCatalogId === i.id} onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)} imageUrl={i.thumbnailUrl} label={i.label} />)}</div>}
+                  </section>
+                )}
+              </>
+            )}
+
+            <section>
+              <SectionHead title="Generation Settings" />
+              <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>Images per pose</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {[1, 2, 4, 8].map((n) => <button key={n} onClick={() => setQty(n)} style={{ width: 44, height: 44, borderRadius: 8, border: `1px solid ${qty === n ? C.pink : C.border2}`, background: qty === n ? 'rgba(245,92,122,0.08)' : C.white, color: qty === n ? C.pink : C.text, fontFamily: 'inherit', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>{n}</button>)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 10 }}>Output Quality</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {([{ l: 'HD', c: 25 }, { l: '2K', c: 35 }, { l: '4K', c: 40 }] as const).map((q) => (
+                      <button key={q.l} onClick={() => setQuality(q.l)} style={{ padding: '8px 18px', borderRadius: 8, border: `1px solid ${quality === q.l ? C.pink : C.border2}`, background: quality === q.l ? 'rgba(245,92,122,0.08)' : C.white, fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: quality === q.l ? C.pink : C.text }}>
+                        <div style={{ fontWeight: 600 }}>{q.l}</div>
+                        <div style={{ fontSize: 10, opacity: 0.7 }}>{q.c} credits</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <div style={{ background: '#FAFAFA', border: `1px solid ${C.border}`, borderRadius: 12, padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+              <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+                {([['Model', selectedFace?.label ?? '—'], ['Background', selectedBg?.label ?? '—'], ['Poses', String(poseIds.length)], ['Quality', quality]] as [string, string][]).map(([k, v]) => (
+                  <div key={k}><div style={{ fontSize: 12, color: C.mid, marginBottom: 2 }}>{k}</div><div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>{v}</div></div>
+                ))}
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 12, color: C.mid, marginBottom: 2 }}>Credits Required</div>
+                <div style={{ fontSize: 28, fontWeight: 700, background: grad, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>{credits}</div>
+              </div>
+            </div>
+
+            {submitError && <div style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.pink}`, background: 'rgba(245,92,122,0.06)', fontSize: 14, color: C.pink }}>{submitError}</div>}
+          </>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{ borderTop: `1px solid ${C.border}`, padding: '16px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: C.white, flexShrink: 0 }}>
+        <button onClick={goBack} disabled={step === 0} style={{ ...ghostBtn, opacity: step === 0 ? 0 : 1, pointerEvents: step === 0 ? 'none' : 'auto' }}><ArrowLeft /> Back</button>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {step === 1 && <span style={{ fontSize: 13, color: C.mid }}>{faceId ? '1 model selected' : 'No model selected'}</span>}
+          {step === 2 && <span style={{ fontSize: 13, color: C.mid }}>{backgroundId ? '1 background selected' : 'No background selected'}</span>}
+          {step === 3 && <span style={{ fontSize: 13, color: C.mid }}>{poseIds.length} pose{poseIds.length !== 1 ? 's' : ''} selected</span>}
+          <button onClick={reset} style={ghostBtn}>Reset</button>
+          {step < 4 ? (
+            <DarkBtn onClick={goNext} disabled={!canNext()} style={{ padding: '10px 24px', gap: 8 }}>Next Step <ChevronRight /></DarkBtn>
+          ) : (
+            <GradBtn onClick={handleSubmit} disabled={!canGenerate} style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}>
+              {isSubmitting ? <><SpinnerIcon size={16} /> Generating…</> : isUploading ? <><SpinnerIcon size={16} /> Uploading…</> : <><SparkleIcon /> Generate Catalogue ({credits} credits)</>}
+            </GradBtn>
+          )}
+        </div>
+      </div>
+
+      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: C.dark, color: C.white, padding: '10px 20px', borderRadius: 8, fontSize: 13, zIndex: 1000 }}>{toast}</div>}
+    </>
+  );
+}

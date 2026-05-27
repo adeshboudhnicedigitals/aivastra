@@ -7,6 +7,34 @@
 
 ## Log
 
+### 2026-05-26 — Full user frontend rebuild from scratch (vastra3.0 design)
+
+Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. Rebuilt the entire user-facing frontend from the Claude Design handoff (`vastra.html`), inline-token styling, new route structure. Wired to existing `/v1` API.
+
+#### Done
+- **Foundation:** `components/tokens.ts` (C palette + grad), `components/icons.tsx` (all design SVGs), `components/logo.tsx`, `components/ui/{grad-btn,dark-btn,google-btn,divider}.tsx`, `components/step-indicator.tsx`, `components/topbar.tsx` (self-contained). `globals.css` replaced with minimal reset + Poppins + scrollbar (dropped Tailwind directives + 895-line class system). Root layout: removed dark-mode script + Inter/JetBrains fonts.
+- **App shell:** `(app)/layout.tsx` = dark sidebar + main column (TopbarProvider removed). New `sidebar.tsx` on routes studio/catalogues/assets/pricing/settings, keeps `/v1/credits` + `/v1/me` wiring.
+- **Routes restructured:** `/studio` (was tryon), `/catalogues` (was dashboard) + `/catalogues/[id]`, `/assets` + `/assets/[id]`, `/pricing` (was credits), `/settings` (was account).
+- **Studio:** 4-step wizard re-skin of tryon logic — gender→outfit+garment upload→models→backgrounds→poses(+lower/shoes)→generate. Submits `POST /v1/jobs/tryon` → `/catalogues/:id`.
+- **Settings:** 4 tabs. Profile wired `GET/PATCH /v1/me`. Credit History wired `GET /v1/credits` (summary derived from `recent`). Billing + Invoices stubbed (disabled inputs).
+- **Catalogues:** list (date-grouped, cover via `/v1/jobs/:id/result`, polls active) + detail (image grid, per-image fullscreen lightbox + download + delete).
+- **Pricing:** static 3-col plan table + Razorpay test-mode stub (`NEXT_PUBLIC_RAZORPAY_KEY`).
+- **Cleanup:** deleted `(app)/{tryon,dashboard,credits,account,jobs}`, `context/topbar-context.tsx`, `components/{navbar,theme-toggle}.tsx`, `components/ui/{button,badge,input}.tsx`. Middleware redirects old paths → new. Root redirect → `/studio`.
+- **Verified:** `next build` green — all 15 routes generated; `/login` serves 200.
+
+#### Failed / Not Done
+- Assets list/detail are mocked (no backend endpoint) — tagged `TODO(wire)`.
+- Pricing top-up needs a backend order-creation route; current Razorpay call is a client-only test stub.
+- Billing/Invoices settings tabs have no backend.
+- Studio wizard state is in-memory (lost on refresh) — per locked decision.
+- No browser smoke test of authenticated flows (build + static `/login` only).
+
+#### Open Questions / Decisions
+- `qty`/`quality` in studio are UI-only; `POST /v1/jobs/tryon` charges per-pose. Credit math shown (`poses × qty × quality`) is cosmetic until backend accepts those params.
+- Razorpay test stub bypasses server order verification — must wire `/credits/topup` + signature check before production.
+
+---
+
 ### 2026-05-26 — Web UI restyle (vastra3.0 design)
 
 #### Done

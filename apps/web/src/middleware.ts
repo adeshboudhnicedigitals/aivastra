@@ -19,6 +19,20 @@ export function middleware(request: NextRequest) {
   if (isPublic) return NextResponse.next();
   if (path === '/') return NextResponse.next();
 
+  // Redirect old route names to new structure
+  const REDIRECTS: Record<string, string> = {
+    '/tryon': '/studio',
+    '/dashboard': '/catalogues',
+    '/jobs': '/catalogues',
+    '/credits': '/pricing',
+    '/account': '/settings',
+  };
+  for (const [from, to] of Object.entries(REDIRECTS)) {
+    if (path === from || path.startsWith(`${from}/`)) {
+      return NextResponse.redirect(new URL(`${BASE_PATH}${to}`, request.url));
+    }
+  }
+
   const token = request.cookies.get('access_token')?.value;
   if (!token) {
     // Use absolute URL to avoid Next.js basePath double-prefix issues
@@ -30,5 +44,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|assets/).*)'],
 };
