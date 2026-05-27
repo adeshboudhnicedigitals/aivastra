@@ -208,3 +208,4 @@ export const PatchGarmentSubcategoryBody = z.object({
 export const PresignSubcategoryBody = z.object({
   contentType: AssetContentType,
 });
+
