@@ -37,7 +37,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (!data.accessToken) {
+    const url = new URL(`${BASE_PATH}/login`, req.url);
+    url.searchParams.set('error', 'oauth_failed');
+    return NextResponse.redirect(url);
+  }
+
   const response = NextResponse.redirect(new URL(`${BASE_PATH}/studio`, req.url));
-  setAuthCookies(response, data.accessToken!, setCookieHeader);
+  setAuthCookies(response, data.accessToken, setCookieHeader);
   return response;
 }
