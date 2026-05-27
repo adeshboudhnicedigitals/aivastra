@@ -20,6 +20,10 @@ const Env = z.object({
   ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8).optional(),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
   COOKIE_SECRET: z.string().min(16),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_CALLBACK_URL: z.string().url().optional(),
+  WEB_URL: z.string().url().default('http://localhost:3000'),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {

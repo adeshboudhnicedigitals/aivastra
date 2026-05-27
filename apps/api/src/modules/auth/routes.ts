@@ -26,6 +26,7 @@ export async function authRoutes(app: FastifyInstance) {
     const { email, password } = req.body as any;
     const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
     if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
+    if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
     if (!(await verifyPassword(user.passwordHash, password))) throw new AppError('INVALID', 401, 'invalid credentials');
     return issueTokens(app, user.id, reply, 200);
   });
