@@ -4,11 +4,10 @@ import { RegisterBody, LoginBody } from '@aivastra/types';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { AppError } from '../../lib/errors.js';
-import { hashPassword, verifyPassword, signAccess, newRefreshToken, hashRefresh } from './service.js';
+import { hashPassword, verifyPassword, hashRefresh } from './service.js';
+import { issueTokens } from './tokens.js';
 
 export async function authRoutes(app: FastifyInstance) {
-  const secret = new TextEncoder().encode(app.env.JWT_SECRET);
-
   app.post('/v1/auth/register', { schema: { body: RegisterBody } }, async (req, reply) => {
     const { email, password, displayName } = req.body as any;
     const exists = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
@@ -76,24 +75,4 @@ export async function authRoutes(app: FastifyInstance) {
     reply.clearCookie('refresh', { path: '/v1/auth' });
     return { ok: true };
   });
-
-  async function issueTokens(app: FastifyInstance, userId: string, reply: any, status: number) {
-    const accessToken = await signAccess(secret, userId, { kind: 'access' }, app.env.JWT_EXPIRY);
-    const r = newRefreshToken();
-    const expiresAt = new Date(Date.now() + parseDuration(app.env.REFRESH_TOKEN_EXPIRY));
-    await app.db.insert(schema.refreshTokens).values({ userId, tokenHash: r.hash, expiresAt });
-    reply.setCookie('refresh', r.plain, {
-      httpOnly: true, secure: app.env.NODE_ENV === 'production',
-      sameSite: 'lax', path: '/v1/auth', expires: expiresAt, signed: false,
-    });
-    reply.code(status);
-    return { accessToken };
-  }
-}
-
-function parseDuration(s: string): number {
-  const m = /^(\d+)([smhd])$/.exec(s);
-  if (!m) throw new Error(`bad duration: ${s}`);
-  const n = Number(m[1]);
-  return n * { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2]!]!;
 }
