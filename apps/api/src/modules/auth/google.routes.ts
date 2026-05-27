@@ -134,7 +134,17 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         avatarUrl: googleUser.picture ?? null,
       }).onConflictDoNothing();
 
-      return uid;
+      // Re-fetch the actual linked userId — handles the rare case where a concurrent
+      // request already inserted the same (provider, providerId) pair.
+      const [linked] = await tx
+        .select({ userId: schema.oauthAccounts.userId })
+        .from(schema.oauthAccounts)
+        .where(and(
+          eq(schema.oauthAccounts.provider, 'google'),
+          eq(schema.oauthAccounts.providerId, googleUser.sub),
+        ));
+
+      return linked!.userId;
     });
 
     // Issue one-time OTP for web handoff

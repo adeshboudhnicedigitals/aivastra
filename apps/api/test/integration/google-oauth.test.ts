@@ -184,11 +184,27 @@ describe('google oauth', () => {
 
     // Only one user should exist for this email
     const otp = new URL(location).searchParams.get('code')!;
+
+    // Exchange the OTP to get the real userId
     const linkedUserId = await app.redis.get(`oauth:otp:${otp}`);
     expect(linkedUserId).toBeTruthy();
 
-    // Verify oauth_accounts row was created linking to the existing user
-    const otp2 = new URL(location).searchParams.get('code')!;
-    expect(otp2).toBeTruthy(); // OTP proves the link succeeded
+    // Verify the oauth_accounts row links to the ORIGINAL registered user (not a new user)
+    const regToken = regRes.json<{ accessToken: string }>().accessToken;
+    const parts = regToken.split('.');
+    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString());
+    const originalUserId: string = claims.sub;
+
+    const { schema } = await import('@aivastra/db');
+    const { eq, and } = await import('drizzle-orm');
+    const links = await app.db
+      .select({ userId: schema.oauthAccounts.userId })
+      .from(schema.oauthAccounts)
+      .where(and(
+        eq(schema.oauthAccounts.provider, 'google'),
+        eq(schema.oauthAccounts.providerId, 'google-sub-link-002'),
+      ));
+    expect(links).toHaveLength(1);
+    expect(links[0]!.userId).toBe(originalUserId);
   });
 });
