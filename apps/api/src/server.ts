@@ -12,6 +12,7 @@ import { redisPlugin } from './plugins/redis.js';
 import { storagePlugin } from './plugins/storage.js';
 import { authPlugin } from './plugins/auth.js';
 import { authRoutes } from './modules/auth/routes.js';
+import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
@@ -58,6 +59,7 @@ export async function buildServer(env: Env) {
   });
 
   await app.register(authRoutes);
+  await app.register(googleAuthRoutes);
   await app.register(creditsRoutes);
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
