@@ -322,6 +322,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   ];
 
   const filteredFaces = faces.filter((f) => genderFilter === 'all' || f.gender === genderFilter);
+  const filteredSubcategories = subcategories.filter((s) => genderFilter === 'all' || s.genderSlug === genderFilter);
 
   // Poses available in current face×bg cell (for 3rd-dimension selector)
   const posesInCell = poses.filter((p) =>
@@ -463,6 +464,15 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {!loading && activeTab === 'subcategories' && subView.kind === 'list' && (
+        <>
+          <div className="tabs" style={{ marginTop: -8 }}>
+            {GENDER_TABS.map((t) => (
+              <button key={t.k} className={`tab ${genderFilter === t.k ? 'active' : ''}`}
+                onClick={() => setGenderFilter(t.k)}>
+                {t.l}
+              </button>
+            ))}
+          </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -476,7 +486,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </tr>
             </thead>
             <tbody>
-              {subcategories.map((sub) => (
+              {filteredSubcategories.map((sub) => (
                 <tr key={sub.id} style={{ cursor: 'pointer' }}
                   onClick={() => { setFilterFace(''); setFilterBg(''); setFilterPose(''); setSubView({ kind: 'subcategory', sub }); }}>
                   <td>
@@ -512,12 +522,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   </td>
                 </tr>
               ))}
-              {subcategories.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No subcategories yet.</td></tr>
+              {filteredSubcategories.length === 0 && (
+                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No subcategories found.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {!loading && activeTab === 'subcategories' && subView.kind === 'subcategory' && (

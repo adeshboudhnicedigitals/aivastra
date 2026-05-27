@@ -193,8 +193,8 @@ svg {
   padding: 4px 6px 0;
 }
 .brand-mark {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 7px;
   background: var(--accent);
   display: grid;
@@ -215,10 +215,15 @@ svg {
   overflow: hidden;
 }
 .brand-mark--logo img {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   border-radius: 7px;
+  display: block;
+}
+.brand-word--logo {
+  height: 28px;
+  width: auto;
   display: block;
 }
 .brand-word {
@@ -337,13 +342,35 @@ svg {
   padding: 0;
 }
 .brand--collapsed .brand-mark--logo {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
 }
-.brand--collapsed .brand-mark--logo img {
-  width: 36px;
-  height: 36px;
+.collapsed-logo-icon {
+  position: relative;
+  display: block;
+  width: 40px;
+  height: 40px;
+}
+.collapsed-logo-icon img {
+  position: absolute;
+  inset: 0;
+  width: 40px;
+  height: 40px;
   border-radius: 9px;
+  object-fit: contain;
+  transition: opacity 0.2s;
+}
+.collapsed-logo-icon--on {
+  opacity: 1;
+}
+.collapsed-logo-icon--off {
+  opacity: 0;
+}
+.brand--collapsed .brand-mark--logo:hover .collapsed-logo-icon--on {
+  opacity: 0;
+}
+.brand--collapsed .brand-mark--logo:hover .collapsed-logo-icon--off {
+  opacity: 1;
 }
 .sidebar-foot--collapsed {
   border-top: 1px solid var(--sidebar-border);
