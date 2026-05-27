@@ -285,7 +285,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       background: `/admin/assets/backgrounds/${id}`,
       face: `/admin/assets/faces/${id}`,
       subcategory: `/admin/assets/subcategories/${id}`,
-      pose: `/admin/assets/poses/${id}`,
+      pose: `/admin/assets/poses/${id}?force=true`,
     };
     try {
       await apiFetch(paths[type], { method: 'DELETE' });

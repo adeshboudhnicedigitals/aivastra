@@ -402,16 +402,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   app.delete('/admin/assets/poses/:id', {
     preHandler: W,
-    schema: { params: uuidParam },
+    schema: {
+      params: uuidParam,
+      querystring: z.object({ force: z.coerce.boolean().optional().default(false) }),
+    },
   }, async (req) => {
     const { id } = req.params as { id: string };
+    const { force } = req.query as { force: boolean };
     const [pose] = await app.db.select().from(schema.modelPoses)
       .where(eq(schema.modelPoses.id, id));
     if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
 
-    const jobRef = await app.db.select({ jobId: schema.jobInputs.jobId })
-      .from(schema.jobInputs).where(eq(schema.jobInputs.poseId, id)).limit(1);
-    if (jobRef.length > 0) throw new AppError('CONFLICT', 409, 'pose is referenced by existing jobs');
+    const jobRefs = await app.db.select({ jobId: schema.jobInputs.jobId })
+      .from(schema.jobInputs).where(eq(schema.jobInputs.poseId, id));
+
+    if (jobRefs.length > 0 && !force) {
+      throw new AppError('CONFLICT', 409, `pose is referenced by ${jobRefs.length} job(s) — delete with ?force=true to also remove those jobs`);
+    }
+
+    if (jobRefs.length > 0 && force) {
+      // Delete referencing jobs (cascades to job_inputs, job_outputs, job_events)
+      const { inArray } = await import('drizzle-orm');
+      const jobIds = jobRefs.map((r) => r.jobId);
+      await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
+    }
 
     await Promise.allSettled([
       app.storage.deleteObject(pose.r2Key),
