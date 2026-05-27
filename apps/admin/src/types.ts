@@ -75,7 +75,7 @@ export interface ModelPose {
 
 export interface CatalogItem {
   id: string;
-  categoryId: number;
+  categoryId?: number;
   label: string;
   type: 'lower' | 'shoe';
   thumbnailKey: string;
