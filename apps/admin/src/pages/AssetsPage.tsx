@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type {
-  ModelFace, ModelBackground, GarmentSubcategory, ModelPose, GenderSlug,
+  ModelFace, ModelBackground, GarmentType, ModelPose, GenderSlug,
 } from '../types';
 import { apiFetch } from '../lib/data';
 import { Icon } from '../components/Icons';
@@ -18,17 +18,17 @@ import type { SortDir } from '../components/Th';
 import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import type { CatalogItem } from '../types';
 
-type AssetTab = 'subcategories' | 'faces' | 'backgrounds' | 'lower' | 'shoe';
+type AssetTab = 'garment-types' | 'faces' | 'backgrounds' | 'lower' | 'shoe';
 type GenderFilter = 'all' | GenderSlug;
 
 type SubView =
   | { kind: 'list' }
-  | { kind: 'subcategory'; sub: GarmentSubcategory };
+  | { kind: 'garment-type'; sub: GarmentType };
 
 type ConfirmDelete =
   | { type: 'background'; id: string; label: string }
   | { type: 'face'; id: string; label: string }
-  | { type: 'subcategory'; id: string; label: string }
+  | { type: 'garment-type'; id: string; label: string }
   | { type: 'pose'; id: string; label: string };
 
 interface Props {
@@ -83,13 +83,13 @@ function AssetThumb({ thumbnailKey, label, w = 64, h = 64, storageBase }: {
 
 export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const { storagePublicUrl } = useAuth();
-  const [activeTab, setActiveTab] = useState<AssetTab>('subcategories');
+  const [activeTab, setActiveTab] = useState<AssetTab>('garment-types');
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
   const [subView, setSubView] = useState<SubView>({ kind: 'list' });
 
   const [backgrounds, setBackgrounds] = useState<ModelBackground[]>([]);
   const [faces, setFaces] = useState<ModelFace[]>([]);
-  const [subcategories, setSubcategories] = useState<GarmentSubcategory[]>([]);
+  const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>([]);
   const [poses, setPoses] = useState<ModelPose[]>([]);
   const [filterFace, setFilterFace] = useState('');
   const [filterBg, setFilterBg] = useState('');
@@ -99,7 +99,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
 
-  const [editingSubcat, setEditingSubcat] = useState<GarmentSubcategory | null>(null);
+  const [editingSubcat, setEditingSubcat] = useState<GarmentType | null>(null);
   const [editSubcatImageFile, setEditSubcatImageFile] = useState<File | null>(null);
   const [editSubcatSaving, setEditSubcatSaving] = useState(false);
 
@@ -152,22 +152,22 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   }, [toast]);
 
-  const loadSubcategories = useCallback(async () => {
+  const loadGarmentTypes = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ items: GarmentSubcategory[] }>('/admin/assets/subcategories');
-      setSubcategories(res.items);
+      const res = await apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types');
+      setGarmentTypes(res.items);
     } catch {
-      toast({ kind: 'error', title: 'Failed to load subcategories' });
+      toast({ kind: 'error', title: 'Failed to load garment types' });
     } finally {
       setLoading(false);
     }
   }, [toast]);
 
-  const loadSubcategoryAssets = useCallback(async (subcategoryId: string) => {
+  const loadGarmentTypeAssets = useCallback(async (garmentTypeId: string) => {
     setLoading(true);
     try {
-      const posesRes = await apiFetch<{ items: ModelPose[] }>(`/admin/assets/poses?subcategoryId=${subcategoryId}`);
+      const posesRes = await apiFetch<{ items: ModelPose[] }>(`/admin/assets/poses?garmentTypeId=${garmentTypeId}`);
       setPoses(posesRes.items);
     } catch {
       toast({ kind: 'error', title: 'Failed to load assets' });
@@ -196,11 +196,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     if (activeTab === 'backgrounds') loadBackgrounds();
     else if (activeTab === 'faces') loadFaces();
     else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog();
-    else if (activeTab === 'subcategories') {
-      if (subView.kind === 'list') loadSubcategories();
-      else loadSubcategoryAssets(subView.sub.id);
+    else if (activeTab === 'garment-types') {
+      if (subView.kind === 'list') loadGarmentTypes();
+      else loadGarmentTypeAssets(subView.sub.id);
     }
-  }, [activeTab, subView, loadBackgrounds, loadFaces, loadSubcategories, loadSubcategoryAssets, loadCatalog]);
+  }, [activeTab, subView, loadBackgrounds, loadFaces, loadGarmentTypes, loadGarmentTypeAssets, loadCatalog]);
 
   // Preload faces + backgrounds silently so upload selects + filters are populated
   useEffect(() => {
@@ -257,7 +257,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     if (!pose || pose.isTemplate) return;
     // Optimistically update: unset old template in same cell, set new one
     setPoses((prev) => prev.map((p) => {
-      if (p.faceId === pose.faceId && p.backgroundId === pose.backgroundId && p.subcategoryId === pose.subcategoryId) {
+      if (p.faceId === pose.faceId && p.backgroundId === pose.backgroundId && p.garmentTypeId === pose.garmentTypeId) {
         return { ...p, isTemplate: p.id === id };
       }
       return p;
@@ -268,7 +268,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     } catch {
       // Revert
       setPoses((prev) => prev.map((p) => {
-        if (p.faceId === pose.faceId && p.backgroundId === pose.backgroundId && p.subcategoryId === pose.subcategoryId) {
+        if (p.faceId === pose.faceId && p.backgroundId === pose.backgroundId && p.garmentTypeId === pose.garmentTypeId) {
           return { ...p, isTemplate: p.id !== id && p.isTemplate };
         }
         return p;
@@ -284,15 +284,15 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     const paths: Record<typeof type, string> = {
       background: `/admin/assets/backgrounds/${id}`,
       face: `/admin/assets/faces/${id}`,
-      subcategory: `/admin/assets/subcategories/${id}`,
+      'garment-type': `/admin/assets/garment-types/${id}`,
       pose: `/admin/assets/poses/${id}?force=true`,
     };
     try {
       await apiFetch(paths[type], { method: 'DELETE' });
       if (type === 'background') setBackgrounds((prev) => prev.filter((b) => b.id !== id));
       else if (type === 'face') setFaces((prev) => prev.filter((f) => f.id !== id));
-      else if (type === 'subcategory') {
-        setSubcategories((prev) => prev.filter((s) => s.id !== id));
+      else if (type === 'garment-type') {
+        setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
         setSubView({ kind: 'list' });
       } else if (type === 'pose') setPoses((prev) => prev.filter((p) => p.id !== id));
       toast({ title: `${label} deleted` });
@@ -306,7 +306,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   );
 
   const TABS: { k: AssetTab; l: string }[] = [
-    { k: 'subcategories', l: 'Subcategories' },
+    { k: 'garment-types', l: 'Garment Types' },
     { k: 'faces', l: 'Model Faces' },
     { k: 'backgrounds', l: 'Backgrounds' },
     { k: 'lower', l: 'Lower garments' },
@@ -322,7 +322,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   ];
 
   const filteredFaces = faces.filter((f) => genderFilter === 'all' || f.gender === genderFilter);
-  const filteredSubcategories = subcategories.filter((s) => genderFilter === 'all' || s.genderSlug === genderFilter);
+  const filteredGarmentTypes = garmentTypes.filter((s) => genderFilter === 'all' || s.genderSlug === genderFilter);
 
   // Poses available in current face×bg cell (for 3rd-dimension selector)
   const posesInCell = poses.filter((p) =>
@@ -338,10 +338,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     <>
       <div className="page-head">
         <div>
-          {subView.kind === 'subcategory' && (
+          {subView.kind === 'garment-type' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, fontSize: 13, color: 'var(--muted)' }}>
               <button className="btn sm ghost" onClick={() => setSubView({ kind: 'list' })} style={{ padding: '2px 8px', fontSize: 13 }}>
-                Subcategories
+                Garment Types
               </button>
               <Icon.Chevron />
               <span>{subView.sub.label}</span>
@@ -352,14 +352,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               : activeTab === 'faces' ? 'Model Faces'
               : activeTab === 'lower' ? 'Lower garments'
               : activeTab === 'shoe' ? 'Shoes'
-              : subView.kind === 'subcategory' ? subView.sub.label
-              : 'Subcategories'}
+              : subView.kind === 'garment-type' ? subView.sub.label
+              : 'Garment Types'}
           </h1>
           <p className="lede">
             {activeTab === 'backgrounds' && 'Global backgrounds sent to ComfyUI for all garment types.'}
             {activeTab === 'faces' && 'Model face images — select gender to filter.'}
-            {activeTab === 'subcategories' && subView.kind === 'list' && 'Garment subcategories. Click to manage assets.'}
-            {activeTab === 'subcategories' && subView.kind === 'subcategory' && `Assets for ${subView.sub.genderSlug} / ${subView.sub.slug}. Filter by face or background to slice the tensor.`}
+            {activeTab === 'garment-types' && subView.kind === 'list' && 'Garment types. Click to manage assets.'}
+            {activeTab === 'garment-types' && subView.kind === 'garment-type' && `Assets for ${subView.sub.genderSlug} / ${subView.sub.slug}. Filter by face or background to slice the tensor.`}
             {(activeTab === 'lower' || activeTab === 'shoe') && 'Optional add-ons shown when pose permits.'}
           </p>
         </div>
@@ -370,13 +370,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           {activeTab === 'faces' && (
             <button className="btn" onClick={() => setShowFaceUpload(true)}><Icon.Add /> Add face</button>
           )}
-          {activeTab === 'subcategories' && subView.kind === 'list' && (
+          {activeTab === 'garment-types' && subView.kind === 'list' && (
             <button className="btn" onClick={() => {
               setSubcatForm({ slug: '', label: '', genderSlug: 'men' });
               setShowSubcatModal(true);
-            }}><Icon.Add /> Add subcategory</button>
+            }}><Icon.Add /> Add garment type</button>
           )}
-          {activeTab === 'subcategories' && subView.kind === 'subcategory' && (
+          {activeTab === 'garment-types' && subView.kind === 'garment-type' && (
             <button className="btn" onClick={() => setShowPoseUpload(true)}><Icon.Upload /> Upload poses</button>
           )}
           {(activeTab === 'lower' || activeTab === 'shoe') && (
@@ -463,7 +463,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         </>
       )}
 
-      {!loading && activeTab === 'subcategories' && subView.kind === 'list' && (
+      {!loading && activeTab === 'garment-types' && subView.kind === 'list' && (
         <>
           <div className="tabs" style={{ marginTop: -8 }}>
             {GENDER_TABS.map((t) => (
@@ -477,7 +477,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           <table>
             <thead>
               <tr>
-                <th>Subcategory</th>
+                <th>Garment Type</th>
                 <th>Gender</th>
                 <th>Poses</th>
                 <th>Templates</th>
@@ -486,9 +486,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </tr>
             </thead>
             <tbody>
-              {filteredSubcategories.map((sub) => (
+              {filteredGarmentTypes.map((sub) => (
                 <tr key={sub.id} style={{ cursor: 'pointer' }}
-                  onClick={() => { setFilterFace(''); setFilterBg(''); setFilterPose(''); setSubView({ kind: 'subcategory', sub }); }}>
+                  onClick={() => { setFilterFace(''); setFilterBg(''); setFilterPose(''); setSubView({ kind: 'garment-type', sub }); }}>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <AssetThumb thumbnailKey={sub.thumbnailKey ?? undefined} label={sub.label} w={40} h={40} storageBase={storagePublicUrl} />
@@ -504,26 +504,26 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   <td onClick={(e) => e.stopPropagation()}>
                     <Switch checked={sub.isActive} onChange={async () => {
                       const next = !sub.isActive;
-                      setSubcategories((prev) => prev.map((s) => s.id === sub.id ? { ...s, isActive: next } : s));
+                      setGarmentTypes((prev) => prev.map((s) => s.id === sub.id ? { ...s, isActive: next } : s));
                       try {
-                        await apiFetch(`/admin/assets/subcategories/${sub.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: next }) });
+                        await apiFetch(`/admin/assets/garment-types/${sub.id}`, { method: 'PATCH', body: JSON.stringify({ isActive: next }) });
                         toast({ title: `${sub.label} ${sub.isActive ? 'deactivated' : 'activated'}` });
                       } catch {
-                        setSubcategories((prev) => prev.map((s) => s.id === sub.id ? { ...s, isActive: sub.isActive } : s));
-                        toast({ kind: 'error', title: 'Failed to update subcategory' });
+                        setGarmentTypes((prev) => prev.map((s) => s.id === sub.id ? { ...s, isActive: sub.isActive } : s));
+                        toast({ kind: 'error', title: 'Failed to update garment type' });
                       }
                     }} />
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button className="btn sm ghost" onClick={() => { setEditingSubcat(sub); setEditSubcatImageFile(null); }}><Icon.Edit /></button>
-                      <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'subcategory', id: sub.id, label: sub.label })}><Icon.Trash /></button>
+                      <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'garment-type', id: sub.id, label: sub.label })}><Icon.Trash /></button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {filteredSubcategories.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No subcategories found.</td></tr>
+              {filteredGarmentTypes.length === 0 && (
+                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No garment types found.</td></tr>
               )}
             </tbody>
           </table>
@@ -531,7 +531,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         </>
       )}
 
-      {!loading && activeTab === 'subcategories' && subView.kind === 'subcategory' && (
+      {!loading && activeTab === 'garment-types' && subView.kind === 'garment-type' && (
         <>
           {/* Face × background × pose filter bar */}
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -719,7 +719,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             <div className="modal-head"><h3>Delete {confirmDelete.type}</h3></div>
             <div className="modal-body">
               <p>Delete <strong>{confirmDelete.label}</strong>? This cannot be undone.</p>
-              {confirmDelete.type === 'subcategory' && (
+              {confirmDelete.type === 'garment-type' && (
                 <p style={{ color: 'var(--danger)', marginTop: 8 }}>All related poses and templates will also be deleted.</p>
               )}
             </div>
@@ -753,10 +753,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           toast={toast}
         />
       )}
-      {showPoseUpload && subView.kind === 'subcategory' && (
+      {showPoseUpload && subView.kind === 'garment-type' && (
         <PoseUploadModal
-          subcategoryId={subView.sub.id}
-          subcategoryGenderSlug={subView.sub.genderSlug}
+          garmentTypeId={subView.sub.id}
+          garmentTypeGenderSlug={subView.sub.genderSlug}
           faces={faces}
           backgrounds={backgrounds}
           onDone={(added) => { setShowPoseUpload(false); setPoses((prev) => [...prev, added]); }}
@@ -803,7 +803,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         <div className="modal-overlay" onClick={subcatSaving ? undefined : () => { setShowSubcatModal(false); setSubcatImageFile(null); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, calc(100vw - 80px))' }}>
             <div className="modal-head">
-              <h3>Add subcategory</h3>
+              <h3>Add garment type</h3>
               <button className="btn sm ghost" onClick={() => { setShowSubcatModal(false); setSubcatImageFile(null); }} disabled={subcatSaving} style={{ marginLeft: 'auto' }}>
                 <Icon.Close />
               </button>
@@ -861,21 +861,21 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   try {
                     let thumbnailKey: string | undefined;
                     if (subcatImageFile) {
-                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>('/admin/assets/subcategories/presign', {
+                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>('/admin/assets/garment-types/presign', {
                         method: 'POST', body: JSON.stringify({ contentType: subcatImageFile.type }),
                       });
                       await fetch(presign.uploadUrl, { method: 'PUT', headers: { 'Content-Type': subcatImageFile.type }, body: subcatImageFile });
                       thumbnailKey = presign.thumbnailKey;
                     }
-                    const row = await apiFetch<GarmentSubcategory>('/admin/assets/subcategories', {
+                    const row = await apiFetch<GarmentType>('/admin/assets/garment-types', {
                       method: 'POST', body: JSON.stringify({ ...subcatForm, thumbnailKey }),
                     });
-                    setSubcategories((prev) => [...prev, row]);
+                    setGarmentTypes((prev) => [...prev, row]);
                     toast({ title: `${row.label} created` });
                     setShowSubcatModal(false);
                     setSubcatImageFile(null);
                   } catch {
-                    toast({ kind: 'error', title: 'Failed to create subcategory' });
+                    toast({ kind: 'error', title: 'Failed to create garment type' });
                   } finally {
                     setSubcatSaving(false);
                   }
@@ -892,7 +892,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         <div className="modal-overlay" onClick={editSubcatSaving ? undefined : () => { setEditingSubcat(null); setEditSubcatImageFile(null); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, calc(100vw - 80px))' }}>
             <div className="modal-head">
-              <h3>Edit subcategory image</h3>
+              <h3>Edit garment type image</h3>
               <button className="btn sm ghost" onClick={() => { setEditingSubcat(null); setEditSubcatImageFile(null); }} disabled={editSubcatSaving} style={{ marginLeft: 'auto' }}>
                 <Icon.Close />
               </button>
@@ -934,14 +934,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   if (!editSubcatImageFile) return;
                   setEditSubcatSaving(true);
                   try {
-                    const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>('/admin/assets/subcategories/presign', {
+                    const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>('/admin/assets/garment-types/presign', {
                       method: 'POST', body: JSON.stringify({ contentType: editSubcatImageFile.type }),
                     });
                     await fetch(presign.uploadUrl, { method: 'PUT', headers: { 'Content-Type': editSubcatImageFile.type }, body: editSubcatImageFile });
-                    await apiFetch(`/admin/assets/subcategories/${editingSubcat.id}`, {
+                    await apiFetch(`/admin/assets/garment-types/${editingSubcat.id}`, {
                       method: 'PATCH', body: JSON.stringify({ thumbnailKey: presign.thumbnailKey }),
                     });
-                    setSubcategories((prev) => prev.map((s) => s.id === editingSubcat.id ? { ...s, thumbnailKey: presign.thumbnailKey } : s));
+                    setGarmentTypes((prev) => prev.map((s) => s.id === editingSubcat.id ? { ...s, thumbnailKey: presign.thumbnailKey } : s));
                     toast({ title: `${editingSubcat.label} image updated` });
                     setEditingSubcat(null);
                     setEditSubcatImageFile(null);

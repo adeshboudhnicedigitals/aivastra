@@ -3,7 +3,7 @@ export const AdminRole = z.enum(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']);
 export const GrantCreditsBody = z.object({
   userId: z.string().uuid(),
   amount: z.number().int().positive().max(10_000),
-  reason: z.string().min(1).max(200),
+  reason: z.string().max(200).optional(),
 });
 export const BulkGrantBody = z.object({
   tier: z.enum(['FREE', 'PRO']),
@@ -92,6 +92,7 @@ export const CreateWorkflowBody = z.object({
   bgNodeId: z.string().min(1),
   upperNodeIds: z.array(z.string().min(1)).min(1).max(4),
   lowerNodeId: z.string().min(1).optional(),
+  shoeNodeId: z.string().min(1).optional(),
   facePhasePromptNode: z.string().min(1),
   garmentPhasePromptNode: z.string().min(1),
 });
@@ -109,15 +110,16 @@ export const UpdateWorkflowBody = z.object({
   bgNodeId: z.string().min(1).optional(),
   upperNodeIds: z.array(z.string().min(1)).min(1).max(4).optional(),
   lowerNodeId: z.string().min(1).nullable().optional(),
+  shoeNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
 });
 
 // ── Pose schemas ──────────────────────────────────────────────────────────
 
-// Poses are per (subcategory × face × background) combo, e.g. m1bg1p1
+// Poses are per (garment type × face × background) combo, e.g. m1bg1p1
 export const PresignModelPoseBody = z.object({
-  subcategoryId: z.string().uuid(),
+  garmentTypeId: z.string().uuid(),
   // Exactly one of faceId (existing) or newFaceContentType (upload new)
   faceId: z.string().uuid().optional(),
   newFaceContentType: AssetContentType.optional(),
@@ -137,7 +139,7 @@ export const PresignModelPoseBody = z.object({
 );
 
 export const ConfirmModelPoseBody = z.object({
-  subcategoryId: z.string().uuid(),
+  garmentTypeId: z.string().uuid(),
   // Exactly one of faceId (existing) or newFace (inline upload)
   faceId: z.string().uuid().optional(),
   newFace: z.object({
@@ -191,21 +193,21 @@ export const PatchModelPoseBody = z.object({
   faceSideR2Key: z.string().min(1).optional(),
 });
 
-// Garment subcategories
-export const CreateGarmentSubcategoryBody = z.object({
+// Garment types (formerly subcategories)
+export const CreateGarmentTypeBody = z.object({
   genderSlug: GenderEnum,
   slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
   label: z.string().min(1).max(120),
   sortOrder: z.number().int().default(0),
   thumbnailKey: z.string().optional(),
 });
-export const PatchGarmentSubcategoryBody = z.object({
+export const PatchGarmentTypeBody = z.object({
   label: z.string().min(1).max(120).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   thumbnailKey: z.string().nullable().optional(),
 });
-export const PresignSubcategoryBody = z.object({
+export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
 });
 

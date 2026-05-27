@@ -86,6 +86,14 @@ export async function processJob(
     else jobLog.warn({ lowerCatalogId: inputs.lowerCatalogId }, 'lower garment catalog item not found — skipping');
   }
 
+  // Resolve optional shoe catalog ID → R2 key
+  let shoeKey: string | null = null;
+  if (inputs.shoeCatalogId) {
+    const [shoeRow] = await db.select({ r2Key: schema.catalogItems.r2Key }).from(schema.catalogItems).where(eq(schema.catalogItems.id, inputs.shoeCatalogId));
+    if (shoeRow) shoeKey = shoeRow.r2Key;
+    else jobLog.warn({ shoeCatalogId: inputs.shoeCatalogId }, 'shoe catalog item not found — skipping');
+  }
+
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const worker = await selectWorker(redis);
@@ -123,8 +131,15 @@ export async function processJob(
       uploadToComfy(bgKey, 'bg'),
     ];
     if (lowerKey) uploadTasks.push(uploadToComfy(lowerKey, 'lower'));
-    const [upperGarmentFile, faceSideFile, poseFile, backgroundFile, lowerGarmentFile] = await Promise.all(uploadTasks);
-    jobLog.info({ upperGarmentFile, faceSideFile, poseFile, backgroundFile, lowerGarmentFile }, 'inputs uploaded');
+    if (shoeKey) uploadTasks.push(uploadToComfy(shoeKey, 'shoe'));
+    const uploaded = await Promise.all(uploadTasks);
+    const upperGarmentFile = uploaded[0]!;
+    const faceSideFile = uploaded[1]!;
+    const poseFile = uploaded[2]!;
+    const backgroundFile = uploaded[3]!;
+    const lowerGarmentFile = lowerKey ? uploaded[4] : undefined;
+    const shoeGarmentFile = shoeKey ? uploaded[lowerKey ? 5 : 4] : undefined;
+    jobLog.info({ upperGarmentFile, faceSideFile, poseFile, backgroundFile, lowerGarmentFile, shoeGarmentFile }, 'inputs uploaded');
 
     // 5. Patch workflow template with ComfyUI filenames (loads from DB with 5-min TTL cache)
     const prompt = await patchWorkflow({
@@ -134,6 +149,7 @@ export async function processJob(
       poseFile: poseFile!,
       backgroundFile: backgroundFile!,
       lowerGarmentFile,
+      shoeGarmentFile,
       promptFacePhase: poseRow.promptFacePhase ?? undefined,
       promptGarmentPhase: poseRow.promptGarmentPhase ?? undefined,
     }, db, jobLog);

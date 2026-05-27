@@ -71,6 +71,7 @@ export interface WorkflowInputs {
   poseFile: string;
   backgroundFile: string;
   lowerGarmentFile?: string;
+  shoeGarmentFile?: string;
   /** If provided, overwrites the template default */
   promptFacePhase?: string;
   /** If provided, overwrites the template default */
@@ -113,6 +114,17 @@ export async function patchWorkflow(
   } else if (!tmpl.lowerNodeId && inputs.lowerGarmentFile) {
     log?.warn(
       `patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`,
+    );
+  }
+
+  // Patch shoe garment if configured
+  if (tmpl.shoeNodeId && inputs.shoeGarmentFile) {
+    if (workflow[tmpl.shoeNodeId]) {
+      workflow[tmpl.shoeNodeId]!.inputs['image'] = inputs.shoeGarmentFile;
+    }
+  } else if (!tmpl.shoeNodeId && inputs.shoeGarmentFile) {
+    log?.warn(
+      `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
     );
   }
 

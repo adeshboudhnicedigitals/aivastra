@@ -22,8 +22,8 @@ interface PresignResult {
 }
 
 interface Props {
-  subcategoryId: string;
-  subcategoryGenderSlug: string;
+  garmentTypeId: string;
+  garmentTypeGenderSlug: string;
   faces: ModelFace[];
   backgrounds: ModelBackground[];
   onDone: (added: ModelPose) => void;
@@ -43,8 +43,8 @@ async function putFile(url: string, file: File): Promise<void> {
   });
 }
 
-export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, backgrounds, onDone, onClose, toast }: Props) {
-  const filteredFaces = faces.filter((f) => f.gender === subcategoryGenderSlug);
+export function PoseUploadModal({ garmentTypeId, garmentTypeGenderSlug, faces, backgrounds, onDone, onClose, toast }: Props) {
+  const filteredFaces = faces.filter((f) => f.gender === garmentTypeGenderSlug);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [workflowTemplateId, setWorkflowTemplateId] = useState<string>('');
   const [promptFacePhase, setPromptFacePhase] = useState('');
@@ -109,7 +109,7 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, b
 
     try {
       const presignBody: Record<string, unknown> = {
-        subcategoryId,
+        garmentTypeId,
         contentType: poseFile.type,
         faceSideContentType: faceSideFile.type,
       };
@@ -141,7 +141,7 @@ export function PoseUploadModal({ subcategoryId, subcategoryGenderSlug, faces, b
       await Promise.all(uploads);
 
       const confirmBody: Record<string, unknown> = {
-        subcategoryId,
+        garmentTypeId,
         label: label.trim(),
         r2Key: presign.r2Key,
         thumbnailKey: presign.thumbnailKey,

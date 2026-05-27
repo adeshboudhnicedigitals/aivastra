@@ -12,7 +12,7 @@ import { CheckIcon, ChevronRight, ArrowLeft, UploadIcon, SparkleIcon, SpinnerIco
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-interface Subcategory { id: string; slug: string; label: string; thumbnailUrl?: string | null }
+interface GarmentType { id: string; slug: string; label: string; thumbnailUrl?: string | null }
 interface FaceItem { id: string; label: string; thumbnailUrl: string; gender: string }
 interface BackgroundItem { id: string; label: string; thumbnailUrl: string; previewUrl: string }
 interface PoseItem { id: string; label: string; thumbnailUrl: string; showsLower: boolean; showsShoes: boolean }
@@ -90,7 +90,7 @@ export default function StudioPage(): React.ReactElement {
   const [step, setStep] = useState(0); // 0..3
 
   const [gender, setGender] = useState('women');
-  const [subcategoryId, setSubcategoryId] = useState('');
+  const [garmentTypeId, setGarmentTypeId] = useState('');
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState('4:5');
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
@@ -111,14 +111,14 @@ export default function StudioPage(): React.ReactElement {
   const [toast, setToast] = useState('');
   const showToast = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(''), 1800); }, []);
 
-  const { data: subcategories } = useQuery<{ items: Subcategory[] }>({ queryKey: ['subcategories', gender], queryFn: () => api.get(`/v1/models/subcategories?gender=${gender}`), enabled: !!gender });
+  const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({ queryKey: ['garmentTypes', gender], queryFn: () => api.get(`/v1/models/garment-types?gender=${gender}`), enabled: !!gender });
   const { data: faces } = useQuery<{ items: FaceItem[] }>({ queryKey: ['faces', gender], queryFn: () => api.get(`/v1/models/faces?gender=${gender}`), enabled: !!gender && step >= 1 });
   const { data: backgrounds } = useQuery<{ items: BackgroundItem[] }>({
-    queryKey: ['backgrounds', faceId, subcategoryId],
-    queryFn: () => { const p = new URLSearchParams(); if (faceId) p.set('faceId', faceId); if (subcategoryId) p.set('subcategoryId', subcategoryId); return api.get(`/v1/models/backgrounds?${p}`); },
+    queryKey: ['backgrounds', faceId, garmentTypeId],
+    queryFn: () => { const p = new URLSearchParams(); if (faceId) p.set('faceId', faceId); if (garmentTypeId) p.set('garmentTypeId', garmentTypeId); return api.get(`/v1/models/backgrounds?${p}`); },
     enabled: !!faceId && step >= 2,
   });
-  const { data: poses } = useQuery<{ items: PoseItem[] }>({ queryKey: ['poses', subcategoryId, faceId, backgroundId], queryFn: () => api.get(`/v1/models/poses?subcategoryId=${subcategoryId}&faceId=${faceId}&backgroundId=${backgroundId}`), enabled: !!(subcategoryId && faceId && backgroundId && step >= 3) });
+  const { data: poses } = useQuery<{ items: PoseItem[] }>({ queryKey: ['poses', garmentTypeId, faceId, backgroundId], queryFn: () => api.get(`/v1/models/poses?garmentTypeId=${garmentTypeId}&faceId=${faceId}&backgroundId=${backgroundId}`), enabled: !!(garmentTypeId && faceId && backgroundId && step >= 3) });
 
   const selectedPoses = poses?.items.filter((p) => poseIds.includes(p.id)) ?? [];
   const needsLower = selectedPoses.some((p) => p.showsLower);
@@ -155,7 +155,7 @@ export default function StudioPage(): React.ReactElement {
   }
 
   const canNext = (): boolean => {
-    if (step === 0) return !!gender && !!subcategoryId && (!!garmentFile || !!garmentKey);
+    if (step === 0) return !!gender && !!garmentTypeId && (!!garmentFile || !!garmentKey);
     if (step === 1) return !!faceId;
     if (step === 2) return !!backgroundId;
     return true;
@@ -164,7 +164,7 @@ export default function StudioPage(): React.ReactElement {
 
   function goNext() { if (step < 3) setStep((s) => s + 1); }
   function goBack() { if (step > 0) setStep((s) => s - 1); }
-  function reset() { setGender(''); setSubcategoryId(''); setFaceId(''); setBackgroundId(''); setPoseIds([]); setLowerCatalogId(''); setShoeCatalogId(''); setGarmentFile(null); setGarmentKey(''); setStep(0); showToast('Setup reset'); }
+  function reset() { setGender(''); setGarmentTypeId(''); setFaceId(''); setBackgroundId(''); setPoseIds([]); setLowerCatalogId(''); setShoeCatalogId(''); setGarmentFile(null); setGarmentKey(''); setStep(0); showToast('Setup reset'); }
 
   const credits = poseIds.length;
   const visibleStep = step + 1; // 0..3 → 1..4
@@ -183,21 +183,21 @@ export default function StudioPage(): React.ReactElement {
             <section>
               <SectionHead title="Catalogue For" />
               <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                {GENDERS.map((g) => <VisualCard key={g.value} img={g.img} label={g.label} selected={gender === g.value} onClick={() => { setGender(g.value); setSubcategoryId(''); }} imgStyle={{ transform: 'scale(2.5)', transformOrigin: 'top center' }} />)}
+                {GENDERS.map((g) => <VisualCard key={g.value} img={g.img} label={g.label} selected={gender === g.value} onClick={() => { setGender(g.value); setGarmentTypeId(''); }} imgStyle={{ transform: 'scale(2.5)', transformOrigin: 'top center' }} />)}
               </div>
             </section>
 
             <section>
-              <SectionHead title="Outfit Type" />
+              <SectionHead title="Garment Type" />
               {!gender ? <p style={{ fontSize: 13, color: C.mid }}>Select a segment first.</p>
-                : !subcategories ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.mid }}><SpinnerIcon size={16} /> Loading…</div>
+                : !garmentTypes ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.mid }}><SpinnerIcon size={16} /> Loading…</div>
                 : (
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                    {subcategories.items.map((s) => {
+                    {garmentTypes.items.map((s) => {
                       // Use DB thumbnail if available, fall back to static OUTFIT_IMG map
                       const fallbackKey = Object.keys(OUTFIT_IMG).find((k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k));
                       const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
-                      return <VisualCard key={s.id} img={img} label={s.label} selected={subcategoryId === s.id} onClick={() => setSubcategoryId(subcategoryId === s.id ? '' : s.id)} />;
+                      return <VisualCard key={s.id} img={img} label={s.label} selected={garmentTypeId === s.id} onClick={() => setGarmentTypeId(garmentTypeId === s.id ? '' : s.id)} />;
                     })}
                   </div>
                 )}

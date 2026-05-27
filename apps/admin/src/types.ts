@@ -25,7 +25,7 @@ export interface ModelBackground {
   updatedAt: string;
 }
 
-export interface GarmentSubcategory {
+export interface GarmentType {
   id: string;
   genderSlug: GenderSlug;
   slug: string;
@@ -50,11 +50,11 @@ export interface WorkflowOption {
   createdAt: string;
 }
 
-// Poses are per (subcategory × face × background) combo
+// Poses are per (garment type × face × background) combo
 // isTemplate: exactly one pose per face×background cell is the thumbnail shown to users
 export interface ModelPose {
   id: string;
-  subcategoryId: string;
+  garmentTypeId: string;
   faceId: string;
   backgroundId: string;
   label: string;

@@ -5,7 +5,7 @@ import { z } from 'zod';
 
 
 export async function modelsRoutes(app: FastifyInstance) {
-  app.get('/v1/models/subcategories', {
+  app.get('/v1/models/garment-types', {
     preHandler: app.requireUser,
     schema: { querystring: z.object({ gender: z.enum(['men', 'women', 'boys', 'girls']) }) },
   }, async (req) => {
@@ -40,10 +40,10 @@ export async function modelsRoutes(app: FastifyInstance) {
     preHandler: app.requireUser,
     schema: { querystring: z.object({
       faceId: z.string().uuid().optional(),
-      subcategoryId: z.string().uuid().optional(),
+      garmentTypeId: z.string().uuid().optional(),
     }) },
   }, async (req) => {
-    const { faceId, subcategoryId } = req.query as { faceId?: string; subcategoryId?: string };
+    const { faceId, garmentTypeId } = req.query as { faceId?: string; garmentTypeId?: string };
 
     if (faceId) {
       // Backgrounds that have ≥1 active pose for this face
@@ -64,10 +64,10 @@ export async function modelsRoutes(app: FastifyInstance) {
         )
         .where(eq(schema.modelBackgrounds.isActive, true));
 
-      // When subcategoryId is known, fetch template pose thumbs for face × bg × subcategory
+      // When garmentTypeId is known, fetch template pose thumbs for face × bg × garment type
       // so the card shows the composite model preview instead of the raw background
       let templateMap = new Map<string, string>(); // backgroundId → thumbnailKey
-      if (subcategoryId) {
+      if (garmentTypeId) {
         const templates = await app.db
           .select({
             backgroundId: schema.modelPoses.backgroundId,
@@ -75,7 +75,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           })
           .from(schema.modelPoses)
           .where(and(
-            eq(schema.modelPoses.subcategoryId, subcategoryId),
+            eq(schema.modelPoses.subcategoryId, garmentTypeId),
             eq(schema.modelPoses.faceId, faceId),
             eq(schema.modelPoses.isTemplate, true),
           ));
@@ -113,19 +113,19 @@ export async function modelsRoutes(app: FastifyInstance) {
     preHandler: app.requireUser,
     schema: {
       querystring: z.object({
-        subcategoryId: z.string().uuid(),
+        garmentTypeId: z.string().uuid(),
         faceId: z.string().uuid(),
         backgroundId: z.string().uuid(),
       }),
     },
   }, async (req) => {
-    const { subcategoryId, faceId, backgroundId } = req.query as { subcategoryId: string; faceId: string; backgroundId: string };
+    const { garmentTypeId, faceId, backgroundId } = req.query as { garmentTypeId: string; faceId: string; backgroundId: string };
     const items = await app.db
       .select({ id: schema.modelPoses.id, label: schema.modelPoses.label, thumbnailUrl: schema.modelPoses.thumbnailKey, showsLower: schema.modelPoses.showsLower, showsShoes: schema.modelPoses.showsShoes })
       .from(schema.modelPoses)
       .where(
         and(
-          eq(schema.modelPoses.subcategoryId, subcategoryId),
+          eq(schema.modelPoses.subcategoryId, garmentTypeId),
           eq(schema.modelPoses.faceId, faceId),
           eq(schema.modelPoses.backgroundId, backgroundId),
           eq(schema.modelPoses.isActive, true),

@@ -3,16 +3,16 @@ import { schema } from '@aivastra/db';
 import { eq, count, inArray, and } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { CreateGarmentSubcategoryBody, PatchGarmentSubcategoryBody, PresignSubcategoryBody } from '@aivastra/types';
+import { CreateGarmentTypeBody, PatchGarmentTypeBody, PresignGarmentTypeBody } from '@aivastra/types';
 import { keys } from '@aivastra/storage';
 import { requireAdmin } from './guard.js';
 import { AppError } from '../../lib/errors.js';
 
-export async function adminSubcategoriesRoutes(app: FastifyInstance) {
+export async function adminGarmentTypesRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
   const uuidParam = z.object({ id: z.string().uuid() });
 
-  app.get('/admin/assets/subcategories', { preHandler: W }, async () => {
+  app.get('/admin/assets/garment-types', { preHandler: W }, async () => {
     const rows = await app.db.select().from(schema.garmentSubcategories);
     const poseCounts = await app.db
       .select({ subcategoryId: schema.modelPoses.subcategoryId, cnt: count() })
@@ -34,9 +34,9 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post('/admin/assets/subcategories/presign', {
+  app.post('/admin/assets/garment-types/presign', {
     preHandler: W,
-    schema: { body: PresignSubcategoryBody },
+    schema: { body: PresignGarmentTypeBody },
   }, async (req) => {
     const { contentType } = req.body as { contentType: string };
     const newId = randomUUID();
@@ -45,9 +45,9 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
     return { uploadUrl: url, thumbnailKey: thumbKey };
   });
 
-  app.post('/admin/assets/subcategories', {
+  app.post('/admin/assets/garment-types', {
     preHandler: W,
-    schema: { body: CreateGarmentSubcategoryBody },
+    schema: { body: CreateGarmentTypeBody },
   }, async (req) => {
     const { genderSlug, slug, label, sortOrder, thumbnailKey } = req.body as {
       genderSlug: string; slug: string; label: string; sortOrder: number; thumbnailKey?: string;
@@ -59,9 +59,9 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
     return row;
   });
 
-  app.patch('/admin/assets/subcategories/:id', {
+  app.patch('/admin/assets/garment-types/:id', {
     preHandler: W,
-    schema: { params: uuidParam, body: PatchGarmentSubcategoryBody },
+    schema: { params: uuidParam, body: PatchGarmentTypeBody },
   }, async (req) => {
     const { id } = req.params as { id: string };
     const body = req.body as { isActive?: boolean; [key: string]: unknown };
@@ -75,7 +75,7 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
       }).from(schema.modelPoses).where(eq(schema.modelPoses.subcategoryId, id));
 
       if (allPoses.length === 0) {
-        throw new AppError('CONFLICT', 409, 'subcategory has no poses — upload poses and mark one as template per face×background cell before activating');
+        throw new AppError('CONFLICT', 409, 'garment type has no poses — upload poses and mark one as template per face×background cell before activating');
       }
 
       // Build a set of all unique cells and check each has a template
@@ -96,18 +96,18 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
       .set({ ...body, updatedAt: new Date() })
       .where(eq(schema.garmentSubcategories.id, id))
       .returning({ id: schema.garmentSubcategories.id });
-    if (!updated) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+    if (!updated) throw new AppError('NOT_FOUND', 404, 'garment type not found');
     return { ok: true };
   });
 
-  app.delete('/admin/assets/subcategories/:id', {
+  app.delete('/admin/assets/garment-types/:id', {
     preHandler: W,
     schema: { params: uuidParam },
   }, async (req) => {
     const { id } = req.params as { id: string };
     const [sub] = await app.db.select().from(schema.garmentSubcategories)
       .where(eq(schema.garmentSubcategories.id, id));
-    if (!sub) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+    if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
 
     const poses = await app.db.select().from(schema.modelPoses)
       .where(eq(schema.modelPoses.subcategoryId, id));
@@ -117,7 +117,7 @@ export async function adminSubcategoriesRoutes(app: FastifyInstance) {
           .where(inArray(schema.jobInputs.poseId, poses.map((p) => p.id)))
           .limit(1)
       : [];
-    if (poseJobRefs.length > 0) throw new AppError('CONFLICT', 409, 'subcategory has poses referenced by existing jobs');
+    if (poseJobRefs.length > 0) throw new AppError('CONFLICT', 409, 'garment type has poses referenced by existing jobs');
 
     const r2Keys = poses.flatMap((p) => [p.r2Key, p.thumbnailKey]);
     await Promise.allSettled(r2Keys.map((k) => app.storage.deleteObject(k)));

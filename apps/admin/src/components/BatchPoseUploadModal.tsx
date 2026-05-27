@@ -21,7 +21,7 @@ interface FileEntry {
 }
 
 interface Props {
-  subcategoryId: string;
+  garmentTypeId: string;
   faces: ModelFace[];
   backgrounds: ModelBackground[];
   onDone: (added: ModelPose[]) => void;
@@ -41,7 +41,7 @@ async function uploadFile(url: string, file: File): Promise<void> {
   });
 }
 
-export function BatchPoseUploadModal({ subcategoryId, faces, backgrounds, onDone, onClose, toast }: Props) {
+export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone, onClose, toast }: Props) {
   const [faceId, setFaceId] = useState(faces[0]?.id ?? '');
   const [backgroundId, setBackgroundId] = useState(backgrounds[0]?.id ?? '');
   const [showsLower, setShowsLower] = useState(false);
@@ -81,14 +81,14 @@ export function BatchPoseUploadModal({ subcategoryId, faces, backgrounds, onDone
       try {
         const presign = await apiFetch<PresignResult>('/admin/assets/poses/presign', {
           method: 'POST',
-          body: JSON.stringify({ subcategoryId, faceId, backgroundId, contentType: entry.file.type }),
+          body: JSON.stringify({ garmentTypeId, faceId, backgroundId, contentType: entry.file.type }),
         });
         await uploadFile(presign.uploadUrl, entry.file);
         await uploadFile(presign.thumbnailUploadUrl, entry.file);
         const row = await apiFetch<ModelPose>('/admin/assets/poses/confirm', {
           method: 'POST',
           body: JSON.stringify({
-            subcategoryId, faceId, backgroundId,
+            garmentTypeId, faceId, backgroundId,
             label: entry.label.trim() || entry.file.name,
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,

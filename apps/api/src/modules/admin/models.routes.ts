@@ -166,22 +166,22 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // ── Poses (per subcategory) ───────────────────────────────────────────────
+  // ── Poses (per garment type) ──────────────────────────────────────────────
 
   app.get('/admin/assets/poses', {
     preHandler: W,
     schema: {
       querystring: z.object({
-        subcategoryId: z.string().uuid(),
+        garmentTypeId: z.string().uuid(),
         faceId: z.string().uuid().optional(),
         backgroundId: z.string().uuid().optional(),
       }),
     },
   }, async (req) => {
-    const { subcategoryId, faceId, backgroundId } = req.query as {
-      subcategoryId: string; faceId?: string; backgroundId?: string;
+    const { garmentTypeId, faceId, backgroundId } = req.query as {
+      garmentTypeId: string; faceId?: string; backgroundId?: string;
     };
-    const conditions = [eq(schema.modelPoses.subcategoryId, subcategoryId)];
+    const conditions = [eq(schema.modelPoses.subcategoryId, garmentTypeId)];
     if (faceId) conditions.push(eq(schema.modelPoses.faceId, faceId));
     if (backgroundId) conditions.push(eq(schema.modelPoses.backgroundId, backgroundId));
     const rows = await app.db.select().from(schema.modelPoses).where(and(...conditions));
@@ -193,11 +193,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     schema: { body: PresignModelPoseBody },
   }, async (req) => {
     const body = req.body as z.infer<typeof PresignModelPoseBody>;
-    const { subcategoryId, contentType, faceSideContentType } = body;
+    const { garmentTypeId, contentType, faceSideContentType } = body;
 
     const [sub] = await app.db.select().from(schema.garmentSubcategories)
-      .where(eq(schema.garmentSubcategories.id, subcategoryId));
-    if (!sub) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
 
     if (body.faceId) {
       const [face] = await app.db.select({ id: schema.modelFaces.id })
@@ -272,11 +272,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   }, async (req) => {
     const body = req.body as z.infer<typeof ConfirmModelPoseBody>;
 
-    // Validate subcategoryId exists
+    // Validate garmentTypeId exists
     const [subCheck] = await app.db.select({ genderSlug: schema.garmentSubcategories.genderSlug })
       .from(schema.garmentSubcategories)
-      .where(eq(schema.garmentSubcategories.id, body.subcategoryId));
-    if (!subCheck) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+      .where(eq(schema.garmentSubcategories.id, body.garmentTypeId));
+    if (!subCheck) throw new AppError('NOT_FOUND', 404, 'garment type not found');
 
     // Validate workflowTemplateId exists and is active
     const [wfCheck] = await app.db
@@ -311,7 +311,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         await tx.update(schema.modelPoses)
           .set({ isTemplate: false, updatedAt: new Date() })
           .where(and(
-            eq(schema.modelPoses.subcategoryId, body.subcategoryId),
+            eq(schema.modelPoses.subcategoryId, body.garmentTypeId),
             eq(schema.modelPoses.faceId, resolvedFaceId),
             eq(schema.modelPoses.backgroundId, resolvedBgId),
             eq(schema.modelPoses.isTemplate, true),
@@ -321,7 +321,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const [inserted] = await tx
         .insert(schema.modelPoses)
         .values({
-          subcategoryId: body.subcategoryId,
+          subcategoryId: body.garmentTypeId,
           faceId: resolvedFaceId,
           backgroundId: resolvedBgId,
           label: body.label,

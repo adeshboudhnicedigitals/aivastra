@@ -157,6 +157,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       bgNodeId: string;
       upperNodeIds: string[];
       lowerNodeId?: string;
+      shoeNodeId?: string;
       facePhasePromptNode: string;
       garmentPhasePromptNode: string;
     };
@@ -171,6 +172,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     if (body.lowerNodeId) {
       validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment image');
     }
+    if (body.shoeNodeId) {
+      validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoe image');
+    }
     validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'face phase prompt');
     validateNodeExists(body.jsonContent, body.garmentPhasePromptNode, 'garment phase prompt');
 
@@ -183,6 +187,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     }
     if (body.lowerNodeId) {
       validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment image');
+    }
+    if (body.shoeNodeId) {
+      validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoe image');
     }
     validateNodeType(body.jsonContent, body.facePhasePromptNode, 'prompt', 'face phase prompt');
     validateNodeType(body.jsonContent, body.garmentPhasePromptNode, 'prompt', 'garment phase prompt');
@@ -214,6 +221,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         bgNodeId: body.bgNodeId,
         upperNodeIds: body.upperNodeIds,
         lowerNodeId: body.lowerNodeId ?? null,
+        shoeNodeId: body.shoeNodeId ?? null,
         facePhasePromptNode: body.facePhasePromptNode,
         garmentPhasePromptNode: body.garmentPhasePromptNode,
         defaultFacePhasePrompt,
@@ -272,6 +280,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       bgNodeId?: string;
       upperNodeIds?: string[];
       lowerNodeId?: string | null;
+      shoeNodeId?: string | null;
       facePhasePromptNode?: string;
       garmentPhasePromptNode?: string;
     };
@@ -308,6 +317,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       for (const uid of body.upperNodeIds) validateNodeExists(json, uid, 'upper garment image');
     }
     if (body.lowerNodeId) validateNodeExists(json, body.lowerNodeId, 'lower garment image');
+    if (body.shoeNodeId) validateNodeExists(json, body.shoeNodeId, 'shoe image');
 
     const updateValues: Record<string, unknown> = {
       updatedAt: new Date(),
@@ -321,6 +331,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     if (body.bgNodeId !== undefined) updateValues['bgNodeId'] = body.bgNodeId;
     if (body.upperNodeIds !== undefined) updateValues['upperNodeIds'] = body.upperNodeIds;
     if ('lowerNodeId' in body) updateValues['lowerNodeId'] = body.lowerNodeId ?? null;
+    if ('shoeNodeId' in body) updateValues['shoeNodeId'] = body.shoeNodeId ?? null;
     if (body.facePhasePromptNode !== undefined) updateValues['facePhasePromptNode'] = body.facePhasePromptNode;
     if (body.garmentPhasePromptNode !== undefined) updateValues['garmentPhasePromptNode'] = body.garmentPhasePromptNode;
 

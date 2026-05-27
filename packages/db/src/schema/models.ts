@@ -51,6 +51,7 @@ export const workflowTemplates = pgTable('workflow_templates', {
   bgNodeId: text('bg_node_id').notNull(),
   upperNodeIds: text('upper_node_ids').array().notNull(),
   lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
+  shoeNodeId: text('shoe_node_id'),   // nullable — some workflows have no shoe garment
 
   // Prompt node IDs
   facePhasePromptNode: text('face_phase_prompt_node').notNull(),
