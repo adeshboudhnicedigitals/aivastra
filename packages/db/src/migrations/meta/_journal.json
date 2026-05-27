@@ -12,6 +12,7 @@
     { "idx": 7, "version": "7", "when": 1779926400001, "tag": "0007_catalogue_id", "breakpoints": true },
     { "idx": 8, "version": "7", "when": 1779926400002, "tag": "0008_pose_workflow_columns", "breakpoints": true },
     { "idx": 9, "version": "7", "when": 1779926400003, "tag": "0009_workflow_templates", "breakpoints": true },
-    { "idx": 10, "version": "7", "when": 1779926400004, "tag": "0010_subcategory_thumbnail", "breakpoints": true }
+    { "idx": 10, "version": "7", "when": 1779926400004, "tag": "0010_subcategory_thumbnail", "breakpoints": true },
+    { "idx": 11, "version": "7", "when": 1779926400005, "tag": "0011_oauth_accounts", "breakpoints": true }
   ]
 }
