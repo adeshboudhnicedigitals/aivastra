@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
-import { eq, count, and, sql } from 'drizzle-orm';
+import { eq, count, and, sql, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { keys } from '@aivastra/storage';
@@ -422,7 +422,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
     if (jobRefs.length > 0 && force) {
       // Delete referencing jobs (cascades to job_inputs, job_outputs, job_events)
-      const { inArray } = await import('drizzle-orm');
       const jobIds = jobRefs.map((r) => r.jobId);
       await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
     }
