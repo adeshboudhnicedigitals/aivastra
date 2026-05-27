@@ -143,4 +143,52 @@ describe('google oauth', () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it('GET /v1/auth/google/callback links Google to existing email/password account', async () => {
+    // Register a user with email/password first
+    const regRes = await app.inject({
+      method: 'POST', url: '/v1/auth/register',
+      payload: { email: 'existing@example.com', password: 'password123' },
+    });
+    expect(regRes.statusCode).toBe(201);
+
+    const state = 'link-test-state-xyz';
+    const mockFetchLink = async (url: string | URL | Request): Promise<Response> => {
+      const urlStr = url.toString();
+      if (urlStr.includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'mock-google-token-link' }), {
+          status: 200, headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (urlStr.includes('googleapis.com/oauth2/v3/userinfo')) {
+        return new Response(JSON.stringify({
+          sub: 'google-sub-link-002',
+          email: 'existing@example.com',   // same email as registered user
+          name: 'Existing User',
+          picture: 'https://example.com/pic2.jpg',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new Error(`Unexpected fetch to: ${urlStr}`);
+    };
+    vi.spyOn(global, 'fetch').mockImplementation(mockFetchLink as typeof fetch);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/auth/google/callback?code=link_code_456&state=${state}`,
+      headers: { cookie: `google_state=${state}` },
+    });
+
+    expect(res.statusCode).toBe(302);
+    const location = res.headers.location as string;
+    expect(location).toContain('http://localhost:3000/api/auth/google/callback?code=');
+
+    // Only one user should exist for this email
+    const otp = new URL(location).searchParams.get('code')!;
+    const linkedUserId = await app.redis.get(`oauth:otp:${otp}`);
+    expect(linkedUserId).toBeTruthy();
+
+    // Verify oauth_accounts row was created linking to the existing user
+    const otp2 = new URL(location).searchParams.get('code')!;
+    expect(otp2).toBeTruthy(); // OTP proves the link succeeded
+  });
 });

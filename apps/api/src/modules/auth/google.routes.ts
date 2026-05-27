@@ -124,7 +124,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         await tx.insert(schema.userCredits).values({ userId: uid, balance: 0 });
       }
 
-      // 4. Create OAuth link
+      // 4. Create OAuth link (onConflictDoNothing guards against concurrent inserts)
       await tx.insert(schema.oauthAccounts).values({
         userId: uid,
         provider: 'google',
@@ -132,7 +132,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         email: googleUser.email,
         displayName: googleUser.name ?? null,
         avatarUrl: googleUser.picture ?? null,
-      });
+      }).onConflictDoNothing();
 
       return uid;
     });
