@@ -14,6 +14,7 @@ interface Props {
   onDone: (row: ModelBackground) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  defaultGenderSlug?: string;
 }
 
 function uploadFile(url: string, file: File, onProgress: (p: number) => void): Promise<void> {
@@ -31,14 +32,14 @@ function uploadFile(url: string, file: File, onProgress: (p: number) => void): P
   });
 }
 
-export function BackgroundUploadModal({ onDone, onClose, toast }: Props) {
+export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlug = '' }: Props) {
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [thumbFile, setThumbFile] = useState<File | null>(null);
   const [mainPreview, setMainPreview] = useState<string | null>(null);
   const [thumbPreview, setThumbPreview] = useState<string | null>(null);
   const [label, setLabel] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
-  const [genderSlug, setGenderSlug] = useState('');
+  const [genderSlug, setGenderSlug] = useState(defaultGenderSlug);
   const [status, setStatus] = useState<'idle' | 'uploading' | 'confirming'>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);

@@ -22,6 +22,7 @@ export const CreateCategoryBody = z.object({
   parentId: z.number().int().positive().nullable(),
   slug: z.string().min(1).max(80),
   label: z.string().min(1).max(120),
+  genderSlug: z.enum(['men', 'women', 'boys', 'girls']).optional(),
   sortOrder: z.number().int().default(0),
 });
 const CoercedPositiveInt = z.union([z.number().int().positive(), z.string().regex(/^\d+$/).transform(Number)]);
@@ -37,7 +38,6 @@ export const ConfirmCatalogItemBody = z.object({
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
   sortOrder: z.number().int().default(0),
-  genderSlug: z.enum(['men', 'women', 'boys', 'girls']).optional(),
 });
 export const SystemConfigBody = z.object({
   creditCostPerJob: z.number().int().positive().max(100).optional(),

@@ -84,6 +84,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [subView, setSubView] = useState<SubView>({ kind: 'list' });
 
   const [backgrounds, setBackgrounds] = useState<ModelBackground[]>([]);
+  const [allBackgrounds, setAllBackgrounds] = useState<ModelBackground[]>([]);
   const [faces, setFaces] = useState<ModelFace[]>([]);
   const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>([]);
   const [poses, setPoses] = useState<ModelPose[]>([]);
@@ -112,17 +113,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   // Catalog (lower / shoe) state
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
-  const [catalogCategories, setCatalogCategories] = useState<{ id: number; label: string; typeSlug: string }[]>([]);
+  const [catalogCategories, setCatalogCategories] = useState<{ id: number; label: string; typeSlug: string; genderSlug: string | null }[]>([]);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogPage, setCatalogPage] = useState(0);
   const [catalogSortKey, setCatalogSortKey] = useState<keyof CatalogItem>('sortOrder');
   const [catalogSortDir, setCatalogSortDir] = useState<SortDir>('asc');
   const [confirmDeleteCatalog, setConfirmDeleteCatalog] = useState<string | null>(null);
-  const [editCatalogItem, setEditCatalogItem] = useState<CatalogItem | null>(null);
-  const [editCatalogLabel, setEditCatalogLabel] = useState('');
-  const [editCatalogSortOrder, setEditCatalogSortOrder] = useState(0);
-  const [editCatalogCategoryId, setEditCatalogCategoryId] = useState('');
-  const [editCatalogSaving, setEditCatalogSaving] = useState(false);
   const [showCatalogUpload, setShowCatalogUpload] = useState(false);
 
   const loadBackgrounds = useCallback(async (genderSlug?: string) => {
@@ -180,7 +176,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       const qs = genderSlug ? `?genderSlug=${genderSlug}` : '';
       const [itemsRes, catsRes] = await Promise.all([
         apiFetch<CatalogItem[]>(`/admin/catalog/items${qs}`),
-        apiFetch<{ id: number; label: string; typeSlug: string }[]>('/admin/catalog/categories'),
+        apiFetch<{ id: number; label: string; typeSlug: string; genderSlug: string | null }[]>('/admin/catalog/categories'),
       ]);
       setCatalogItems(itemsRes);
       setCatalogCategories(catsRes);
@@ -207,7 +203,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
       .then((r) => setFaces(r.items)).catch(() => {});
     apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds')
-      .then((r) => setBackgrounds(r.items)).catch(() => {});
+      .then((r) => setAllBackgrounds(r.items)).catch(() => {});
   }, []);
 
   const toggleBg = async (id: string) => {
@@ -719,15 +715,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       }} /></td>
                       <td><span className="mono">{c.updatedAt.slice(0, 10)}</span></td>
                       <td>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          <button className="btn sm ghost" onClick={() => {
-                            setEditCatalogItem(c);
-                            setEditCatalogLabel(c.label);
-                            setEditCatalogSortOrder(c.sortOrder);
-                            setEditCatalogCategoryId(c.categoryId ? String(c.categoryId) : '');
-                          }}><Icon.Edit /></button>
-                          <button className="btn sm ghost" onClick={() => setConfirmDeleteCatalog(c.id)}><Icon.Trash /></button>
-                        </div>
+                        <button className="btn sm ghost" onClick={() => setConfirmDeleteCatalog(c.id)}><Icon.Trash /></button>
                       </td>
                     </tr>
                   ))}
@@ -762,7 +750,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
       {showBgUpload && (
         <BackgroundUploadModal
-          onDone={(row) => { setShowBgUpload(false); setBackgrounds((prev) => [...prev, row]); }}
+          defaultGenderSlug={genderFilter === 'all' ? '' : genderFilter}
+          onDone={(row) => { setShowBgUpload(false); setBackgrounds((prev) => [...prev, row]); setAllBackgrounds((prev) => [...prev, row]); }}
           onClose={() => setShowBgUpload(false)}
           toast={toast}
         />
@@ -783,14 +772,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           garmentTypeId={subView.sub.id}
           garmentTypeGenderSlug={subView.sub.genderSlug}
           faces={faces}
-          backgrounds={backgrounds}
+          backgrounds={allBackgrounds}
           onDone={(added) => {
             setShowPoseUpload(false);
             setPoses((prev) => [...prev, added]);
-            // Refresh faces and backgrounds — inline uploads during pose creation add new DB records
-            // that aren't reflected in the current React state
             apiFetch<{ items: ModelFace[] }>('/admin/assets/faces').then((r) => setFaces(r.items)).catch(() => {});
-            apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds').then((r) => setBackgrounds(r.items)).catch(() => {});
+            apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds').then((r) => setAllBackgrounds(r.items)).catch(() => {});
           }}
           onClose={() => setShowPoseUpload(false)}
           toast={toast}
@@ -800,7 +787,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         <EditPoseModal
           pose={editingPose}
           faces={faces}
-          backgrounds={backgrounds}
+          backgrounds={allBackgrounds}
           onSaved={(updated) => {
             setPoses((prev) => prev.map((p) => p.id === updated.id ? updated : p));
             setEditingPose(null);
@@ -1027,63 +1014,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           </div>
         </div>
       )}
-      {editCatalogItem && (
-        <div className="modal-overlay" onClick={editCatalogSaving ? undefined : () => setEditCatalogItem(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Edit catalog item</h3>
-              <button className="btn sm ghost" onClick={() => setEditCatalogItem(null)} disabled={editCatalogSaving} style={{ marginLeft: 'auto' }}><Icon.Close /></button>
-            </div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div className="field">
-                <label>Label</label>
-                <input className="input" value={editCatalogLabel} disabled={editCatalogSaving} autoFocus
-                  onChange={(e) => setEditCatalogLabel(e.target.value)} />
-              </div>
-              <div className="field">
-                <label>Gender category</label>
-                <select className="select" value={editCatalogCategoryId} disabled={editCatalogSaving}
-                  onChange={(e) => setEditCatalogCategoryId(e.target.value)}>
-                  {catalogCategories.filter((c) => c.typeSlug === editCatalogItem.type).map((c) => (
-                    <option key={c.id} value={String(c.id)}>{c.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label>Sort order</label>
-                <input className="input" type="number" min={0} value={editCatalogSortOrder} disabled={editCatalogSaving}
-                  onChange={(e) => { const n = Number(e.target.value); setEditCatalogSortOrder(Number.isNaN(n) ? 0 : n); }}
-                  style={{ width: 100 }} />
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setEditCatalogItem(null)} disabled={editCatalogSaving}>Cancel</button>
-              <button className="btn primary" disabled={editCatalogSaving || !editCatalogLabel.trim()} onClick={async () => {
-                setEditCatalogSaving(true);
-                try {
-                  await apiFetch(`/admin/catalog/items/${editCatalogItem.id}`, {
-                    method: 'PATCH',
-                    body: JSON.stringify({
-                      label: editCatalogLabel.trim() || editCatalogItem.label,
-                      sortOrder: editCatalogSortOrder,
-                      ...(editCatalogCategoryId ? { categoryId: Number(editCatalogCategoryId) } : {}),
-                    }),
-                  });
-                  setCatalogItems((prev) => prev.map((c) =>
-                    c.id === editCatalogItem.id ? { ...c, label: editCatalogLabel.trim() || c.label, sortOrder: editCatalogSortOrder } : c,
-                  ));
-                  toast({ title: `${editCatalogLabel || editCatalogItem.label} updated` });
-                  setEditCatalogItem(null);
-                } catch {
-                  toast({ kind: 'error', title: 'Failed to save changes' });
-                } finally {
-                  setEditCatalogSaving(false);
-                }
-              }}>{editCatalogSaving ? 'Saving…' : 'Save changes'}</button>
-            </div>
-          </div>
-        </div>
-      )}
       {showCatalogUpload && (
         catalogCategories.length === 0 ? (
           <div className="modal-overlay" onClick={() => setShowCatalogUpload(false)}>
@@ -1101,6 +1031,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           <BatchCatalogUploadModal
             typeSlug={activeTab === 'shoe' ? 'shoe' : 'lower'}
             categories={catalogCategories}
+            defaultGenderSlug={genderFilter === 'all' ? '' : genderFilter}
             onDone={(added) => {
               setShowCatalogUpload(false);
               setCatalogItems((prev) => [...prev, ...(added as unknown as CatalogItem[])]);

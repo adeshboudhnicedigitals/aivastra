@@ -79,6 +79,7 @@ export interface CatalogItem {
   categoryId?: number;
   label: string;
   type: 'lower' | 'shoe';
+  categoryGenderSlug: string | null;
   thumbnailKey: string;
   isActive: boolean;
   sortOrder: number;
