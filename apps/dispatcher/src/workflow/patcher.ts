@@ -127,23 +127,38 @@ export async function patchWorkflow(
     }
   }
 
-  // Patch lower garment if configured
-  if (tmpl.lowerNodeId && inputs.lowerGarmentFile) {
+  // Patch lower garment if configured.
+  // If the node is mapped but no lower garment was selected, fall back to the upper garment
+  // so ComfyUI always receives a valid file reference instead of the stale test filename
+  // baked into the workflow JSON at design time.
+  if (tmpl.lowerNodeId) {
     if (workflow[tmpl.lowerNodeId]) {
-      workflow[tmpl.lowerNodeId]!.inputs['image'] = inputs.lowerGarmentFile;
+      const lowerFile = inputs.lowerGarmentFile ?? inputs.upperGarmentFile;
+      if (!inputs.lowerGarmentFile) {
+        log?.warn(
+          `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
+        );
+      }
+      workflow[tmpl.lowerNodeId]!.inputs['image'] = lowerFile;
     }
-  } else if (!tmpl.lowerNodeId && inputs.lowerGarmentFile) {
+  } else if (inputs.lowerGarmentFile) {
     log?.warn(
       `patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`,
     );
   }
 
-  // Patch shoe garment if configured
-  if (tmpl.shoeNodeId && inputs.shoeGarmentFile) {
+  // Patch shoe garment if configured — same fallback pattern as lower garment.
+  if (tmpl.shoeNodeId) {
     if (workflow[tmpl.shoeNodeId]) {
-      workflow[tmpl.shoeNodeId]!.inputs['image'] = inputs.shoeGarmentFile;
+      const shoeFile = inputs.shoeGarmentFile ?? inputs.upperGarmentFile;
+      if (!inputs.shoeGarmentFile) {
+        log?.warn(
+          `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
+        );
+      }
+      workflow[tmpl.shoeNodeId]!.inputs['image'] = shoeFile;
     }
-  } else if (!tmpl.shoeNodeId && inputs.shoeGarmentFile) {
+  } else if (inputs.shoeGarmentFile) {
     log?.warn(
       `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
     );
