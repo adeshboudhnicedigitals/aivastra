@@ -1,5 +1,5 @@
+import { type DB, schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { schema, type DB } from '@aivastra/db';
 
 type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta?: unknown };
 type Workflow = Record<string, WorkflowNode>;
@@ -47,7 +47,7 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
   if (!node) {
     throw new Error(
       `Workflow node "${nodeId}" (${role}) not found in JSON — ` +
-      `the stored workflow JSON may be out of sync with its node mappings`,
+        `the stored workflow JSON may be out of sync with its node mappings`,
     );
   }
   return node;
@@ -56,9 +56,9 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
 // ── Aspect ratio dimensions ───────────────────────────────────────────────
 
 export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
-  '1:1':  { width: 1536, height: 1536 },
-  '3:4':  { width: 1331, height: 1774 },
-  '4:5':  { width: 1375, height: 1718 },
+  '1:1': { width: 1536, height: 1536 },
+  '3:4': { width: 1331, height: 1774 },
+  '4:5': { width: 1375, height: 1718 },
   '9:16': { width: 1152, height: 2048 },
   '16:9': { width: 2048, height: 1152 },
 };
@@ -110,12 +110,16 @@ export function applyWorkflowPatch(
     if (workflow[tmpl.lowerNodeId]) {
       const lowerFile = inputs.lowerGarmentFile ?? inputs.upperGarmentFile;
       if (!inputs.lowerGarmentFile) {
-        log?.warn(`patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`);
+        log?.warn(
+          `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
+        );
       }
       workflow[tmpl.lowerNodeId]!.inputs['image'] = lowerFile;
     }
   } else if (inputs.lowerGarmentFile) {
-    log?.warn(`patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`);
+    log?.warn(
+      `patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`,
+    );
   }
 
   // Shoe — same fallback pattern as lower garment
@@ -123,12 +127,16 @@ export function applyWorkflowPatch(
     if (workflow[tmpl.shoeNodeId]) {
       const shoeFile = inputs.shoeGarmentFile ?? inputs.upperGarmentFile;
       if (!inputs.shoeGarmentFile) {
-        log?.warn(`patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`);
+        log?.warn(
+          `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
+        );
       }
       workflow[tmpl.shoeNodeId]!.inputs['image'] = shoeFile;
     }
   } else if (inputs.shoeGarmentFile) {
-    log?.warn(`patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`);
+    log?.warn(
+      `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
+    );
   }
 
   // Positive prompt — only override when pose provides a non-empty, non-whitespace string.

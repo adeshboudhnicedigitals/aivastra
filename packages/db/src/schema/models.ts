@@ -1,5 +1,16 @@
-import { pgTable, uuid, text, boolean, integer, timestamp, index, uniqueIndex, jsonb, primaryKey } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 
 export const modelFaces = pgTable('model_faces', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -52,8 +63,8 @@ export const workflowTemplates = pgTable('workflow_templates', {
   bgNodeId: text('bg_node_id').notNull(),
   upperNodeIds: text('upper_node_ids').array().notNull(),
   lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
-  shoeNodeId: text('shoe_node_id'),   // nullable — some workflows have no shoe garment
-  sizeNodeId: text('size_node_id'),   // nullable — EmptyLatentImage node for dynamic aspect ratio
+  shoeNodeId: text('shoe_node_id'), // nullable — some workflows have no shoe garment
+  sizeNodeId: text('size_node_id'), // nullable — EmptyLatentImage node for dynamic aspect ratio
 
   // Prompt node IDs
   facePhasePromptNode: text('face_phase_prompt_node').notNull(),
@@ -70,41 +81,59 @@ export const workflowTemplates = pgTable('workflow_templates', {
 
 // Poses belong to a garment subcategory AND are per (face × background) combo
 // e.g. m1bg1p1 → face=model1, background=bg1, pose variant 1
-export const modelPoses = pgTable('model_poses', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  subcategoryId: uuid('subcategory_id').notNull().references(() => garmentSubcategories.id),
-  faceId: uuid('face_id').notNull().references(() => modelFaces.id),
-  backgroundId: uuid('background_id').notNull().references(() => modelBackgrounds.id),
-  label: text('label').notNull(),
-  r2Key: text('r2_key').notNull(),
-  thumbnailKey: text('thumbnail_key').notNull(),
-  showsLower: boolean('shows_lower').notNull().default(false),
-  showsShoes: boolean('shows_shoes').notNull().default(false),
-  isTemplate: boolean('is_template').notNull().default(false),
-  isActive: boolean('is_active').notNull().default(true),
-  sortOrder: integer('sort_order').notNull().default(0),
-  workflowTemplateId: uuid('workflow_template_id').notNull().references(() => workflowTemplates.id),
-  promptFacePhase: text('prompt_face_phase'),
-  promptGarmentPhase: text('prompt_garment_phase'),
-  faceSideR2Key: text('face_side_r2_key'),
-  bgComfyR2Key: text('bg_comfy_r2_key'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-}, (table) => ({
-  subcategoryIdx: index('model_poses_subcategory_id_idx').on(table.subcategoryId),
-  faceIdx: index('model_poses_face_id_idx').on(table.faceId),
-  backgroundIdx: index('model_poses_background_id_idx').on(table.backgroundId),
-  workflowIdx: index('model_poses_workflow_template_id_idx').on(table.workflowTemplateId),
-  // Only one pose per cell can be the template
-  templateIdx: uniqueIndex('model_poses_template_idx')
-    .on(table.subcategoryId, table.faceId, table.backgroundId)
-    .where(sql`is_template = true`),
-}));
+export const modelPoses = pgTable(
+  'model_poses',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id),
+    faceId: uuid('face_id')
+      .notNull()
+      .references(() => modelFaces.id),
+    backgroundId: uuid('background_id')
+      .notNull()
+      .references(() => modelBackgrounds.id),
+    label: text('label').notNull(),
+    r2Key: text('r2_key').notNull(),
+    thumbnailKey: text('thumbnail_key').notNull(),
+    showsLower: boolean('shows_lower').notNull().default(false),
+    showsShoes: boolean('shows_shoes').notNull().default(false),
+    isTemplate: boolean('is_template').notNull().default(false),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    workflowTemplateId: uuid('workflow_template_id')
+      .notNull()
+      .references(() => workflowTemplates.id),
+    promptFacePhase: text('prompt_face_phase'),
+    promptGarmentPhase: text('prompt_garment_phase'),
+    faceSideR2Key: text('face_side_r2_key'),
+    bgComfyR2Key: text('bg_comfy_r2_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    subcategoryIdx: index('model_poses_subcategory_id_idx').on(table.subcategoryId),
+    faceIdx: index('model_poses_face_id_idx').on(table.faceId),
+    backgroundIdx: index('model_poses_background_id_idx').on(table.backgroundId),
+    workflowIdx: index('model_poses_workflow_template_id_idx').on(table.workflowTemplateId),
+    // Only one pose per cell can be the template
+    templateIdx: uniqueIndex('model_poses_template_idx')
+      .on(table.subcategoryId, table.faceId, table.backgroundId)
+      .where(sql`is_template = true`),
+  }),
+);
 
 // Many-to-many: which catalog items are allowed for a given pose
-export const poseCatalogItems = pgTable('pose_catalog_items', {
-  poseId: uuid('pose_id').notNull().references(() => modelPoses.id, { onDelete: 'cascade' }),
-  catalogItemId: uuid('catalog_item_id').notNull(),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.poseId, table.catalogItemId] }),
-}));
+export const poseCatalogItems = pgTable(
+  'pose_catalog_items',
+  {
+    poseId: uuid('pose_id')
+      .notNull()
+      .references(() => modelPoses.id, { onDelete: 'cascade' }),
+    catalogItemId: uuid('catalog_item_id').notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.poseId, table.catalogItemId] }),
+  }),
+);

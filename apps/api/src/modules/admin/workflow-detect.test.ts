@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { detectMappings, normaliseTitle, classifyNode } from './workflow-detect.js';
+import { describe, expect, it } from 'vitest';
+import { classifyNode, detectMappings, normaliseTitle } from './workflow-detect.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -10,7 +10,11 @@ function textEncodeNode(title: string) {
   return { class_type: 'TextEncodeQwenImageEditPlus', _meta: { title }, inputs: { prompt: '' } };
 }
 function latentNode(title: string) {
-  return { class_type: 'EmptyLatentImage', _meta: { title }, inputs: { width: 1536, height: 1536 } };
+  return {
+    class_type: 'EmptyLatentImage',
+    _meta: { title },
+    inputs: { width: 1536, height: 1536 },
+  };
 }
 function otherNode(classType: string, title: string) {
   return { class_type: classType, _meta: { title }, inputs: {} };
@@ -71,31 +75,49 @@ describe('normaliseTitle', () => {
 
 describe('classifyNode', () => {
   it('classifies LoadImage as image', () => expect(classifyNode('LoadImage')).toBe('image'));
-  it('classifies TextEncodeQwenImageEditPlus as prompt', () => expect(classifyNode('TextEncodeQwenImageEditPlus')).toBe('prompt'));
-  it('classifies CLIPTextEncode as prompt', () => expect(classifyNode('CLIPTextEncode')).toBe('prompt'));
-  it('classifies EmptyLatentImage as latent', () => expect(classifyNode('EmptyLatentImage')).toBe('latent'));
+  it('classifies TextEncodeQwenImageEditPlus as prompt', () =>
+    expect(classifyNode('TextEncodeQwenImageEditPlus')).toBe('prompt'));
+  it('classifies CLIPTextEncode as prompt', () =>
+    expect(classifyNode('CLIPTextEncode')).toBe('prompt'));
+  it('classifies EmptyLatentImage as latent', () =>
+    expect(classifyNode('EmptyLatentImage')).toBe('latent'));
   it('classifies KSampler as other', () => expect(classifyNode('KSampler')).toBe('other'));
-  it('classifies ReActorFaceSwap as other', () => expect(classifyNode('ReActorFaceSwap')).toBe('other'));
+  it('classifies ReActorFaceSwap as other', () =>
+    expect(classifyNode('ReActorFaceSwap')).toBe('other'));
   it('classifies FaceSegment as other', () => expect(classifyNode('FaceSegment')).toBe('other'));
-  it('classifies DWPreprocessor as other', () => expect(classifyNode('DWPreprocessor')).toBe('other'));
+  it('classifies DWPreprocessor as other', () =>
+    expect(classifyNode('DWPreprocessor')).toBe('other'));
 });
 
 // ── Canonical workflow — all 9 nodes detected ─────────────────────────────
 
 describe('canonical workflow — all nodes correctly titled', () => {
-  it('detects face node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.faceNodeId).toBe('1332'));
-  it('detects pose node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.poseNodeId).toBe('1333'));
-  it('detects background node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.bgNodeId).toBe('1334'));
-  it('detects upper_garment node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.upperNodeIds).toEqual(['1340']));
-  it('detects lower_garment node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.lowerNodeId).toBe('1331'));
-  it('detects shoes node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.shoeNodeId).toBe('1352'));
-  it('detects negative_prompt node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.negativePromptNode).toBe('1345:110'));
-  it('detects positive_prompt node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.positivePromptNode).toBe('1345:111'));
-  it('detects size node', () => expect(detectMappings(makeCanonicalWorkflow()).detected.sizeNodeId).toBe('1345:874'));
+  it('detects face node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.faceNodeId).toBe('1332'));
+  it('detects pose node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.poseNodeId).toBe('1333'));
+  it('detects background node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.bgNodeId).toBe('1334'));
+  it('detects upper_garment node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.upperNodeIds).toEqual(['1340']));
+  it('detects lower_garment node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.lowerNodeId).toBe('1331'));
+  it('detects shoes node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.shoeNodeId).toBe('1352'));
+  it('detects negative_prompt node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.negativePromptNode).toBe('1345:110'));
+  it('detects positive_prompt node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.positivePromptNode).toBe('1345:111'));
+  it('detects size node', () =>
+    expect(detectMappings(makeCanonicalWorkflow()).detected.sizeNodeId).toBe('1345:874'));
 
   it('non-input nodes (KSampler, FaceSegment, DWPose, etc.) do not appear in any detection list', () => {
-    const { allImageNodes, allPromptNodes, allLatentNodes } = detectMappings(makeCanonicalWorkflow());
-    const allDetectedIds = [...allImageNodes, ...allPromptNodes, ...allLatentNodes].map((n) => n.id);
+    const { allImageNodes, allPromptNodes, allLatentNodes } = detectMappings(
+      makeCanonicalWorkflow(),
+    );
+    const allDetectedIds = [...allImageNodes, ...allPromptNodes, ...allLatentNodes].map(
+      (n) => n.id,
+    );
     expect(allDetectedIds).not.toContain('1316'); // datetime
     expect(allDetectedIds).not.toContain('1319'); // reactor
     expect(allDetectedIds).not.toContain('1342'); // dwpose
@@ -215,7 +237,7 @@ describe('edge cases', () => {
   });
 
   it('a node with no _meta title falls back to the node ID (not detected as any role)', () => {
-    const wf = { 'face': { class_type: 'LoadImage', inputs: { image: '' } } };
+    const wf = { face: { class_type: 'LoadImage', inputs: { image: '' } } };
     // Key "face" happens to match the face convention — but only _meta.title is checked,
     // not the node key. The node key being "face" must not trigger detection.
     // Actually: since _meta is missing, title defaults to nodeId. nodeId is "face" → detected!

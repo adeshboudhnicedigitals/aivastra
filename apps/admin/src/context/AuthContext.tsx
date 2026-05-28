@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
-import { setToken, initAuthFailureHandler, apiFetch } from '../lib/data';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import { apiFetch, initAuthFailureHandler, setToken } from '../lib/data';
 
 export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
 
@@ -32,7 +32,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [handleAuthFailure]);
 
   const fetchRole = useCallback(async () => {
-    const me = await apiFetch<{ userId: string; email: string; role: AdminRole; storagePublicUrl?: string }>('/admin/me');
+    const me = await apiFetch<{
+      userId: string;
+      email: string;
+      role: AdminRole;
+      storagePublicUrl?: string;
+    }>('/admin/me');
     setRole(me.role);
     setEmail(me.email);
     if (me.storagePublicUrl) setStoragePublicUrl(me.storagePublicUrl);
@@ -43,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const res = await fetch('/v1/auth/refresh', { method: 'POST', credentials: 'include' });
         if (res.ok) {
-          const { accessToken } = await res.json() as { accessToken: string };
+          const { accessToken } = (await res.json()) as { accessToken: string };
           setToken(accessToken);
           setTokenState(accessToken);
           await fetchRole();
@@ -56,15 +61,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, [fetchRole]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { accessToken } = await apiFetch<{ accessToken: string }>('/v1/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    setToken(accessToken);
-    setTokenState(accessToken);
-    await fetchRole();
-  }, [fetchRole]);
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const { accessToken } = await apiFetch<{ accessToken: string }>('/v1/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      });
+      setToken(accessToken);
+      setTokenState(accessToken);
+      await fetchRole();
+    },
+    [fetchRole],
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -80,7 +88,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ token, role, email, storagePublicUrl, isLoading, login, logout }}>
+    <AuthContext.Provider
+      value={{ token, role, email, storagePublicUrl, isLoading, login, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
-import { Icon } from './Icons';
+import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
 import type { CatalogItem } from '../types';
+import { Icon } from './Icons';
 
 interface PresignResult {
   uploadUrl: string;
@@ -40,7 +40,13 @@ async function uploadFile(url: string, file: File): Promise<void> {
   });
 }
 
-export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defaultGenderSlug = 'men' }: Props) {
+export function BatchCatalogUploadModal({
+  typeSlug,
+  onDone,
+  onClose,
+  toast,
+  defaultGenderSlug = 'men',
+}: Props) {
   const [genderSlug, setGenderSlug] = useState(defaultGenderSlug || 'men');
   const [sortStart, setSortStart] = useState(0);
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -52,17 +58,19 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    setEntries(files.map((f) => ({
-      file: f,
-      preview: URL.createObjectURL(f),
-      label: f.name.replace(/\.[^.]+$/, ''),
-      status: 'pending',
-    })));
+    setEntries(
+      files.map((f) => ({
+        file: f,
+        preview: URL.createObjectURL(f),
+        label: f.name.replace(/\.[^.]+$/, ''),
+        status: 'pending',
+      })),
+    );
     setDoneCount(0);
   };
 
   const updateEntry = (idx: number, patch: Partial<FileEntry>) =>
-    setEntries((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
+    setEntries((prev) => prev.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
 
   const removeEntry = (idx: number) => {
     setEntries((prev) => {
@@ -79,7 +87,10 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
 
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
-      if (entry.status === 'done') { setDoneCount((n) => n + 1); continue; }
+      if (entry.status === 'done') {
+        setDoneCount((n) => n + 1);
+        continue;
+      }
       updateEntry(i, { status: 'uploading', error: undefined });
       try {
         const presign = await apiFetch<PresignResult>('/admin/catalog/items/presign', {
@@ -107,7 +118,10 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
         updateEntry(i, { status: 'done' });
         setDoneCount((n) => n + 1);
       } catch (e) {
-        updateEntry(i, { status: 'error', error: e instanceof Error ? e.message : 'Upload failed' });
+        updateEntry(i, {
+          status: 'error',
+          error: e instanceof Error ? e.message : 'Upload failed',
+        });
       }
     }
 
@@ -127,22 +141,34 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
 
   return (
     <div className="modal-overlay" onClick={busy ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(640px, calc(100vw - 40px))' }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(640px, calc(100vw - 40px))' }}
+      >
         <div className="modal-head">
           <h3>Batch upload {typeLabel}s</h3>
-          <button className="btn sm ghost" onClick={onClose} disabled={busy} style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={busy}
+            style={{ marginLeft: 'auto' }}
+          >
             <Icon.Close />
           </button>
         </div>
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
           {/* Shared settings */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10 }}>
             <div className="field">
               <label>Gender (applied to all items)</label>
-              <select className="select" value={genderSlug} disabled={busy}
-                onChange={(e) => setGenderSlug(e.target.value)}>
+              <select
+                className="select"
+                value={genderSlug}
+                disabled={busy}
+                onChange={(e) => setGenderSlug(e.target.value)}
+              >
                 <option value="men">Men</option>
                 <option value="women">Women</option>
                 <option value="boys">Boys</option>
@@ -182,7 +208,10 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>
               Uploading {doneCount} / {entries.length}…
               <div className="bar-track" style={{ marginTop: 6 }}>
-                <div className="bar-fill accent" style={{ width: `${entries.length ? (doneCount / entries.length) * 100 : 0}%` }} />
+                <div
+                  className="bar-fill accent"
+                  style={{ width: `${entries.length ? (doneCount / entries.length) * 100 : 0}%` }}
+                />
               </div>
             </div>
           )}
@@ -190,37 +219,120 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
           {/* File rows */}
           {entries.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr 56px 28px', gap: 8, padding: '0 4px', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '44px 1fr 56px 28px',
+                  gap: 8,
+                  padding: '0 4px',
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                  fontWeight: 600,
+                }}
+              >
                 <span>Preview</span>
                 <span>Label</span>
                 <span>Size</span>
                 <span></span>
               </div>
-              <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div
+                style={{
+                  maxHeight: 260,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
                 {entries.map((entry, i) => (
-                  <div key={i} style={{
-                    display: 'grid', gridTemplateColumns: '44px 1fr 56px 28px', gap: 8,
-                    alignItems: 'center', padding: '6px 4px', borderRadius: 6,
-                    background: entry.status === 'done' ? 'var(--success-soft)'
-                      : entry.status === 'error' ? 'var(--danger-soft)'
-                      : entry.status === 'uploading' ? 'var(--accent-soft, #f0f7ff)'
-                      : 'var(--subtle)',
-                    border: `1px solid ${entry.status === 'done' ? 'var(--success-border)'
-                      : entry.status === 'error' ? 'var(--danger-border)'
-                      : entry.status === 'uploading' ? 'var(--accent, #2563eb)'
-                      : 'var(--border)'}`,
-                  }}>
+                  <div
+                    key={i}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '44px 1fr 56px 28px',
+                      gap: 8,
+                      alignItems: 'center',
+                      padding: '6px 4px',
+                      borderRadius: 6,
+                      background:
+                        entry.status === 'done'
+                          ? 'var(--success-soft)'
+                          : entry.status === 'error'
+                            ? 'var(--danger-soft)'
+                            : entry.status === 'uploading'
+                              ? 'var(--accent-soft, #f0f7ff)'
+                              : 'var(--subtle)',
+                      border: `1px solid ${
+                        entry.status === 'done'
+                          ? 'var(--success-border)'
+                          : entry.status === 'error'
+                            ? 'var(--danger-border)'
+                            : entry.status === 'uploading'
+                              ? 'var(--accent, #2563eb)'
+                              : 'var(--border)'
+                      }`,
+                    }}
+                  >
                     {/* Thumbnail preview */}
-                    <div style={{ position: 'relative', width: 36, height: 44, borderRadius: 4, overflow: 'hidden', flexShrink: 0 }}>
-                      <img src={entry.preview} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <div
+                      style={{
+                        position: 'relative',
+                        width: 36,
+                        height: 44,
+                        borderRadius: 4,
+                        overflow: 'hidden',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <img
+                        src={entry.preview}
+                        alt=""
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
                       {entry.status === 'done' && (
-                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 16 }}>✓</div>
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: 'rgba(0,0,0,0.35)',
+                            display: 'grid',
+                            placeItems: 'center',
+                            color: 'white',
+                            fontSize: 16,
+                          }}
+                        >
+                          ✓
+                        </div>
                       )}
                       {entry.status === 'uploading' && (
-                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 12 }}>↑</div>
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: 'rgba(0,0,0,0.35)',
+                            display: 'grid',
+                            placeItems: 'center',
+                            color: 'white',
+                            fontSize: 12,
+                          }}
+                        >
+                          ↑
+                        </div>
                       )}
                       {entry.status === 'error' && (
-                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 16 }}>✗</div>
+                        <div
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: 'rgba(0,0,0,0.5)',
+                            display: 'grid',
+                            placeItems: 'center',
+                            color: 'white',
+                            fontSize: 16,
+                          }}
+                        >
+                          ✗
+                        </div>
                       )}
                     </div>
 
@@ -235,12 +347,21 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
                         style={{ fontSize: 13, padding: '3px 8px', width: '100%' }}
                       />
                       {entry.error && (
-                        <p style={{ fontSize: 11, color: 'var(--danger)', margin: '2px 0 0' }}>{entry.error}</p>
+                        <p style={{ fontSize: 11, color: 'var(--danger)', margin: '2px 0 0' }}>
+                          {entry.error}
+                        </p>
                       )}
                     </div>
 
                     {/* File size */}
-                    <span style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: 'var(--muted)',
+                        whiteSpace: 'nowrap',
+                        textAlign: 'right',
+                      }}
+                    >
                       {(entry.file.size / 1024).toFixed(0)} KB
                     </span>
 

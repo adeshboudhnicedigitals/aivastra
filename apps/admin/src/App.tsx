@@ -1,15 +1,15 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { Topbar } from './components/Topbar';
 import { ToastStack } from './components/ToastStack';
-import DashboardPage from './pages/DashboardPage';
-import UsersPage from './pages/UsersPage';
-import JobsPage from './pages/JobsPage';
-import AssetsPage from './pages/AssetsPage';
-import SettingsPage from './pages/SettingsPage';
-import WorkflowsPage from './pages/WorkflowsPage';
-import LoginPage from './pages/LoginPage';
+import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
+import AssetsPage from './pages/AssetsPage';
+import DashboardPage from './pages/DashboardPage';
+import JobsPage from './pages/JobsPage';
+import LoginPage from './pages/LoginPage';
+import SettingsPage from './pages/SettingsPage';
+import UsersPage from './pages/UsersPage';
+import WorkflowsPage from './pages/WorkflowsPage';
 import type { ToastItem } from './types';
 
 type Page = 'dashboard' | 'assets' | 'users' | 'jobs' | 'settings' | 'workflows';
@@ -62,22 +62,27 @@ export default function App() {
     setPage(p as Page);
   }, []);
 
-  const handleNavWithFilter = useCallback((_page: string, _filter?: { page: string; filter?: string }) => {
-    setPage(_page as Page);
-  }, []);
+  const handleNavWithFilter = useCallback(
+    (_page: string, _filter?: { page: string; filter?: string }) => {
+      setPage(_page as Page);
+    },
+    [],
+  );
 
   if (isLoading) {
     return (
-      <div style={{
-        minHeight: '100dvh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg)',
-        color: 'var(--muted)',
-        fontFamily: 'var(--sans)',
-        fontSize: '0.875rem',
-      }}>
+      <div
+        style={{
+          minHeight: '100dvh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'var(--bg)',
+          color: 'var(--muted)',
+          fontFamily: 'var(--sans)',
+          fontSize: '0.875rem',
+        }}
+      >
         Loading…
       </div>
     );
@@ -93,7 +98,13 @@ export default function App() {
 
   return (
     <div className={`app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
-      <Sidebar page={page} onNav={handleNav} role={role ?? ''} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed((v) => !v)} />
+      <Sidebar
+        page={page}
+        onNav={handleNav}
+        role={role ?? ''}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+      />
       <div className="main">
         <Topbar trail={trail} onNavTrail={(i) => i === 0 && setPage('dashboard')} />
         <main className="content">

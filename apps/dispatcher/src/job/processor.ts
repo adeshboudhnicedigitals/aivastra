@@ -1,18 +1,23 @@
 import { randomUUID } from 'node:crypto';
-import { eq, sql } from 'drizzle-orm';
-import { schema, type DB } from '@aivastra/db';
-import { keys } from '@aivastra/storage';
-import type { StorageProvider } from '@aivastra/storage';
-import type { Redis } from 'ioredis';
+import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
+import type { StorageProvider } from '@aivastra/storage';
+import { keys } from '@aivastra/storage';
 import type { S3Client } from '@aws-sdk/client-s3';
-import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { transitionJob } from './state.js';
-import { selectWorker } from '../worker/selector.js';
-import { setWorkerStatus } from '../worker/registry.js';
-import { patchWorkflow } from '../workflow/patcher.js';
-import { submitPrompt, fetchHistory, downloadOutputImage, uploadImageToComfy } from '../comfyui/client.js';
+import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { eq, sql } from 'drizzle-orm';
+import type { Redis } from 'ioredis';
+import {
+  downloadOutputImage,
+  fetchHistory,
+  submitPrompt,
+  uploadImageToComfy,
+} from '../comfyui/client.js';
 import { waitForCompletion } from '../comfyui/progress.js';
+import { setWorkerStatus } from '../worker/registry.js';
+import { selectWorker } from '../worker/selector.js';
+import { patchWorkflow } from '../workflow/patcher.js';
+import { transitionJob } from './state.js';
 
 const MAX_ATTEMPTS = 2;
 
@@ -39,29 +44,42 @@ export async function processJob(
 
   // 1. Load job + inputs
   const [job] = await db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-  if (!job) { jobLog.error('job not found — skipping'); await redis.xack(stream, 'dispatcher-cg', messageId); return; }
+  if (!job) {
+    jobLog.error('job not found — skipping');
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    return;
+  }
   if (job.status !== 'QUEUED') {
     jobLog.warn({ status: job.status }, 'job not QUEUED — skipping');
     await redis.xack(stream, 'dispatcher-cg', messageId);
     return;
   }
 
-  const [inputs] = await db.select().from(schema.jobInputs).where(eq(schema.jobInputs.jobId, jobId));
+  const [inputs] = await db
+    .select()
+    .from(schema.jobInputs)
+    .where(eq(schema.jobInputs.jobId, jobId));
   if (!inputs) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_INPUTS', jobLog);
     return;
   }
 
   // 2. Resolve face / background / pose IDs → R2 keys
-  const [bgRow] = await db.select({ r2Key: schema.modelBackgrounds.r2Key }).from(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, inputs.backgroundId));
-  const [poseRow] = await db.select({
-    r2Key: schema.modelPoses.r2Key,
-    faceSideR2Key: schema.modelPoses.faceSideR2Key,
-    bgComfyR2Key: schema.modelPoses.bgComfyR2Key,
-    workflowTemplateId: schema.modelPoses.workflowTemplateId,
-    promptFacePhase: schema.modelPoses.promptFacePhase,
-    promptGarmentPhase: schema.modelPoses.promptGarmentPhase,
-  }).from(schema.modelPoses).where(eq(schema.modelPoses.id, inputs.poseId));
+  const [bgRow] = await db
+    .select({ r2Key: schema.modelBackgrounds.r2Key })
+    .from(schema.modelBackgrounds)
+    .where(eq(schema.modelBackgrounds.id, inputs.backgroundId));
+  const [poseRow] = await db
+    .select({
+      r2Key: schema.modelPoses.r2Key,
+      faceSideR2Key: schema.modelPoses.faceSideR2Key,
+      bgComfyR2Key: schema.modelPoses.bgComfyR2Key,
+      workflowTemplateId: schema.modelPoses.workflowTemplateId,
+      promptFacePhase: schema.modelPoses.promptFacePhase,
+      promptGarmentPhase: schema.modelPoses.promptGarmentPhase,
+    })
+    .from(schema.modelPoses)
+    .where(eq(schema.modelPoses.id, inputs.poseId));
 
   if (!bgRow || !poseRow) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'CATALOG_NOT_FOUND', jobLog);
@@ -85,17 +103,31 @@ export async function processJob(
   // Resolve optional lower garment catalog ID → R2 key
   let lowerKey: string | null = null;
   if (inputs.lowerCatalogId) {
-    const [lowerRow] = await db.select({ r2Key: schema.catalogItems.r2Key }).from(schema.catalogItems).where(eq(schema.catalogItems.id, inputs.lowerCatalogId));
+    const [lowerRow] = await db
+      .select({ r2Key: schema.catalogItems.r2Key })
+      .from(schema.catalogItems)
+      .where(eq(schema.catalogItems.id, inputs.lowerCatalogId));
     if (lowerRow) lowerKey = lowerRow.r2Key;
-    else jobLog.warn({ lowerCatalogId: inputs.lowerCatalogId }, 'lower garment catalog item not found — skipping');
+    else
+      jobLog.warn(
+        { lowerCatalogId: inputs.lowerCatalogId },
+        'lower garment catalog item not found — skipping',
+      );
   }
 
   // Resolve optional shoe catalog ID → R2 key
   let shoeKey: string | null = null;
   if (inputs.shoeCatalogId) {
-    const [shoeRow] = await db.select({ r2Key: schema.catalogItems.r2Key }).from(schema.catalogItems).where(eq(schema.catalogItems.id, inputs.shoeCatalogId));
+    const [shoeRow] = await db
+      .select({ r2Key: schema.catalogItems.r2Key })
+      .from(schema.catalogItems)
+      .where(eq(schema.catalogItems.id, inputs.shoeCatalogId));
     if (shoeRow) shoeKey = shoeRow.r2Key;
-    else jobLog.warn({ shoeCatalogId: inputs.shoeCatalogId }, 'shoe catalog item not found — skipping');
+    else
+      jobLog.warn(
+        { shoeCatalogId: inputs.shoeCatalogId },
+        'shoe catalog item not found — skipping',
+      );
   }
 
   // 3. Claim a worker
@@ -124,7 +156,14 @@ export async function processJob(
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
       const bytes = await r2Download(key);
       const ext = key.split('.').pop() ?? 'jpg';
-      return uploadImageToComfy(w.url, workerApiKey, bytes, `${prefix}_${jobId}.${ext}`, `image/${ext === 'png' ? 'png' : 'jpeg'}`, jobLog);
+      return uploadImageToComfy(
+        w.url,
+        workerApiKey,
+        bytes,
+        `${prefix}_${jobId}.${ext}`,
+        `image/${ext === 'png' ? 'png' : 'jpeg'}`,
+        jobLog,
+      );
     }
 
     // 4. Upload only the images that ComfyUI actually needs.
@@ -147,21 +186,37 @@ export async function processJob(
     const backgroundFile = uploaded[idx++]!;
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
-    jobLog.info({ upperGarmentFile, faceSideFile, poseFile, backgroundFile, lowerGarmentFile, shoeGarmentFile }, 'inputs uploaded');
+    jobLog.info(
+      {
+        upperGarmentFile,
+        faceSideFile,
+        poseFile,
+        backgroundFile,
+        lowerGarmentFile,
+        shoeGarmentFile,
+      },
+      'inputs uploaded',
+    );
 
     // 5. Patch workflow template with ComfyUI filenames (loads from DB with 5-min TTL cache)
-    const prompt = await patchWorkflow({
-      workflowTemplateId,
-      upperGarmentFile,
-      faceSideFile,
-      poseFile,
-      backgroundFile,
-      lowerGarmentFile,
-      shoeGarmentFile,
-      promptFacePhase: poseRow.promptFacePhase ?? undefined,
-      promptGarmentPhase: poseRow.promptGarmentPhase ?? undefined,
-      aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio as string | undefined,
-    }, db, jobLog);
+    const prompt = await patchWorkflow(
+      {
+        workflowTemplateId,
+        upperGarmentFile,
+        faceSideFile,
+        poseFile,
+        backgroundFile,
+        lowerGarmentFile,
+        shoeGarmentFile,
+        promptFacePhase: poseRow.promptFacePhase ?? undefined,
+        promptGarmentPhase: poseRow.promptGarmentPhase ?? undefined,
+        aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio as
+          | string
+          | undefined,
+      },
+      db,
+      jobLog,
+    );
 
     // 6. Submit to ComfyUI
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
@@ -171,7 +226,11 @@ export async function processJob(
 
     // 7. Wait for completion via WebSocket (5 min max)
     await waitForCompletion(
-      w.url, workerApiKey, clientUuid, promptId, 300_000,
+      w.url,
+      workerApiKey,
+      clientUuid,
+      promptId,
+      300_000,
       (update) => jobLog.debug(update, 'comfyui progress'),
       { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
     );
@@ -181,25 +240,24 @@ export async function processJob(
     const outputImages = await fetchHistory(w.url, workerApiKey, promptId, jobLog);
     if (!outputImages.length) throw new Error('ComfyUI returned no output images');
 
-    const imageBytes = await downloadOutputImage(
-      w.url, workerApiKey, outputImages[0]!.filename,
-    );
+    const imageBytes = await downloadOutputImage(w.url, workerApiKey, outputImages[0]!.filename);
 
     // 9. Upload result to R2
     const resultKey = keys.output(jobId);
-    await s3.send(new PutObjectCommand({
-      Bucket: r2Bucket,
-      Key: resultKey,
-      Body: imageBytes,
-      ContentType: 'image/png',
-    }));
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: r2Bucket,
+        Key: resultKey,
+        Body: imageBytes,
+        ContentType: 'image/png',
+      }),
+    );
 
     // 10. Mark COMPLETED
     await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
     jobLog.info('job completed successfully');
-
   } catch (err) {
     jobLog.error({ err }, 'job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
@@ -253,7 +311,10 @@ async function handleFailure(
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
     await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);
-    log.info({ jobId, attempts: newAttempts }, `job re-enqueued for retry (attempt ${newAttempts})`);
+    log.info(
+      { jobId, attempts: newAttempts },
+      `job re-enqueued for retry (attempt ${newAttempts})`,
+    );
   }
 }
 

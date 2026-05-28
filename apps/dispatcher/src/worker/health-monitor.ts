@@ -1,15 +1,11 @@
-import type { Redis } from 'ioredis';
 import type { Logger } from '@aivastra/logger';
+import type { Redis } from 'ioredis';
 import { getWorkers, healthKey } from './registry.js';
 
 const PROBE_INTERVAL_MS = 15_000;
 const HEALTH_TTL_SEC = 30;
 
-async function probeWorker(
-  workerId: string,
-  workerUrl: string,
-  apiKey: string,
-): Promise<boolean> {
+async function probeWorker(workerId: string, workerUrl: string, apiKey: string): Promise<boolean> {
   try {
     const res = await fetch(`${workerUrl.replace(/\/$/, '')}/system_stats`, {
       headers: { 'X-Api-Key': apiKey },
@@ -21,11 +17,7 @@ async function probeWorker(
   }
 }
 
-export function startHealthMonitor(
-  redis: Redis,
-  apiKey: string,
-  log: Logger,
-): () => void {
+export function startHealthMonitor(redis: Redis, apiKey: string, log: Logger): () => void {
   let running = true;
 
   async function tick() {
@@ -44,7 +36,11 @@ export function startHealthMonitor(
 
   const interval = setInterval(async () => {
     if (!running) return;
-    try { await tick(); } catch (err) { log.error({ err }, 'health monitor tick error'); }
+    try {
+      await tick();
+    } catch (err) {
+      log.error({ err }, 'health monitor tick error');
+    }
   }, PROBE_INTERVAL_MS);
 
   // Run immediately on start

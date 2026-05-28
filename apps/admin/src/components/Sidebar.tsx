@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
-import { Icon } from './Icons';
 import { useAuth } from '../context/AuthContext';
+import { Icon } from './Icons';
 
 interface SidebarProps {
   page: string;
@@ -20,7 +20,12 @@ interface NavItem {
 }
 
 const items: NavItem[] = [
-  { k: 'dashboard', label: 'Dashboard', icon: Icon.Dashboard, roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT'] },
+  {
+    k: 'dashboard',
+    label: 'Dashboard',
+    icon: Icon.Dashboard,
+    roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT'],
+  },
   { k: 'assets', label: 'Assets', icon: Icon.Image, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'workflows', label: 'Workflows', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT'] },
@@ -38,12 +43,31 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
 
   if (collapsed) {
     return (
-      <aside className="sidebar sidebar--collapsed" onClick={onToggleCollapse} style={{ cursor: 'pointer' }}>
+      <aside
+        className="sidebar sidebar--collapsed"
+        onClick={onToggleCollapse}
+        style={{ cursor: 'pointer' }}
+      >
         <div className="brand brand--collapsed">
-          <button className="brand-mark brand-mark--logo" onClick={(e) => { e.stopPropagation(); onToggleCollapse(); }} title="Expand sidebar">
+          <button
+            className="brand-mark brand-mark--logo"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse();
+            }}
+            title="Expand sidebar"
+          >
             <span className="collapsed-logo-icon">
-              <img className="collapsed-logo-icon--on" src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Ai Vastra" />
-              <img className="collapsed-logo-icon--off" src={`${import.meta.env.BASE_URL}assets/dock-to-right.svg`} alt="Expand" />
+              <img
+                className="collapsed-logo-icon--on"
+                src={`${import.meta.env.BASE_URL}assets/logo.svg`}
+                alt="Ai Vastra"
+              />
+              <img
+                className="collapsed-logo-icon--off"
+                src={`${import.meta.env.BASE_URL}assets/dock-to-right.svg`}
+                alt="Expand"
+              />
             </span>
           </button>
         </div>
@@ -52,7 +76,10 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
             <button
               key={item.k}
               className={`nav-item nav-item--icon ${item.alert ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
-              onClick={(e) => { e.stopPropagation(); onNav(item.k); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onNav(item.k);
+              }}
               title={item.label}
             >
               <item.icon />
@@ -64,14 +91,19 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
         {showSettings && (
           <button
             className={`nav-item nav-item--icon ${page === 'settings' ? 'active' : ''}`}
-            onClick={(e) => { e.stopPropagation(); onNav('settings'); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onNav('settings');
+            }}
             title="Settings"
           >
             <Icon.Settings />
           </button>
         )}
         <div className="sidebar-foot sidebar-foot--collapsed">
-          <span className="avatar" title={displayEmail}>{initials}</span>
+          <span className="avatar" title={displayEmail}>
+            {initials}
+          </span>
         </div>
       </aside>
     );
@@ -83,9 +115,21 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
         <span className="brand-mark brand-mark--logo">
           <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Ai Vastra" />
         </span>
-        <img className="brand-word--logo" src={`${import.meta.env.BASE_URL}assets/logo-text.svg`} alt="Ai Vastra" />
-        <button className="sidebar-collapse-btn" onClick={onToggleCollapse} title="Collapse sidebar">
-          <img src={`${import.meta.env.BASE_URL}assets/dock-to-right.svg`} alt="Collapse" style={{ width: 22, height: 22 }} />
+        <img
+          className="brand-word--logo"
+          src={`${import.meta.env.BASE_URL}assets/logo-text.svg`}
+          alt="Ai Vastra"
+        />
+        <button
+          className="sidebar-collapse-btn"
+          onClick={onToggleCollapse}
+          title="Collapse sidebar"
+        >
+          <img
+            src={`${import.meta.env.BASE_URL}assets/dock-to-right.svg`}
+            alt="Collapse"
+            style={{ width: 22, height: 22 }}
+          />
         </button>
       </div>
       <nav>

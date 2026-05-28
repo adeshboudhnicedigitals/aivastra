@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { applyWorkflowPatch, ASPECT_DIMENSIONS, type WorkflowTemplate } from './patcher.js';
+import { describe, expect, it, vi } from 'vitest';
+import { ASPECT_DIMENSIONS, applyWorkflowPatch, type WorkflowTemplate } from './patcher.js';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -16,12 +16,32 @@ function makeWorkflow() {
     '1340': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'upper_garment' } },
     '1331': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'lower_garment' } },
     '1352': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'shoes' } },
-    '1345:110': { inputs: { prompt: 'hardcoded negative — must never change' }, class_type: 'TextEncodeQwenImageEditPlus', _meta: { title: 'negative_prompt' } },
-    '1345:111': { inputs: { prompt: 'default positive prompt from template' }, class_type: 'TextEncodeQwenImageEditPlus', _meta: { title: 'positive_prompt' } },
-    '1345:874': { inputs: { width: 1536, height: 1536, batch_size: 1 }, class_type: 'EmptyLatentImage', _meta: { title: 'size' } },
+    '1345:110': {
+      inputs: { prompt: 'hardcoded negative — must never change' },
+      class_type: 'TextEncodeQwenImageEditPlus',
+      _meta: { title: 'negative_prompt' },
+    },
+    '1345:111': {
+      inputs: { prompt: 'default positive prompt from template' },
+      class_type: 'TextEncodeQwenImageEditPlus',
+      _meta: { title: 'positive_prompt' },
+    },
+    '1345:874': {
+      inputs: { width: 1536, height: 1536, batch_size: 1 },
+      class_type: 'EmptyLatentImage',
+      _meta: { title: 'size' },
+    },
     // Non-input processing nodes — must never be touched by patcher
-    '1319': { inputs: { input_image: ['1345:8', 0], source_image: ['1335', 0] }, class_type: 'ReActorFaceSwap', _meta: { title: 'ReActor Fast Face Swap' } },
-    '1342': { inputs: { image: ['1330', 0] }, class_type: 'DWPreprocessor', _meta: { title: 'DWPose Estimator' } },
+    '1319': {
+      inputs: { input_image: ['1345:8', 0], source_image: ['1335', 0] },
+      class_type: 'ReActorFaceSwap',
+      _meta: { title: 'ReActor Fast Face Swap' },
+    },
+    '1342': {
+      inputs: { image: ['1330', 0] },
+      class_type: 'DWPreprocessor',
+      _meta: { title: 'DWPose Estimator' },
+    },
   };
 }
 
@@ -38,7 +58,7 @@ function makeTemplate(overrides: Partial<WorkflowTemplate> = {}): WorkflowTempla
     lowerNodeId: '1331',
     shoeNodeId: '1352',
     sizeNodeId: '1345:874',
-    facePhasePromptNode: '1345:110',    // negative prompt — DB column named "facePhase" historically
+    facePhasePromptNode: '1345:110', // negative prompt — DB column named "facePhase" historically
     garmentPhasePromptNode: '1345:111', // positive prompt — dynamic per pose
     defaultFacePhasePrompt: 'hardcoded negative — must never change',
     defaultGarmentPhasePrompt: 'default positive prompt from template',
@@ -86,7 +106,11 @@ describe('required nodes', () => {
   it('patches multiple upper garment nodes with the same file', () => {
     const wf = {
       ...makeWorkflow(),
-      '9001': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'upper_garment_2' } },
+      '9001': {
+        inputs: { image: '' },
+        class_type: 'LoadImage',
+        _meta: { title: 'upper_garment_2' },
+      },
     };
     const tmpl = makeTemplate({ upperNodeIds: ['1340', '9001'] });
     applyWorkflowPatch(wf, tmpl, BASE_INPUTS);
@@ -97,8 +121,9 @@ describe('required nodes', () => {
   it('throws with the missing node ID when a required node is absent from the workflow JSON', () => {
     const wf = makeWorkflow();
     const tmpl = makeTemplate({ faceNodeId: 'NODE_THAT_DOES_NOT_EXIST' });
-    expect(() => applyWorkflowPatch(wf, tmpl, BASE_INPUTS))
-      .toThrowError(/NODE_THAT_DOES_NOT_EXIST/);
+    expect(() => applyWorkflowPatch(wf, tmpl, BASE_INPUTS)).toThrowError(
+      /NODE_THAT_DOES_NOT_EXIST/,
+    );
   });
 
   it('after patching, no mapped LoadImage node retains an empty string — the production bug this guards against', () => {
@@ -122,7 +147,10 @@ describe('required nodes', () => {
 describe('lower garment', () => {
   it('patches lower garment node with the provided lowerGarmentFile', () => {
     const wf = makeWorkflow();
-    applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, lowerGarmentFile: 'lower_abc123.jpg' });
+    applyWorkflowPatch(wf, makeTemplate(), {
+      ...BASE_INPUTS,
+      lowerGarmentFile: 'lower_abc123.jpg',
+    });
     expect(wf['1331']!.inputs['image']).toBe('lower_abc123.jpg');
   });
 
@@ -152,7 +180,12 @@ describe('lower garment', () => {
     const wf = makeWorkflow();
     const warn = vi.fn();
     const tmpl = makeTemplate({ lowerNodeId: null });
-    applyWorkflowPatch(wf, tmpl, { ...BASE_INPUTS, lowerGarmentFile: 'lower_abc123.jpg' }, { warn });
+    applyWorkflowPatch(
+      wf,
+      tmpl,
+      { ...BASE_INPUTS, lowerGarmentFile: 'lower_abc123.jpg' },
+      { warn },
+    );
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('no lower_node_id'));
   });
 });
@@ -185,7 +218,10 @@ describe('shoes', () => {
 describe('prompts', () => {
   it('overrides the positive prompt node (garmentPhasePromptNode) when promptGarmentPhase is provided', () => {
     const wf = makeWorkflow();
-    applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, promptGarmentPhase: 'custom positive for sitting pose' });
+    applyWorkflowPatch(wf, makeTemplate(), {
+      ...BASE_INPUTS,
+      promptGarmentPhase: 'custom positive for sitting pose',
+    });
     expect(wf['1345:111']!.inputs['prompt']).toBe('custom positive for sitting pose');
   });
 
@@ -212,19 +248,25 @@ describe('prompts', () => {
     const originalNegative = wf['1345:110']!.inputs['prompt'];
 
     // Try with promptFacePhase provided — it must be completely ignored
-    applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, promptFacePhase: 'trying to override negative' });
+    applyWorkflowPatch(wf, makeTemplate(), {
+      ...BASE_INPUTS,
+      promptFacePhase: 'trying to override negative',
+    });
     expect(wf['1345:110']!.inputs['prompt']).toBe(originalNegative);
   });
 
   it('promptFacePhase has no effect on ANY node in the workflow — it is completely ignored', () => {
     const wf = makeWorkflow();
     // Snapshot all node inputs before patching
-    const before = JSON.stringify(Object.fromEntries(
-      Object.entries(wf).map(([id, node]) => [id, { ...node.inputs }])
-    ));
+    const before = JSON.stringify(
+      Object.fromEntries(Object.entries(wf).map(([id, node]) => [id, { ...node.inputs }])),
+    );
 
     // Apply with promptFacePhase — only the normal image patches should change
-    applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, promptFacePhase: 'should have zero effect' });
+    applyWorkflowPatch(wf, makeTemplate(), {
+      ...BASE_INPUTS,
+      promptFacePhase: 'should have zero effect',
+    });
 
     // Verify the negative prompt node is identical to before
     expect(wf['1345:110']!.inputs['prompt']).toBe(JSON.parse(before)['1345:110'].prompt);
@@ -252,7 +294,9 @@ describe('non-input nodes', () => {
 // ── Aspect ratio ──────────────────────────────────────────────────────────
 
 describe('aspect ratio', () => {
-  it.each(Object.entries(ASPECT_DIMENSIONS))('patches EmptyLatentImage width/height for ratio %s → %o', (ratio, dims) => {
+  it.each(
+    Object.entries(ASPECT_DIMENSIONS),
+  )('patches EmptyLatentImage width/height for ratio %s → %o', (ratio, dims) => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, aspectRatio: ratio });
     expect(wf['1345:874']!.inputs['width']).toBe(dims.width);
@@ -268,7 +312,10 @@ describe('aspect ratio', () => {
 
   it('does not patch size node when sizeNodeId is null, even if aspectRatio is provided', () => {
     const wf = makeWorkflow();
-    applyWorkflowPatch(wf, makeTemplate({ sizeNodeId: null }), { ...BASE_INPUTS, aspectRatio: '4:5' });
+    applyWorkflowPatch(wf, makeTemplate({ sizeNodeId: null }), {
+      ...BASE_INPUTS,
+      aspectRatio: '4:5',
+    });
     expect(wf['1345:874']!.inputs['width']).toBe(1536);
     expect(wf['1345:874']!.inputs['height']).toBe(1536);
   });

@@ -1,0 +1,20 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome-staged
+      glob: "*.{js,ts,jsx,tsx,json,css}"
+      run: pnpm biome check --no-errors-on-unmatched {staged_files}
+
+pre-push:
+  jobs:
+    - name: lint
+      run: pnpm biome check .
+
+    - name: typecheck
+      run: pnpm typecheck
+
+    - name: test-api
+      run: pnpm --filter @aivastra/api test:unit
+
+    - name: test-dispatcher
+      run: pnpm --filter @aivastra/dispatcher test:unit

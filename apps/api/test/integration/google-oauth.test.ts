@@ -1,15 +1,24 @@
-import { describe, it, expect, beforeAll, afterAll, vi, afterEach } from 'vitest';
-import { startContainers, type Containers } from '../helpers/containers';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildServer } from '../../src/server';
+import { type Containers, startContainers } from '../helpers/containers';
 
 async function buildGoogleApp(c: Containers) {
   const app = await buildServer({
-    NODE_ENV: 'test', LOG_LEVEL: 'silent', API_PORT: 0,
-    DATABASE_URL: c.pgUrl, REDIS_URL: c.redisUrl,
-    JWT_SECRET: 'test-jwt-secret-1234567890', JWT_EXPIRY: '15m', REFRESH_TOKEN_EXPIRY: '7d',
-    R2_ENDPOINT: c.r2Endpoint, R2_ACCESS_KEY_ID: c.r2Key, R2_SECRET_ACCESS_KEY: c.r2Secret,
-    R2_BUCKET: c.r2Bucket, R2_PUBLIC_URL: c.r2Endpoint + '/' + c.r2Bucket,
-    R2_FORCE_PATH_STYLE: true, CORS_ORIGIN: 'http://localhost:3000',
+    NODE_ENV: 'test',
+    LOG_LEVEL: 'silent',
+    API_PORT: 0,
+    DATABASE_URL: c.pgUrl,
+    REDIS_URL: c.redisUrl,
+    JWT_SECRET: 'test-jwt-secret-1234567890',
+    JWT_EXPIRY: '15m',
+    REFRESH_TOKEN_EXPIRY: '7d',
+    R2_ENDPOINT: c.r2Endpoint,
+    R2_ACCESS_KEY_ID: c.r2Key,
+    R2_SECRET_ACCESS_KEY: c.r2Secret,
+    R2_BUCKET: c.r2Bucket,
+    R2_PUBLIC_URL: c.r2Endpoint + '/' + c.r2Bucket,
+    R2_FORCE_PATH_STYLE: true,
+    CORS_ORIGIN: 'http://localhost:3000',
     COOKIE_SECRET: 'test-cookie-secret-1234567890',
     GOOGLE_CLIENT_ID: 'test-google-client-id',
     GOOGLE_CLIENT_SECRET: 'test-google-client-secret',
@@ -29,7 +38,10 @@ describe('google oauth', () => {
     app = await buildGoogleApp(c);
   }, 60000);
 
-  afterAll(async () => { await app?.close(); await c?.stop(); });
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
   afterEach(() => vi.restoreAllMocks());
 
   it('GET /v1/auth/google/init redirects to Google with state cookie', async () => {
@@ -48,7 +60,8 @@ describe('google oauth', () => {
   it('POST /v1/auth/google/exchange with valid OTP returns accessToken', async () => {
     // Create a user to get a real userId
     const regRes = await app.inject({
-      method: 'POST', url: '/v1/auth/register',
+      method: 'POST',
+      url: '/v1/auth/register',
       payload: { email: 'otp-test@example.com', password: 'password123' },
     });
     expect(regRes.statusCode).toBe(201);
@@ -65,7 +78,8 @@ describe('google oauth', () => {
 
     // Exchange OTP
     const res = await app.inject({
-      method: 'POST', url: '/v1/auth/google/exchange',
+      method: 'POST',
+      url: '/v1/auth/google/exchange',
       payload: { code: otp },
     });
     expect(res.statusCode).toBe(200);
@@ -73,7 +87,8 @@ describe('google oauth', () => {
 
     // OTP must be consumed (cannot reuse)
     const res2 = await app.inject({
-      method: 'POST', url: '/v1/auth/google/exchange',
+      method: 'POST',
+      url: '/v1/auth/google/exchange',
       payload: { code: otp },
     });
     expect(res2.statusCode).toBe(400);
@@ -82,7 +97,8 @@ describe('google oauth', () => {
 
   it('POST /v1/auth/google/exchange with expired/missing OTP returns 400', async () => {
     const res = await app.inject({
-      method: 'POST', url: '/v1/auth/google/exchange',
+      method: 'POST',
+      url: '/v1/auth/google/exchange',
       payload: { code: 'nonexistent-otp' },
     });
     expect(res.statusCode).toBe(400);
@@ -95,16 +111,20 @@ describe('google oauth', () => {
       const urlStr = url.toString();
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(JSON.stringify({ access_token: 'mock-google-access-token' }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
         });
       }
       if (urlStr.includes('googleapis.com/oauth2/v3/userinfo')) {
-        return new Response(JSON.stringify({
-          sub: 'google-sub-001',
-          email: 'newgoogleuser@example.com',
-          name: 'New Google User',
-          picture: 'https://example.com/pic.jpg',
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return new Response(
+          JSON.stringify({
+            sub: 'google-sub-001',
+            email: 'newgoogleuser@example.com',
+            name: 'New Google User',
+            picture: 'https://example.com/pic.jpg',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
       throw new Error(`Unexpected fetch to: ${urlStr}`);
     };
@@ -147,7 +167,8 @@ describe('google oauth', () => {
   it('GET /v1/auth/google/callback links Google to existing email/password account', async () => {
     // Register a user with email/password first
     const regRes = await app.inject({
-      method: 'POST', url: '/v1/auth/register',
+      method: 'POST',
+      url: '/v1/auth/register',
       payload: { email: 'existing@example.com', password: 'password123' },
     });
     expect(regRes.statusCode).toBe(201);
@@ -157,16 +178,20 @@ describe('google oauth', () => {
       const urlStr = url.toString();
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(JSON.stringify({ access_token: 'mock-google-token-link' }), {
-          status: 200, headers: { 'Content-Type': 'application/json' },
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
         });
       }
       if (urlStr.includes('googleapis.com/oauth2/v3/userinfo')) {
-        return new Response(JSON.stringify({
-          sub: 'google-sub-link-002',
-          email: 'existing@example.com',   // same email as registered user
-          name: 'Existing User',
-          picture: 'https://example.com/pic2.jpg',
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        return new Response(
+          JSON.stringify({
+            sub: 'google-sub-link-002',
+            email: 'existing@example.com', // same email as registered user
+            name: 'Existing User',
+            picture: 'https://example.com/pic2.jpg',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
       }
       throw new Error(`Unexpected fetch to: ${urlStr}`);
     };
@@ -200,10 +225,12 @@ describe('google oauth', () => {
     const links = await app.db
       .select({ userId: schema.oauthAccounts.userId })
       .from(schema.oauthAccounts)
-      .where(and(
-        eq(schema.oauthAccounts.provider, 'google'),
-        eq(schema.oauthAccounts.providerId, 'google-sub-link-002'),
-      ));
+      .where(
+        and(
+          eq(schema.oauthAccounts.provider, 'google'),
+          eq(schema.oauthAccounts.providerId, 'google-sub-link-002'),
+        ),
+      );
     expect(links).toHaveLength(1);
     expect(links[0]!.userId).toBe(originalUserId);
   });

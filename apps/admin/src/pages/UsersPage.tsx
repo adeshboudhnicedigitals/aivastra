@@ -1,13 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
-import type { User } from '../types';
-import { apiFetch } from '../lib/data';
+import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
-import { StatusBadge } from '../components/StatusBadge';
-import { NameAvatar } from '../components/NameAvatar';
 import { KV } from '../components/KV';
+import { NameAvatar } from '../components/NameAvatar';
 import { Pager } from '../components/Pager';
-import { Th } from '../components/Th';
+import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
+import { Th } from '../components/Th';
+import { apiFetch } from '../lib/data';
+import type { User } from '../types';
 
 const PAGE_SIZE = 20;
 
@@ -47,7 +47,9 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
     }
   }, [page, query, toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const handleSearch = (q: string) => {
     setQuery(q);
@@ -57,7 +59,10 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
   const sorted = [...users].sort((a, b) => {
     const aVal = a[sortKey] ?? '';
     const bVal = b[sortKey] ?? '';
-    const cmp = typeof aVal === 'string' ? aVal.localeCompare(bVal as string) : (aVal as number) - (bVal as number);
+    const cmp =
+      typeof aVal === 'string'
+        ? aVal.localeCompare(bVal as string)
+        : (aVal as number) - (bVal as number);
     return sortDir === 'asc' ? cmp : -cmp;
   });
 
@@ -65,7 +70,10 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
 
   const handleSort = (k: keyof User) => {
     if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(k); setSortDir('asc'); }
+    else {
+      setSortKey(k);
+      setSortDir('asc');
+    }
   };
 
   const openDetail = async (u: User) => {
@@ -90,7 +98,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
         body: JSON.stringify({ isBanned: willBan }),
       });
       setDetail({ ...detail, isBanned: willBan });
-      setUsers((prev) => prev.map((u) => u.id === detail.id ? { ...u, isBanned: willBan } : u));
+      setUsers((prev) => prev.map((u) => (u.id === detail.id ? { ...u, isBanned: willBan } : u)));
       toast({ title: `User ${willBan ? 'suspended' : 'unsuspended'}` });
     } catch {
       toast({ kind: 'error', title: 'Action failed' });
@@ -102,10 +110,20 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
     if (!grantUserId || !grantAmount) return;
     setGranting(true);
     try {
-      const body = { userId: grantUserId, amount: parseInt(grantAmount, 10), reason: grantReason.trim() || 'Manual credit grant' };
+      const body = {
+        userId: grantUserId,
+        amount: parseInt(grantAmount, 10),
+        reason: grantReason.trim() || 'Manual credit grant',
+      };
       await apiFetch('/admin/credits/grant', { method: 'POST', body: JSON.stringify(body) });
-      setDetail((prev) => prev ? { ...prev, balance: prev.balance + parseInt(grantAmount, 10) } : null);
-      setUsers((prev) => prev.map((u) => u.id === grantUserId ? { ...u, balance: u.balance + parseInt(grantAmount, 10) } : u));
+      setDetail((prev) =>
+        prev ? { ...prev, balance: prev.balance + parseInt(grantAmount, 10) } : null,
+      );
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === grantUserId ? { ...u, balance: u.balance + parseInt(grantAmount, 10) } : u,
+        ),
+      );
       toast({ title: `Granted ${parseInt(grantAmount, 10).toLocaleString()} credits` });
       setGrantUserId(null);
       setGrantAmount('');
@@ -123,13 +141,24 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
       <>
         <div className="page-head">
           <div>
-            <button className="btn ghost" onClick={() => setDetail(null)}><Icon.Chevron /> Back to users</button>
+            <button className="btn ghost" onClick={() => setDetail(null)}>
+              <Icon.Chevron /> Back to users
+            </button>
             <h1 style={{ marginTop: 8 }}>{u.displayName ?? u.email}</h1>
-            <p className="lede">{u.email} &middot; {u.id}</p>
+            <p className="lede">
+              {u.email} &middot; {u.id}
+            </p>
           </div>
           <div className="head-tools">
             <StatusBadge status={u.isBanned ? 'FAILED' : 'active'} />
-            <button className="btn" onClick={() => { setGrantUserId(u.id); setGrantAmount(''); setGrantReason(''); }}>
+            <button
+              className="btn"
+              onClick={() => {
+                setGrantUserId(u.id);
+                setGrantAmount('');
+                setGrantReason('');
+              }}
+            >
               <Icon.Plus /> Grant Credits
             </button>
             <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
@@ -142,33 +171,60 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading&hellip;</p>
         ) : (
           <>
-            <div className="kv-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+            <div
+              className="kv-grid"
+              style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}
+            >
               <KV k="Tier" v={u.tier} />
               <KV k="Balance" v={u.balance.toLocaleString()} />
               <KV k="Total jobs" v={(u.totalJobs ?? 0).toLocaleString()} />
               <KV k="Last job" v={u.lastJobAt ? new Date(u.lastJobAt).toLocaleString() : '—'} />
               <KV k="Joined" v={new Date(u.createdAt).toLocaleDateString()} />
-              <KV k="Banned" v={u.isBanned ? `Yes${u.banReason ? ` — ${u.banReason}` : ''}` : 'No'} />
+              <KV
+                k="Banned"
+                v={u.isBanned ? `Yes${u.banReason ? ` — ${u.banReason}` : ''}` : 'No'}
+              />
             </div>
 
             <div className="card">
-              <div className="card-head"><h3>Recent jobs</h3></div>
+              <div className="card-head">
+                <h3>Recent jobs</h3>
+              </div>
               <div className="card-body" style={{ padding: 0 }}>
-                {u.recentJobs?.length ? u.recentJobs.slice(0, 10).map((j) => (
-                  <div key={j.id} style={{ padding: '10px 18px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <span className="mono" style={{ fontSize: 12 }}>{j.id}</span>
-                    <StatusBadge status={j.status} />
-                    <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>
-                      {new Date(j.createdAt).toLocaleString()}
-                    </span>
-                    {j.completedAt && j.startedAt && (
-                      <span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        {((new Date(j.completedAt).getTime() - new Date(j.startedAt).getTime()) / 1000).toFixed(1)}s
+                {u.recentJobs?.length ? (
+                  u.recentJobs.slice(0, 10).map((j) => (
+                    <div
+                      key={j.id}
+                      style={{
+                        padding: '10px 18px',
+                        borderBottom: '1px solid var(--border)',
+                        display: 'flex',
+                        gap: 10,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span className="mono" style={{ fontSize: 12 }}>
+                        {j.id}
                       </span>
-                    )}
+                      <StatusBadge status={j.status} />
+                      <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>
+                        {new Date(j.createdAt).toLocaleString()}
+                      </span>
+                      {j.completedAt && j.startedAt && (
+                        <span className="mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {(
+                            (new Date(j.completedAt).getTime() - new Date(j.startedAt).getTime()) /
+                            1000
+                          ).toFixed(1)}
+                          s
+                        </span>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ padding: 20, color: 'var(--muted)', fontSize: 13 }}>
+                    No jobs yet.
                   </div>
-                )) : (
-                  <div style={{ padding: 20, color: 'var(--muted)', fontSize: 13 }}>No jobs yet.</div>
                 )}
               </div>
             </div>
@@ -178,13 +234,22 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
         {confirmSuspend && (
           <div className="modal-overlay" onClick={() => setConfirmSuspend(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head"><h3>{u.isBanned ? 'Unsuspend' : 'Suspend'} user</h3></div>
+              <div className="modal-head">
+                <h3>{u.isBanned ? 'Unsuspend' : 'Suspend'} user</h3>
+              </div>
               <div className="modal-body">
-                <p>Are you sure you want to {u.isBanned ? 'unsuspend' : 'suspend'} <strong>{u.displayName ?? u.email}</strong>?</p>
+                <p>
+                  Are you sure you want to {u.isBanned ? 'unsuspend' : 'suspend'}{' '}
+                  <strong>{u.displayName ?? u.email}</strong>?
+                </p>
               </div>
               <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setConfirmSuspend(null)}>Cancel</button>
-                <button className="btn danger" onClick={handleSuspendConfirm}>Confirm</button>
+                <button className="btn ghost" onClick={() => setConfirmSuspend(null)}>
+                  Cancel
+                </button>
+                <button className="btn danger" onClick={handleSuspendConfirm}>
+                  Confirm
+                </button>
               </div>
             </div>
           </div>
@@ -193,27 +258,49 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
         {grantUserId && (
           <div className="modal-overlay" onClick={() => setGrantUserId(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head"><h3>Grant credits to {u.displayName ?? u.email}</h3></div>
-              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="modal-head">
+                <h3>Grant credits to {u.displayName ?? u.email}</h3>
+              </div>
+              <div
+                className="modal-body"
+                style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+              >
                 <div className="field">
                   <label>Amount</label>
-                  <input className="input" type="number" min={1} max={10000} value={grantAmount}
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={grantAmount}
                     onChange={(e) => setGrantAmount(e.target.value)}
-                    placeholder="Enter credits (max 10,000)" />
+                    placeholder="Enter credits (max 10,000)"
+                  />
                 </div>
                 <div className="field">
                   <label>Reason</label>
-                  <textarea className="input" value={grantReason}
+                  <textarea
+                    className="input"
+                    value={grantReason}
                     onChange={(e) => setGrantReason(e.target.value)}
-                    placeholder="e.g. Customer support, bulk top-up" rows={3}
-                    style={{ resize: 'vertical' }} />
+                    placeholder="e.g. Customer support, bulk top-up"
+                    rows={3}
+                    style={{ resize: 'vertical' }}
+                  />
                 </div>
               </div>
               <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setGrantUserId(null)}>Cancel</button>
-                <button className="btn primary" onClick={handleGrant}
-                  disabled={granting || !grantAmount || parseInt(grantAmount, 10) < 1}>
-                  {granting ? 'Granting…' : `Grant ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`}
+                <button className="btn ghost" onClick={() => setGrantUserId(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn primary"
+                  onClick={handleGrant}
+                  disabled={granting || !grantAmount || parseInt(grantAmount, 10) < 1}
+                >
+                  {granting
+                    ? 'Granting…'
+                    : `Grant ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`}
                 </button>
               </div>
             </div>
@@ -228,7 +315,9 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
       <div className="page-head">
         <div>
           <h1>Users</h1>
-          <p className="lede">{loading ? '…' : total} registered users &middot; Manage accounts, credits, and access.</p>
+          <p className="lede">
+            {loading ? '…' : total} registered users &middot; Manage accounts, credits, and access.
+          </p>
         </div>
         <div className="head-tools">
           <div className="search">
@@ -250,12 +339,24 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
             <table>
               <thead>
                 <tr>
-                  <Th k="displayName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>User</Th>
-                  <Th k="tier" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Tier</Th>
-                  <Th k="balance" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Balance</Th>
-                  <Th k="totalJobs" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Jobs</Th>
-                  <Th k="lastJobAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Last job</Th>
-                  <Th k="isBanned" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Status</Th>
+                  <Th k="displayName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    User
+                  </Th>
+                  <Th k="tier" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Tier
+                  </Th>
+                  <Th k="balance" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Balance
+                  </Th>
+                  <Th k="totalJobs" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Jobs
+                  </Th>
+                  <Th k="lastJobAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Last job
+                  </Th>
+                  <Th k="isBanned" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Status
+                  </Th>
                   <th></th>
                 </tr>
               </thead>
@@ -266,24 +367,54 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <NameAvatar name={u.displayName ?? u.email} email={u.email} size={34} />
                         <div>
-                          <span className="semi">{u.displayName ?? <span style={{ color: 'var(--muted)' }}>{u.email}</span>}</span>
-                          {u.displayName && <span className="sub" style={{ display: 'block' }}>{u.email}</span>}
+                          <span className="semi">
+                            {u.displayName ?? (
+                              <span style={{ color: 'var(--muted)' }}>{u.email}</span>
+                            )}
+                          </span>
+                          {u.displayName && (
+                            <span className="sub" style={{ display: 'block' }}>
+                              {u.email}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
-                    <td><span className="badge dot">{u.tier}</span></td>
-                    <td><span className="mono">{u.balance.toLocaleString()}</span></td>
-                    <td><span className="mono">{(u.totalJobs ?? 0).toLocaleString()}</span></td>
-                    <td><span className="mono">{u.lastJobAt ? new Date(u.lastJobAt).toLocaleDateString() : '—'}</span></td>
-                    <td><StatusBadge status={u.isBanned ? 'FAILED' : 'active'} /></td>
                     <td>
-                      <button className="btn sm ghost" onClick={(e) => e.stopPropagation()}><Icon.MoreHorizontal /></button>
+                      <span className="badge dot">{u.tier}</span>
+                    </td>
+                    <td>
+                      <span className="mono">{u.balance.toLocaleString()}</span>
+                    </td>
+                    <td>
+                      <span className="mono">{(u.totalJobs ?? 0).toLocaleString()}</span>
+                    </td>
+                    <td>
+                      <span className="mono">
+                        {u.lastJobAt ? new Date(u.lastJobAt).toLocaleDateString() : '—'}
+                      </span>
+                    </td>
+                    <td>
+                      <StatusBadge status={u.isBanned ? 'FAILED' : 'active'} />
+                    </td>
+                    <td>
+                      <button className="btn sm ghost" onClick={(e) => e.stopPropagation()}>
+                        <Icon.MoreHorizontal />
+                      </button>
                     </td>
                   </tr>
                 ))}
                 {sorted.length === 0 && (
                   <tr>
-                    <td colSpan={7} style={{ padding: 20, color: 'var(--muted)', fontSize: 13, textAlign: 'center' }}>
+                    <td
+                      colSpan={7}
+                      style={{
+                        padding: 20,
+                        color: 'var(--muted)',
+                        fontSize: 13,
+                        textAlign: 'center',
+                      }}
+                    >
                       No users found.
                     </td>
                   </tr>
@@ -292,7 +423,13 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
             </table>
           </div>
 
-          <Pager page={page} totalPages={totalPages} onPage={setPage} totalItems={total} pageSize={PAGE_SIZE} />
+          <Pager
+            page={page}
+            totalPages={totalPages}
+            onPage={setPage}
+            totalItems={total}
+            pageSize={PAGE_SIZE}
+          />
         </>
       )}
     </>

@@ -35,7 +35,7 @@ export async function submitPrompt(
     log?.error({ url, status: res.status, body: text }, 'ComfyUI /prompt failed');
     throw new Error(`ComfyUI /prompt failed: ${res.status} ${text}`);
   }
-  const json = await res.json() as { prompt_id: string };
+  const json = (await res.json()) as { prompt_id: string };
   log?.info({ url, promptId: json.prompt_id }, 'ComfyUI /prompt accepted');
   return { promptId: json.prompt_id };
 }
@@ -53,8 +53,10 @@ export async function fetchHistory(
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) throw new Error(`ComfyUI /history failed: ${res.status}`);
-  const history = await res.json() as Record<string, unknown>;
-  const entry = history[promptId] as { outputs?: Record<string, { images?: ComfyOutputImage[] }> } | undefined;
+  const history = (await res.json()) as Record<string, unknown>;
+  const entry = history[promptId] as
+    | { outputs?: Record<string, { images?: ComfyOutputImage[] }> }
+    | undefined;
   if (!entry?.outputs) return [];
   const images: ComfyOutputImage[] = [];
   for (const node of Object.values(entry.outputs)) {
@@ -93,7 +95,7 @@ export async function uploadImageToComfy(
     log?.error({ url, filename, status: res.status, body: text }, 'ComfyUI /upload/image failed');
     throw new Error(`ComfyUI /upload/image failed: ${res.status} ${text}`);
   }
-  const json = await res.json() as { name: string };
+  const json = (await res.json()) as { name: string };
   log?.info({ url, filename, assignedName: json.name }, 'ComfyUI /upload/image ok');
   return json.name;
 }

@@ -18,7 +18,11 @@ export async function getWorkers(redis: Redis): Promise<Map<string, WorkerEntry>
   const raw = await redis.hgetall(REGISTRY_KEY);
   const map = new Map<string, WorkerEntry>();
   for (const [id, json] of Object.entries(raw)) {
-    try { map.set(id, JSON.parse(json) as WorkerEntry); } catch { /* skip malformed */ }
+    try {
+      map.set(id, JSON.parse(json) as WorkerEntry);
+    } catch {
+      /* skip malformed */
+    }
   }
   return map;
 }
@@ -46,10 +50,7 @@ export async function registerWorkers(
   }
 }
 
-export async function deregisterWorker(
-  redis: Redis,
-  workerId: string,
-): Promise<void> {
+export async function deregisterWorker(redis: Redis, workerId: string): Promise<void> {
   await redis.hdel(REGISTRY_KEY, workerId);
   await redis.del(healthKey(workerId));
 }

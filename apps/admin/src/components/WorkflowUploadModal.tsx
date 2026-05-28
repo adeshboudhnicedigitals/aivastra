@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
-import { Icon } from './Icons';
+import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
+import { Icon } from './Icons';
 
 interface ParsedNode {
   id: string;
@@ -37,16 +37,18 @@ interface Props {
 
 function NodeBadge({ node }: { node: ParsedNode }) {
   return (
-    <span style={{
-      display: 'inline-block',
-      fontSize: 12,
-      fontFamily: 'monospace',
-      background: 'var(--accent-soft, #eff6ff)',
-      color: 'var(--accent, #2563eb)',
-      border: '1px solid var(--accent-border, #bfdbfe)',
-      borderRadius: 4,
-      padding: '2px 8px',
-    }}>
+    <span
+      style={{
+        display: 'inline-block',
+        fontSize: 12,
+        fontFamily: 'monospace',
+        background: 'var(--accent-soft, #eff6ff)',
+        color: 'var(--accent, #2563eb)',
+        border: '1px solid var(--accent-border, #bfdbfe)',
+        borderRadius: 4,
+        padding: '2px 8px',
+      }}
+    >
       [{node.id}] {node.title}
     </span>
   );
@@ -72,13 +74,26 @@ function NodeSelect({
   return (
     <div className="field" style={{ margin: 0 }}>
       <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-        {label}{required && <span style={{ color: 'var(--danger)' }}> *</span>}
+        {label}
+        {required && <span style={{ color: 'var(--danger)' }}> *</span>}
       </label>
-      {hint && <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{hint}</span>}
-      <select className="select" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={{ fontSize: 13 }}>
+      {hint && (
+        <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+          {hint}
+        </span>
+      )}
+      <select
+        className="select"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        style={{ fontSize: 13 }}
+      >
         <option value="">— select node —</option>
         {nodes.map((n) => (
-          <option key={n.id} value={n.id}>[{n.id}] {n.title} ({n.class_type})</option>
+          <option key={n.id} value={n.id}>
+            [{n.id}] {n.title} ({n.class_type})
+          </option>
         ))}
       </select>
     </div>
@@ -127,7 +142,10 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     setParsed(null);
     setError(null);
     if (f) {
-      const name = f.name.replace(/\.json$/i, '').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+      const name = f.name
+        .replace(/\.json$/i, '')
+        .replace(/[^a-z0-9]+/gi, '_')
+        .toLowerCase();
       setSlug(name);
       setLabel(f.name.replace(/\.json$/i, ''));
     }
@@ -173,13 +191,21 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
   const handleSubmit = async () => {
     if (!jsonFile || !parsed) return;
-    if (!slug.trim() || !label.trim()) { setError('Slug and label are required'); return; }
+    if (!slug.trim() || !label.trim()) {
+      setError('Slug and label are required');
+      return;
+    }
     if (!faceNodeId || !poseNodeId || !bgNodeId || !positivePromptNode || !negativePromptNode) {
-      setError('Face, pose, background, positive prompt, and negative prompt nodes are all required');
+      setError(
+        'Face, pose, background, positive prompt, and negative prompt nodes are all required',
+      );
       return;
     }
     const validUpperIds = upperNodeIds.filter(Boolean);
-    if (validUpperIds.length === 0) { setError('At least one upper garment node is required'); return; }
+    if (validUpperIds.length === 0) {
+      setError('At least one upper garment node is required');
+      return;
+    }
 
     setSaving(true);
     setError(null);
@@ -215,47 +241,97 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     }
   };
 
-  const nodes = parsed ? { image: parsed.allImageNodes, prompt: parsed.allPromptNodes, latent: parsed.allLatentNodes } : null;
+  const nodes = parsed
+    ? { image: parsed.allImageNodes, prompt: parsed.allPromptNodes, latent: parsed.allLatentNodes }
+    : null;
 
   // Count how many required fields are auto-detected
-  const detectedCount = parsed ? [
-    parsed.detected.faceNodeId,
-    parsed.detected.poseNodeId,
-    parsed.detected.bgNodeId,
-    parsed.detected.upperNodeIds.length > 0,
-    parsed.detected.positivePromptNode,
-    parsed.detected.negativePromptNode,
-  ].filter(Boolean).length : 0;
+  const detectedCount = parsed
+    ? [
+        parsed.detected.faceNodeId,
+        parsed.detected.poseNodeId,
+        parsed.detected.bgNodeId,
+        parsed.detected.upperNodeIds.length > 0,
+        parsed.detected.positivePromptNode,
+        parsed.detected.negativePromptNode,
+      ].filter(Boolean).length
+    : 0;
   const requiredCount = 6;
 
-  const canSubmit = !saving && parsed && slug.trim() && label.trim() &&
-    faceNodeId && poseNodeId && bgNodeId && positivePromptNode && negativePromptNode &&
+  const canSubmit =
+    !saving &&
+    parsed &&
+    slug.trim() &&
+    label.trim() &&
+    faceNodeId &&
+    poseNodeId &&
+    bgNodeId &&
+    positivePromptNode &&
+    negativePromptNode &&
     upperNodeIds.filter(Boolean).length > 0;
 
   return (
     <div className="modal-overlay" onClick={saving || parsing ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(700px, calc(100vw - 40px))' }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(700px, calc(100vw - 40px))' }}
+      >
         <div className="modal-head">
           <h3>Upload workflow</h3>
-          <button className="btn sm ghost" onClick={onClose} disabled={saving || parsing} style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={saving || parsing}
+            style={{ marginLeft: 'auto' }}
+          >
             <Icon.Close />
           </button>
         </div>
 
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '80vh', overflowY: 'auto' }}>
-
+        <div
+          className="modal-body"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            maxHeight: '80vh',
+            overflowY: 'auto',
+          }}
+        >
           {/* Convention reference */}
-          <div style={{ background: 'var(--subtle)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 12px' }}>
+          <div
+            style={{
+              background: 'var(--subtle)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '8px 12px',
+            }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                Node titles in the JSON must follow the <strong>naming convention</strong> for auto-detection.
+                Node titles in the JSON must follow the <strong>naming convention</strong> for
+                auto-detection.
               </span>
-              <button className="btn sm ghost" style={{ fontSize: 11 }} onClick={() => setShowConvention((v) => !v)}>
+              <button
+                className="btn sm ghost"
+                style={{ fontSize: 11 }}
+                onClick={() => setShowConvention((v) => !v)}
+              >
                 {showConvention ? 'Hide' : 'Show'} convention
               </button>
             </div>
             {showConvention && (
-              <pre style={{ margin: '8px 0 0', fontSize: 11, fontFamily: 'monospace', color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+              <pre
+                style={{
+                  margin: '8px 0 0',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  color: 'var(--muted)',
+                  whiteSpace: 'pre-wrap',
+                  lineHeight: 1.6,
+                }}
+              >
                 {CONVENTION_DOCS}
               </pre>
             )}
@@ -263,7 +339,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
           {/* Step 1: JSON file */}
           <div className="field">
-            <label>ComfyUI workflow JSON <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <label>
+              ComfyUI workflow JSON <span style={{ color: 'var(--danger)' }}>*</span>
+            </label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <input
                 ref={fileRef}
@@ -273,12 +351,26 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 onChange={handleFileChange}
                 style={{ fontSize: 13, flex: 1 }}
               />
-              <button className="btn sm primary" onClick={handleParse} disabled={!jsonFile || parsing || saving}>
+              <button
+                className="btn sm primary"
+                onClick={handleParse}
+                disabled={!jsonFile || parsing || saving}
+              >
                 {parsing ? 'Parsing…' : 'Parse'}
               </button>
             </div>
             {parsed && (
-              <span style={{ fontSize: 12, color: detectedCount === requiredCount ? 'var(--success, #4caf50)' : 'var(--warning, #f59e0b)', marginTop: 4, display: 'block' }}>
+              <span
+                style={{
+                  fontSize: 12,
+                  color:
+                    detectedCount === requiredCount
+                      ? 'var(--success, #4caf50)'
+                      : 'var(--warning, #f59e0b)',
+                  marginTop: 4,
+                  display: 'block',
+                }}
+              >
                 {detectedCount === requiredCount
                   ? `✓ All ${requiredCount} required nodes auto-detected`
                   : `⚠ ${detectedCount}/${requiredCount} required nodes auto-detected — manually set the rest below`}
@@ -293,16 +385,31 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               {/* Metadata */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div className="field">
-                  <label>Slug <span style={{ color: 'var(--danger)' }}>*</span>
-                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>(snake_case)</span>
+                  <label>
+                    Slug <span style={{ color: 'var(--danger)' }}>*</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>
+                      (snake_case)
+                    </span>
                   </label>
-                  <input className="input" value={slug} disabled={saving}
-                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} />
+                  <input
+                    className="input"
+                    value={slug}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))
+                    }
+                  />
                 </div>
                 <div className="field">
-                  <label>Label <span style={{ color: 'var(--danger)' }}>*</span></label>
-                  <input className="input" value={label} disabled={saving}
-                    onChange={(e) => setLabel(e.target.value)} />
+                  <label>
+                    Label <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={label}
+                    disabled={saving}
+                    onChange={(e) => setLabel(e.target.value)}
+                  />
                 </div>
               </div>
 
@@ -310,52 +417,89 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
               {/* Node mappings — driven by what the JSON contains */}
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                <strong>Node mappings</strong> — auto-detected from node titles. Override any if needed.
+                <strong>Node mappings</strong> — auto-detected from node titles. Override any if
+                needed.
               </p>
 
               {/* Required image nodes */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <NodeSelect label="Face node" nodes={nodes.image} value={faceNodeId} onChange={setFaceNodeId} required disabled={saving}
-                  hint='Title convention: "face"' />
-                <NodeSelect label="Pose / template node" nodes={nodes.image} value={poseNodeId} onChange={setPoseNodeId} required disabled={saving}
-                  hint='Title convention: "pose"' />
-                <NodeSelect label="Background node" nodes={nodes.image} value={bgNodeId} onChange={setBgNodeId} required disabled={saving}
-                  hint='Title convention: "background"' />
+                <NodeSelect
+                  label="Face node"
+                  nodes={nodes.image}
+                  value={faceNodeId}
+                  onChange={setFaceNodeId}
+                  required
+                  disabled={saving}
+                  hint='Title convention: "face"'
+                />
+                <NodeSelect
+                  label="Pose / template node"
+                  nodes={nodes.image}
+                  value={poseNodeId}
+                  onChange={setPoseNodeId}
+                  required
+                  disabled={saving}
+                  hint='Title convention: "pose"'
+                />
+                <NodeSelect
+                  label="Background node"
+                  nodes={nodes.image}
+                  value={bgNodeId}
+                  onChange={setBgNodeId}
+                  required
+                  disabled={saving}
+                  hint='Title convention: "background"'
+                />
               </div>
 
               {/* Upper garment — can have multiple */}
               <div className="field">
                 <label style={{ fontSize: 12, fontWeight: 600 }}>
                   Upper garment node(s) <span style={{ color: 'var(--danger)' }}>*</span>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>
+                  <span
+                    style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}
+                  >
                     Title convention: "upper_garment" (or "upper_garment_1", "upper_garment_2" …)
                   </span>
                 </label>
                 {upperNodeIds.map((uid, idx) => (
                   <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                    <select className="select" value={uid} disabled={saving} style={{ flex: 1, fontSize: 13 }}
+                    <select
+                      className="select"
+                      value={uid}
+                      disabled={saving}
+                      style={{ flex: 1, fontSize: 13 }}
                       onChange={(e) => {
                         const next = [...upperNodeIds];
                         next[idx] = e.target.value;
                         setUpperNodeIds(next);
-                      }}>
+                      }}
+                    >
                       <option value="">— select node —</option>
                       {nodes.image.map((n) => (
-                        <option key={n.id} value={n.id}>[{n.id}] {n.title} ({n.class_type})</option>
+                        <option key={n.id} value={n.id}>
+                          [{n.id}] {n.title} ({n.class_type})
+                        </option>
                       ))}
                     </select>
                     {upperNodeIds.length > 1 && (
-                      <button className="btn sm ghost" disabled={saving}
-                        onClick={() => setUpperNodeIds((prev) => prev.filter((_, i) => i !== idx))}>
+                      <button
+                        className="btn sm ghost"
+                        disabled={saving}
+                        onClick={() => setUpperNodeIds((prev) => prev.filter((_, i) => i !== idx))}
+                      >
                         <Icon.Close />
                       </button>
                     )}
                   </div>
                 ))}
                 {upperNodeIds.length < 8 && (
-                  <button className="btn sm ghost" disabled={saving}
+                  <button
+                    className="btn sm ghost"
+                    disabled={saving}
                     onClick={() => setUpperNodeIds((prev) => [...prev, ''])}
-                    style={{ marginTop: 2 }}>
+                    style={{ marginTop: 2 }}
+                  >
                     <Icon.Plus /> Add another upper garment node
                   </button>
                 )}
@@ -363,36 +507,80 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
               {/* Optional image nodes */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <NodeSelect label="Lower garment node (optional)" nodes={nodes.image} value={lowerNodeId} onChange={setLowerNodeId} disabled={saving}
-                  hint='Title convention: "lower_garment"' />
-                <NodeSelect label="Shoes node (optional)" nodes={nodes.image} value={shoeNodeId} onChange={setShoeNodeId} disabled={saving}
-                  hint='Title convention: "shoes"' />
+                <NodeSelect
+                  label="Lower garment node (optional)"
+                  nodes={nodes.image}
+                  value={lowerNodeId}
+                  onChange={setLowerNodeId}
+                  disabled={saving}
+                  hint='Title convention: "lower_garment"'
+                />
+                <NodeSelect
+                  label="Shoes node (optional)"
+                  nodes={nodes.image}
+                  value={shoeNodeId}
+                  onChange={setShoeNodeId}
+                  disabled={saving}
+                  hint='Title convention: "shoes"'
+                />
               </div>
 
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
 
               {/* Prompt nodes */}
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                <strong>Prompt nodes</strong> — the positive prompt changes per pose; the negative stays hardcoded in the workflow.
+                <strong>Prompt nodes</strong> — the positive prompt changes per pose; the negative
+                stays hardcoded in the workflow.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <NodeSelect label="Positive prompt node" nodes={nodes.prompt} value={positivePromptNode} onChange={setPositivePromptNode} required disabled={saving}
-                  hint='Title convention: "positive_prompt"' />
-                <NodeSelect label="Negative prompt node" nodes={nodes.prompt} value={negativePromptNode} onChange={setNegativePromptNode} required disabled={saving}
-                  hint='Title convention: "negative_prompt"' />
+                <NodeSelect
+                  label="Positive prompt node"
+                  nodes={nodes.prompt}
+                  value={positivePromptNode}
+                  onChange={setPositivePromptNode}
+                  required
+                  disabled={saving}
+                  hint='Title convention: "positive_prompt"'
+                />
+                <NodeSelect
+                  label="Negative prompt node"
+                  nodes={nodes.prompt}
+                  value={negativePromptNode}
+                  onChange={setNegativePromptNode}
+                  required
+                  disabled={saving}
+                  hint='Title convention: "negative_prompt"'
+                />
               </div>
 
               {/* Size node (EmptyLatentImage) */}
               {nodes.latent.length > 0 && (
                 <div className="field" style={{ margin: 0 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Size node (optional)</label>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+                    Size node (optional)
+                  </label>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--muted)',
+                      display: 'block',
+                      marginBottom: 4,
+                    }}
+                  >
                     EmptyLatentImage node for dynamic aspect ratio. Title convention: "size"
                   </span>
-                  <select className="select" value={sizeNodeId} onChange={(e) => setSizeNodeId(e.target.value)} disabled={saving} style={{ fontSize: 13 }}>
+                  <select
+                    className="select"
+                    value={sizeNodeId}
+                    onChange={(e) => setSizeNodeId(e.target.value)}
+                    disabled={saving}
+                    style={{ fontSize: 13 }}
+                  >
                     <option value="">— not used —</option>
                     {nodes.latent.map((n) => (
-                      <option key={n.id} value={n.id}>[{n.id}] {n.title} ({n.class_type})</option>
+                      <option key={n.id} value={n.id}>
+                        [{n.id}] {n.title} ({n.class_type})
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -400,19 +588,42 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
               {/* Detected summary */}
               {detectedCount > 0 && (
-                <div style={{ background: 'var(--success-soft)', border: '1px solid var(--success-border)', borderRadius: 6, padding: '10px 12px', fontSize: 12 }}>
+                <div
+                  style={{
+                    background: 'var(--success-soft)',
+                    border: '1px solid var(--success-border)',
+                    borderRadius: 6,
+                    padding: '10px 12px',
+                    fontSize: 12,
+                  }}
+                >
                   <strong>Auto-detected:</strong>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
                     {[
-                      parsed.detected.faceNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.faceNodeId),
-                      parsed.detected.poseNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.poseNodeId),
-                      parsed.detected.bgNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.bgNodeId),
-                      ...parsed.detected.upperNodeIds.map((id) => parsed.allImageNodes.find((n) => n.id === id)),
-                      parsed.detected.lowerNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.lowerNodeId),
-                      parsed.detected.shoeNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.shoeNodeId),
-                      parsed.detected.positivePromptNode && parsed.allPromptNodes.find((n) => n.id === parsed.detected.positivePromptNode),
-                      parsed.detected.negativePromptNode && parsed.allPromptNodes.find((n) => n.id === parsed.detected.negativePromptNode),
-                    ].filter(Boolean).map((n) => n && <NodeBadge key={n.id} node={n} />)}
+                      parsed.detected.faceNodeId &&
+                        parsed.allImageNodes.find((n) => n.id === parsed.detected.faceNodeId),
+                      parsed.detected.poseNodeId &&
+                        parsed.allImageNodes.find((n) => n.id === parsed.detected.poseNodeId),
+                      parsed.detected.bgNodeId &&
+                        parsed.allImageNodes.find((n) => n.id === parsed.detected.bgNodeId),
+                      ...parsed.detected.upperNodeIds.map((id) =>
+                        parsed.allImageNodes.find((n) => n.id === id),
+                      ),
+                      parsed.detected.lowerNodeId &&
+                        parsed.allImageNodes.find((n) => n.id === parsed.detected.lowerNodeId),
+                      parsed.detected.shoeNodeId &&
+                        parsed.allImageNodes.find((n) => n.id === parsed.detected.shoeNodeId),
+                      parsed.detected.positivePromptNode &&
+                        parsed.allPromptNodes.find(
+                          (n) => n.id === parsed.detected.positivePromptNode,
+                        ),
+                      parsed.detected.negativePromptNode &&
+                        parsed.allPromptNodes.find(
+                          (n) => n.id === parsed.detected.negativePromptNode,
+                        ),
+                    ]
+                      .filter(Boolean)
+                      .map((n) => n && <NodeBadge key={n.id} node={n} />)}
                   </div>
                 </div>
               )}
@@ -420,14 +631,24 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           )}
 
           {error && (
-            <div style={{ fontSize: 13, color: 'var(--danger)', padding: '8px 12px', background: 'var(--danger-soft)', borderRadius: 6 }}>
+            <div
+              style={{
+                fontSize: 13,
+                color: 'var(--danger)',
+                padding: '8px 12px',
+                background: 'var(--danger-soft)',
+                borderRadius: 6,
+              }}
+            >
               {error}
             </div>
           )}
         </div>
 
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving || parsing}>Cancel</button>
+          <button className="btn ghost" onClick={onClose} disabled={saving || parsing}>
+            Cancel
+          </button>
           <button className="btn primary" onClick={handleSubmit} disabled={!canSubmit}>
             <Icon.Upload />
             {saving ? 'Creating…' : 'Create workflow'}

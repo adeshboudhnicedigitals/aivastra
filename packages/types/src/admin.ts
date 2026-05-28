@@ -25,7 +25,10 @@ export const CreateCategoryBody = z.object({
   genderSlug: z.enum(['men', 'women', 'boys', 'girls']).optional(),
   sortOrder: z.number().int().default(0),
 });
-const CoercedPositiveInt = z.union([z.number().int().positive(), z.string().regex(/^\d+$/).transform(Number)]);
+const CoercedPositiveInt = z.union([
+  z.number().int().positive(),
+  z.string().regex(/^\d+$/).transform(Number),
+]);
 const CatalogTypeSlug = z.enum(['lower', 'shoe']);
 
 export const PresignCatalogItemBody = z.object({
@@ -94,7 +97,9 @@ export const PatchModelBackgroundBody = z.object({
 // ── Workflow template schemas ─────────────────────────────────────────────
 
 export const CreateWorkflowBody = z.object({
-  slug: z.string().regex(/^[a-z0-9_]+$/, 'Slug must be snake_case (lowercase letters, digits, underscores only)'),
+  slug: z
+    .string()
+    .regex(/^[a-z0-9_]+$/, 'Slug must be snake_case (lowercase letters, digits, underscores only)'),
   label: z.string().min(1).max(120),
   jsonContent: z.record(z.any()),
   faceNodeId: z.string().min(1),
@@ -134,71 +139,81 @@ export const ReassignWorkflowBody = z.object({
 // ── Pose schemas ──────────────────────────────────────────────────────────
 
 // Poses are per (garment type × face × background) combo, e.g. m1bg1p1
-export const PresignModelPoseBody = z.object({
-  garmentTypeId: z.string().uuid(),
-  // Exactly one of faceId (existing) or newFaceContentType (upload new)
-  faceId: z.string().uuid().optional(),
-  newFaceContentType: AssetContentType.optional(),
-  // Exactly one of backgroundId (existing) or newBgContentType (upload new)
-  backgroundId: z.string().uuid().optional(),
-  newBgContentType: AssetContentType.optional(),
-  // Pose body image
-  contentType: AssetContentType,
-  // Side/tilt face for ComfyUI (optional — batch uploads omit this and the processor falls back to the display face)
-  faceSideContentType: AssetContentType.optional(),
-  // Per-pose background image for ComfyUI (optional — batch uploads omit this and the processor falls back to the display background)
-  bgComfyContentType: AssetContentType.optional(),
-}).refine(
-  (d) => Boolean(d.faceId) !== Boolean(d.newFaceContentType),
-  { message: 'Provide either faceId or newFaceContentType, not both', path: ['faceId'] },
-).refine(
-  (d) => Boolean(d.backgroundId) !== Boolean(d.newBgContentType),
-  { message: 'Provide either backgroundId or newBgContentType, not both', path: ['backgroundId'] },
-);
+export const PresignModelPoseBody = z
+  .object({
+    garmentTypeId: z.string().uuid(),
+    // Exactly one of faceId (existing) or newFaceContentType (upload new)
+    faceId: z.string().uuid().optional(),
+    newFaceContentType: AssetContentType.optional(),
+    // Exactly one of backgroundId (existing) or newBgContentType (upload new)
+    backgroundId: z.string().uuid().optional(),
+    newBgContentType: AssetContentType.optional(),
+    // Pose body image
+    contentType: AssetContentType,
+    // Side/tilt face for ComfyUI (optional — batch uploads omit this and the processor falls back to the display face)
+    faceSideContentType: AssetContentType.optional(),
+    // Per-pose background image for ComfyUI (optional — batch uploads omit this and the processor falls back to the display background)
+    bgComfyContentType: AssetContentType.optional(),
+  })
+  .refine((d) => Boolean(d.faceId) !== Boolean(d.newFaceContentType), {
+    message: 'Provide either faceId or newFaceContentType, not both',
+    path: ['faceId'],
+  })
+  .refine((d) => Boolean(d.backgroundId) !== Boolean(d.newBgContentType), {
+    message: 'Provide either backgroundId or newBgContentType, not both',
+    path: ['backgroundId'],
+  });
 
-export const ConfirmModelPoseBody = z.object({
-  garmentTypeId: z.string().uuid(),
-  // Exactly one of faceId (existing) or newFace (inline upload)
-  faceId: z.string().uuid().optional(),
-  newFace: z.object({
+export const ConfirmModelPoseBody = z
+  .object({
+    garmentTypeId: z.string().uuid(),
+    // Exactly one of faceId (existing) or newFace (inline upload)
+    faceId: z.string().uuid().optional(),
+    newFace: z
+      .object({
+        r2Key: z.string().min(1),
+        thumbnailKey: z.string().min(1),
+        filename: z.string().min(1),
+      })
+      .optional(),
+    // Exactly one of backgroundId (existing) or newBackground (inline upload)
+    backgroundId: z.string().uuid().optional(),
+    newBackground: z
+      .object({
+        r2Key: z.string().min(1),
+        thumbnailKey: z.string().min(1),
+        filename: z.string().min(1),
+      })
+      .optional(),
+    // Pose body image
+    label: z.string().min(1).max(120),
     r2Key: z.string().min(1),
     thumbnailKey: z.string().min(1),
-    filename: z.string().min(1),
-  }).optional(),
-  // Exactly one of backgroundId (existing) or newBackground (inline upload)
-  backgroundId: z.string().uuid().optional(),
-  newBackground: z.object({
-    r2Key: z.string().min(1),
-    thumbnailKey: z.string().min(1),
-    filename: z.string().min(1),
-  }).optional(),
-  // Pose body image
-  label: z.string().min(1).max(120),
-  r2Key: z.string().min(1),
-  thumbnailKey: z.string().min(1),
-  // Side/tilt face (optional — if absent the processor falls back to the display face r2Key)
-  faceSideR2Key: z.string().min(1).optional(),
-  // Per-pose background for ComfyUI (optional — if absent the processor falls back to the display background)
-  bgComfyR2Key: z.string().min(1).optional(),
-  // Workflow — now a UUID FK instead of an enum string
-  workflowTemplateId: z.string().uuid(),
-  // Optional — if absent or empty the workflow template's own prompt text is used
-  promptFacePhase: z.string().optional(),
-  promptGarmentPhase: z.string().optional(),
-  // Existing fields
-  showsLower: z.boolean().default(false),
-  showsShoes: z.boolean().default(false),
-  lowerItemIds: z.array(z.string().uuid()).optional(),
-  shoeItemIds: z.array(z.string().uuid()).optional(),
-  isTemplate: z.boolean().default(false),
-  sortOrder: z.number().int().default(0),
-}).refine(
-  (d) => Boolean(d.faceId) !== Boolean(d.newFace),
-  { message: 'Provide either faceId or newFace, not both', path: ['faceId'] },
-).refine(
-  (d) => Boolean(d.backgroundId) !== Boolean(d.newBackground),
-  { message: 'Provide either backgroundId or newBackground, not both', path: ['backgroundId'] },
-);
+    // Side/tilt face (optional — if absent the processor falls back to the display face r2Key)
+    faceSideR2Key: z.string().min(1).optional(),
+    // Per-pose background for ComfyUI (optional — if absent the processor falls back to the display background)
+    bgComfyR2Key: z.string().min(1).optional(),
+    // Workflow — now a UUID FK instead of an enum string
+    workflowTemplateId: z.string().uuid(),
+    // Optional — if absent or empty the workflow template's own prompt text is used
+    promptFacePhase: z.string().optional(),
+    promptGarmentPhase: z.string().optional(),
+    // Existing fields
+    showsLower: z.boolean().default(false),
+    showsShoes: z.boolean().default(false),
+    lowerItemIds: z.array(z.string().uuid()).optional(),
+    shoeItemIds: z.array(z.string().uuid()).optional(),
+    isTemplate: z.boolean().default(false),
+    sortOrder: z.number().int().default(0),
+  })
+  .refine((d) => Boolean(d.faceId) !== Boolean(d.newFace), {
+    message: 'Provide either faceId or newFace, not both',
+    path: ['faceId'],
+  })
+  .refine((d) => Boolean(d.backgroundId) !== Boolean(d.newBackground), {
+    message: 'Provide either backgroundId or newBackground, not both',
+    path: ['backgroundId'],
+  });
 
 export const PatchModelPoseBody = z.object({
   label: z.string().min(1).max(120).optional(),
@@ -221,7 +236,11 @@ export const PatchModelPoseBody = z.object({
 // Garment types (formerly subcategories)
 export const CreateGarmentTypeBody = z.object({
   genderSlug: GenderEnum,
-  slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
   label: z.string().min(1).max(120),
   sortOrder: z.number().int().default(0),
   thumbnailKey: z.string().optional(),
@@ -235,4 +254,3 @@ export const PatchGarmentTypeBody = z.object({
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
 });
-

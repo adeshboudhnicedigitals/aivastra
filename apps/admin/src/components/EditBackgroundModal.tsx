@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Icon } from './Icons';
 import { apiFetch } from '../lib/data';
 import type { ModelBackground } from '../types';
+import { Icon } from './Icons';
 
 interface Props {
   background: ModelBackground;
@@ -48,10 +48,19 @@ export function EditBackgroundModal({ background, onSaved, onClose, toast }: Pro
 
   return (
     <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(400px, calc(100vw - 40px))' }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(400px, calc(100vw - 40px))' }}
+      >
         <div className="modal-head">
           <h3>Edit background</h3>
-          <button className="btn sm ghost" onClick={onClose} disabled={saving} style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={saving}
+            style={{ marginLeft: 'auto' }}
+          >
             <Icon.Close />
           </button>
         </div>
@@ -97,7 +106,9 @@ export function EditBackgroundModal({ background, onSaved, onClose, toast }: Pro
         </div>
 
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
           <button
             className="btn primary"
             onClick={handleSave}

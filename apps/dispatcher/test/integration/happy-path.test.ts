@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { Redis } from 'ioredis';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
-import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
-import { startComfyMock, type ComfyMock } from '../helpers/comfy-mock.js';
-import { processJob } from '../../src/job/processor.js';
 import { createLogger } from '@aivastra/logger';
-import { registerWorkers, setWorkerStatus, deregisterWorker } from '../../src/worker/registry.js';
+import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { eq } from 'drizzle-orm';
+import { Redis } from 'ioredis';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { processJob } from '../../src/job/processor.js';
+import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
+import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 
 const WORKER_ID = 'test-worker-happy';
 

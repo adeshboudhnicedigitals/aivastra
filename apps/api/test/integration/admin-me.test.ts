@@ -1,16 +1,24 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { startContainers, type Containers } from '../helpers/containers';
-import { buildTestApp, type TestApp } from '../helpers/api';
 import { schema } from '@aivastra/db';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { buildTestApp, type TestApp } from '../helpers/api';
+import { type Containers, startContainers } from '../helpers/containers';
 
 describe('GET /admin/me', () => {
-  let c: Containers; let app: TestApp;
-  beforeAll(async () => { c = await startContainers(); app = await buildTestApp(c); }, 60000);
-  afterAll(async () => { await app?.close(); await c?.stop(); });
+  let c: Containers;
+  let app: TestApp;
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c);
+  }, 60000);
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
 
   async function registerUser(email: string) {
     const res = await app.inject({
-      method: 'POST', url: '/v1/auth/register',
+      method: 'POST',
+      url: '/v1/auth/register',
       payload: { email, password: 'password123' },
     });
     const { accessToken } = res.json();
@@ -26,7 +34,8 @@ describe('GET /admin/me', () => {
   it('returns 403 for non-admin user', async () => {
     const { token } = await registerUser('plain@x.com');
     const res = await app.inject({
-      method: 'GET', url: '/admin/me',
+      method: 'GET',
+      url: '/admin/me',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(403);
@@ -36,7 +45,8 @@ describe('GET /admin/me', () => {
     const { token, userId } = await registerUser('admin@x.com');
     await app.db.insert(schema.adminUsers).values({ userId, role: 'SUPER_ADMIN' });
     const res = await app.inject({
-      method: 'GET', url: '/admin/me',
+      method: 'GET',
+      url: '/admin/me',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
@@ -51,7 +61,8 @@ describe('GET /admin/me', () => {
     const { token, userId } = await registerUser('mod@x.com');
     await app.db.insert(schema.adminUsers).values({ userId, role: 'MODERATOR' });
     const res = await app.inject({
-      method: 'GET', url: '/admin/me',
+      method: 'GET',
+      url: '/admin/me',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);

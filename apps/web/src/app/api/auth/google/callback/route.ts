@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookies';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    data = await res.json() as { accessToken?: string };
+    data = (await res.json()) as { accessToken?: string };
     setCookieHeader = res.headers.get('set-cookie');
   } catch {
     const url = new URL(`${BASE_PATH}/login`, webOrigin);

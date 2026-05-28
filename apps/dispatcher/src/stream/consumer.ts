@@ -1,6 +1,6 @@
 import { hostname } from 'node:os';
-import type { Redis } from 'ioredis';
 import type { Logger } from '@aivastra/logger';
+import type { Redis } from 'ioredis';
 import type { ProcessorConfig } from '../job/processor.js';
 import { processJob } from '../job/processor.js';
 
@@ -21,7 +21,10 @@ async function ensureGroups(redis: Redis, log: Logger): Promise<void> {
 
 type XReadGroupResult = Array<[string, Array<[string, string[]]>]> | null;
 
-function parseMessage(stream: string, result: XReadGroupResult): { stream: string; messageId: string; jobId: string; userId: string } | null {
+function parseMessage(
+  stream: string,
+  result: XReadGroupResult,
+): { stream: string; messageId: string; jobId: string; userId: string } | null {
   if (!result || !result[0] || !result[0][1].length) return null;
   const [messageId, fields] = result[0][1][0]!;
   const fieldMap: Record<string, string> = {};
@@ -35,14 +38,30 @@ async function readOne(
 ): Promise<{ stream: string; messageId: string; jobId: string; userId: string } | null> {
   // Check priority queue first — no BLOCK (truly non-blocking instant check)
   const priority = (await redis.xreadgroup(
-    'GROUP', GROUP, CONSUMER, 'COUNT', '1', 'STREAMS', 'jobs:priority', '>',
+    'GROUP',
+    GROUP,
+    CONSUMER,
+    'COUNT',
+    '1',
+    'STREAMS',
+    'jobs:priority',
+    '>',
   )) as XReadGroupResult;
   const pMsg = parseMessage('jobs:priority', priority);
   if (pMsg) return pMsg;
 
   // Block up to 2s on normal queue
   const normal = (await redis.xreadgroup(
-    'GROUP', GROUP, CONSUMER, 'COUNT', '1', 'BLOCK', '2000', 'STREAMS', 'jobs:normal', '>',
+    'GROUP',
+    GROUP,
+    CONSUMER,
+    'COUNT',
+    '1',
+    'BLOCK',
+    '2000',
+    'STREAMS',
+    'jobs:normal',
+    '>',
   )) as XReadGroupResult;
   return parseMessage('jobs:normal', normal);
 }
@@ -72,5 +91,7 @@ export async function runConsumer(
 
   loop().catch((err) => log.error({ err }, 'consumer loop crashed'));
 
-  return () => { running = false; };
+  return () => {
+    running = false;
+  };
 }

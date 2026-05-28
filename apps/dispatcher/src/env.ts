@@ -28,7 +28,10 @@ export function loadEnv(): Env {
 
 /** Read per-worker URL from env: WORKER_A_URL, WORKER_B_URL, etc. */
 export function workerUrl(env: NodeJS.ProcessEnv, workerId: string): string {
-  const suffix = workerId.replace(/^worker-/i, '').toUpperCase().replace(/-/g, '_');
+  const suffix = workerId
+    .replace(/^worker-/i, '')
+    .toUpperCase()
+    .replace(/-/g, '_');
   const key = `WORKER_${suffix}_URL`;
   const val = env[key];
   if (!val) throw new Error(`Missing env var ${key} for worker ${workerId}`);

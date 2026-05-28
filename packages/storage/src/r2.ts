@@ -1,6 +1,11 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { StorageProvider, PresignResult } from './index.js';
+import type { PresignResult, StorageProvider } from './index.js';
 
 export interface R2Config {
   endpoint: string;
@@ -27,7 +32,10 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
-  const sign = async (cmd: PutObjectCommand | GetObjectCommand, expiresIn: number): Promise<PresignResult> => {
+  const sign = async (
+    cmd: PutObjectCommand | GetObjectCommand,
+    expiresIn: number,
+  ): Promise<PresignResult> => {
     let url = await getSignedUrl(s3, cmd, { expiresIn });
     // Rewrite internal endpoint to public URL so browsers can reach it over HTTPS
     if (cfg.presignBaseUrl) {
@@ -41,9 +49,14 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
     // ContentLength omitted from PutObjectCommand: including it forces content-length into
     // X-Amz-SignedHeaders, causing SignatureDoesNotMatch when the real file size differs.
     presignPut: (key, contentType, _contentLength, expiresIn = 300) =>
-      sign(new PutObjectCommand({
-        Bucket: cfg.bucket, Key: key, ContentType: contentType,
-      }), expiresIn),
+      sign(
+        new PutObjectCommand({
+          Bucket: cfg.bucket,
+          Key: key,
+          ContentType: contentType,
+        }),
+        expiresIn,
+      ),
     presignGet: (key, expiresIn = 300) =>
       sign(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }), expiresIn),
     deleteObject: async (key) => {

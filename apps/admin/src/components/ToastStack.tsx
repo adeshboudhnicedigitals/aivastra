@@ -17,9 +17,7 @@ export function ToastStack({ items, onDismiss }: ToastStackProps) {
     <div className="toast-stack">
       {items.map((t) => (
         <div key={t.id} className={`toast ${t.kind === 'error' ? 'error' : ''}`}>
-          <div className="ic">
-            {t.kind === 'error' ? <Icon.Alert /> : <Icon.Check />}
-          </div>
+          <div className="ic">{t.kind === 'error' ? <Icon.Alert /> : <Icon.Check />}</div>
           <div className="body">
             <b>{t.title}</b>
             {t.body && <p>{t.body}</p>}

@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { Redis } from 'ioredis';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
-import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
-import { startComfyMock, type ComfyMock } from '../helpers/comfy-mock.js';
-import { recoverPendingJobs } from '../../src/stream/recovery.js';
 import { createLogger } from '@aivastra/logger';
-import { registerWorkers, deregisterWorker } from '../../src/worker/registry.js';
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { eq } from 'drizzle-orm';
+import { Redis } from 'ioredis';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { recoverPendingJobs } from '../../src/stream/recovery.js';
+import { deregisterWorker, registerWorkers } from '../../src/worker/registry.js';
+import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
+import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 
 const WORKER_ID = 'test-worker-recovery';
 // Use a unique stream per test file to avoid cross-test interference
@@ -106,7 +106,16 @@ describe('dispatcher crash recovery', () => {
     // Simulate a "ghost" consumer reading the message without ACKing it
     await redis.xadd(STREAM, '*', 'jobId', job!.id, 'userId', user!.id);
     await redis.xreadgroup(
-      'GROUP', GROUP, 'ghost-consumer', 'COUNT', '1', 'BLOCK', '0', 'STREAMS', STREAM, '>',
+      'GROUP',
+      GROUP,
+      'ghost-consumer',
+      'COUNT',
+      '1',
+      'BLOCK',
+      '0',
+      'STREAMS',
+      STREAM,
+      '>',
     );
 
     // Verify message is pending
@@ -128,10 +137,7 @@ describe('dispatcher crash recovery', () => {
 
     await recoverPendingJobs(redis, cfg, 0, log, [STREAM]);
 
-    const [completed] = await env.db
-      .select()
-      .from(schema.jobs)
-      .where(eq(schema.jobs.id, job!.id));
+    const [completed] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, job!.id));
     expect(completed!.status).toBe('COMPLETED');
   });
 });

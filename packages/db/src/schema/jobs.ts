@@ -1,7 +1,7 @@
-import { pgTable, uuid, text, boolean, integer, jsonb, timestamp } from 'drizzle-orm/pg-core';
-import { users } from './users.js';
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { catalogItems } from './catalog.js';
-import { modelFaces, modelBackgrounds, modelPoses } from './models.js';
+import { modelBackgrounds, modelFaces, modelPoses } from './models.js';
+import { users } from './users.js';
 
 export const jobs = pgTable('jobs', {
   id: uuid('id').primaryKey().defaultRandom(),

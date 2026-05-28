@@ -1,15 +1,25 @@
-import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
-import { eq, desc, and, or, ilike, count, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireAdmin } from './guard.js';
-import { refund } from '../credits/ledger.js';
 import { AppError } from '../../lib/errors.js';
+import { refund } from '../credits/ledger.js';
+import { requireAdmin } from './guard.js';
 
 const JobsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
-  status: z.enum(['QUEUED', 'PREPROCESSING', 'GENERATING', 'UPLOADING', 'COMPLETED', 'FAILED', 'CANCELLED']).optional(),
+  status: z
+    .enum([
+      'QUEUED',
+      'PREPROCESSING',
+      'GENERATING',
+      'UPLOADING',
+      'COMPLETED',
+      'FAILED',
+      'CANCELLED',
+    ])
+    .optional(),
   search: z.string().optional(),
 });
 
@@ -23,10 +33,12 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     const conditions: ReturnType<typeof eq>[] = [];
     if (status) conditions.push(eq(schema.jobs.status, status));
     if (search) {
-      conditions.push(or(
-        ilike(schema.jobs.id, `%${search}%`),
-        ilike(schema.users.email, `%${search}%`),
-      ) as ReturnType<typeof eq>);
+      conditions.push(
+        or(
+          ilike(schema.jobs.id, `%${search}%`),
+          ilike(schema.users.email, `%${search}%`),
+        ) as ReturnType<typeof eq>,
+      );
     }
     const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -61,7 +73,10 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
       .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
-      .leftJoin(schema.modelBackgrounds, eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId))
+      .leftJoin(
+        schema.modelBackgrounds,
+        eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
+      )
       .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
       .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
       .where(where)
@@ -70,7 +85,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       .offset((page - 1) * pageSize);
 
     return {
-      page, pageSize, total,
+      page,
+      pageSize,
+      total,
       items: rows.map((r) => ({
         ...r,
         outputUrl: r.outputKey ? app.storage.publicUrl(r.outputKey) : undefined,
@@ -79,7 +96,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/admin/jobs/:id', { preHandler: R, schema: { params: z.object({ id: z.string().uuid() }) } },
+  app.get(
+    '/admin/jobs/:id',
+    { preHandler: R, schema: { params: z.object({ id: z.string().uuid() }) } },
     async (req) => {
       const { id } = req.params as any;
       const [row] = await app.db
@@ -108,15 +127,22 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
         .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
         .leftJoin(schema.modelFaces, eq(schema.modelFaces.id, schema.jobInputs.faceId))
-        .leftJoin(schema.modelBackgrounds, eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId))
+        .leftJoin(
+          schema.modelBackgrounds,
+          eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
+        )
         .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
         .where(eq(schema.jobs.id, id));
 
       if (!row) throw new AppError('NOT_FOUND', 404, 'job not found');
 
-      const events = await app.db.select().from(schema.jobEvents)
-        .where(eq(schema.jobEvents.jobId, id)).orderBy(desc(schema.jobEvents.createdAt)).limit(50);
+      const events = await app.db
+        .select()
+        .from(schema.jobEvents)
+        .where(eq(schema.jobEvents.jobId, id))
+        .orderBy(desc(schema.jobEvents.createdAt))
+        .limit(50);
 
       return {
         ...row,
@@ -124,30 +150,41 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         outputKey: undefined,
         events,
       };
-    });
+    },
+  );
 
-  app.post('/admin/jobs/:id/retry', { preHandler: W, schema: { params: z.object({ id: z.string().uuid() }) } },
+  app.post(
+    '/admin/jobs/:id/retry',
+    { preHandler: W, schema: { params: z.object({ id: z.string().uuid() }) } },
     async (req) => {
       const { id } = req.params as any;
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
       if (job.status !== 'FAILED') throw new AppError('BAD_STATE', 409, 'only FAILED can retry');
-      await app.db.update(schema.jobs).set({ status: 'QUEUED', errorCode: null, attempts: 0 })
+      await app.db
+        .update(schema.jobs)
+        .set({ status: 'QUEUED', errorCode: null, attempts: 0 })
         .where(eq(schema.jobs.id, id));
       const stream = job.priority ? 'jobs:priority' : 'jobs:normal';
       await app.redis.xadd(stream, '*', 'jobId', id, 'userId', job.userId);
       return { ok: true };
-    });
+    },
+  );
 
-  app.post('/admin/jobs/:id/cancel', { preHandler: W, schema: { params: z.object({ id: z.string().uuid() }) } },
+  app.post(
+    '/admin/jobs/:id/cancel',
+    { preHandler: W, schema: { params: z.object({ id: z.string().uuid() }) } },
     async (req) => {
       const { id } = req.params as any;
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
       if (['COMPLETED', 'CANCELLED'].includes(job.status)) return { ok: true };
-      await app.db.update(schema.jobs).set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })
+      await app.db
+        .update(schema.jobs)
+        .set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })
         .where(eq(schema.jobs.id, id));
       await refund(app.db, job.userId, job.creditsCharged, id, 'REFUND_ADMIN_CANCEL');
       return { ok: true };
-    });
+    },
+  );
 }

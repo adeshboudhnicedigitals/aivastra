@@ -10,7 +10,15 @@ interface ConfirmModalProps {
   onClose: () => void;
 }
 
-export function ConfirmModal({ title, body, what, danger, confirmLabel, onConfirm, onClose }: ConfirmModalProps) {
+export function ConfirmModal({
+  title,
+  body,
+  what,
+  danger,
+  confirmLabel,
+  onConfirm,
+  onClose,
+}: ConfirmModalProps) {
   return (
     <div className="modal-scrim" onClick={onClose}>
       <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
@@ -25,11 +33,10 @@ export function ConfirmModal({ title, body, what, danger, confirmLabel, onConfir
           {what && <div className="what">{what}</div>}
         </div>
         <div className="modal-foot">
-          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button
-            className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
-            onClick={onConfirm}
-          >
+          <button className="btn btn-ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={onConfirm}>
             {confirmLabel || 'Confirm'}
           </button>
         </div>

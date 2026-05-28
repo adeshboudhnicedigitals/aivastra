@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookies';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     headers: { Cookie: `refresh=${refreshToken}` },
   });
 
-  const data = await res.json() as { accessToken?: string };
+  const data = (await res.json()) as { accessToken?: string };
   if (!res.ok) return NextResponse.json(data, { status: res.status });
 
   const response = NextResponse.json({ accessToken: data.accessToken });

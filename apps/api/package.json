@@ -9,7 +9,8 @@
     "start": "node --env-file=../../.env dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:unit": "vitest run --exclude 'test/integration/**'"
+    "test:unit": "vitest run --exclude 'test/integration/**'",
+    "lint": "biome check src/"
   },
   "dependencies": {
     "@aivastra/db": "workspace:*",

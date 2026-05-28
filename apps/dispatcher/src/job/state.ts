@@ -1,7 +1,7 @@
-import type { Redis } from 'ioredis';
-import { eq } from 'drizzle-orm';
-import { schema, type DB } from '@aivastra/db';
+import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
+import { eq } from 'drizzle-orm';
+import type { Redis } from 'ioredis';
 
 export type JobStatus =
   | 'QUEUED'
@@ -33,12 +33,14 @@ export async function transitionJob(
   if (status === 'GENERATING') patch['startedAt'] = now;
   if (status === 'COMPLETED' || status === 'FAILED') patch['completedAt'] = now;
 
-  await db.update(schema.jobs)
+  await db
+    .update(schema.jobs)
     .set(patch as Parameters<ReturnType<typeof db.update>['set']>[0])
     .where(eq(schema.jobs.id, jobId));
 
   if (opts.resultKey && status === 'COMPLETED') {
-    await db.insert(schema.jobOutputs)
+    await db
+      .insert(schema.jobOutputs)
       .values({ jobId, resultKey: opts.resultKey })
       .onConflictDoUpdate({ target: schema.jobOutputs.jobId, set: { resultKey: opts.resultKey } });
   }

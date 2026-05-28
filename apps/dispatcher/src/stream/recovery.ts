@@ -1,6 +1,6 @@
 import { hostname } from 'node:os';
-import type { Redis } from 'ioredis';
 import type { Logger } from '@aivastra/logger';
+import type { Redis } from 'ioredis';
 import type { ProcessorConfig } from '../job/processor.js';
 import { processJob } from '../job/processor.js';
 
@@ -22,9 +22,7 @@ export async function recoverPendingJobs(
     while (true) {
       let pending: PendingEntry[];
       try {
-        pending = (await redis.xpending(
-          stream, GROUP, startId, '+', 10,
-        )) as PendingEntry[];
+        pending = (await redis.xpending(stream, GROUP, startId, '+', 10)) as PendingEntry[];
       } catch (err: unknown) {
         if (err instanceof Error && err.message.includes('NOGROUP')) break;
         throw err;
@@ -35,7 +33,11 @@ export async function recoverPendingJobs(
         if (idleMs < thresholdMs) continue;
         log.warn({ stream, messageId, idleMs }, 'claiming stale pending entry');
         const claimed = (await redis.xclaim(
-          stream, GROUP, CONSUMER, thresholdMs, messageId,
+          stream,
+          GROUP,
+          CONSUMER,
+          thresholdMs,
+          messageId,
         )) as Array<[string, string[]]>;
         if (!claimed.length) continue;
 

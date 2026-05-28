@@ -1,4 +1,5 @@
 import type { schema } from '@aivastra/db';
+
 type Cat = typeof schema.catalogCategories.$inferSelect;
 type Item = typeof schema.catalogItems.$inferSelect & { thumbnailUrl: string };
 
@@ -19,10 +20,14 @@ export function buildTree(cats: Cat[], items: Item[]) {
     (byParent.get(parentId) ?? [])
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((c) => ({
-        id: c.id, slug: c.slug, label: c.label,
+        id: c.id,
+        slug: c.slug,
+        label: c.label,
         children: walk(c.id),
         items: (itemsByCat.get(c.id) ?? []).map((i) => ({
-          id: i.id, label: i.label, thumbnailUrl: i.thumbnailUrl,
+          id: i.id,
+          label: i.label,
+          thumbnailUrl: i.thumbnailUrl,
         })),
       }));
   return walk(null);

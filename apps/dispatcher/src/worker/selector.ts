@@ -1,5 +1,5 @@
 import type { Redis } from 'ioredis';
-import { REGISTRY_KEY, healthKey } from './registry.js';
+import { healthKey, REGISTRY_KEY } from './registry.js';
 
 // Lua script: atomically find first IDLE+healthy worker, mark BUSY, return {id, url}
 const CLAIM_LUA = `
@@ -26,13 +26,10 @@ export interface ClaimedWorker {
 
 export async function selectWorker(redis: Redis): Promise<ClaimedWorker | null> {
   const healthPrefix = healthKey(''); // "worker:health:"
-  const result = await redis.eval(
-    CLAIM_LUA,
-    2,
-    REGISTRY_KEY,
-    healthPrefix,
-    String(Date.now()),
-  ) as [string, string] | false | null;
+  const result = (await redis.eval(CLAIM_LUA, 2, REGISTRY_KEY, healthPrefix, String(Date.now()))) as
+    | [string, string]
+    | false
+    | null;
 
   if (!result) return null;
   return { id: result[0]!, url: result[1]! };

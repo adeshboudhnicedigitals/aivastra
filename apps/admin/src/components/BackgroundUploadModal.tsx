@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
-import { Icon } from './Icons';
+import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/data';
 import type { ModelBackground } from '../types';
+import { Icon } from './Icons';
 
 interface PresignResult {
   uploadUrl: string;
@@ -22,7 +22,9 @@ function uploadFile(url: string, file: File, onProgress: (p: number) => void): P
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', file.type);
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(e.loaded / e.total);
+    };
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
@@ -69,9 +71,18 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
   };
 
   const handleSubmit = async () => {
-    if (!mainFile) { setError('Select a main background image'); return; }
-    if (!thumbFile) { setError('Select a thumbnail image'); return; }
-    if (!label.trim()) { setError('Label is required'); return; }
+    if (!mainFile) {
+      setError('Select a main background image');
+      return;
+    }
+    if (!thumbFile) {
+      setError('Select a thumbnail image');
+      return;
+    }
+    if (!label.trim()) {
+      setError('Label is required');
+      return;
+    }
 
     setError(null);
     setStatus('uploading');
@@ -84,14 +95,22 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
       });
 
       await uploadFile(presign.uploadUrl, mainFile, (p) => setProgress(Math.round(p * 50)));
-      await uploadFile(presign.thumbnailUploadUrl, thumbFile, (p) => setProgress(50 + Math.round(p * 40)));
+      await uploadFile(presign.thumbnailUploadUrl, thumbFile, (p) =>
+        setProgress(50 + Math.round(p * 40)),
+      );
 
       setStatus('confirming');
       setProgress(92);
 
       const row = await apiFetch<ModelBackground>('/admin/assets/backgrounds/confirm', {
         method: 'POST',
-        body: JSON.stringify({ label: label.trim(), r2Key: presign.r2Key, thumbnailKey: presign.thumbnailKey, sortOrder, genderSlug: genderSlug || undefined }),
+        body: JSON.stringify({
+          label: label.trim(),
+          r2Key: presign.r2Key,
+          thumbnailKey: presign.thumbnailKey,
+          sortOrder,
+          genderSlug: genderSlug || undefined,
+        }),
       });
 
       setProgress(100);
@@ -106,17 +125,35 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
 
   return (
     <div className="modal-overlay" onClick={busy ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(520px, calc(100vw - 80px))' }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(520px, calc(100vw - 80px))' }}
+      >
         <div className="modal-head">
           <h3>Add background</h3>
-          <button className="btn sm ghost" onClick={onClose} disabled={busy} style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={busy}
+            style={{ marginLeft: 'auto' }}
+          >
             <Icon.Close />
           </button>
         </div>
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && (
-            <div style={{ color: 'var(--danger)', fontSize: 13, padding: '8px 12px', borderRadius: 6, background: 'var(--danger-soft)', border: '1px solid var(--danger-border)' }}>
+            <div
+              style={{
+                color: 'var(--danger)',
+                fontSize: 13,
+                padding: '8px 12px',
+                borderRadius: 6,
+                background: 'var(--danger-soft)',
+                border: '1px solid var(--danger-border)',
+              }}
+            >
               {error}
             </div>
           )}
@@ -124,46 +161,109 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
           <div className="field">
             <label>
               Main image <span style={{ color: 'var(--danger)' }}>*</span>
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(sent to ComfyUI)</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                (sent to ComfyUI)
+              </span>
             </label>
             {mainPreview && (
-              <img src={mainPreview} alt="main preview"
-                style={{ width: 120, height: 80, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', marginBottom: 8, display: 'block' }} />
+              <img
+                src={mainPreview}
+                alt="main preview"
+                style={{
+                  width: 120,
+                  height: 80,
+                  objectFit: 'cover',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  marginBottom: 8,
+                  display: 'block',
+                }}
+              />
             )}
-            <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy}
-              onChange={handleMainFile} style={{ fontSize: 13 }} />
-            {mainFile && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{mainFile.name} ({(mainFile.size / 1024).toFixed(0)} KB)</span>}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={busy}
+              onChange={handleMainFile}
+              style={{ fontSize: 13 }}
+            />
+            {mainFile && (
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {mainFile.name} ({(mainFile.size / 1024).toFixed(0)} KB)
+              </span>
+            )}
           </div>
 
           <div className="field">
             <label>
               Thumbnail <span style={{ color: 'var(--danger)' }}>*</span>
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(shown in UI card)</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                (shown in UI card)
+              </span>
             </label>
             {thumbPreview && (
-              <img src={thumbPreview} alt="thumbnail preview"
-                style={{ width: 120, height: 80, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)', marginBottom: 8, display: 'block' }} />
+              <img
+                src={thumbPreview}
+                alt="thumbnail preview"
+                style={{
+                  width: 120,
+                  height: 80,
+                  objectFit: 'cover',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  marginBottom: 8,
+                  display: 'block',
+                }}
+              />
             )}
-            <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy}
-              onChange={handleThumbFile} style={{ fontSize: 13 }} />
-            {thumbFile && <span style={{ fontSize: 12, color: 'var(--muted)' }}>{thumbFile.name} ({(thumbFile.size / 1024).toFixed(0)} KB)</span>}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={busy}
+              onChange={handleThumbFile}
+              style={{ fontSize: 13 }}
+            />
+            {thumbFile && (
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {thumbFile.name} ({(thumbFile.size / 1024).toFixed(0)} KB)
+              </span>
+            )}
           </div>
 
           <div className="field">
-            <label>Label <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <input className="input" value={label} disabled={busy} placeholder="e.g. Studio White"
-              onChange={(e) => setLabel(e.target.value)} />
+            <label>
+              Label <span style={{ color: 'var(--danger)' }}>*</span>
+            </label>
+            <input
+              className="input"
+              value={label}
+              disabled={busy}
+              placeholder="e.g. Studio White"
+              onChange={(e) => setLabel(e.target.value)}
+            />
           </div>
 
           <div className="field">
             <label>Sort order (lower = first)</label>
-            <input className="input" type="number" min={0} value={sortOrder} disabled={busy}
-              style={{ width: 100 }} onChange={(e) => setSortOrder(Number(e.target.value))} />
+            <input
+              className="input"
+              type="number"
+              min={0}
+              value={sortOrder}
+              disabled={busy}
+              style={{ width: 100 }}
+              onChange={(e) => setSortOrder(Number(e.target.value))}
+            />
           </div>
 
           <div className="field">
             <label>Gender</label>
-            <select className="select" value={genderSlug} disabled={busy} onChange={(e) => setGenderSlug(e.target.value)}>
+            <select
+              className="select"
+              value={genderSlug}
+              disabled={busy}
+              onChange={(e) => setGenderSlug(e.target.value)}
+            >
               <option value="">All genders</option>
               <option value="men">Men</option>
               <option value="women">Women</option>
@@ -185,8 +285,14 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
         </div>
 
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          <button className="btn primary" onClick={handleSubmit} disabled={busy || !mainFile || !thumbFile || !label.trim()}>
+          <button className="btn ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className="btn primary"
+            onClick={handleSubmit}
+            disabled={busy || !mainFile || !thumbFile || !label.trim()}
+          >
             <Icon.Upload /> Upload
           </button>
         </div>

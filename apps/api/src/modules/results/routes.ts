@@ -1,9 +1,9 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { schema } from '@aivastra/db';
-import { eq, desc, and, or, ilike, count, gte, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { verifyPassword, signAccess, verifyAccess } from '../auth/service.js';
 import { AppError } from '../../lib/errors.js';
+import { signAccess, verifyAccess, verifyPassword } from '../auth/service.js';
 
 const LoginBody = z.object({ email: z.string().email(), password: z.string().min(1) });
 const ResultsQuery = z.object({
@@ -36,9 +36,13 @@ export async function resultsRoutes(app: FastifyInstance) {
     const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
     if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
     if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
-    if (!(await verifyPassword(user.passwordHash, password))) throw new AppError('INVALID', 401, 'invalid credentials');
+    if (!(await verifyPassword(user.passwordHash, password)))
+      throw new AppError('INVALID', 401, 'invalid credentials');
 
-    const [admin] = await app.db.select().from(schema.adminUsers).where(eq(schema.adminUsers.userId, user.id));
+    const [admin] = await app.db
+      .select()
+      .from(schema.adminUsers)
+      .where(eq(schema.adminUsers.userId, user.id));
     if (!admin) throw new AppError('FORBIDDEN', 403, 'admin access required');
 
     const token = await signAccess(secret, user.id, { kind: 'results', role: admin.role }, '8h');
@@ -70,93 +74,106 @@ export async function resultsRoutes(app: FastifyInstance) {
     }
   });
 
-  app.get('/results/data', { preHandler: requireResultsUser, schema: { querystring: ResultsQuery } }, async (req) => {
-    const { page, pageSize, search, userId, date, status } = req.query as any;
-    const conditions: any[] = [];
+  app.get(
+    '/results/data',
+    { preHandler: requireResultsUser, schema: { querystring: ResultsQuery } },
+    async (req) => {
+      const { page, pageSize, search, userId, date, status } = req.query as any;
+      const conditions: any[] = [];
 
-    if (status === 'completed') {
-      conditions.push(eq(schema.jobs.status, 'COMPLETED'));
-    } else if (status === 'failed') {
-      conditions.push(eq(schema.jobs.status, 'FAILED'));
-    } else {
-      conditions.push(or(eq(schema.jobs.status, 'COMPLETED'), eq(schema.jobs.status, 'FAILED')));
-    }
-
-    if (userId) conditions.push(eq(schema.jobs.userId, userId));
-    if (search) {
-      conditions.push(or(
-        ilike(schema.users.email, `%${search}%`),
-        ilike(schema.jobs.id, `%${search}%`),
-      ));
-    }
-    if (date !== 'any') {
-      const now = new Date();
-      let cutoff: Date;
-      if (date === 'today') {
-        cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      } else if (date === '7d') {
-        cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      if (status === 'completed') {
+        conditions.push(eq(schema.jobs.status, 'COMPLETED'));
+      } else if (status === 'failed') {
+        conditions.push(eq(schema.jobs.status, 'FAILED'));
       } else {
-        cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        conditions.push(or(eq(schema.jobs.status, 'COMPLETED'), eq(schema.jobs.status, 'FAILED')));
       }
-      conditions.push(gte(schema.jobs.createdAt, cutoff));
-    }
 
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
+      if (userId) conditions.push(eq(schema.jobs.userId, userId));
+      if (search) {
+        conditions.push(
+          or(ilike(schema.users.email, `%${search}%`), ilike(schema.jobs.id, `%${search}%`)),
+        );
+      }
+      if (date !== 'any') {
+        const now = new Date();
+        let cutoff: Date;
+        if (date === 'today') {
+          cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        } else if (date === '7d') {
+          cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        } else {
+          cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        }
+        conditions.push(gte(schema.jobs.createdAt, cutoff));
+      }
 
-    const [{ total }] = await app.db
-      .select({ total: count() })
-      .from(schema.jobs)
-      .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
-      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-      .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
-      .leftJoin(schema.modelBackgrounds, eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId))
-      .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-      .where(where);
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const rows = await app.db
-      .select({
-        id: schema.jobs.id,
-        catalogueId: schema.jobs.catalogueId,
-        userEmail: schema.users.email,
-        creditsCharged: schema.jobs.creditsCharged,
-        createdAt: schema.jobs.createdAt,
-        status: schema.jobs.status,
-        upperGarmentKey: schema.jobInputs.upperGarmentKey,
-        poseThumbKey: schema.modelPoses.thumbnailKey,
-        backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
-        lowerThumbKey: sql<string | null>`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
-        shoeThumbKey: sql<string | null>`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
-        outputKey: schema.jobOutputs.resultKey,
-      })
-      .from(schema.jobs)
-      .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
-      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-      .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
-      .leftJoin(schema.modelBackgrounds, eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId))
-      .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-      .where(where)
-      .orderBy(desc(schema.jobs.createdAt))
-      .limit(pageSize)
-      .offset((page - 1) * pageSize);
+      const [{ total }] = await app.db
+        .select({ total: count() })
+        .from(schema.jobs)
+        .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
+        .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
+        .leftJoin(
+          schema.modelBackgrounds,
+          eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
+        )
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(where);
 
-    const items = rows.map((r) => ({
-      id: r.id,
-      catalogueId: r.catalogueId,
-      userEmail: r.userEmail,
-      creditsCharged: r.creditsCharged,
-      createdAt: r.createdAt,
-      status: r.status,
-      garmentUrl: r.upperGarmentKey ? app.storage.publicUrl(r.upperGarmentKey) : null,
-      poseUrl: r.poseThumbKey ? app.storage.publicUrl(r.poseThumbKey) : null,
-      backgroundUrl: r.backgroundThumbKey ? app.storage.publicUrl(r.backgroundThumbKey) : null,
-      lowerUrl: r.lowerThumbKey ? app.storage.publicUrl(r.lowerThumbKey) : null,
-      shoeUrl: r.shoeThumbKey ? app.storage.publicUrl(r.shoeThumbKey) : null,
-      outputUrl: r.outputKey ? app.storage.publicUrl(r.outputKey) : null,
-    }));
+      const rows = await app.db
+        .select({
+          id: schema.jobs.id,
+          catalogueId: schema.jobs.catalogueId,
+          userEmail: schema.users.email,
+          creditsCharged: schema.jobs.creditsCharged,
+          createdAt: schema.jobs.createdAt,
+          status: schema.jobs.status,
+          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          poseThumbKey: schema.modelPoses.thumbnailKey,
+          backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
+          lowerThumbKey: sql<
+            string | null
+          >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.lowerCatalogId})`,
+          shoeThumbKey: sql<
+            string | null
+          >`(select ${schema.catalogItems.thumbnailKey} from ${schema.catalogItems} where ${schema.catalogItems.id} = ${schema.jobInputs.shoeCatalogId})`,
+          outputKey: schema.jobOutputs.resultKey,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
+        .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
+        .leftJoin(
+          schema.modelBackgrounds,
+          eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
+        )
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(where)
+        .orderBy(desc(schema.jobs.createdAt))
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
 
-    return { page, pageSize, total, items };
-  });
+      const items = rows.map((r) => ({
+        id: r.id,
+        catalogueId: r.catalogueId,
+        userEmail: r.userEmail,
+        creditsCharged: r.creditsCharged,
+        createdAt: r.createdAt,
+        status: r.status,
+        garmentUrl: r.upperGarmentKey ? app.storage.publicUrl(r.upperGarmentKey) : null,
+        poseUrl: r.poseThumbKey ? app.storage.publicUrl(r.poseThumbKey) : null,
+        backgroundUrl: r.backgroundThumbKey ? app.storage.publicUrl(r.backgroundThumbKey) : null,
+        lowerUrl: r.lowerThumbKey ? app.storage.publicUrl(r.lowerThumbKey) : null,
+        shoeUrl: r.shoeThumbKey ? app.storage.publicUrl(r.shoeThumbKey) : null,
+        outputUrl: r.outputKey ? app.storage.publicUrl(r.outputKey) : null,
+      }));
+
+      return { page, pageSize, total, items };
+    },
+  );
 
   app.get('/results/users', { preHandler: requireResultsUser }, async () => {
     const rows = await app.db

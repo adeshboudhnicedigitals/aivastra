@@ -1,7 +1,7 @@
 import { hostname } from 'node:os';
-import { setGlobalDispatcher, Agent } from 'undici';
-import { S3Client } from '@aws-sdk/client-s3';
 import { createLogger } from '@aivastra/logger';
+import { S3Client } from '@aws-sdk/client-s3';
+import { Agent, setGlobalDispatcher } from 'undici';
 
 // Node's built-in fetch (undici) ignores NODE_TLS_REJECT_UNAUTHORIZED set via dotenv
 // because undici is initialised before env vars load. Override the global dispatcher
@@ -9,15 +9,16 @@ import { createLogger } from '@aivastra/logger';
 if (process.env['NODE_TLS_REJECT_UNAUTHORIZED'] === '0') {
   setGlobalDispatcher(new Agent({ connect: { rejectUnauthorized: false } }));
 }
+
 import { loadEnv, workerUrl } from './env.js';
+import { startHealthServer } from './health/server.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
-import { registerWorkers } from './worker/registry.js';
-import { startHealthMonitor } from './worker/health-monitor.js';
 import { runConsumer } from './stream/consumer.js';
 import { recoverPendingJobs } from './stream/recovery.js';
-import { startHealthServer } from './health/server.js';
+import { startHealthMonitor } from './worker/health-monitor.js';
+import { registerWorkers } from './worker/registry.js';
 
 const log = createLogger('dispatcher', { hostname: hostname() });
 
@@ -54,10 +55,16 @@ async function main(): Promise<void> {
       if (res.ok) {
         log.info({ workerId: w.id, url: w.url }, 'ComfyUI worker reachable ✓');
       } else {
-        log.warn({ workerId: w.id, url: w.url, status: res.status }, 'ComfyUI worker responded with non-OK status');
+        log.warn(
+          { workerId: w.id, url: w.url, status: res.status },
+          'ComfyUI worker responded with non-OK status',
+        );
       }
     } catch (err) {
-      log.warn({ workerId: w.id, url: w.url, err }, 'ComfyUI worker unreachable — health monitor will retry');
+      log.warn(
+        { workerId: w.id, url: w.url, err },
+        'ComfyUI worker unreachable — health monitor will retry',
+      );
     }
   }
 
@@ -92,8 +99,12 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  process.on('SIGTERM', () => { shutdown('SIGTERM').catch((err) => log.error({ err }, 'shutdown error')); });
-  process.on('SIGINT', () => { shutdown('SIGINT').catch((err) => log.error({ err }, 'shutdown error')); });
+  process.on('SIGTERM', () => {
+    shutdown('SIGTERM').catch((err) => log.error({ err }, 'shutdown error'));
+  });
+  process.on('SIGINT', () => {
+    shutdown('SIGINT').catch((err) => log.error({ err }, 'shutdown error'));
+  });
 }
 
 main().catch((err) => {

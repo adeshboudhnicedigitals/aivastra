@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { ApiError } from '../lib/data';
 
@@ -29,30 +29,36 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{
-      minHeight: '100dvh',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'var(--bg)',
-    }}>
-      <div style={{
-        width: '100%',
-        maxWidth: 380,
-        padding: '2rem',
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 'var(--r-xl)',
-        boxShadow: 'var(--shadow-lg)',
-      }}>
+    <div
+      style={{
+        minHeight: '100dvh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg)',
+      }}
+    >
+      <div
+        style={{
+          width: '100%',
+          maxWidth: 380,
+          padding: '2rem',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r-xl)',
+          boxShadow: 'var(--shadow-lg)',
+        }}
+      >
         <div style={{ marginBottom: '1.75rem', textAlign: 'center' }}>
-          <div style={{
-            fontFamily: 'var(--sans)',
-            fontSize: '1.25rem',
-            fontWeight: 700,
-            color: 'var(--ink)',
-            letterSpacing: '-0.02em',
-          }}>
+          <div
+            style={{
+              fontFamily: 'var(--sans)',
+              fontSize: '1.25rem',
+              fontWeight: 700,
+              color: 'var(--ink)',
+              letterSpacing: '-0.02em',
+            }}
+          >
             Aivastra Admin
           </div>
           <div style={{ fontSize: '0.875rem', color: 'var(--muted)', marginTop: '0.25rem' }}>
@@ -60,7 +66,10 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
+        >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
             <label style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--ink-2)' }}>
               Email
@@ -110,14 +119,16 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div style={{
-              padding: '0.5rem 0.75rem',
-              background: 'var(--danger-soft)',
-              border: '1px solid var(--danger-border)',
-              borderRadius: 'var(--r)',
-              color: 'var(--danger-ink)',
-              fontSize: '0.8125rem',
-            }}>
+            <div
+              style={{
+                padding: '0.5rem 0.75rem',
+                background: 'var(--danger-soft)',
+                border: '1px solid var(--danger-border)',
+                borderRadius: 'var(--r)',
+                color: 'var(--danger-ink)',
+                fontSize: '0.8125rem',
+              }}
+            >
               {error}
             </div>
           )}

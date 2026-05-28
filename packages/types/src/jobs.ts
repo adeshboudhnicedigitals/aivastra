@@ -9,21 +9,27 @@ export const CreateTryOnJobRequest = z.object({
     lowerCatalogId: z.string().uuid().optional(),
     shoeCatalogId: z.string().uuid().optional(),
   }),
-  params: z.object({
-    seedStage1: z.number().int().optional(),
-    seedStage2: z.number().int().optional(),
-    stepsStage1: z.number().int().min(1).max(60).optional(),
-    stepsStage2: z.number().int().min(1).max(60).optional(),
-    outputWidth: z.number().int().min(512).max(4096).optional(),
-    outputHeight: z.number().int().min(512).max(4096).optional(),
-  }).optional(),
+  params: z
+    .object({
+      seedStage1: z.number().int().optional(),
+      seedStage2: z.number().int().optional(),
+      stepsStage1: z.number().int().min(1).max(60).optional(),
+      stepsStage2: z.number().int().min(1).max(60).optional(),
+      outputWidth: z.number().int().min(512).max(4096).optional(),
+      outputHeight: z.number().int().min(512).max(4096).optional(),
+    })
+    .optional(),
   userHint: z.string().max(300).optional(),
   aspectRatio: z.string().optional(),
 });
 
 export const PresignUploadBody = z.object({
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
-  contentLength: z.number().int().positive().max(10 * 1024 * 1024),
+  contentLength: z
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 * 1024),
 });
 
 export const PresignUploadResponse = z.object({

@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { apiFetch } from '../lib/data';
+import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
-import { apiFetch } from '../lib/data';
-import type { ModelFace, ModelBackground, ModelPose, WorkflowOption } from '../types';
 
 interface PresignResult {
   uploadUrl: string;
@@ -41,7 +41,14 @@ async function uploadFile(url: string, file: File): Promise<void> {
   });
 }
 
-export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone, onClose, toast }: Props) {
+export function BatchPoseUploadModal({
+  garmentTypeId,
+  faces,
+  backgrounds,
+  onDone,
+  onClose,
+  toast,
+}: Props) {
   const [faceId, setFaceId] = useState(faces[0]?.id ?? '');
   const [backgroundId, setBackgroundId] = useState(backgrounds[0]?.id ?? '');
   const [showsLower, setShowsLower] = useState(false);
@@ -55,29 +62,33 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    apiFetch<WorkflowOption[]>('/admin/workflows').then((wfs) => {
-      const active = wfs.filter((w) => w.isActive);
-      setWorkflows(active);
-      if (active.length > 0) setWorkflowTemplateId(active[0]!.id);
-    }).catch(() => toast({ kind: 'error', title: 'Failed to load workflows' }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    apiFetch<WorkflowOption[]>('/admin/workflows')
+      .then((wfs) => {
+        const active = wfs.filter((w) => w.isActive);
+        setWorkflows(active);
+        if (active.length > 0) setWorkflowTemplateId(active[0]!.id);
+      })
+      .catch(() => toast({ kind: 'error', title: 'Failed to load workflows' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const busy = running;
 
   const handleFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
-    setEntries(files.map((f) => ({
-      file: f,
-      label: f.name.replace(/\.[^.]+$/, ''),
-      status: 'pending',
-    })));
+    setEntries(
+      files.map((f) => ({
+        file: f,
+        label: f.name.replace(/\.[^.]+$/, ''),
+        status: 'pending',
+      })),
+    );
     setTemplateIdx(0); // default first file as template
     setDoneCount(0);
   };
 
   const updateEntry = (idx: number, patch: Partial<FileEntry>) =>
-    setEntries((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
+    setEntries((prev) => prev.map((e, i) => (i === idx ? { ...e, ...patch } : e)));
 
   const handleUpload = async () => {
     if (!faceId || !backgroundId || !workflowTemplateId || entries.length === 0) return;
@@ -87,19 +98,29 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
 
     for (let i = 0; i < entries.length; i++) {
       const entry = entries[i];
-      if (entry.status === 'done') { setDoneCount((n) => n + 1); continue; }
+      if (entry.status === 'done') {
+        setDoneCount((n) => n + 1);
+        continue;
+      }
       updateEntry(i, { status: 'uploading', error: undefined });
       try {
         const presign = await apiFetch<PresignResult>('/admin/assets/poses/presign', {
           method: 'POST',
-          body: JSON.stringify({ garmentTypeId, faceId, backgroundId, contentType: entry.file.type }),
+          body: JSON.stringify({
+            garmentTypeId,
+            faceId,
+            backgroundId,
+            contentType: entry.file.type,
+          }),
         });
         await uploadFile(presign.uploadUrl, entry.file);
         await uploadFile(presign.thumbnailUploadUrl, entry.file);
         const row = await apiFetch<ModelPose>('/admin/assets/poses/confirm', {
           method: 'POST',
           body: JSON.stringify({
-            garmentTypeId, faceId, backgroundId,
+            garmentTypeId,
+            faceId,
+            backgroundId,
             label: entry.label.trim() || entry.file.name,
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
@@ -114,7 +135,10 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
         updateEntry(i, { status: 'done' });
         setDoneCount((n) => n + 1);
       } catch (e) {
-        updateEntry(i, { status: 'error', error: e instanceof Error ? e.message : 'Upload failed' });
+        updateEntry(i, {
+          status: 'error',
+          error: e instanceof Error ? e.message : 'Upload failed',
+        });
       }
     }
 
@@ -128,58 +152,129 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
   const allDone = entries.length > 0 && entries.every((e) => e.status === 'done');
   const hasErrors = entries.some((e) => e.status === 'error');
   // templateIdx must point to a valid non-done entry
-  const canUpload = !busy && faceId && backgroundId && workflowTemplateId && entries.length > 0 && !allDone && templateIdx < entries.length;
+  const canUpload =
+    !busy &&
+    faceId &&
+    backgroundId &&
+    workflowTemplateId &&
+    entries.length > 0 &&
+    !allDone &&
+    templateIdx < entries.length;
 
   return (
     <div className="modal-overlay" onClick={busy ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(600px, calc(100vw - 40px))' }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(600px, calc(100vw - 40px))' }}
+      >
         <div className="modal-head">
           <h3>Batch upload poses</h3>
-          <button className="btn sm ghost" onClick={onClose} disabled={busy} style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={busy}
+            style={{ marginLeft: 'auto' }}
+          >
             <Icon.Close />
           </button>
         </div>
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-
           {/* Shared metadata */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="field">
               <label>Model face (in every image)</label>
-              <select className="select" value={faceId} disabled={busy}
-                onChange={(e) => setFaceId(e.target.value)}>
-                {faces.map((f) => <option key={f.id} value={f.id}>[{f.gender}] {f.label}</option>)}
+              <select
+                className="select"
+                value={faceId}
+                disabled={busy}
+                onChange={(e) => setFaceId(e.target.value)}
+              >
+                {faces.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    [{f.gender}] {f.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="field">
               <label>Background (in every image)</label>
-              <select className="select" value={backgroundId} disabled={busy}
-                onChange={(e) => setBackgroundId(e.target.value)}>
-                {backgrounds.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+              <select
+                className="select"
+                value={backgroundId}
+                disabled={busy}
+                onChange={(e) => setBackgroundId(e.target.value)}
+              >
+                {backgrounds.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
 
           <div className="field">
-            <label>Workflow template <span style={{ color: 'var(--danger)' }}>*</span></label>
-            <select className="select" value={workflowTemplateId} disabled={busy}
-              onChange={(e) => setWorkflowTemplateId(e.target.value)}>
+            <label>
+              Workflow template <span style={{ color: 'var(--danger)' }}>*</span>
+            </label>
+            <select
+              className="select"
+              value={workflowTemplateId}
+              disabled={busy}
+              onChange={(e) => setWorkflowTemplateId(e.target.value)}
+            >
               <option value="">— select —</option>
-              {workflows.map((w) => <option key={w.id} value={w.id}>{w.label} ({w.slug})</option>)}
+              {workflows.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.label} ({w.slug})
+                </option>
+              ))}
             </select>
-            {workflows.length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No active workflows — upload one first</span>}
+            {workflows.length === 0 && (
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                No active workflows — upload one first
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'flex', gap: 24 }}>
-            <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}>
-              <Switch checked={showsLower} onChange={() => { if (!busy) setShowsLower((v) => !v); }} />
-              <label style={{ margin: 0, cursor: 'pointer' }} onClick={() => { if (!busy) setShowsLower((v) => !v); }}>
+            <div
+              className="field"
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}
+            >
+              <Switch
+                checked={showsLower}
+                onChange={() => {
+                  if (!busy) setShowsLower((v) => !v);
+                }}
+              />
+              <label
+                style={{ margin: 0, cursor: 'pointer' }}
+                onClick={() => {
+                  if (!busy) setShowsLower((v) => !v);
+                }}
+              >
                 Shows lower garment
               </label>
             </div>
-            <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}>
-              <Switch checked={showsShoes} onChange={() => { if (!busy) setShowsShoes((v) => !v); }} />
-              <label style={{ margin: 0, cursor: 'pointer' }} onClick={() => { if (!busy) setShowsShoes((v) => !v); }}>
+            <div
+              className="field"
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}
+            >
+              <Switch
+                checked={showsShoes}
+                onChange={() => {
+                  if (!busy) setShowsShoes((v) => !v);
+                }}
+              />
+              <label
+                style={{ margin: 0, cursor: 'pointer' }}
+                onClick={() => {
+                  if (!busy) setShowsShoes((v) => !v);
+                }}
+              >
                 Shows shoes
               </label>
             </div>
@@ -204,7 +299,10 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>
               Uploading {doneCount} / {entries.length}…
               <div className="bar-track" style={{ marginTop: 6 }}>
-                <div className="bar-fill accent" style={{ width: `${entries.length ? (doneCount / entries.length) * 100 : 0}%` }} />
+                <div
+                  className="bar-fill accent"
+                  style={{ width: `${entries.length ? (doneCount / entries.length) * 100 : 0}%` }}
+                />
               </div>
             </div>
           )}
@@ -213,33 +311,68 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
           {entries.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {/* Column headers */}
-              <div style={{ display: 'grid', gridTemplateColumns: '20px 1fr 64px 60px', gap: 8, padding: '0 10px', fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '20px 1fr 64px 60px',
+                  gap: 8,
+                  padding: '0 10px',
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                  fontWeight: 600,
+                }}
+              >
                 <span></span>
                 <span>Pose label (3rd dimension)</span>
                 <span style={{ textAlign: 'center' }}>Template</span>
                 <span>Size</span>
               </div>
-              <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div
+                style={{
+                  maxHeight: 240,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
                 {entries.map((entry, i) => (
-                  <div key={i} style={{
-                    display: 'grid', gridTemplateColumns: '20px 1fr 64px 60px', gap: 8,
-                    alignItems: 'center', padding: '6px 10px', borderRadius: 6,
-                    background: i === templateIdx && entry.status !== 'error'
-                      ? 'var(--accent-soft, #f0f7ff)'
-                      : entry.status === 'done' ? 'var(--success-soft)'
-                      : entry.status === 'error' ? 'var(--danger-soft)'
-                      : 'var(--subtle)',
-                    border: `1px solid ${i === templateIdx && entry.status !== 'error'
-                      ? 'var(--accent, #2563eb)'
-                      : entry.status === 'done' ? 'var(--success-border)'
-                      : entry.status === 'error' ? 'var(--danger-border)'
-                      : 'var(--border)'}`,
-                  }}>
+                  <div
+                    key={i}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '20px 1fr 64px 60px',
+                      gap: 8,
+                      alignItems: 'center',
+                      padding: '6px 10px',
+                      borderRadius: 6,
+                      background:
+                        i === templateIdx && entry.status !== 'error'
+                          ? 'var(--accent-soft, #f0f7ff)'
+                          : entry.status === 'done'
+                            ? 'var(--success-soft)'
+                            : entry.status === 'error'
+                              ? 'var(--danger-soft)'
+                              : 'var(--subtle)',
+                      border: `1px solid ${
+                        i === templateIdx && entry.status !== 'error'
+                          ? 'var(--accent, #2563eb)'
+                          : entry.status === 'done'
+                            ? 'var(--success-border)'
+                            : entry.status === 'error'
+                              ? 'var(--danger-border)'
+                              : 'var(--border)'
+                      }`,
+                    }}
+                  >
                     <span style={{ fontSize: 12, textAlign: 'center' }}>
-                      {entry.status === 'done' ? '✓'
-                        : entry.status === 'error' ? '✗'
-                        : entry.status === 'uploading' ? '↑'
-                        : `${i + 1}`}
+                      {entry.status === 'done'
+                        ? '✓'
+                        : entry.status === 'error'
+                          ? '✗'
+                          : entry.status === 'uploading'
+                            ? '↑'
+                            : `${i + 1}`}
                     </span>
                     <input
                       className="input"
@@ -260,14 +393,21 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
                         style={{ cursor: busy ? 'default' : 'pointer', width: 16, height: 16 }}
                       />
                     </div>
-                    <span style={{ fontSize: 11, color: entry.error ? 'var(--danger)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: entry.error ? 'var(--danger)' : 'var(--muted)',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
                       {entry.error ?? `${(entry.file.size / 1024).toFixed(0)} KB`}
                     </span>
                   </div>
                 ))}
               </div>
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                The selected template pose is shown to users when they pick this face × background combination.
+                The selected template pose is shown to users when they pick this face × background
+                combination.
               </p>
             </div>
           )}
@@ -290,7 +430,9 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
           </button>
           <button className="btn primary" onClick={handleUpload} disabled={!canUpload}>
             <Icon.Upload />
-            {running ? `Uploading ${doneCount}/${entries.length}…` : `Upload ${entries.length || ''} poses`}
+            {running
+              ? `Uploading ${doneCount}/${entries.length}…`
+              : `Upload ${entries.length || ''} poses`}
           </button>
         </div>
       </div>

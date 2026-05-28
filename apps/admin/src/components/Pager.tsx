@@ -26,7 +26,9 @@ export function Pager({ page, totalPages, totalItems, pageSize, onPage }: PagerP
         Showing {start}&ndash;{end} of {totalItems}
       </span>
       <div className="pages">
-        <button disabled={page <= 0} onClick={() => onPage(page - 1)}>&#8249;</button>
+        <button disabled={page <= 0} onClick={() => onPage(page - 1)}>
+          &#8249;
+        </button>
         {pageList.map((p, i) =>
           p === 'ellipsis' ? (
             <span key={`e${i}`}>&hellip;</span>
@@ -36,7 +38,9 @@ export function Pager({ page, totalPages, totalItems, pageSize, onPage }: PagerP
             </button>
           ),
         )}
-        <button disabled={page >= pages - 1} onClick={() => onPage(page + 1)}>&#8250;</button>
+        <button disabled={page >= pages - 1} onClick={() => onPage(page + 1)}>
+          &#8250;
+        </button>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
-import postgres from 'postgres';
-import { hash, Algorithm } from '@node-rs/argon2';
 import { randomUUID } from 'node:crypto';
+import { Algorithm, hash } from '@node-rs/argon2';
+import postgres from 'postgres';
 
 const DB_URL = process.env.DATABASE_URL;
 const EMAIL = process.env.ADMIN_BOOTSTRAP_EMAIL;
@@ -15,7 +15,10 @@ void (async () => {
   const sql = postgres(DB_URL!);
 
   const passwordHash = await hash(PASSWORD!, {
-    algorithm: Algorithm.Argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1,
+    algorithm: Algorithm.Argon2id,
+    memoryCost: 19_456,
+    timeCost: 2,
+    parallelism: 1,
   });
 
   const existing = await sql`SELECT id FROM users WHERE email = ${EMAIL!}`;
@@ -42,6 +45,8 @@ void (async () => {
     console.log('admin_users row inserted');
   }
 
-  console.log(`\nAdmin ready:\n  email:    ${EMAIL}\n  password: ${PASSWORD}\n  role:     SUPER_ADMIN`);
+  console.log(
+    `\nAdmin ready:\n  email:    ${EMAIL}\n  password: ${PASSWORD}\n  role:     SUPER_ADMIN`,
+  );
   await sql.end();
 })();

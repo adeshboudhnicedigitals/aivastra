@@ -4,9 +4,17 @@ export function Logo({ small }: { small?: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={`${BASE}/assets/logo.svg`} alt="" style={{ height: small ? 24 : 28, width: 'auto' }} />
+      <img
+        src={`${BASE}/assets/logo.svg`}
+        alt=""
+        style={{ height: small ? 24 : 28, width: 'auto' }}
+      />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={`${BASE}/assets/logo-text.svg`} alt="Ai Vastra" style={{ height: small ? 32 : 38, width: 'auto' }} />
+      <img
+        src={`${BASE}/assets/logo-text.svg`}
+        alt="Ai Vastra"
+        style={{ height: small ? 32 : 38, width: 'auto' }}
+      />
     </div>
   );
 }
@@ -17,7 +25,11 @@ export function LogoAuth() {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={`${BASE}/assets/logo.svg`} alt="" style={{ height: 36, width: 'auto' }} />
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={`${BASE}/assets/logo-text.svg`} alt="Ai Vastra" style={{ height: 30, width: 'auto' }} />
+      <img
+        src={`${BASE}/assets/logo-text.svg`}
+        alt="Ai Vastra"
+        style={{ height: 30, width: 'auto' }}
+      />
     </div>
   );
 }

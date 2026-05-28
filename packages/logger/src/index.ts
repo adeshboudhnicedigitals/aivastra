@@ -1,4 +1,4 @@
-import { pino, type Logger, type LoggerOptions } from 'pino';
+import { type Logger, type LoggerOptions, pino } from 'pino';
 
 export type { Logger } from 'pino';
 

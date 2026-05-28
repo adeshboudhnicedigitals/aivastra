@@ -1,6 +1,10 @@
-import { NextResponse } from 'next/server';
+import type { NextResponse } from 'next/server';
 
-export function setAuthCookies(response: NextResponse, accessToken: string, setCookieHeader: string | null): void {
+export function setAuthCookies(
+  response: NextResponse,
+  accessToken: string,
+  setCookieHeader: string | null,
+): void {
   response.cookies.set('access_token', accessToken, {
     httpOnly: false,
     sameSite: 'lax',

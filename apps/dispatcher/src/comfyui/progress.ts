@@ -36,8 +36,10 @@ export async function waitForCompletion(
       continue;
     }
 
-    const history = await res.json() as Record<string, unknown>;
-    const entry = history[promptId] as { outputs?: Record<string, unknown>; status?: { status_str?: string } } | undefined;
+    const history = (await res.json()) as Record<string, unknown>;
+    const entry = history[promptId] as
+      | { outputs?: Record<string, unknown>; status?: { status_str?: string } }
+      | undefined;
 
     if (entry?.status?.status_str === 'error') {
       throw new Error(`ComfyUI execution error for prompt ${promptId}`);

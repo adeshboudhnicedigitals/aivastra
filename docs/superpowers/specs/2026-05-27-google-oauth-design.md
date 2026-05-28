@@ -96,6 +96,7 @@ Web route handler:
 ```
 
 ### Security properties
+
 - State cookie: httpOnly, signed, 60s TTL — prevents CSRF
 - OTP: 60s TTL, deleted on first use — prevents replay; meaningless UUID in URL (no token in URL)
 - Tokens never appear in URL bar or server access logs
@@ -105,30 +106,31 @@ Web route handler:
 
 ## 4. New Files
 
-| File | Purpose |
-|------|---------|
-| `packages/db/src/migrations/0011_oauth_accounts.sql` | DB migration |
-| `packages/db/src/schema/users.ts` | Updated: passwordHash nullable, add oauthAccounts table |
-| `apps/api/src/modules/auth/google.routes.ts` | `/v1/auth/google/init`, `/callback`, `/exchange` |
-| `apps/web/src/app/api/auth/google/callback/route.ts` | Exchange OTP → cookies → redirect |
+| File                                                 | Purpose                                                 |
+| ---------------------------------------------------- | ------------------------------------------------------- |
+| `packages/db/src/migrations/0011_oauth_accounts.sql` | DB migration                                            |
+| `packages/db/src/schema/users.ts`                    | Updated: passwordHash nullable, add oauthAccounts table |
+| `apps/api/src/modules/auth/google.routes.ts`         | `/v1/auth/google/init`, `/callback`, `/exchange`        |
+| `apps/web/src/app/api/auth/google/callback/route.ts` | Exchange OTP → cookies → redirect                       |
 
 ---
 
 ## 5. Modified Files
 
-| File | Change |
-|------|--------|
-| `apps/api/src/env.ts` | Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `WEB_URL` |
-| `apps/api/src/server.ts` | Register `googleAuthRoutes` |
-| `apps/web/src/components/ui/google-btn.tsx` | Change to `<a>` tag pointing to `/v1/auth/google/init` |
-| `.env` / `.env.example` | Add Google OAuth env vars |
-| `packages/types/src/auth.ts` | No change needed (no new request bodies required) |
+| File                                        | Change                                                                           |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `apps/api/src/env.ts`                       | Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALLBACK_URL`, `WEB_URL` |
+| `apps/api/src/server.ts`                    | Register `googleAuthRoutes`                                                      |
+| `apps/web/src/components/ui/google-btn.tsx` | Change to `<a>` tag pointing to `/v1/auth/google/init`                           |
+| `.env` / `.env.example`                     | Add Google OAuth env vars                                                        |
+| `packages/types/src/auth.ts`                | No change needed (no new request bodies required)                                |
 
 ---
 
 ## 6. Environment Variables
 
 ### Fastify API (`.env`)
+
 ```
 GOOGLE_CLIENT_ID=       # from Google Cloud Console
 GOOGLE_CLIENT_SECRET=   # from Google Cloud Console
@@ -137,6 +139,7 @@ WEB_URL=http://localhost:3000
 ```
 
 ### Google Cloud Console Setup (manual, one-time)
+
 1. Create project at https://console.cloud.google.com
 2. APIs & Services → OAuth consent screen → External → fill app name, email
 3. APIs & Services → Credentials → Create OAuth 2.0 Client ID → Web application
@@ -147,12 +150,12 @@ WEB_URL=http://localhost:3000
 
 ## 7. User Account Linking Rules
 
-| Scenario | Behavior |
-|----------|----------|
-| First Google sign-in, no account | Auto-register: new `users` row + `oauth_accounts` row |
-| Google sign-in, same email already registered with password | Link: create `oauth_accounts` row for existing user |
-| Google sign-in, same Google account previously used | Normal login: find via `oauth_accounts.provider_id` |
-| Banned user signs in via Google | Check `users.isBanned` after lookup → 403 |
+| Scenario                                                    | Behavior                                              |
+| ----------------------------------------------------------- | ----------------------------------------------------- |
+| First Google sign-in, no account                            | Auto-register: new `users` row + `oauth_accounts` row |
+| Google sign-in, same email already registered with password | Link: create `oauth_accounts` row for existing user   |
+| Google sign-in, same Google account previously used         | Normal login: find via `oauth_accounts.provider_id`   |
+| Banned user signs in via Google                             | Check `users.isBanned` after lookup → 403             |
 
 ---
 

@@ -53,13 +53,9 @@
         "refresh_tokens_user_id_users_id_fk": {
           "name": "refresh_tokens_user_id_users_id_fk",
           "tableFrom": "refresh_tokens",
-          "columnsFrom": [
-            "user_id"
-          ],
+          "columnsFrom": ["user_id"],
           "tableTo": "users",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -140,9 +136,7 @@
       "uniqueConstraints": {
         "users_email_unique": {
           "name": "users_email_unique",
-          "columns": [
-            "email"
-          ],
+          "columns": ["email"],
           "nullsNotDistinct": false
         }
       },
@@ -204,13 +198,9 @@
         "credit_ledger_user_id_users_id_fk": {
           "name": "credit_ledger_user_id_users_id_fk",
           "tableFrom": "credit_ledger",
-          "columnsFrom": [
-            "user_id"
-          ],
+          "columnsFrom": ["user_id"],
           "tableTo": "users",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -251,13 +241,9 @@
         "user_credits_user_id_users_id_fk": {
           "name": "user_credits_user_id_users_id_fk",
           "tableFrom": "user_credits",
-          "columnsFrom": [
-            "user_id"
-          ],
+          "columnsFrom": ["user_id"],
           "tableTo": "users",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -322,13 +308,9 @@
         "catalog_categories_type_id_catalog_types_id_fk": {
           "name": "catalog_categories_type_id_catalog_types_id_fk",
           "tableFrom": "catalog_categories",
-          "columnsFrom": [
-            "type_id"
-          ],
+          "columnsFrom": ["type_id"],
           "tableTo": "catalog_types",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
@@ -408,13 +390,9 @@
         "catalog_items_category_id_catalog_categories_id_fk": {
           "name": "catalog_items_category_id_catalog_categories_id_fk",
           "tableFrom": "catalog_items",
-          "columnsFrom": [
-            "category_id"
-          ],
+          "columnsFrom": ["category_id"],
           "tableTo": "catalog_categories",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
@@ -454,9 +432,7 @@
       "uniqueConstraints": {
         "catalog_types_slug_unique": {
           "name": "catalog_types_slug_unique",
-          "columns": [
-            "slug"
-          ],
+          "columns": ["slug"],
           "nullsNotDistinct": false
         }
       },
@@ -506,13 +482,9 @@
         "job_events_job_id_jobs_id_fk": {
           "name": "job_events_job_id_jobs_id_fk",
           "tableFrom": "job_events",
-          "columnsFrom": [
-            "job_id"
-          ],
+          "columnsFrom": ["job_id"],
           "tableTo": "jobs",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -581,65 +553,45 @@
         "job_inputs_job_id_jobs_id_fk": {
           "name": "job_inputs_job_id_jobs_id_fk",
           "tableFrom": "job_inputs",
-          "columnsFrom": [
-            "job_id"
-          ],
+          "columnsFrom": ["job_id"],
           "tableTo": "jobs",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         },
         "job_inputs_model_catalog_id_catalog_items_id_fk": {
           "name": "job_inputs_model_catalog_id_catalog_items_id_fk",
           "tableFrom": "job_inputs",
-          "columnsFrom": [
-            "model_catalog_id"
-          ],
+          "columnsFrom": ["model_catalog_id"],
           "tableTo": "catalog_items",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         },
         "job_inputs_pose_catalog_id_catalog_items_id_fk": {
           "name": "job_inputs_pose_catalog_id_catalog_items_id_fk",
           "tableFrom": "job_inputs",
-          "columnsFrom": [
-            "pose_catalog_id"
-          ],
+          "columnsFrom": ["pose_catalog_id"],
           "tableTo": "catalog_items",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         },
         "job_inputs_background_catalog_id_catalog_items_id_fk": {
           "name": "job_inputs_background_catalog_id_catalog_items_id_fk",
           "tableFrom": "job_inputs",
-          "columnsFrom": [
-            "background_catalog_id"
-          ],
+          "columnsFrom": ["background_catalog_id"],
           "tableTo": "catalog_items",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         },
         "job_inputs_lower_catalog_id_catalog_items_id_fk": {
           "name": "job_inputs_lower_catalog_id_catalog_items_id_fk",
           "tableFrom": "job_inputs",
-          "columnsFrom": [
-            "lower_catalog_id"
-          ],
+          "columnsFrom": ["lower_catalog_id"],
           "tableTo": "catalog_items",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
@@ -679,13 +631,9 @@
         "job_outputs_job_id_jobs_id_fk": {
           "name": "job_outputs_job_id_jobs_id_fk",
           "tableFrom": "job_outputs",
-          "columnsFrom": [
-            "job_id"
-          ],
+          "columnsFrom": ["job_id"],
           "tableTo": "jobs",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -778,13 +726,9 @@
         "jobs_user_id_users_id_fk": {
           "name": "jobs_user_id_users_id_fk",
           "tableFrom": "jobs",
-          "columnsFrom": [
-            "user_id"
-          ],
+          "columnsFrom": ["user_id"],
           "tableTo": "users",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -832,13 +776,9 @@
         "admin_users_user_id_users_id_fk": {
           "name": "admin_users_user_id_users_id_fk",
           "tableFrom": "admin_users",
-          "columnsFrom": [
-            "user_id"
-          ],
+          "columnsFrom": ["user_id"],
           "tableTo": "users",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "cascade"
         }
@@ -847,9 +787,7 @@
       "uniqueConstraints": {
         "admin_users_user_id_unique": {
           "name": "admin_users_user_id_unique",
-          "columns": [
-            "user_id"
-          ],
+          "columns": ["user_id"],
           "nullsNotDistinct": false
         }
       },

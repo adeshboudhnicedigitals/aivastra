@@ -36,7 +36,10 @@ export function classifyNode(classType: string): NodeCategory {
 }
 
 export function normaliseTitle(title: string): string {
-  return title.trim().toLowerCase().replace(/[\s\-]+/g, '_');
+  return title
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
 }
 
 export function detectMappings(json: Record<string, unknown>): {

@@ -10,7 +10,16 @@ interface ThProps<T extends string> extends ThHTMLAttributes<HTMLTableCellElemen
   right?: boolean;
 }
 
-export function Th<T extends string>({ children, k, sortKey, sortDir, onSort, right, className, ...rest }: ThProps<T>) {
+export function Th<T extends string>({
+  children,
+  k,
+  sortKey,
+  sortDir,
+  onSort,
+  right,
+  className,
+  ...rest
+}: ThProps<T>) {
   if (!k) {
     return (
       <th className={`${right ? 'right' : ''} ${className || ''}`} {...rest}>

@@ -1,12 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/data';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
-import { apiFetch } from '../lib/data';
 
 export type FieldDef =
   | { type: 'text'; name: string; label: string; required?: boolean; placeholder?: string }
   | { type: 'select'; name: string; label: string; options: { value: string; label: string }[] }
-  | { type: 'number'; name: string; label: string; min?: number; defaultValue?: number; placeholder?: string }
+  | {
+      type: 'number';
+      name: string;
+      label: string;
+      min?: number;
+      defaultValue?: number;
+      placeholder?: string;
+    }
   | { type: 'toggle'; name: string; label: string };
 
 interface PresignResult {
@@ -28,7 +35,11 @@ interface UploadModalProps {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-function uploadWithProgress(url: string, file: File, onProgress: (p: number) => void): Promise<void> {
+function uploadWithProgress(
+  url: string,
+  file: File,
+  onProgress: (p: number) => void,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -88,7 +99,10 @@ export function UploadModal({
   };
 
   const handleSubmit = async () => {
-    if (!file) { setError('Select an image file'); return; }
+    if (!file) {
+      setError('Select an image file');
+      return;
+    }
     for (const f of fields) {
       if (f.type === 'text' && f.required && !(values[f.name] as string).trim()) {
         setError(`${f.label} is required`);
@@ -104,7 +118,9 @@ export function UploadModal({
         body: JSON.stringify({ contentType: file.type, ...values, ...presignExtra }),
       });
       await uploadWithProgress(presignRes.uploadUrl, file, (p) => setProgress(Math.round(p * 65)));
-      await uploadWithProgress(presignRes.thumbnailUploadUrl, file, (p) => setProgress(65 + Math.round(p * 25)));
+      await uploadWithProgress(presignRes.thumbnailUploadUrl, file, (p) =>
+        setProgress(65 + Math.round(p * 25)),
+      );
       setStatus('confirming');
       setProgress(92);
       const confirmBody: Record<string, unknown> = {
@@ -129,21 +145,35 @@ export function UploadModal({
 
   return (
     <div className="modal-overlay" onClick={busy ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(520px, calc(100vw - 80px))' }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(520px, calc(100vw - 80px))' }}
+      >
         <div className="modal-head">
           <h3>{title}</h3>
-          <button className="btn sm ghost" onClick={onClose} disabled={busy} style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={busy}
+            style={{ marginLeft: 'auto' }}
+          >
             <Icon.Close />
           </button>
         </div>
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {error && (
-            <div style={{
-              color: 'var(--danger)', fontSize: 13,
-              padding: '8px 12px', borderRadius: 6,
-              background: 'var(--danger-soft)', border: '1px solid var(--danger-border)',
-            }}>
+            <div
+              style={{
+                color: 'var(--danger)',
+                fontSize: 13,
+                padding: '8px 12px',
+                borderRadius: 6,
+                background: 'var(--danger-soft)',
+                border: '1px solid var(--danger-border)',
+              }}
+            >
               {error}
             </div>
           )}
@@ -156,8 +186,12 @@ export function UploadModal({
                 src={preview}
                 alt="preview"
                 style={{
-                  width: 72, height: 96, objectFit: 'cover',
-                  borderRadius: 6, border: '1px solid var(--border)', marginBottom: 8,
+                  width: 72,
+                  height: 96,
+                  objectFit: 'cover',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  marginBottom: 8,
                   display: 'block',
                 }}
               />
@@ -192,7 +226,9 @@ export function UploadModal({
                   onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}
                 >
                   {f.options.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
                   ))}
                 </select>
               )}
@@ -233,12 +269,10 @@ export function UploadModal({
         </div>
 
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>Cancel</button>
-          <button
-            className="btn primary"
-            onClick={handleSubmit}
-            disabled={busy || !file}
-          >
+          <button className="btn ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button className="btn primary" onClick={handleSubmit} disabled={busy || !file}>
             <Icon.Upload /> Upload
           </button>
         </div>

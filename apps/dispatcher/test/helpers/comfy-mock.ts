@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
+import { WebSocketServer } from 'ws';
 
 export interface ComfyMockOptions {
   fail?: boolean;
@@ -32,9 +32,14 @@ export function startComfyMock(): Promise<ComfyMock> {
 
       if (req.method === 'POST' && url.pathname === '/prompt') {
         let body = '';
-        req.on('data', (chunk) => { body += chunk; });
+        req.on('data', (chunk) => {
+          body += chunk;
+        });
         req.on('end', () => {
-          const { prompt_id: _, client_id } = JSON.parse(body) as { prompt_id?: string; client_id: string };
+          const { prompt_id: _, client_id } = JSON.parse(body) as {
+            prompt_id?: string;
+            client_id: string;
+          };
           const promptId = `mock-prompt-${Date.now()}`;
           lastPromptId = promptId;
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -44,7 +49,10 @@ export function startComfyMock(): Promise<ComfyMock> {
           setTimeout(() => {
             wss.clients.forEach((ws) => {
               const event = opts.fail
-                ? { type: 'execution_error', data: { prompt_id: promptId, exception_message: 'mock error' } }
+                ? {
+                    type: 'execution_error',
+                    data: { prompt_id: promptId, exception_message: 'mock error' },
+                  }
                 : { type: 'execution_complete', data: { prompt_id: promptId } };
               if (ws.readyState === 1) ws.send(JSON.stringify(event));
             });
@@ -57,11 +65,13 @@ export function startComfyMock(): Promise<ComfyMock> {
         const filename = opts.outputFilename ?? 'result.png';
         const promptId = url.pathname.split('/').pop()!;
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          [promptId]: {
-            outputs: { '10': { images: [{ filename, subfolder: '', type: 'output' }] } },
-          },
-        }));
+        res.end(
+          JSON.stringify({
+            [promptId]: {
+              outputs: { '10': { images: [{ filename, subfolder: '', type: 'output' }] } },
+            },
+          }),
+        );
         return;
       }
 
@@ -83,7 +93,9 @@ export function startComfyMock(): Promise<ComfyMock> {
       resolve({
         url: `http://127.0.0.1:${port}`,
         lastPromptId: () => lastPromptId,
-        setOptions: (newOpts) => { opts = newOpts; },
+        setOptions: (newOpts) => {
+          opts = newOpts;
+        },
         close: () =>
           new Promise<void>((r) => {
             wss.close();

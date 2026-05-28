@@ -11,7 +11,9 @@
     "dev": "pnpm -r --parallel run dev",
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
-    "lint": "pnpm -r run lint",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "test": "pnpm -r run test",
     "db:generate": "pnpm --filter @aivastra/db run generate",
     "db:migrate": "pnpm --filter @aivastra/db run migrate",
@@ -22,9 +24,10 @@
     "docker:reset": "docker compose -f infra/docker-compose.yml down -v"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
+    "@biomejs/biome": "^2.4.16",
     "@types/node": "^22.7.5",
+    "lefthook": "^2.1.8",
     "tsx": "^4.19.1",
-    "prettier": "^3.3.3"
+    "typescript": "^5.6.3"
   }
 }

@@ -41,7 +41,7 @@ export interface GarmentType {
 }
 
 export interface WorkflowOption {
-  id: string;          // UUID from workflow_templates table
+  id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
   isActive: boolean;
@@ -62,7 +62,7 @@ export interface ModelPose {
   thumbnailKey: string;
   r2Key: string;
   faceSideR2Key: string | null;
-  workflowTemplateId: string;  // UUID FK to workflow_templates
+  workflowTemplateId: string; // UUID FK to workflow_templates
   promptFacePhase: string | null;
   promptGarmentPhase: string | null;
   showsLower: boolean;

@@ -11,7 +11,7 @@ async function tryRefresh(): Promise<string | null> {
   try {
     const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
     if (!res.ok) return null;
-    const data = await res.json() as { accessToken: string };
+    const data = (await res.json()) as { accessToken: string };
     return data.accessToken;
   } catch {
     return null;
@@ -19,7 +19,7 @@ async function tryRefresh(): Promise<string | null> {
 }
 
 async function extractError(res: Response): Promise<Error> {
-  const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+  const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
   return new Error(body.error?.message ?? `HTTP ${res.status}`);
 }
 
@@ -63,18 +63,30 @@ export const api = {
       const xhr = new XMLHttpRequest();
       xhr.open('PUT', uploadUrl);
       xhr.setRequestHeader('Content-Type', file.type);
-      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`)));
+      xhr.onload = () =>
+        xhr.status >= 200 && xhr.status < 300
+          ? resolve()
+          : reject(new Error(`Upload failed: ${xhr.status}`));
       xhr.onerror = () => reject(new Error('Upload failed'));
       xhr.send(file);
     });
   },
-  uploadToR2WithProgress: (uploadUrl: string, file: File, onProgress: (pct: number) => void): Promise<void> => {
+  uploadToR2WithProgress: (
+    uploadUrl: string,
+    file: File,
+    onProgress: (pct: number) => void,
+  ): Promise<void> => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('PUT', uploadUrl);
       xhr.setRequestHeader('Content-Type', file.type);
-      xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
-      xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`)));
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+      xhr.onload = () =>
+        xhr.status >= 200 && xhr.status < 300
+          ? resolve()
+          : reject(new Error(`Upload failed: ${xhr.status}`));
       xhr.onerror = () => reject(new Error('Upload failed'));
       xhr.send(file);
     });

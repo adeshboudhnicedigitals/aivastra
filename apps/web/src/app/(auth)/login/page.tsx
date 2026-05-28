@@ -1,39 +1,81 @@
 'use client';
-import { useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginBody } from '@aivastra/types';
+import { zodResolver } from '@hookform/resolvers/zod';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useForm } from 'react-hook-form';
 import type { z } from 'zod';
-import { C } from '@/components/tokens';
+import { GiftIcon, LockIcon, MailIcon } from '@/components/icons';
 import { LogoAuth } from '@/components/logo';
-import { GoogleBtn } from '@/components/ui/google-btn';
+import { C } from '@/components/tokens';
 import { Divider } from '@/components/ui/divider';
-import { MailIcon, LockIcon, GiftIcon } from '@/components/icons';
+import { GoogleBtn } from '@/components/ui/google-btn';
 
 type LoginForm = z.infer<typeof LoginBody>;
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 const fieldWrap: React.CSSProperties = {
-  position: 'relative', display: 'flex', alignItems: 'center',
-  background: C.field, border: `1px solid ${C.border}`, borderRadius: 8, height: 44,
+  position: 'relative',
+  display: 'flex',
+  alignItems: 'center',
+  background: C.field,
+  border: `1px solid ${C.border}`,
+  borderRadius: 8,
+  height: 44,
 };
 const inputStyle: React.CSSProperties = {
-  flex: 1, background: 'transparent', border: 'none', outline: 'none',
-  fontFamily: 'inherit', fontSize: 14, color: C.text, paddingLeft: 36, paddingRight: 12,
+  flex: 1,
+  background: 'transparent',
+  border: 'none',
+  outline: 'none',
+  fontFamily: 'inherit',
+  fontSize: 14,
+  color: C.text,
+  paddingLeft: 36,
+  paddingRight: 12,
 };
 
 function ImagePanel() {
   return (
     <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={`${BASE}/assets/auth-bg.png`} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
-      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(80,80,80,0) 70%, rgba(0,0,0,0.65) 100%)' }} />
+      <img
+        src={`${BASE}/assets/auth-bg.png`}
+        alt=""
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          objectPosition: 'top',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: 'linear-gradient(to bottom, rgba(80,80,80,0) 70%, rgba(0,0,0,0.65) 100%)',
+        }}
+      />
       <div style={{ position: 'absolute', bottom: 40, left: 48, right: 48 }}>
-        <h2 style={{ fontWeight: 700, fontSize: 20, color: C.white, marginBottom: 8, lineHeight: 1.4 }}>Turn Flat Lay Images Into Premium Model Shoots</h2>
-        <p style={{ fontSize: 13, color: C.lighter, lineHeight: 1.6, margin: 0 }}>Generate realistic AI catalogue photos with premium models, luxury backgrounds, and ecommerce-ready poses.</p>
+        <h2
+          style={{
+            fontWeight: 700,
+            fontSize: 20,
+            color: C.white,
+            marginBottom: 8,
+            lineHeight: 1.4,
+          }}
+        >
+          Turn Flat Lay Images Into Premium Model Shoots
+        </h2>
+        <p style={{ fontSize: 13, color: C.lighter, lineHeight: 1.6, margin: 0 }}>
+          Generate realistic AI catalogue photos with premium models, luxury backgrounds, and
+          ecommerce-ready poses.
+        </p>
       </div>
     </div>
   );
@@ -45,17 +87,23 @@ function LoginFormInner() {
   const nextPath = searchParams.get('next') ?? '/studio';
   const [error, setError] = useState('');
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginForm>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginForm>({
     resolver: zodResolver(LoginBody),
   });
 
   async function onSubmit(data: LoginForm) {
     setError('');
     const res = await fetch(`${BASE}/api/auth/login`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
     });
     if (!res.ok) {
-      const body = await res.json() as { error?: { message?: string } };
+      const body = (await res.json()) as { error?: { message?: string } };
       setError(body.error?.message ?? 'Login failed');
       return;
     }
@@ -65,50 +113,133 @@ function LoginFormInner() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: C.white }}>
-      <div style={{ width: 640, padding: '0 120px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 24, flexShrink: 0 }}>
+      <div
+        style={{
+          width: 640,
+          padding: '0 120px',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 24,
+          flexShrink: 0,
+        }}
+      >
         <LogoAuth />
         <div>
-          <h1 style={{ fontWeight: 700, fontSize: 22, color: C.text, marginBottom: 4 }}>Welcome Back</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: C.mid }}>
+          <h1 style={{ fontWeight: 700, fontSize: 22, color: C.text, marginBottom: 4 }}>
+            Welcome Back
+          </h1>
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: C.mid }}
+          >
             <GiftIcon /> <span>Get 100 Free credits to start.</span>
           </div>
         </div>
         <GoogleBtn label="Continue with Google" />
         <Divider label="Or Continue With" />
-        <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+        >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label htmlFor="email" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>Email*</label>
+            <label htmlFor="email" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
+              Email*
+            </label>
             <div style={fieldWrap}>
-              <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}><MailIcon /></span>
-              <input id="email" type="email" placeholder="Enter your email" autoComplete="email" style={inputStyle} {...register('email')} />
+              <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
+                <MailIcon />
+              </span>
+              <input
+                id="email"
+                type="email"
+                placeholder="Enter your email"
+                autoComplete="email"
+                style={inputStyle}
+                {...register('email')}
+              />
             </div>
-            {errors.email && <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.email.message}</p>}
+            {errors.email && (
+              <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.email.message}</p>
+            )}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label htmlFor="password" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>Password*</label>
-              <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: C.text, fontWeight: 500 }}>Reset Password</button>
+              <label htmlFor="password" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
+                Password*
+              </label>
+              <button
+                type="button"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  color: C.text,
+                  fontWeight: 500,
+                }}
+              >
+                Reset Password
+              </button>
             </div>
             <div style={fieldWrap}>
-              <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}><LockIcon /></span>
-              <input id="password" type="password" placeholder="Enter password" autoComplete="current-password" style={inputStyle} {...register('password')} />
+              <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
+                <LockIcon />
+              </span>
+              <input
+                id="password"
+                type="password"
+                placeholder="Enter password"
+                autoComplete="current-password"
+                style={inputStyle}
+                {...register('password')}
+              />
             </div>
-            {errors.password && <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.password.message}</p>}
+            {errors.password && (
+              <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.password.message}</p>
+            )}
           </div>
           {error && (
-            <div style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.pink}`, background: 'rgba(245,92,122,0.06)', fontSize: 14, color: C.pink }}>{error}</div>
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 8,
+                border: `1px solid ${C.pink}`,
+                background: 'rgba(245,92,122,0.06)',
+                fontSize: 14,
+                color: C.pink,
+              }}
+            >
+              {error}
+            </div>
           )}
-          <button type="submit" disabled={isSubmitting} style={{
-            width: '100%', height: 44, borderRadius: 8, border: 'none', cursor: 'pointer',
-            background: C.dark, color: C.white, fontFamily: 'inherit', fontWeight: 600, fontSize: 14,
-            opacity: isSubmitting ? 0.6 : 1,
-          }}>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            style={{
+              width: '100%',
+              height: 44,
+              borderRadius: 8,
+              border: 'none',
+              cursor: 'pointer',
+              background: C.dark,
+              color: C.white,
+              fontFamily: 'inherit',
+              fontWeight: 600,
+              fontSize: 14,
+              opacity: isSubmitting ? 0.6 : 1,
+            }}
+          >
             {isSubmitting ? 'Signing in…' : 'Continue'}
           </button>
         </form>
         <p style={{ textAlign: 'center', fontSize: 12, color: C.light }}>
           Don&apos;t have an account?{' '}
-          <Link href="/register" style={{ fontWeight: 700, fontSize: 12, color: C.pink, textDecoration: 'none' }}>Sign Up</Link>
+          <Link
+            href="/register"
+            style={{ fontWeight: 700, fontSize: 12, color: C.pink, textDecoration: 'none' }}
+          >
+            Sign Up
+          </Link>
         </p>
       </div>
       <ImagePanel />

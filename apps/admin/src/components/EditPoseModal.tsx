@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { apiFetch } from '../lib/data';
+import type { CatalogItem, ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
-import { apiFetch } from '../lib/data';
-import type { ModelFace, ModelBackground, ModelPose, WorkflowOption, CatalogItem } from '../types';
 
 interface Props {
   pose: ModelPose;
@@ -20,13 +20,23 @@ async function putFile(url: string, file: File): Promise<void> {
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', file.type);
     xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: HTTP ${xhr.status}`));
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Upload failed: HTTP ${xhr.status}`));
     xhr.onerror = () => reject(new Error('Network error during upload'));
     xhr.send(file);
   });
 }
 
-export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved, onClose, toast }: Props) {
+export function EditPoseModal({
+  pose,
+  faces,
+  backgrounds,
+  catalogItems,
+  onSaved,
+  onClose,
+  toast,
+}: Props) {
   const [form, setForm] = useState({
     label: pose.label,
     faceId: pose.faceId,
@@ -42,8 +52,12 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
   const [lowerItemIds, setLowerItemIds] = useState<string[]>(pose.lowerItemIds ?? []);
   const [shoeItemIds, setShoeItemIds] = useState<string[]>(pose.shoeItemIds ?? []);
   const selectedFaceGender = faces.find((f) => f.id === form.faceId)?.gender;
-  const lowerItems = catalogItems.filter((c) => c.type === 'lower' && (!selectedFaceGender || c.genderSlug === selectedFaceGender));
-  const shoeItems = catalogItems.filter((c) => c.type === 'shoe' && (!selectedFaceGender || c.genderSlug === selectedFaceGender));
+  const lowerItems = catalogItems.filter(
+    (c) => c.type === 'lower' && (!selectedFaceGender || c.genderSlug === selectedFaceGender),
+  );
+  const shoeItems = catalogItems.filter(
+    (c) => c.type === 'shoe' && (!selectedFaceGender || c.genderSlug === selectedFaceGender),
+  );
 
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [faceSideFile, setFaceSideFile] = useState<File | null>(null);
@@ -55,7 +69,7 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
     apiFetch<WorkflowOption[]>('/admin/workflows')
       .then((wfs) => setWorkflows(wfs.filter((w) => w.isActive)))
       .catch(() => toast({ kind: 'error', title: 'Failed to load workflow options' }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleWorkflowChange = (id: string) => {
@@ -111,15 +125,33 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
 
   return (
     <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(560px, calc(100vw - 40px))' }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(560px, calc(100vw - 40px))' }}
+      >
         <div className="modal-head">
           <h3>Edit pose</h3>
-          <button className="btn sm ghost" onClick={onClose} disabled={saving} style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={saving}
+            style={{ marginLeft: 'auto' }}
+          >
             <Icon.Close />
           </button>
         </div>
 
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: '72vh', overflowY: 'auto' }}>
+        <div
+          className="modal-body"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+            maxHeight: '72vh',
+            overflowY: 'auto',
+          }}
+        >
           <div className="field">
             <label>Label</label>
             <input
@@ -141,7 +173,9 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
                 onChange={(e) => setForm((f) => ({ ...f, faceId: e.target.value }))}
               >
                 {faces.map((face) => (
-                  <option key={face.id} value={face.id}>[{face.gender}] {face.label}</option>
+                  <option key={face.id} value={face.id}>
+                    [{face.gender}] {face.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -154,7 +188,9 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
                 onChange={(e) => setForm((f) => ({ ...f, backgroundId: e.target.value }))}
               >
                 {backgrounds.map((bg) => (
-                  <option key={bg.id} value={bg.id}>{bg.label}</option>
+                  <option key={bg.id} value={bg.id}>
+                    {bg.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -166,10 +202,14 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
           <div className="field">
             <label>
               Side / tilt face
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>(backend only — sent to ComfyUI face node)</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
+                (backend only — sent to ComfyUI face node)
+              </span>
             </label>
             {pose.faceSideR2Key && !faceSideFile && (
-              <span style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6, display: 'block' }}>
+              <span
+                style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6, display: 'block' }}
+              >
                 Current: <code style={{ fontSize: 11 }}>{pose.faceSideR2Key}</code>
               </span>
             )}
@@ -182,10 +222,26 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
               style={{ fontSize: 13 }}
             />
             {faceSideFile && (
-              <span style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span
+                style={{
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  marginTop: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
                 <span style={{ color: 'var(--accent)' }}>↑</span>
                 {faceSideFile.name} — will replace on save
-                <button className="btn sm ghost" style={{ padding: '1px 6px', fontSize: 11 }} onClick={() => { setFaceSideFile(null); if (faceSideRef.current) faceSideRef.current.value = ''; }}>
+                <button
+                  className="btn sm ghost"
+                  style={{ padding: '1px 6px', fontSize: 11 }}
+                  onClick={() => {
+                    setFaceSideFile(null);
+                    if (faceSideRef.current) faceSideRef.current.value = '';
+                  }}
+                >
                   ✕
                 </button>
               </span>
@@ -204,11 +260,11 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
               onChange={(e) => handleWorkflowChange(e.target.value)}
             >
               {workflows.map((w) => (
-                <option key={w.id} value={w.id}>{w.label}</option>
+                <option key={w.id} value={w.id}>
+                  {w.label}
+                </option>
               ))}
-              {workflows.length === 0 && (
-                <option value={form.workflowTemplateId}>Loading…</option>
-              )}
+              {workflows.length === 0 && <option value={form.workflowTemplateId}>Loading…</option>}
             </select>
           </div>
 
@@ -238,44 +294,158 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '2px 0' }} />
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}>
-              <Switch checked={form.showsLower} onChange={() => { if (!saving) { setForm((f) => ({ ...f, showsLower: !f.showsLower })); if (form.showsLower) setLowerItemIds([]); } }} />
-              <label style={{ margin: 0, cursor: 'pointer' }} onClick={() => { if (!saving) { setForm((f) => ({ ...f, showsLower: !f.showsLower })); if (form.showsLower) setLowerItemIds([]); } }}>
+            <div
+              className="field"
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}
+            >
+              <Switch
+                checked={form.showsLower}
+                onChange={() => {
+                  if (!saving) {
+                    setForm((f) => ({ ...f, showsLower: !f.showsLower }));
+                    if (form.showsLower) setLowerItemIds([]);
+                  }
+                }}
+              />
+              <label
+                style={{ margin: 0, cursor: 'pointer' }}
+                onClick={() => {
+                  if (!saving) {
+                    setForm((f) => ({ ...f, showsLower: !f.showsLower }));
+                    if (form.showsLower) setLowerItemIds([]);
+                  }
+                }}
+              >
                 Shows lower garment
               </label>
             </div>
             {form.showsLower && (
-              <div style={{ padding: '8px 12px', background: 'var(--subtle)', borderRadius: 6, border: '1px solid var(--border)', maxHeight: 150, overflowY: 'auto' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Allowed items ({lowerItemIds.length} selected)</div>
-                {lowerItems.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>No lower garment items uploaded yet.</div>
-                  : lowerItems.map((item) => (
-                    <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', cursor: saving ? 'default' : 'pointer', fontSize: 12.5 }}>
-                      <input type="checkbox" checked={lowerItemIds.includes(item.id)} disabled={saving}
-                        onChange={(e) => setLowerItemIds((prev) => e.target.checked ? [...prev, item.id] : prev.filter((id) => id !== item.id))} />
+              <div
+                style={{
+                  padding: '8px 12px',
+                  background: 'var(--subtle)',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  maxHeight: 150,
+                  overflowY: 'auto',
+                }}
+              >
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+                  Allowed items ({lowerItemIds.length} selected)
+                </div>
+                {lowerItems.length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    No lower garment items uploaded yet.
+                  </div>
+                ) : (
+                  lowerItems.map((item) => (
+                    <label
+                      key={item.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '3px 0',
+                        cursor: saving ? 'default' : 'pointer',
+                        fontSize: 12.5,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={lowerItemIds.includes(item.id)}
+                        disabled={saving}
+                        onChange={(e) =>
+                          setLowerItemIds((prev) =>
+                            e.target.checked
+                              ? [...prev, item.id]
+                              : prev.filter((id) => id !== item.id),
+                          )
+                        }
+                      />
                       <span>{item.label}</span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{item.genderSlug ?? 'all'}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {item.genderSlug ?? 'all'}
+                      </span>
                     </label>
-                  ))}
+                  ))
+                )}
               </div>
             )}
-            <div className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}>
-              <Switch checked={form.showsShoes} onChange={() => { if (!saving) { setForm((f) => ({ ...f, showsShoes: !f.showsShoes })); if (form.showsShoes) setShoeItemIds([]); } }} />
-              <label style={{ margin: 0, cursor: 'pointer' }} onClick={() => { if (!saving) { setForm((f) => ({ ...f, showsShoes: !f.showsShoes })); if (form.showsShoes) setShoeItemIds([]); } }}>
+            <div
+              className="field"
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}
+            >
+              <Switch
+                checked={form.showsShoes}
+                onChange={() => {
+                  if (!saving) {
+                    setForm((f) => ({ ...f, showsShoes: !f.showsShoes }));
+                    if (form.showsShoes) setShoeItemIds([]);
+                  }
+                }}
+              />
+              <label
+                style={{ margin: 0, cursor: 'pointer' }}
+                onClick={() => {
+                  if (!saving) {
+                    setForm((f) => ({ ...f, showsShoes: !f.showsShoes }));
+                    if (form.showsShoes) setShoeItemIds([]);
+                  }
+                }}
+              >
                 Shows shoes
               </label>
             </div>
             {form.showsShoes && (
-              <div style={{ padding: '8px 12px', background: 'var(--subtle)', borderRadius: 6, border: '1px solid var(--border)', maxHeight: 150, overflowY: 'auto' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Allowed shoes ({shoeItemIds.length} selected)</div>
-                {shoeItems.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>No shoe items uploaded yet.</div>
-                  : shoeItems.map((item) => (
-                    <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', cursor: saving ? 'default' : 'pointer', fontSize: 12.5 }}>
-                      <input type="checkbox" checked={shoeItemIds.includes(item.id)} disabled={saving}
-                        onChange={(e) => setShoeItemIds((prev) => e.target.checked ? [...prev, item.id] : prev.filter((id) => id !== item.id))} />
+              <div
+                style={{
+                  padding: '8px 12px',
+                  background: 'var(--subtle)',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  maxHeight: 150,
+                  overflowY: 'auto',
+                }}
+              >
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+                  Allowed shoes ({shoeItemIds.length} selected)
+                </div>
+                {shoeItems.length === 0 ? (
+                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                    No shoe items uploaded yet.
+                  </div>
+                ) : (
+                  shoeItems.map((item) => (
+                    <label
+                      key={item.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '3px 0',
+                        cursor: saving ? 'default' : 'pointer',
+                        fontSize: 12.5,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={shoeItemIds.includes(item.id)}
+                        disabled={saving}
+                        onChange={(e) =>
+                          setShoeItemIds((prev) =>
+                            e.target.checked
+                              ? [...prev, item.id]
+                              : prev.filter((id) => id !== item.id),
+                          )
+                        }
+                      />
                       <span>{item.label}</span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{item.genderSlug ?? 'all'}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {item.genderSlug ?? 'all'}
+                      </span>
                     </label>
-                  ))}
+                  ))
+                )}
               </div>
             )}
           </div>
@@ -289,13 +459,18 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
               value={form.sortOrder}
               disabled={saving}
               style={{ width: 100 }}
-              onChange={(e) => { const n = Number(e.target.value); setForm((f) => ({ ...f, sortOrder: Number.isNaN(n) ? 0 : n })); }}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                setForm((f) => ({ ...f, sortOrder: Number.isNaN(n) ? 0 : n }));
+              }}
             />
           </div>
         </div>
 
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
           <button
             className="btn primary"
             onClick={handleSave}

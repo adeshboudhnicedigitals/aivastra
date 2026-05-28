@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
-import type { CatalogItem } from '../types';
-import { apiFetch } from '../lib/data';
-import { useAuth } from '../context/AuthContext';
+import { useEffect, useState } from 'react';
+import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
-import { Th } from '../components/Th';
-import type { SortDir } from '../components/Th';
 import { Switch } from '../components/Switch';
-import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
+import type { SortDir } from '../components/Th';
+import { Th } from '../components/Th';
+import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/data';
+import type { CatalogItem } from '../types';
 
 const PAGE_SIZE = 25;
 
@@ -52,12 +52,15 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
     Promise.all([
       apiFetch<CatalogItem[]>('/admin/catalog/items'),
       apiFetch<CategoryRow[]>('/admin/catalog/categories'),
-    ]).then(([itemsRes, catsRes]) => {
-      setItems(itemsRes);
-      setCategories(catsRes);
-    }).catch(() => {
-      toast({ kind: 'error', title: 'Failed to load catalog' });
-    }).finally(() => setLoading(false));
+    ])
+      .then(([itemsRes, catsRes]) => {
+        setItems(itemsRes);
+        setCategories(catsRes);
+      })
+      .catch(() => {
+        toast({ kind: 'error', title: 'Failed to load catalog' });
+      })
+      .finally(() => setLoading(false));
   }, [toast]);
 
   const filtered = items.filter((c) => {
@@ -86,19 +89,25 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
 
   const handleSort = (k: keyof CatalogItem) => {
     if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(k); setSortDir('asc'); }
+    else {
+      setSortKey(k);
+      setSortDir('asc');
+    }
   };
 
   const toggleActive = async (id: string) => {
     const item = items.find((c) => c.id === id);
     if (!item) return;
     const next = !item.isActive;
-    setItems((prev) => prev.map((c) => c.id === id ? { ...c, isActive: next } : c));
+    setItems((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: next } : c)));
     try {
-      await apiFetch(`/admin/catalog/items/${id}`, { method: 'PATCH', body: JSON.stringify({ isActive: next }) });
+      await apiFetch(`/admin/catalog/items/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: next }),
+      });
       toast({ title: `${item.label} ${item.isActive ? 'deactivated' : 'activated'}` });
     } catch {
-      setItems((prev) => prev.map((c) => c.id === id ? { ...c, isActive: item.isActive } : c));
+      setItems((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: item.isActive } : c)));
       toast({ kind: 'error', title: 'Failed to update item' });
     }
   };
@@ -107,7 +116,9 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
     setEditItem(item);
     setEditLabel(item.label);
     setEditSortOrder(item.sortOrder);
-    const cat = categories.find((c) => (item as any).categoryId === c.id || c.typeSlug === item.type);
+    const cat = categories.find(
+      (c) => (item as any).categoryId === c.id || c.typeSlug === item.type,
+    );
     setEditCategoryId(cat ? String(cat.id) : '');
   };
 
@@ -123,11 +134,13 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
           ...(editCategoryId ? { categoryId: Number(editCategoryId) } : {}),
         }),
       });
-      setItems((prev) => prev.map((c) =>
-        c.id === editItem.id
-          ? { ...c, label: editLabel.trim() || c.label, sortOrder: editSortOrder }
-          : c,
-      ));
+      setItems((prev) =>
+        prev.map((c) =>
+          c.id === editItem.id
+            ? { ...c, label: editLabel.trim() || c.label, sortOrder: editSortOrder }
+            : c,
+        ),
+      );
       toast({ title: `${editLabel || editItem.label} updated` });
       setEditItem(null);
     } catch {
@@ -159,7 +172,8 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
         <div>
           <h1>Catalog</h1>
           <p className="lede">
-            {lowerCount} lower garments · {shoeCount} shoes — optional add-ons shown when pose permits.
+            {lowerCount} lower garments · {shoeCount} shoes — optional add-ons shown when pose
+            permits.
           </p>
         </div>
         <div className="head-tools">
@@ -168,18 +182,30 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
             <input
               placeholder="Search by label or ID…"
               value={query}
-              onChange={(e) => { setQuery(e.target.value); setPage(0); }}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(0);
+              }}
             />
           </div>
           {tab !== 'all' && (
-            <button className="btn" onClick={() => setShowUpload(true)}><Icon.Add /> Add item</button>
+            <button className="btn" onClick={() => setShowUpload(true)}>
+              <Icon.Add /> Add item
+            </button>
           )}
         </div>
       </div>
 
       <div className="tabs">
         {TABS.map((t) => (
-          <button key={t.k} className={`tab ${tab === t.k ? 'active' : ''}`} onClick={() => { setTab(t.k); setPage(0); }}>
+          <button
+            key={t.k}
+            className={`tab ${tab === t.k ? 'active' : ''}`}
+            onClick={() => {
+              setTab(t.k);
+              setPage(0);
+            }}
+          >
             {t.l}
           </button>
         ))}
@@ -192,11 +218,21 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
           <table>
             <thead>
               <tr>
-                <Th k="label" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Label</Th>
-                <Th k="type" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Type</Th>
-                <Th k="sortOrder" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Order</Th>
-                <Th k="isActive" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Active</Th>
-                <Th k="updatedAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Updated</Th>
+                <Th k="label" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  Label
+                </Th>
+                <Th k="type" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  Type
+                </Th>
+                <Th k="sortOrder" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  Order
+                </Th>
+                <Th k="isActive" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  Active
+                </Th>
+                <Th k="updatedAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  Updated
+                </Th>
                 <th></th>
               </tr>
             </thead>
@@ -209,17 +245,38 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                         <img
                           src={`${storagePublicUrl}/${c.thumbnailKey}`}
                           alt={c.label}
-                          style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          style={{
+                            width: 40,
+                            height: 40,
+                            objectFit: 'cover',
+                            borderRadius: 6,
+                            flexShrink: 0,
+                          }}
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
                         />
                       ) : (
-                        <div style={{ width: 40, height: 40, borderRadius: 6, background: 'var(--subtle)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <div
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: 6,
+                            background: 'var(--subtle)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
                           <Icon.Image />
                         </div>
                       )}
                       <div>
                         <span className="semi">{c.label}</span>
-                        <span className="sub mono" style={{ display: 'block' }}>{c.id}</span>
+                        <span className="sub mono" style={{ display: 'block' }}>
+                          {c.id}
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -228,37 +285,68 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                       {c.type === 'lower' ? 'Lower' : 'Shoe'}
                     </span>
                   </td>
-                  <td><span className="mono">{c.sortOrder}</span></td>
-                  <td><Switch checked={c.isActive} onChange={() => toggleActive(c.id)} /></td>
-                  <td><span className="mono">{c.updatedAt.slice(0, 10)}</span></td>
+                  <td>
+                    <span className="mono">{c.sortOrder}</span>
+                  </td>
+                  <td>
+                    <Switch checked={c.isActive} onChange={() => toggleActive(c.id)} />
+                  </td>
+                  <td>
+                    <span className="mono">{c.updatedAt.slice(0, 10)}</span>
+                  </td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn sm ghost" onClick={() => openEdit(c)}><Icon.Edit /></button>
-                      <button className="btn sm ghost" onClick={() => setConfirmDelete(c.id)}><Icon.Trash /></button>
+                      <button className="btn sm ghost" onClick={() => openEdit(c)}>
+                        <Icon.Edit />
+                      </button>
+                      <button className="btn sm ghost" onClick={() => setConfirmDelete(c.id)}>
+                        <Icon.Trash />
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
               {paged.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No items found.</td></tr>
+                <tr>
+                  <td
+                    colSpan={6}
+                    style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
+                  >
+                    No items found.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
         </div>
       )}
 
-      <Pager page={page} totalPages={totalPages} onPage={setPage} totalItems={sorted.length} pageSize={PAGE_SIZE} />
+      <Pager
+        page={page}
+        totalPages={totalPages}
+        onPage={setPage}
+        totalItems={sorted.length}
+        pageSize={PAGE_SIZE}
+      />
 
       {editItem && (
         <div className="modal-overlay" onClick={editSaving ? undefined : () => setEditItem(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Edit catalog item</h3>
-              <button className="btn sm ghost" onClick={() => setEditItem(null)} disabled={editSaving} style={{ marginLeft: 'auto' }}>
+              <button
+                className="btn sm ghost"
+                onClick={() => setEditItem(null)}
+                disabled={editSaving}
+                style={{ marginLeft: 'auto' }}
+              >
                 <Icon.Close />
               </button>
             </div>
-            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
               <div className="field">
                 <label>Label</label>
                 <input
@@ -280,7 +368,9 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                   {categories
                     .filter((c) => c.typeSlug === editItem.type)
                     .map((c) => (
-                      <option key={c.id} value={String(c.id)}>{c.label}</option>
+                      <option key={c.id} value={String(c.id)}>
+                        {c.label}
+                      </option>
                     ))}
                 </select>
               </div>
@@ -298,8 +388,14 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
               </div>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setEditItem(null)} disabled={editSaving}>Cancel</button>
-              <button className="btn primary" onClick={saveEdit} disabled={editSaving || !editLabel.trim()}>
+              <button className="btn ghost" onClick={() => setEditItem(null)} disabled={editSaving}>
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                onClick={saveEdit}
+                disabled={editSaving || !editLabel.trim()}
+              >
                 {editSaving ? 'Saving…' : 'Save changes'}
               </button>
             </div>
@@ -310,13 +406,23 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       {confirmDelete && (
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h3>Delete catalog item</h3></div>
+            <div className="modal-head">
+              <h3>Delete catalog item</h3>
+            </div>
             <div className="modal-body">
-              <p>Delete <strong>{items.find((c) => c.id === confirmDelete)?.label ?? confirmDelete}</strong>? This cannot be undone.</p>
+              <p>
+                Delete{' '}
+                <strong>{items.find((c) => c.id === confirmDelete)?.label ?? confirmDelete}</strong>
+                ? This cannot be undone.
+              </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmDelete(null)}>Cancel</button>
-              <button className="btn danger" onClick={doDelete}><Icon.Trash /> Delete</button>
+              <button className="btn ghost" onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={doDelete}>
+                <Icon.Trash /> Delete
+              </button>
             </div>
           </div>
         </div>
@@ -327,10 +433,12 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
           typeSlug={tab === 'shoe' ? 'shoe' : 'lower'}
           onDone={(added) => {
             setShowUpload(false);
-            setItems((prev) => [...prev, ...added as any]);
-            apiFetch<CatalogItem[]>('/admin/catalog/items').then(setItems).catch(() => {
-              toast({ kind: 'error', title: 'Items added but failed to refresh list' });
-            });
+            setItems((prev) => [...prev, ...(added as any)]);
+            apiFetch<CatalogItem[]>('/admin/catalog/items')
+              .then(setItems)
+              .catch(() => {
+                toast({ kind: 'error', title: 'Items added but failed to refresh list' });
+              });
           }}
           onClose={() => setShowUpload(false)}
           toast={toast}

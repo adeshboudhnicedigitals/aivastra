@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Icon } from './Icons';
 import { apiFetch } from '../lib/data';
-import type { ModelFace, GenderSlug } from '../types';
+import type { GenderSlug, ModelFace } from '../types';
+import { Icon } from './Icons';
 
 interface Props {
   face: ModelFace;
@@ -37,10 +37,19 @@ export function EditFaceModal({ face, onSaved, onClose, toast }: Props) {
 
   return (
     <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(400px, calc(100vw - 40px))' }}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(400px, calc(100vw - 40px))' }}
+      >
         <div className="modal-head">
           <h3>Edit model face</h3>
-          <button className="btn sm ghost" onClick={onClose} disabled={saving} style={{ marginLeft: 'auto' }}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={saving}
+            style={{ marginLeft: 'auto' }}
+          >
             <Icon.Close />
           </button>
         </div>
@@ -85,7 +94,9 @@ export function EditFaceModal({ face, onSaved, onClose, toast }: Props) {
         </div>
 
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn ghost" onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
           <button
             className="btn primary"
             onClick={handleSave}

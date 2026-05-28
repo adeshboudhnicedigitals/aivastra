@@ -1,11 +1,11 @@
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import { S3Client, CreateBucketCommand, DeleteBucketCommand } from '@aws-sdk/client-s3';
-import { createDb } from '@aivastra/db';
-import { createR2Provider } from '@aivastra/storage';
 import type { DB } from '@aivastra/db';
+import { createDb } from '@aivastra/db';
 import type { StorageProvider } from '@aivastra/storage';
+import { createR2Provider } from '@aivastra/storage';
+import { CreateBucketCommand, DeleteBucketCommand, S3Client } from '@aws-sdk/client-s3';
+import { drizzle } from 'drizzle-orm/postgres-js';
+import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import postgres from 'postgres';
 
 export interface TestEnv {
   db: DB;
@@ -67,7 +67,11 @@ export async function setupTestEnv(): Promise<TestEnv> {
       const cl = postgres(adminUrl, { max: 1 });
       await cl.unsafe(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
       await cl.end();
-      try { await s3.send(new DeleteBucketCommand({ Bucket: bucket })); } catch { /* ignore */ }
+      try {
+        await s3.send(new DeleteBucketCommand({ Bucket: bucket }));
+      } catch {
+        /* ignore */
+      }
     },
   };
 }

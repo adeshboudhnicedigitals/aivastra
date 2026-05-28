@@ -1,7 +1,10 @@
 import { C } from './tokens';
 
 export function TopBar({
-  title, subtitle, right, lead,
+  title,
+  subtitle,
+  right,
+  lead,
 }: {
   title?: string;
   subtitle?: string;
@@ -9,11 +12,18 @@ export function TopBar({
   lead?: React.ReactNode;
 }) {
   return (
-    <div style={{
-      height: 76, background: C.white, borderBottom: `1px solid ${C.border}`,
-      padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      flexShrink: 0,
-    }}>
+    <div
+      style={{
+        height: 76,
+        background: C.white,
+        borderBottom: `1px solid ${C.border}`,
+        padding: '0 28px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexShrink: 0,
+      }}
+    >
       {lead ?? (
         <div>
           {title && <div style={{ fontWeight: 700, fontSize: 20, color: C.text }}>{title}</div>}

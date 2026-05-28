@@ -1,7 +1,7 @@
-import type { FastifyInstance } from 'fastify';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { eq, and } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { issueTokens } from './tokens.js';
@@ -65,16 +65,21 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         grant_type: 'authorization_code',
       }),
     });
-    if (!tokenRes.ok) throw new AppError('GOOGLE_TOKEN_FAILED', 400, 'Google token exchange failed');
-    const { access_token: googleAccessToken } = await tokenRes.json() as { access_token: string };
+    if (!tokenRes.ok)
+      throw new AppError('GOOGLE_TOKEN_FAILED', 400, 'Google token exchange failed');
+    const { access_token: googleAccessToken } = (await tokenRes.json()) as { access_token: string };
 
     // Fetch Google user profile
     const userRes = await fetch(GOOGLE_USERINFO_URL, {
       headers: { Authorization: `Bearer ${googleAccessToken}` },
     });
-    if (!userRes.ok) throw new AppError('GOOGLE_USERINFO_FAILED', 400, 'Google userinfo fetch failed');
-    const googleUser = await userRes.json() as {
-      sub: string; email: string; name?: string; picture?: string;
+    if (!userRes.ok)
+      throw new AppError('GOOGLE_USERINFO_FAILED', 400, 'Google userinfo fetch failed');
+    const googleUser = (await userRes.json()) as {
+      sub: string;
+      email: string;
+      name?: string;
+      picture?: string;
     };
 
     // Upsert user in a transaction
@@ -83,19 +88,23 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       const [existing] = await tx
         .select({ userId: schema.oauthAccounts.userId })
         .from(schema.oauthAccounts)
-        .where(and(
-          eq(schema.oauthAccounts.provider, 'google'),
-          eq(schema.oauthAccounts.providerId, googleUser.sub),
-        ));
+        .where(
+          and(
+            eq(schema.oauthAccounts.provider, 'google'),
+            eq(schema.oauthAccounts.providerId, googleUser.sub),
+          ),
+        );
 
       if (existing) {
         await tx
           .update(schema.oauthAccounts)
           .set({ displayName: googleUser.name, avatarUrl: googleUser.picture })
-          .where(and(
-            eq(schema.oauthAccounts.provider, 'google'),
-            eq(schema.oauthAccounts.providerId, googleUser.sub),
-          ));
+          .where(
+            and(
+              eq(schema.oauthAccounts.provider, 'google'),
+              eq(schema.oauthAccounts.providerId, googleUser.sub),
+            ),
+          );
         const [user] = await tx
           .select({ isBanned: schema.users.isBanned })
           .from(schema.users)
@@ -118,31 +127,40 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         // 3. Create new user
         const [newUser] = await tx
           .insert(schema.users)
-          .values({ email: googleUser.email, passwordHash: null, displayName: googleUser.name ?? null })
+          .values({
+            email: googleUser.email,
+            passwordHash: null,
+            displayName: googleUser.name ?? null,
+          })
           .returning({ id: schema.users.id });
         uid = newUser!.id;
         await tx.insert(schema.userCredits).values({ userId: uid, balance: 0 });
       }
 
       // 4. Create OAuth link (onConflictDoNothing guards against concurrent inserts)
-      await tx.insert(schema.oauthAccounts).values({
-        userId: uid,
-        provider: 'google',
-        providerId: googleUser.sub,
-        email: googleUser.email,
-        displayName: googleUser.name ?? null,
-        avatarUrl: googleUser.picture ?? null,
-      }).onConflictDoNothing();
+      await tx
+        .insert(schema.oauthAccounts)
+        .values({
+          userId: uid,
+          provider: 'google',
+          providerId: googleUser.sub,
+          email: googleUser.email,
+          displayName: googleUser.name ?? null,
+          avatarUrl: googleUser.picture ?? null,
+        })
+        .onConflictDoNothing();
 
       // Re-fetch the actual linked userId — handles the rare case where a concurrent
       // request already inserted the same (provider, providerId) pair.
       const [linked] = await tx
         .select({ userId: schema.oauthAccounts.userId })
         .from(schema.oauthAccounts)
-        .where(and(
-          eq(schema.oauthAccounts.provider, 'google'),
-          eq(schema.oauthAccounts.providerId, googleUser.sub),
-        ));
+        .where(
+          and(
+            eq(schema.oauthAccounts.provider, 'google'),
+            eq(schema.oauthAccounts.providerId, googleUser.sub),
+          ),
+        );
 
       return linked!.userId;
     });
@@ -155,12 +173,16 @@ export async function googleAuthRoutes(app: FastifyInstance) {
   });
 
   // ── Exchange ──────────────────────────────────────────────────────────────
-  app.post('/v1/auth/google/exchange', {
-    schema: { body: z.object({ code: z.string().min(1) }) },
-  }, async (req, reply) => {
-    const { code } = req.body as { code: string };
-    const userId = await app.redis.getdel(`oauth:otp:${code}`);
-    if (!userId) throw new AppError('INVALID_OTP', 400, 'invalid or expired OTP');
-    return issueTokens(app, userId, reply, 200);
-  });
+  app.post(
+    '/v1/auth/google/exchange',
+    {
+      schema: { body: z.object({ code: z.string().min(1) }) },
+    },
+    async (req, reply) => {
+      const { code } = req.body as { code: string };
+      const userId = await app.redis.getdel(`oauth:otp:${code}`);
+      if (!userId) throw new AppError('INVALID_OTP', 400, 'invalid or expired OTP');
+      return issueTokens(app, userId, reply, 200);
+    },
+  );
 }

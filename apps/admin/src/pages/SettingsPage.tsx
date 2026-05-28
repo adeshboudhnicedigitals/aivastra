@@ -55,7 +55,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
       {/* Appearance */}
       <div className="card settings-card">
         <div className="card-head">
-          <h3><Icon.Settings /> Appearance</h3>
+          <h3>
+            <Icon.Settings /> Appearance
+          </h3>
         </div>
         <div className="card-body">
           <div className="setting-row">
@@ -74,8 +76,16 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
               <div className="setting-lbl">Default page size</div>
               <div className="setting-desc">Items per page in tables.</div>
             </div>
-            <select className="select" value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
-              {PAGE_SIZES.map((s) => <option key={s} value={s}>{s} items</option>)}
+            <select
+              className="select"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              {PAGE_SIZES.map((s) => (
+                <option key={s} value={s}>
+                  {s} items
+                </option>
+              ))}
             </select>
           </div>
 
@@ -93,7 +103,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
                 <div className="setting-lbl">Refresh interval</div>
                 <div className="setting-desc">How often to poll for updates.</div>
               </div>
-              <select className="select" value={refreshInterval} onChange={(e) => setRefreshInterval(Number(e.target.value))}>
+              <select
+                className="select"
+                value={refreshInterval}
+                onChange={(e) => setRefreshInterval(Number(e.target.value))}
+              >
                 <option value={15}>15 seconds</option>
                 <option value={30}>30 seconds</option>
                 <option value={60}>1 minute</option>
@@ -113,7 +127,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
       {/* Notifications */}
       <div className="card settings-card">
         <div className="card-head">
-          <h3><Icon.Bell /> Notifications</h3>
+          <h3>
+            <Icon.Bell /> Notifications
+          </h3>
         </div>
         <div className="card-body">
           <div className="setting-row">
@@ -147,7 +163,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
           </div>
 
           <div className="setting-actions">
-            <button className="btn" onClick={() => save('Notifications')} disabled={saving !== null}>
+            <button
+              className="btn"
+              onClick={() => save('Notifications')}
+              disabled={saving !== null}
+            >
               {saving === 'Notifications' ? <>Saving\u2026</> : <>Save notifications</>}
             </button>
           </div>
@@ -157,9 +177,13 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
       {/* Credit Plans */}
       <div className="card settings-card">
         <div className="card-head">
-          <h3><Icon.Coin /> Credit plans</h3>
+          <h3>
+            <Icon.Coin /> Credit plans
+          </h3>
           <div className="tools">
-            <button className="btn sm"><Icon.Add /> Add plan</button>
+            <button className="btn sm">
+              <Icon.Add /> Add plan
+            </button>
           </div>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
@@ -178,12 +202,22 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
                 <tr key={p.name}>
                   <td>
                     <span className="semi">{p.name}</span>
-                    {p.popular && <span className="badge warn" style={{ marginLeft: 8 }}>Most popular</span>}
+                    {p.popular && (
+                      <span className="badge warn" style={{ marginLeft: 8 }}>
+                        Most popular
+                      </span>
+                    )}
                   </td>
                   <td>{p.jobs === -1 ? 'Custom' : p.jobs.toLocaleString()}</td>
                   <td>{p.price === -1 ? 'Custom' : `$${p.price}/mo`}</td>
-                  <td><span className="badge dot success">Active</span></td>
-                  <td><button className="btn sm ghost"><Icon.Edit /></button></td>
+                  <td>
+                    <span className="badge dot success">Active</span>
+                  </td>
+                  <td>
+                    <button className="btn sm ghost">
+                      <Icon.Edit />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -194,9 +228,13 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
       {/* Admin Users */}
       <div className="card settings-card">
         <div className="card-head">
-          <h3><Icon.Shield /> Admin users</h3>
+          <h3>
+            <Icon.Shield /> Admin users
+          </h3>
           <div className="tools">
-            <button className="btn sm"><Icon.Add /> Invite admin</button>
+            <button className="btn sm">
+              <Icon.Add /> Invite admin
+            </button>
           </div>
         </div>
         <div className="card-body" style={{ padding: 0 }}>
@@ -213,12 +251,26 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
             <tbody>
               {adminUsers.map((a) => (
                 <tr key={a.email}>
-                  <td><span className="semi">{a.name}</span></td>
-                  <td><span className="mono">{a.email}</span></td>
-                  <td><span className="badge dot">{a.role}</span></td>
-                  <td>{a.mfa ? <span className="badge dot success">Enabled</span> : <span className="badge dot">Disabled</span>}</td>
                   <td>
-                    <button className="btn sm ghost"><Icon.MoreHorizontal /></button>
+                    <span className="semi">{a.name}</span>
+                  </td>
+                  <td>
+                    <span className="mono">{a.email}</span>
+                  </td>
+                  <td>
+                    <span className="badge dot">{a.role}</span>
+                  </td>
+                  <td>
+                    {a.mfa ? (
+                      <span className="badge dot success">Enabled</span>
+                    ) : (
+                      <span className="badge dot">Disabled</span>
+                    )}
+                  </td>
+                  <td>
+                    <button className="btn sm ghost">
+                      <Icon.MoreHorizontal />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -230,7 +282,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
       {/* Session */}
       <div className="card settings-card">
         <div className="card-head">
-          <h3><Icon.Logout /> Session</h3>
+          <h3>
+            <Icon.Logout /> Session
+          </h3>
         </div>
         <div className="card-body">
           <div className="setting-row">

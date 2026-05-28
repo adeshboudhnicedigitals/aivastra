@@ -1,12 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
-import type { Job } from '../types';
-import { apiFetch } from '../lib/data';
+import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
-import { StatusBadge } from '../components/StatusBadge';
 import { Pager } from '../components/Pager';
-import { Th } from '../components/Th';
+import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
+import { Th } from '../components/Th';
+import { apiFetch } from '../lib/data';
+import type { Job } from '../types';
 
 const PAGE_SIZE = 25;
 
@@ -67,10 +67,18 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     }
   }, [page, filter, query, toast]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const handleFilter = (k: FilterKey) => { setFilter(k); setPage(0); };
-  const handleSearch = (q: string) => { setQuery(q); setPage(0); };
+  const handleFilter = (k: FilterKey) => {
+    setFilter(k);
+    setPage(0);
+  };
+  const handleSearch = (q: string) => {
+    setQuery(q);
+    setPage(0);
+  };
 
   const sorted = [...jobs].sort((a, b) => {
     const aVal = a[sortKey] ?? '';
@@ -86,7 +94,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
   const handleSort = (k: keyof Job) => {
     if (k === sortKey) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else { setSortKey(k); setSortDir('desc'); }
+    else {
+      setSortKey(k);
+      setSortDir('desc');
+    }
   };
 
   const openDetail = async (j: Job) => {
@@ -109,8 +120,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       await apiFetch(`/admin/jobs/${confirmCancel}/cancel`, { method: 'POST' });
       toast({ title: `Job cancelled` });
       setConfirmCancel(null);
-      if (detail?.id === confirmCancel) setDetail((d) => d ? { ...d, status: 'CANCELLED' } : d);
-      setJobs((prev) => prev.map((j) => j.id === confirmCancel ? { ...j, status: 'CANCELLED' } : j));
+      if (detail?.id === confirmCancel) setDetail((d) => (d ? { ...d, status: 'CANCELLED' } : d));
+      setJobs((prev) =>
+        prev.map((j) => (j.id === confirmCancel ? { ...j, status: 'CANCELLED' } : j)),
+      );
     } catch {
       toast({ kind: 'error', title: 'Cancel failed' });
     } finally {
@@ -123,8 +136,11 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     try {
       await apiFetch(`/admin/jobs/${id}/retry`, { method: 'POST' });
       toast({ title: 'Job re-queued' });
-      if (detail?.id === id) setDetail((d) => d ? { ...d, status: 'QUEUED', errorCode: undefined } : d);
-      setJobs((prev) => prev.map((j) => j.id === id ? { ...j, status: 'QUEUED', errorCode: undefined } : j));
+      if (detail?.id === id)
+        setDetail((d) => (d ? { ...d, status: 'QUEUED', errorCode: undefined } : d));
+      setJobs((prev) =>
+        prev.map((j) => (j.id === id ? { ...j, status: 'QUEUED', errorCode: undefined } : j)),
+      );
     } catch {
       toast({ kind: 'error', title: 'Retry failed' });
     } finally {
@@ -138,8 +154,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
-  const fmtTs = (ts?: string | null) =>
-    ts ? new Date(ts).toLocaleString() : '—';
+  const fmtTs = (ts?: string | null) => (ts ? new Date(ts).toLocaleString() : '—');
 
   if (detail) {
     const j = detail;
@@ -147,14 +162,24 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       <>
         <div className="page-head">
           <div>
-            <button className="btn ghost" onClick={() => setDetail(null)}><Icon.Chevron /> Back to jobs</button>
+            <button className="btn ghost" onClick={() => setDetail(null)}>
+              <Icon.Chevron /> Back to jobs
+            </button>
             <h1 style={{ marginTop: 8, fontFamily: 'var(--mono)', fontSize: 18 }}>{j.id}</h1>
-            <p className="lede">{j.userEmail ?? j.userId} &middot; Created {fmtTs(j.createdAt)}</p>
+            <p className="lede">
+              {j.userEmail ?? j.userId} &middot; Created {fmtTs(j.createdAt)}
+            </p>
           </div>
           <div className="head-tools">
             <StatusBadge status={j.status} />
-            {(j.status === 'QUEUED' || j.status === 'GENERATING' || j.status === 'PREPROCESSING') && (
-              <button className="btn danger" disabled={actioning} onClick={() => setConfirmCancel(j.id)}>
+            {(j.status === 'QUEUED' ||
+              j.status === 'GENERATING' ||
+              j.status === 'PREPROCESSING') && (
+              <button
+                className="btn danger"
+                disabled={actioning}
+                onClick={() => setConfirmCancel(j.id)}
+              >
                 <Icon.Ban /> Cancel
               </button>
             )}
@@ -170,7 +195,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading&hellip;</p>
         ) : (
           <>
-            <div className="kv-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+            <div
+              className="kv-grid"
+              style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}
+            >
               <KV k="User" v={j.userEmail ?? '—'} />
               <KV k="Status" v={<StatusBadge status={j.status} />} />
               <KV k="Credits charged" v={String(j.creditsCharged)} />
@@ -189,7 +217,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
             {j.outputUrl && (
               <div className="card" style={{ marginBottom: 14 }}>
-                <div className="card-head"><h3>Output</h3></div>
+                <div className="card-head">
+                  <h3>Output</h3>
+                </div>
                 <div className="card-body">
                   <a href={j.outputUrl} target="_blank" rel="noreferrer" className="link">
                     View output <Icon.ExternalLink />
@@ -200,7 +230,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
             {j.userHint && (
               <div className="card" style={{ marginBottom: 14 }}>
-                <div className="card-head"><h3>User hint</h3></div>
+                <div className="card-head">
+                  <h3>User hint</h3>
+                </div>
                 <div className="card-body">
                   <p style={{ margin: 0, fontFamily: 'var(--mono)', fontSize: 13 }}>{j.userHint}</p>
                 </div>
@@ -209,13 +241,21 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
             {j.errorCode && (
               <div className="card" style={{ marginBottom: 14 }}>
-                <div className="card-head"><h3>Error</h3></div>
+                <div className="card-head">
+                  <h3>Error</h3>
+                </div>
                 <div className="card-body">
                   <div className="banner error">
-                    <div className="ic"><Icon.Alert /></div>
+                    <div className="ic">
+                      <Icon.Alert />
+                    </div>
                     <div>
                       <b>Error code</b>
-                      <p style={{ margin: 0, fontSize: 13, marginTop: 2, fontFamily: 'var(--mono)' }}>{j.errorCode}</p>
+                      <p
+                        style={{ margin: 0, fontSize: 13, marginTop: 2, fontFamily: 'var(--mono)' }}
+                      >
+                        {j.errorCode}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -224,14 +264,39 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
             {j.events && j.events.length > 0 && (
               <div className="card">
-                <div className="card-head"><h3>Events</h3></div>
+                <div className="card-head">
+                  <h3>Events</h3>
+                </div>
                 <div className="card-body" style={{ padding: 0 }}>
                   {j.events.map((ev) => (
-                    <div key={ev.id} style={{ padding: '8px 18px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
-                      <span className="mono" style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{fmtTs(ev.createdAt)}</span>
+                    <div
+                      key={ev.id}
+                      style={{
+                        padding: '8px 18px',
+                        borderBottom: '1px solid var(--border)',
+                        display: 'flex',
+                        gap: 12,
+                        alignItems: 'center',
+                        fontSize: 12,
+                      }}
+                    >
+                      <span
+                        className="mono"
+                        style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}
+                      >
+                        {fmtTs(ev.createdAt)}
+                      </span>
                       <span className="semi">{ev.eventType}</span>
                       {ev.payload != null && (
-                        <span className="mono" style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span
+                          className="mono"
+                          style={{
+                            color: 'var(--muted)',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
                           {JSON.stringify(ev.payload as Record<string, unknown>)}
                         </span>
                       )}
@@ -246,12 +311,22 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         {confirmCancel && (
           <div className="modal-overlay" onClick={() => setConfirmCancel(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head"><h3>Cancel job</h3></div>
+              <div className="modal-head">
+                <h3>Cancel job</h3>
+              </div>
               <div className="modal-body">
-                <p>Cancel job <strong>{confirmCancel}</strong>? Credits will be refunded.</p>
+                <p>
+                  Cancel job <strong>{confirmCancel}</strong>? Credits will be refunded.
+                </p>
               </div>
               <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setConfirmCancel(null)} disabled={actioning}>Back</button>
+                <button
+                  className="btn ghost"
+                  onClick={() => setConfirmCancel(null)}
+                  disabled={actioning}
+                >
+                  Back
+                </button>
                 <button className="btn danger" onClick={handleCancel} disabled={actioning}>
                   <Icon.Ban /> Yes, cancel
                 </button>
@@ -268,7 +343,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       <div className="page-head">
         <div>
           <h1>Jobs</h1>
-          <p className="lede">{loading ? '…' : total.toLocaleString()} jobs &middot; Monitor and manage try-on jobs.</p>
+          <p className="lede">
+            {loading ? '…' : total.toLocaleString()} jobs &middot; Monitor and manage try-on jobs.
+          </p>
         </div>
         <div className="head-tools">
           <div className="search">
@@ -284,7 +361,11 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
       <div className="tabs">
         {FILTERS.map((f) => (
-          <button key={f.k} className={`tab ${filter === f.k ? 'active' : ''}`} onClick={() => handleFilter(f.k)}>
+          <button
+            key={f.k}
+            className={`tab ${filter === f.k ? 'active' : ''}`}
+            onClick={() => handleFilter(f.k)}
+          >
             {f.l}
           </button>
         ))}
@@ -298,25 +379,47 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
             <table>
               <thead>
                 <tr>
-                  <Th k="id" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Job ID</Th>
-                  <Th k="userEmail" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>User</Th>
-                  <Th k="faceLabel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Face / Pose</Th>
+                  <Th k="id" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Job ID
+                  </Th>
+                  <Th k="userEmail" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    User
+                  </Th>
+                  <Th k="faceLabel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Face / Pose
+                  </Th>
                   <th>Add-ons</th>
-                  <Th k="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Status</Th>
-                  <Th k="creditsCharged" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Credits</Th>
-                  <Th k="workerId" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Worker</Th>
-                  <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>Created</Th>
+                  <Th k="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Status
+                  </Th>
+                  <Th k="creditsCharged" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Credits
+                  </Th>
+                  <Th k="workerId" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Worker
+                  </Th>
+                  <Th k="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Created
+                  </Th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((j) => (
                   <tr key={j.id} onClick={() => openDetail(j)} style={{ cursor: 'pointer' }}>
-                    <td><span className="mono sub" style={{ fontSize: 11 }}>{j.id.slice(0, 8)}…</span></td>
-                    <td><span className="semi">{j.userEmail ?? '—'}</span></td>
+                    <td>
+                      <span className="mono sub" style={{ fontSize: 11 }}>
+                        {j.id.slice(0, 8)}…
+                      </span>
+                    </td>
+                    <td>
+                      <span className="semi">{j.userEmail ?? '—'}</span>
+                    </td>
                     <td>
                       <span className="semi">{j.faceLabel ?? '—'}</span>
-                      <span className="sub" style={{ display: 'block' }}>{j.poseLabel ?? '—'}</span>
+                      <span className="sub" style={{ display: 'block' }}>
+                        {j.poseLabel ?? '—'}
+                      </span>
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
@@ -325,19 +428,47 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                         {!j.hasLower && !j.hasShoe && <span className="sub">—</span>}
                       </div>
                     </td>
-                    <td><StatusBadge status={j.status} /></td>
-                    <td><span className="mono">{j.creditsCharged}</span></td>
-                    <td><span className="mono sub" style={{ fontSize: 11 }}>{j.workerId ?? '—'}</span></td>
-                    <td><span className="mono sub" style={{ fontSize: 11 }}>{new Date(j.createdAt).toLocaleString()}</span></td>
+                    <td>
+                      <StatusBadge status={j.status} />
+                    </td>
+                    <td>
+                      <span className="mono">{j.creditsCharged}</span>
+                    </td>
+                    <td>
+                      <span className="mono sub" style={{ fontSize: 11 }}>
+                        {j.workerId ?? '—'}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="mono sub" style={{ fontSize: 11 }}>
+                        {new Date(j.createdAt).toLocaleString()}
+                      </span>
+                    </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        {(j.status === 'QUEUED' || j.status === 'GENERATING' || j.status === 'PREPROCESSING') && (
-                          <button className="btn sm ghost" title="Cancel" onClick={(e) => { e.stopPropagation(); setConfirmCancel(j.id); }}>
+                        {(j.status === 'QUEUED' ||
+                          j.status === 'GENERATING' ||
+                          j.status === 'PREPROCESSING') && (
+                          <button
+                            className="btn sm ghost"
+                            title="Cancel"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmCancel(j.id);
+                            }}
+                          >
                             <Icon.Ban />
                           </button>
                         )}
                         {j.status === 'FAILED' && (
-                          <button className="btn sm ghost" title="Retry" onClick={(e) => { e.stopPropagation(); handleRetry(j.id); }}>
+                          <button
+                            className="btn sm ghost"
+                            title="Retry"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRetry(j.id);
+                            }}
+                          >
                             <Icon.Refresh />
                           </button>
                         )}
@@ -347,7 +478,10 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                 ))}
                 {sorted.length === 0 && (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>
+                    <td
+                      colSpan={9}
+                      style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
+                    >
                       No jobs found.
                     </td>
                   </tr>
@@ -356,19 +490,35 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
             </table>
           </div>
 
-          <Pager page={page} totalPages={totalPages} onPage={setPage} totalItems={total} pageSize={PAGE_SIZE} />
+          <Pager
+            page={page}
+            totalPages={totalPages}
+            onPage={setPage}
+            totalItems={total}
+            pageSize={PAGE_SIZE}
+          />
         </>
       )}
 
       {confirmCancel && (
         <div className="modal-overlay" onClick={() => setConfirmCancel(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head"><h3>Cancel job</h3></div>
+            <div className="modal-head">
+              <h3>Cancel job</h3>
+            </div>
             <div className="modal-body">
-              <p>Cancel job <strong>{confirmCancel}</strong>? Credits will be refunded.</p>
+              <p>
+                Cancel job <strong>{confirmCancel}</strong>? Credits will be refunded.
+              </p>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmCancel(null)} disabled={actioning}>Back</button>
+              <button
+                className="btn ghost"
+                onClick={() => setConfirmCancel(null)}
+                disabled={actioning}
+              >
+                Back
+              </button>
               <button className="btn danger" onClick={handleCancel} disabled={actioning}>
                 <Icon.Ban /> Yes, cancel
               </button>
