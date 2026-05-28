@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { keys } from '../src/keys';
+import { keys } from '../src/keys.js';
 
 describe('keys', () => {
   it('builds input garment key', () => {
