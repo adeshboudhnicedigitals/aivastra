@@ -66,6 +66,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
   // Node mappings
   const [faceNodeId, setFaceNodeId] = useState('');
+  const [faceFrontNodeId, setFaceFrontNodeId] = useState('');
   const [poseNodeId, setPoseNodeId] = useState('');
   const [bgNodeId, setBgNodeId] = useState('');
   const [upperNodeIds, setUpperNodeIds] = useState<string[]>(['']);
@@ -122,9 +123,10 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       const imageNodes = result.nodes.filter((n) => n.category === 'image');
       const promptNodes = result.nodes.filter((n) => n.category === 'prompt');
       if (imageNodes[0]) setFaceNodeId(imageNodes[0].id);
-      if (imageNodes[1]) setPoseNodeId(imageNodes[1].id);
-      if (imageNodes[2]) setBgNodeId(imageNodes[2].id);
-      if (imageNodes[3]) setUpperNodeIds([imageNodes[3].id]);
+      if (imageNodes[1]) setFaceFrontNodeId(imageNodes[1].id);
+      if (imageNodes[2]) setPoseNodeId(imageNodes[2].id);
+      if (imageNodes[3]) setBgNodeId(imageNodes[3].id);
+      if (imageNodes[4]) setUpperNodeIds([imageNodes[4].id]);
       if (promptNodes[0]) setFacePhasePromptNode(promptNodes[0].id);
       if (promptNodes[1]) setGarmentPhasePromptNode(promptNodes[1].id);
     } catch (e) {
@@ -157,6 +159,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           label: label.trim(),
           jsonContent,
           faceNodeId,
+          faceFrontNodeId: faceFrontNodeId || undefined,
           poseNodeId,
           bgNodeId,
           upperNodeIds: validUpperIds,
@@ -264,7 +267,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               </p>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <NodeSelect label="Face image node" nodes={nodes} filter="image" value={faceNodeId} onChange={setFaceNodeId} required disabled={saving} />
+                <NodeSelect label="Face side image node" nodes={nodes} filter="image" value={faceNodeId} onChange={setFaceNodeId} required disabled={saving} />
+                <NodeSelect label="Face front image node" nodes={nodes} filter="image" value={faceFrontNodeId} onChange={setFaceFrontNodeId} disabled={saving} />
                 <NodeSelect label="Pose image node" nodes={nodes} filter="image" value={poseNodeId} onChange={setPoseNodeId} required disabled={saving} />
                 <NodeSelect label="Background image node" nodes={nodes} filter="image" value={bgNodeId} onChange={setBgNodeId} required disabled={saving} />
                 <NodeSelect label="Lower garment node" nodes={nodes} filter="image" value={lowerNodeId} onChange={setLowerNodeId} disabled={saving} />

@@ -106,13 +106,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     preHandler: W,
     schema: { body: PresignModelBackgroundBody },
   }, async (req) => {
-    const { contentType } = req.body as { contentType: string };
+    const { contentType, thumbnailContentType } = req.body as { contentType: string; thumbnailContentType?: string };
     const newId = randomUUID();
     const r2Key = keys.modelBackground(newId);
     const thumbKey = keys.modelBackgroundThumb(newId);
     const [main, thumb] = await Promise.all([
       app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-      app.storage.presignPut(thumbKey, contentType, 1_000_000, 300),
+      app.storage.presignPut(thumbKey, thumbnailContentType ?? contentType, 1_000_000, 300),
     ]);
     return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey: thumbKey };
   });
@@ -121,12 +121,17 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     preHandler: W,
     schema: { body: ConfirmModelBackgroundBody },
   }, async (req) => {
-    const { label, r2Key, thumbnailKey, sortOrder } = req.body as {
+    const body = req.body as {
       label: string; r2Key: string; thumbnailKey: string; sortOrder: number;
     };
     const [row] = await app.db
       .insert(schema.modelBackgrounds)
-      .values({ label, r2Key, thumbnailKey, sortOrder })
+      .values({
+        label: body.label,
+        r2Key: body.r2Key,
+        thumbnailKey: body.thumbnailKey,
+        sortOrder: body.sortOrder,
+      })
       .returning();
     return row;
   });
@@ -166,8 +171,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // ── Poses (per garment type) ──────────────────────────────────────────────
-
   app.get('/admin/assets/poses', {
     preHandler: W,
     schema: {
@@ -193,7 +196,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     schema: { body: PresignModelPoseBody },
   }, async (req) => {
     const body = req.body as z.infer<typeof PresignModelPoseBody>;
-    const { garmentTypeId, contentType, faceSideContentType } = body;
+    const { garmentTypeId, contentType, faceSideContentType, bgComfyContentType } = body;
 
     const [sub] = await app.db.select().from(schema.garmentSubcategories)
       .where(eq(schema.garmentSubcategories.id, garmentTypeId));
@@ -215,11 +218,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const r2Key = keys.modelPose(newId);
     const thumbKey = keys.modelPoseThumb(newId);
     const faceSideKey = keys.modelPoseFaceSide(newId);
+    const bgComfyKey = keys.modelPoseBgComfy(newId);
 
     const presignTasks: Promise<{ url: string }>[] = [
       app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
       app.storage.presignPut(thumbKey, contentType, 1_000_000, 300),
       app.storage.presignPut(faceSideKey, faceSideContentType, 10_000_000, 300),
+      app.storage.presignPut(bgComfyKey, bgComfyContentType, 10_000_000, 300),
     ];
 
     const newFaceId = body.newFaceContentType ? randomUUID() : null;
@@ -243,10 +248,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const uploadUrl = results[idx++]!.url;
     const thumbnailUploadUrl = results[idx++]!.url;
     const faceSideUploadUrl = results[idx++]!.url;
+    const bgComfyUploadUrl = results[idx++]!.url;
 
     const response: Record<string, unknown> = {
       uploadUrl, r2Key, thumbnailUploadUrl, thumbnailKey: thumbKey,
       faceSideUploadUrl, faceSideR2Key: faceSideKey,
+      bgComfyUploadUrl, bgComfyR2Key: bgComfyKey,
     };
 
     if (newFaceId && newFaceR2Key && newFaceThumbKey) {
@@ -328,6 +335,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           r2Key: body.r2Key,
           thumbnailKey: body.thumbnailKey,
           faceSideR2Key: body.faceSideR2Key,
+          bgComfyR2Key: body.bgComfyR2Key,
           workflowTemplateId: body.workflowTemplateId,
           promptFacePhase: body.promptFacePhase,
           promptGarmentPhase: body.promptGarmentPhase,

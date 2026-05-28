@@ -7,6 +7,29 @@
 
 ## Log
 
+### 2026-05-28 — ComfyUI results monitor page (standalone admin endpoint)
+
+Standalone read-only results monitor at `/results` for admins to visually inspect ComfyUI outputs across all users, matching the legacy webtool screenshot layout.
+
+#### Done
+- **New API module:** `apps/api/src/modules/results/routes.ts`
+  - `GET /results` — self-contained HTML page with inline CSS + vanilla JS (auto light/dark theme, rich UX: filters, pagination, lightbox, image lazy-loading, shimmer skeletons, toast notifications, logout button).
+  - `POST /results/login` — independent admin login using same email/password credentials. Issues `results_access_token` cookie scoped to `/results` (isolated from admin app cookies).
+  - `POST /results/logout` — clears the results cookie.
+  - `GET /results/data` — paginated JSON with public image URLs for Garment, Pose, Background, Shoes, and Output; supports `search`, `userId`, `date` (`any`/`today`/`7d`/`30d`), and `status` (`completed`/`failed`/`all`).
+  - `GET /results/users` — distinct user list for the User filter dropdown.
+  - Independent cookie-based auth (`requireResultsUser`) verifies admin role (`SUPER_ADMIN`/`MODERATOR`/`SUPPORT`) without sharing session state with the admin React app.
+  - Read-only: no delete or mutation actions.
+- **Server wiring:** `apps/api/src/server.ts` — one import + `await app.register(resultsRoutes);`.
+- **Zero impact** on `apps/web`, `apps/admin`, DB schema, or env files.
+- **Typecheck + build green** for `@aivastra/api`.
+
+#### Open Questions / Decisions
+- Lower-garment thumbnail is not shown as a separate column (matches the 5-column screenshot layout: Garment, Pose, Background, Shoes, Output).
+- Image downloads rely on browser `download` attribute + same-origin/CORS behavior of the configured R2 public URL.
+
+---
+
 ### 2026-05-26 — Full user frontend rebuild from scratch (vastra3.0 design)
 
 Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. Rebuilt the entire user-facing frontend from the Claude Design handoff (`vastra.html`), inline-token styling, new route structure. Wired to existing `/v1` API.

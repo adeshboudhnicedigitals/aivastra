@@ -20,11 +20,20 @@ export function EditBackgroundModal({ background, onSaved, onClose, toast }: Pro
   const handleSave = async () => {
     setSaving(true);
     try {
+      const body: Record<string, unknown> = {
+        label: form.label,
+        sortOrder: form.sortOrder,
+      };
       await apiFetch(`/admin/assets/backgrounds/${background.id}`, {
         method: 'PATCH',
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
-      onSaved({ ...background, ...form });
+      const updated: ModelBackground = {
+        ...background,
+        label: form.label,
+        sortOrder: form.sortOrder,
+      };
+      onSaved(updated);
       toast({ title: `${form.label} updated` });
       onClose();
     } catch {

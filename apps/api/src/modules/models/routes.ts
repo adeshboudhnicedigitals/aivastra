@@ -83,15 +83,12 @@ export async function modelsRoutes(app: FastifyInstance) {
       }
 
       return {
-        items: backs.map((b) => {
-          const tmplKey = templateMap.get(b.id);
-          return {
-            id: b.id,
-            label: b.label,
-            thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
-            previewUrl: app.storage.publicUrl(tmplKey ?? b.thumbnailKey),
-          };
-        }),
+        items: backs.map((b) => ({
+          id: b.id,
+          label: b.label,
+          thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
+          previewUrl: app.storage.publicUrl(templateMap.get(b.id) ?? b.thumbnailKey),
+        })),
       };
     }
 
@@ -99,12 +96,13 @@ export async function modelsRoutes(app: FastifyInstance) {
       .select({ id: schema.modelBackgrounds.id, label: schema.modelBackgrounds.label, thumbnailKey: schema.modelBackgrounds.thumbnailKey })
       .from(schema.modelBackgrounds)
       .where(eq(schema.modelBackgrounds.isActive, true));
+
     return {
-      items: rows.map((i) => ({
-        id: i.id,
-        label: i.label,
-        thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
-        previewUrl: app.storage.publicUrl(i.thumbnailKey),
+      items: rows.map((b) => ({
+        id: b.id,
+        label: b.label,
+        thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
+        previewUrl: app.storage.publicUrl(b.thumbnailKey),
       })),
     };
   });

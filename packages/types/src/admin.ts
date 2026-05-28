@@ -68,6 +68,7 @@ export const PatchModelFaceBody = z.object({
 // Backgrounds are now global — no faceId
 export const PresignModelBackgroundBody = z.object({
   contentType: AssetContentType,
+  thumbnailContentType: AssetContentType.optional(),
 });
 export const ConfirmModelBackgroundBody = z.object({
   label: z.string().min(1).max(120),
@@ -88,6 +89,7 @@ export const CreateWorkflowBody = z.object({
   label: z.string().min(1).max(120),
   jsonContent: z.record(z.any()),
   faceNodeId: z.string().min(1),
+  faceFrontNodeId: z.string().min(1).optional(),
   poseNodeId: z.string().min(1),
   bgNodeId: z.string().min(1),
   upperNodeIds: z.array(z.string().min(1)).min(1).max(4),
@@ -106,6 +108,7 @@ export const UpdateWorkflowBody = z.object({
   isActive: z.boolean().optional(),
   // Allow updating node mappings (not the JSON itself)
   faceNodeId: z.string().min(1).optional(),
+  faceFrontNodeId: z.string().min(1).nullable().optional(),
   poseNodeId: z.string().min(1).optional(),
   bgNodeId: z.string().min(1).optional(),
   upperNodeIds: z.array(z.string().min(1)).min(1).max(4).optional(),
@@ -130,6 +133,8 @@ export const PresignModelPoseBody = z.object({
   contentType: AssetContentType,
   // Side/tilt face for ComfyUI (always required)
   faceSideContentType: AssetContentType,
+  // Per-pose background image for ComfyUI (always required)
+  bgComfyContentType: AssetContentType,
 }).refine(
   (d) => Boolean(d.faceId) !== Boolean(d.newFaceContentType),
   { message: 'Provide either faceId or newFaceContentType, not both', path: ['faceId'] },
@@ -160,6 +165,8 @@ export const ConfirmModelPoseBody = z.object({
   thumbnailKey: z.string().min(1),
   // Side/tilt face (backend only — goes to ComfyUI face node)
   faceSideR2Key: z.string().min(1),
+  // Per-pose background for ComfyUI (backend only)
+  bgComfyR2Key: z.string().min(1),
   // Workflow — now a UUID FK instead of an enum string
   workflowTemplateId: z.string().uuid(),
   promptFacePhase: z.string().min(1),

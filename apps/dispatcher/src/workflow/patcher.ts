@@ -68,6 +68,8 @@ export interface WorkflowInputs {
   upperGarmentFile: string;
   /** Side/tilt face image — patched into the face LoadImage node for ComfyUI */
   faceSideFile: string;
+  /** Front-facing display face — patched into faceFrontNodeId if the workflow has one */
+  faceFrontFile?: string;
   poseFile: string;
   backgroundFile: string;
   lowerGarmentFile?: string;
@@ -96,6 +98,13 @@ export async function patchWorkflow(
 
   // Patch required image nodes
   requireNode(workflow, tmpl.faceNodeId, 'face').inputs['image'] = inputs.faceSideFile;
+
+  // Patch optional front-face node if workflow has one configured
+  if (tmpl.faceFrontNodeId && inputs.faceFrontFile) {
+    if (workflow[tmpl.faceFrontNodeId]) {
+      workflow[tmpl.faceFrontNodeId]!.inputs['image'] = inputs.faceFrontFile;
+    }
+  }
   requireNode(workflow, tmpl.poseNodeId, 'pose').inputs['image'] = inputs.poseFile;
   requireNode(workflow, tmpl.bgNodeId, 'bg').inputs['image'] = inputs.backgroundFile;
 

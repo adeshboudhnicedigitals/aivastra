@@ -47,6 +47,7 @@ export const workflowTemplates = pgTable('workflow_templates', {
 
   // Node ID mappings (ComfyUI node IDs as strings — may contain colons e.g. "1345:111")
   faceNodeId: text('face_node_id').notNull(),
+  faceFrontNodeId: text('face_front_node_id'), // nullable — front-facing display face; absent in legacy workflows
   poseNodeId: text('pose_node_id').notNull(),
   bgNodeId: text('bg_node_id').notNull(),
   upperNodeIds: text('upper_node_ids').array().notNull(),
@@ -85,6 +86,7 @@ export const modelPoses = pgTable('model_poses', {
   promptFacePhase: text('prompt_face_phase'),
   promptGarmentPhase: text('prompt_garment_phase'),
   faceSideR2Key: text('face_side_r2_key'),
+  bgComfyR2Key: text('bg_comfy_r2_key'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

@@ -11,6 +11,7 @@ import type { FieldDef } from '../components/UploadModal';
 import { PoseUploadModal } from '../components/PoseUploadModal';
 import { EditPoseModal } from '../components/EditPoseModal';
 import { EditBackgroundModal } from '../components/EditBackgroundModal';
+import { BackgroundUploadModal } from '../components/BackgroundUploadModal';
 import { EditFaceModal } from '../components/EditFaceModal';
 import { Pager } from '../components/Pager';
 import { Th } from '../components/Th';
@@ -47,11 +48,6 @@ const FACE_FIELDS: FieldDef[] = [
       { value: 'girls', label: 'Girls' },
     ],
   },
-  { type: 'number', name: 'sortOrder', label: 'Sort order (lower = first)', min: 0, defaultValue: 0 },
-];
-
-const BG_FIELDS: FieldDef[] = [
-  { type: 'text', name: 'label', label: 'Label', required: true, placeholder: 'e.g. Studio White' },
   { type: 'number', name: 'sortOrder', label: 'Sort order (lower = first)', min: 0, defaultValue: 0 },
 ];
 
@@ -193,7 +189,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   }, [toast]);
 
   useEffect(() => {
-    if (activeTab === 'backgrounds') loadBackgrounds();
+    if (activeTab === 'backgrounds') { loadBackgrounds(); }
     else if (activeTab === 'faces') loadFaces();
     else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog();
     else if (activeTab === 'garment-types') {
@@ -399,28 +395,41 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {!loading && activeTab === 'backgrounds' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
-          {backgrounds.map((bg) => (
-            <div key={bg.id} className="card" style={{ opacity: bg.isActive ? 1 : 0.6, padding: 14 }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                {T(bg, 64, 48)}
-                <div style={{ marginTop: 4 }}>
-                  <span className="semi">{bg.label}</span>
-                  <span className="sub mono" style={{ display: 'block', marginTop: 2 }}>{bg.id.slice(0, 8)}…</span>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                <Switch checked={bg.isActive} onChange={() => toggleBg(bg.id)} />
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn sm ghost" onClick={() => setEditingBackground(bg)}><Icon.Edit /></button>
-                  <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'background', id: bg.id, label: bg.label })}><Icon.Trash /></button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {backgrounds.length === 0 && (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No backgrounds yet.</div>
-          )}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Label</th>
+                <th>Active</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {backgrounds.map((bg) => (
+                <tr key={bg.id} style={{ opacity: bg.isActive ? 1 : 0.6 }}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {T(bg, 40, 30)}
+                      <div>
+                        <span className="semi">{bg.label}</span>
+                        <span className="sub mono" style={{ display: 'block' }}>{bg.id.slice(0, 8)}…</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td><Switch checked={bg.isActive} onChange={() => toggleBg(bg.id)} /></td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button className="btn sm ghost" onClick={() => setEditingBackground(bg)}><Icon.Edit /></button>
+                      <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'background', id: bg.id, label: bg.label })}><Icon.Trash /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {backgrounds.length === 0 && (
+                <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No backgrounds yet.</td></tr>
+              )}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -732,12 +741,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {showBgUpload && (
-        <UploadModal
-          title="Add background"
-          presignPath="/admin/assets/backgrounds/presign"
-          confirmPath="/admin/assets/backgrounds/confirm"
-          fields={BG_FIELDS}
-          onDone={(row) => { setShowBgUpload(false); setBackgrounds((prev) => [...prev, row as ModelBackground]); }}
+        <BackgroundUploadModal
+          onDone={(row) => { setShowBgUpload(false); setBackgrounds((prev) => [...prev, row]); }}
           onClose={() => setShowBgUpload(false)}
           toast={toast}
         />
@@ -759,7 +764,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           garmentTypeGenderSlug={subView.sub.genderSlug}
           faces={faces}
           backgrounds={backgrounds}
-          onDone={(added) => { setShowPoseUpload(false); setPoses((prev) => [...prev, added]); }}
+          onDone={(added) => {
+            setShowPoseUpload(false);
+            setPoses((prev) => [...prev, added]);
+            // Refresh faces and backgrounds — inline uploads during pose creation add new DB records
+            // that aren't reflected in the current React state
+            apiFetch<{ items: ModelFace[] }>('/admin/assets/faces').then((r) => setFaces(r.items)).catch(() => {});
+            apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds').then((r) => setBackgrounds(r.items)).catch(() => {});
+          }}
           onClose={() => setShowPoseUpload(false)}
           toast={toast}
         />

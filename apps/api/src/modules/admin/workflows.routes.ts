@@ -153,6 +153,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       label: string;
       jsonContent: Record<string, unknown>;
       faceNodeId: string;
+      faceFrontNodeId?: string;
       poseNodeId: string;
       bgNodeId: string;
       upperNodeIds: string[];
@@ -164,6 +165,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
     // Validate all referenced node IDs exist in the JSON
     validateNodeExists(body.jsonContent, body.faceNodeId, 'face image');
+    if (body.faceFrontNodeId) {
+      validateNodeExists(body.jsonContent, body.faceFrontNodeId, 'face front image');
+      validateNodeType(body.jsonContent, body.faceFrontNodeId, 'image', 'face front image');
+    }
     validateNodeExists(body.jsonContent, body.poseNodeId, 'pose image');
     validateNodeExists(body.jsonContent, body.bgNodeId, 'background image');
     for (const uid of body.upperNodeIds) {
@@ -217,6 +222,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         label: body.label,
         jsonContent: body.jsonContent,
         faceNodeId: body.faceNodeId,
+        faceFrontNodeId: body.faceFrontNodeId ?? null,
         poseNodeId: body.poseNodeId,
         bgNodeId: body.bgNodeId,
         upperNodeIds: body.upperNodeIds,
@@ -276,6 +282,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       label?: string;
       isActive?: boolean;
       faceNodeId?: string;
+      faceFrontNodeId?: string | null;
       poseNodeId?: string;
       bgNodeId?: string;
       upperNodeIds?: string[];
@@ -311,6 +318,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
     // Validate any new node IDs exist in the stored JSON
     if (body.faceNodeId) validateNodeExists(json, body.faceNodeId, 'face image');
+    if (body.faceFrontNodeId) {
+      validateNodeExists(json, body.faceFrontNodeId, 'face front image');
+      validateNodeType(json, body.faceFrontNodeId, 'image', 'face front image');
+    }
     if (body.poseNodeId) validateNodeExists(json, body.poseNodeId, 'pose image');
     if (body.bgNodeId) validateNodeExists(json, body.bgNodeId, 'background image');
     if (body.upperNodeIds) {
@@ -327,6 +338,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     if (body.label !== undefined) updateValues['label'] = body.label;
     if (body.isActive !== undefined) updateValues['isActive'] = body.isActive;
     if (body.faceNodeId !== undefined) updateValues['faceNodeId'] = body.faceNodeId;
+    if ('faceFrontNodeId' in body) updateValues['faceFrontNodeId'] = body.faceFrontNodeId ?? null;
     if (body.poseNodeId !== undefined) updateValues['poseNodeId'] = body.poseNodeId;
     if (body.bgNodeId !== undefined) updateValues['bgNodeId'] = body.bgNodeId;
     if (body.upperNodeIds !== undefined) updateValues['upperNodeIds'] = body.upperNodeIds;

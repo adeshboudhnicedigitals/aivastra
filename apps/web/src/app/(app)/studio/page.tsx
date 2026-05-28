@@ -15,6 +15,7 @@ const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 interface GarmentType { id: string; slug: string; label: string; thumbnailUrl?: string | null }
 interface FaceItem { id: string; label: string; thumbnailUrl: string; gender: string }
 interface BackgroundItem { id: string; label: string; thumbnailUrl: string; previewUrl: string }
+interface BackgroundsResponse { items: BackgroundItem[] }
 interface PoseItem { id: string; label: string; thumbnailUrl: string; showsLower: boolean; showsShoes: boolean }
 interface CatalogItem { id: string; label: string; thumbnailUrl: string }
 interface CatalogNode { id: number; slug: string; label: string; children: CatalogNode[]; items: CatalogItem[] }
@@ -113,7 +114,7 @@ export default function StudioPage(): React.ReactElement {
 
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({ queryKey: ['garmentTypes', gender], queryFn: () => api.get(`/v1/models/garment-types?gender=${gender}`), enabled: !!gender });
   const { data: faces } = useQuery<{ items: FaceItem[] }>({ queryKey: ['faces', gender], queryFn: () => api.get(`/v1/models/faces?gender=${gender}`), enabled: !!gender && step >= 1 });
-  const { data: backgrounds } = useQuery<{ items: BackgroundItem[] }>({
+  const { data: backgrounds } = useQuery<BackgroundsResponse>({
     queryKey: ['backgrounds', faceId, garmentTypeId],
     queryFn: () => { const p = new URLSearchParams(); if (faceId) p.set('faceId', faceId); if (garmentTypeId) p.set('garmentTypeId', garmentTypeId); return api.get(`/v1/models/backgrounds?${p}`); },
     enabled: !!faceId && step >= 2,
@@ -291,8 +292,11 @@ export default function StudioPage(): React.ReactElement {
             {!backgrounds ? <div style={{ display: 'flex', justifyContent: 'center', padding: '32px 0', color: C.mid }}><SpinnerIcon /></div>
               : backgrounds.items.length === 0 ? <p style={{ fontSize: 14, color: C.mid }}>No backgrounds available for this model yet. Try a different model.</p>
               : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-                  {backgrounds.items.map((b) => <SelCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)} imageUrl={b.thumbnailUrl} label={b.label} w={130} h={100} />)}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {backgrounds.items.map((b) => (
+                    <SelCard key={b.id} selected={backgroundId === b.id} onClick={() => handleBackgroundSelect(b.id)}
+                      imageUrl={b.previewUrl || b.thumbnailUrl} label={b.label} w={130} h={100} />
+                  ))}
                 </div>
               )}
           </section>

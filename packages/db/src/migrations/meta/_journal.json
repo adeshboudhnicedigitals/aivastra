@@ -13,6 +13,11 @@
     { "idx": 8, "version": "7", "when": 1779926400002, "tag": "0008_pose_workflow_columns", "breakpoints": true },
     { "idx": 9, "version": "7", "when": 1779926400003, "tag": "0009_workflow_templates", "breakpoints": true },
     { "idx": 10, "version": "7", "when": 1779926400004, "tag": "0010_subcategory_thumbnail", "breakpoints": true },
-    { "idx": 11, "version": "7", "when": 1779926400005, "tag": "0011_oauth_accounts", "breakpoints": true }
+    { "idx": 11, "version": "7", "when": 1779926400005, "tag": "0011_oauth_accounts", "breakpoints": true },
+    { "idx": 12, "version": "7", "when": 1779926400006, "tag": "0012_shoe_node_id", "breakpoints": true },
+    { "idx": 13, "version": "7", "when": 1779926400007, "tag": "0013_background_locations", "breakpoints": true },
+    { "idx": 14, "version": "7", "when": 1779926400008, "tag": "0014_flatten_backgrounds", "breakpoints": true },
+    { "idx": 15, "version": "7", "when": 1779926400009, "tag": "0015_pose_bg_comfy_key", "breakpoints": true },
+    { "idx": 16, "version": "7", "when": 1779926400010, "tag": "0016_workflow_face_front_node", "breakpoints": true }
   ]
 }
