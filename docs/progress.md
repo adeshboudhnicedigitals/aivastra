@@ -7,6 +7,50 @@
 
 ## Log
 
+### 2026-05-28 — Catalog gender filtering, per-pose allowlist, code quality tooling
+
+#### Done
+
+**Catalog gender simplification**
+- Removed `categoryId` as a required field on catalog items — `type` (`lower`|`shoe`) and `genderSlug` stored directly on `catalog_items`
+- Removed "All genders" option from upload modal; admin must pick one of 4 genders (men/women/boys/girls)
+- Replaced Category column with Gender badge in catalog table
+- Added gender edit button (pencil icon) for existing lower/shoe items (`PATCH /admin/catalog/items/:id`)
+- Migration `0021_catalog_item_direct_type.sql`: adds `type` column, backfills from `catalog_types`, drops `NOT NULL` on `category_id`
+- Deleted 2 null-gender shoe items (nulled `job_inputs` FK first)
+
+**Per-pose catalog item allowlist** (migration `0022`)
+- New `pose_catalog_items(pose_id, catalog_item_id)` join table — cascade deletes
+- `GET /admin/assets/poses`: returns `lowerItemIds[]` + `shoeItemIds[]` per pose
+- `POST /admin/assets/poses/confirm` + `PATCH /:id`: accept and persist item ID lists in transaction
+- `GET /v1/catalog/:type?poseIds=...`: returns only items in the pose's allowlist when poseIds provided
+- Upload/edit pose modals: `showsLower`/`showsShoes` default **off**; enabling shows scrollable checkbox list filtered by pose gender
+- Studio page: catalog queries pass selected pose IDs; lower/shoe sections hidden when no pose enables them
+
+**Gender-filtered catalog in pose modals**
+- Upload modal: shows only items matching `garmentTypeGenderSlug`
+- Edit modal: derives gender from selected face, filters accordingly
+
+**Code quality tooling (Biome + lefthook)**
+- Replaced Prettier with **Biome** (single tool: lint + format, ruff equivalent for TS)
+- `biome.json`: 2-space indent, single quotes, recommended lint rules; a11y rules downgraded to warn for admin/web UI
+- `pnpm lint` / `pnpm lint:fix` / `pnpm format` scripts at root and per-package
+- **lefthook**: pre-commit checks staged `.ts/tsx/json/css` files; pre-push runs lint + typecheck + unit tests
+- CI split into 3 parallel jobs: lint, typecheck, test
+- All 155 source files reformatted
+
+**Build fixes**
+- `MOCK_POSES` in `apps/admin/src/lib/data.ts` missing `lowerItemIds`/`shoeItemIds` → Docker build failed
+- Biome stripped `.js` ESM extension from `packages/storage/test/keys.test.ts` → typecheck failed
+
+#### Failed / Not Done
+- Server migration `0022_pose_catalog_items` must be applied after next deploy: `pnpm --filter @aivastra/db migrate`
+
+#### Open Questions / Decisions
+- Studio currently shows all lower/shoe items when no poseIds provided (legacy tree path). Once all poses have allowlists configured, this legacy path can be removed.
+
+---
+
 ### 2026-05-28 — ComfyUI results monitor page (standalone admin endpoint)
 
 Standalone read-only results monitor at `/results` for admins to visually inspect ComfyUI outputs across all users, matching the legacy webtool screenshot layout.
