@@ -323,33 +323,18 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {showUpload && (
-        categories.length === 0 ? (
-          <div className="modal-overlay" onClick={() => setShowUpload(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head"><h3>No categories found</h3></div>
-              <div className="modal-body">
-                <p>Run <code>pnpm db:migrate</code> to seed the lower &amp; shoe categories, then reload.</p>
-              </div>
-              <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setShowUpload(false)}>Close</button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <BatchCatalogUploadModal
-            typeSlug={tab === 'shoe' ? 'shoe' : 'lower'}
-            categories={categories}
-            onDone={(added) => {
-              setShowUpload(false);
-              setItems((prev) => [...prev, ...added as any]);
-              apiFetch<CatalogItem[]>('/admin/catalog/items').then(setItems).catch(() => {
-                toast({ kind: 'error', title: 'Items added but failed to refresh list' });
-              });
-            }}
-            onClose={() => setShowUpload(false)}
-            toast={toast}
-          />
-        )
+        <BatchCatalogUploadModal
+          typeSlug={tab === 'shoe' ? 'shoe' : 'lower'}
+          onDone={(added) => {
+            setShowUpload(false);
+            setItems((prev) => [...prev, ...added as any]);
+            apiFetch<CatalogItem[]>('/admin/catalog/items').then(setItems).catch(() => {
+              toast({ kind: 'error', title: 'Items added but failed to refresh list' });
+            });
+          }}
+          onClose={() => setShowUpload(false)}
+          toast={toast}
+        />
       )}
     </>
   );

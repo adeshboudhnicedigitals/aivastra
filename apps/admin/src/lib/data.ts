@@ -59,10 +59,10 @@ export const MOCK_FACES: ModelFace[] = [
 ];
 
 export const MOCK_BACKGROUNDS: ModelBackground[] = [
-  { id: 'bg_001', label: 'Studio White', thumbnailKey: 'bgs/studio-white-thumb.jpg', r2Key: 'bgs/studio-white.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z' },
-  { id: 'bg_002', label: 'Urban Street', thumbnailKey: 'bgs/urban-thumb.jpg', r2Key: 'bgs/urban.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-06T11:00:00Z', updatedAt: '2026-05-06T11:00:00Z' },
-  { id: 'bg_003', label: 'Office', thumbnailKey: 'bgs/office-thumb.jpg', r2Key: 'bgs/office.jpg', isActive: true, sortOrder: 2, createdAt: '2026-05-07T10:00:00Z', updatedAt: '2026-05-07T10:00:00Z' },
-  { id: 'bg_004', label: 'Studio Grey', thumbnailKey: 'bgs/studio-grey-thumb.jpg', r2Key: 'bgs/studio-grey.jpg', isActive: true, sortOrder: 3, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z' },
+  { id: 'bg_001', label: 'Studio White', thumbnailKey: 'bgs/studio-white-thumb.jpg', r2Key: 'bgs/studio-white.jpg', isActive: true, sortOrder: 0, genderSlug: null, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z' },
+  { id: 'bg_002', label: 'Urban Street', thumbnailKey: 'bgs/urban-thumb.jpg', r2Key: 'bgs/urban.jpg', isActive: true, sortOrder: 1, genderSlug: 'men', createdAt: '2026-05-06T11:00:00Z', updatedAt: '2026-05-06T11:00:00Z' },
+  { id: 'bg_003', label: 'Office', thumbnailKey: 'bgs/office-thumb.jpg', r2Key: 'bgs/office.jpg', isActive: true, sortOrder: 2, genderSlug: null, createdAt: '2026-05-07T10:00:00Z', updatedAt: '2026-05-07T10:00:00Z' },
+  { id: 'bg_004', label: 'Studio Grey', thumbnailKey: 'bgs/studio-grey-thumb.jpg', r2Key: 'bgs/studio-grey.jpg', isActive: true, sortOrder: 3, genderSlug: null, createdAt: '2026-05-06T10:00:00Z', updatedAt: '2026-05-06T10:00:00Z' },
 ];
 
 export const MOCK_POSES: ModelPose[] = [
@@ -72,13 +72,13 @@ export const MOCK_POSES: ModelPose[] = [
 ];
 
 export const MOCK_CATALOG: CatalogItem[] = [
-  { id: 'cat_lower_001', label: 'Classic Blue Jeans', type: 'lower', thumbnailKey: 'catalog/lower-jeans-001-thumb.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
-  { id: 'cat_lower_002', label: 'Slim Fit Chinos', type: 'lower', thumbnailKey: 'catalog/lower-chinos-001-thumb.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-02T10:00:00Z', updatedAt: '2026-05-02T10:00:00Z' },
-  { id: 'cat_lower_003', label: 'Formal Trousers Black', type: 'lower', thumbnailKey: 'catalog/lower-formal-001-thumb.jpg', isActive: true, sortOrder: 2, createdAt: '2026-05-03T10:00:00Z', updatedAt: '2026-05-03T10:00:00Z' },
-  { id: 'cat_lower_004', label: 'Track Pants Grey', type: 'lower', thumbnailKey: 'catalog/lower-track-001-thumb.jpg', isActive: false, sortOrder: 3, createdAt: '2026-05-04T10:00:00Z', updatedAt: '2026-05-04T10:00:00Z' },
-  { id: 'cat_shoe_001', label: 'White Sneakers', type: 'shoe', thumbnailKey: 'catalog/shoe-sneaker-001-thumb.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
-  { id: 'cat_shoe_002', label: 'Oxford Brown', type: 'shoe', thumbnailKey: 'catalog/shoe-oxford-001-thumb.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-02T10:00:00Z', updatedAt: '2026-05-02T10:00:00Z' },
-  { id: 'cat_shoe_003', label: 'Loafers Tan', type: 'shoe', thumbnailKey: 'catalog/shoe-loafer-001-thumb.jpg', isActive: true, sortOrder: 2, createdAt: '2026-05-03T10:00:00Z', updatedAt: '2026-05-03T10:00:00Z' },
+  { id: 'cat_lower_001', label: 'Classic Blue Jeans', type: 'lower', genderSlug: 'men', thumbnailKey: 'catalog/lower-jeans-001-thumb.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
+  { id: 'cat_lower_002', label: 'Slim Fit Chinos', type: 'lower', genderSlug: 'men', thumbnailKey: 'catalog/lower-chinos-001-thumb.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-02T10:00:00Z', updatedAt: '2026-05-02T10:00:00Z' },
+  { id: 'cat_lower_003', label: 'Formal Trousers Black', type: 'lower', genderSlug: 'men', thumbnailKey: 'catalog/lower-formal-001-thumb.jpg', isActive: true, sortOrder: 2, createdAt: '2026-05-03T10:00:00Z', updatedAt: '2026-05-03T10:00:00Z' },
+  { id: 'cat_lower_004', label: 'Track Pants Grey', type: 'lower', genderSlug: 'men', thumbnailKey: 'catalog/lower-track-001-thumb.jpg', isActive: false, sortOrder: 3, createdAt: '2026-05-04T10:00:00Z', updatedAt: '2026-05-04T10:00:00Z' },
+  { id: 'cat_shoe_001', label: 'White Sneakers', type: 'shoe', genderSlug: 'men', thumbnailKey: 'catalog/shoe-sneaker-001-thumb.jpg', isActive: true, sortOrder: 0, createdAt: '2026-05-01T10:00:00Z', updatedAt: '2026-05-01T10:00:00Z' },
+  { id: 'cat_shoe_002', label: 'Oxford Brown', type: 'shoe', genderSlug: 'men', thumbnailKey: 'catalog/shoe-oxford-001-thumb.jpg', isActive: true, sortOrder: 1, createdAt: '2026-05-02T10:00:00Z', updatedAt: '2026-05-02T10:00:00Z' },
+  { id: 'cat_shoe_003', label: 'Loafers Tan', type: 'shoe', genderSlug: 'men', thumbnailKey: 'catalog/shoe-loafer-001-thumb.jpg', isActive: true, sortOrder: 2, createdAt: '2026-05-03T10:00:00Z', updatedAt: '2026-05-03T10:00:00Z' },
 ];
 
 
