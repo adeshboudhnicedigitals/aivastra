@@ -120,6 +120,10 @@ export const UpdateWorkflowBody = z.object({
   garmentPhasePromptNode: z.string().min(1).optional(),
 });
 
+export const ReassignWorkflowBody = z.object({
+  targetWorkflowId: z.string().uuid(),
+});
+
 // ── Pose schemas ──────────────────────────────────────────────────────────
 
 // Poses are per (garment type × face × background) combo, e.g. m1bg1p1

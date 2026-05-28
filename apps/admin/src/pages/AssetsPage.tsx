@@ -98,6 +98,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [editingSubcat, setEditingSubcat] = useState<GarmentType | null>(null);
   const [editSubcatImageFile, setEditSubcatImageFile] = useState<File | null>(null);
   const [editSubcatSaving, setEditSubcatSaving] = useState(false);
+  const [editSubcatLabel, setEditSubcatLabel] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDelete | null>(null);
@@ -525,7 +526,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn sm ghost" onClick={() => { setEditingSubcat(sub); setEditSubcatImageFile(null); }}><Icon.Edit /></button>
+                      <button className="btn sm ghost" onClick={() => { setEditingSubcat(sub); setEditSubcatLabel(sub.label); setEditSubcatImageFile(null); }}><Icon.Edit /></button>
                       <button className="btn sm ghost" onClick={() => setConfirmDelete({ type: 'garment-type', id: sub.id, label: sub.label })}><Icon.Trash /></button>
                     </div>
                   </td>
@@ -901,16 +902,20 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {editingSubcat && (
-        <div className="modal-overlay" onClick={editSubcatSaving ? undefined : () => { setEditingSubcat(null); setEditSubcatImageFile(null); }}>
+        <div className="modal-overlay" onClick={editSubcatSaving ? undefined : () => { setEditingSubcat(null); setEditSubcatImageFile(null); setEditSubcatLabel(''); }}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(440px, calc(100vw - 80px))' }}>
             <div className="modal-head">
-              <h3>Edit garment type image</h3>
-              <button className="btn sm ghost" onClick={() => { setEditingSubcat(null); setEditSubcatImageFile(null); }} disabled={editSubcatSaving} style={{ marginLeft: 'auto' }}>
+              <h3>Edit garment type</h3>
+              <button className="btn sm ghost" onClick={() => { setEditingSubcat(null); setEditSubcatImageFile(null); setEditSubcatLabel(''); }} disabled={editSubcatSaving} style={{ marginLeft: 'auto' }}>
                 <Icon.Close />
               </button>
             </div>
             <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--fg)' }}>{editingSubcat.label}</div>
+              <div className="field">
+                <label>Label</label>
+                <input className="input" value={editSubcatLabel} disabled={editSubcatSaving}
+                  onChange={(e) => setEditSubcatLabel(e.target.value)} />
+              </div>
               <div className="field">
                 <label>Thumbnail image</label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -938,33 +943,42 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </div>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => { setEditingSubcat(null); setEditSubcatImageFile(null); }} disabled={editSubcatSaving}>Cancel</button>
+              <button className="btn ghost" onClick={() => { setEditingSubcat(null); setEditSubcatImageFile(null); setEditSubcatLabel(''); }} disabled={editSubcatSaving}>Cancel</button>
               <button
                 className="btn primary"
-                disabled={editSubcatSaving || !editSubcatImageFile}
+                disabled={editSubcatSaving || (!editSubcatImageFile && editSubcatLabel.trim() === editingSubcat.label.trim())}
                 onClick={async () => {
-                  if (!editSubcatImageFile) return;
                   setEditSubcatSaving(true);
                   try {
-                    const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>('/admin/assets/garment-types/presign', {
-                      method: 'POST', body: JSON.stringify({ contentType: editSubcatImageFile.type }),
-                    });
-                    await fetch(presign.uploadUrl, { method: 'PUT', headers: { 'Content-Type': editSubcatImageFile.type }, body: editSubcatImageFile });
-                    await apiFetch(`/admin/assets/garment-types/${editingSubcat.id}`, {
-                      method: 'PATCH', body: JSON.stringify({ thumbnailKey: presign.thumbnailKey }),
-                    });
-                    setGarmentTypes((prev) => prev.map((s) => s.id === editingSubcat.id ? { ...s, thumbnailKey: presign.thumbnailKey } : s));
-                    toast({ title: `${editingSubcat.label} image updated` });
+                    const patchBody: { thumbnailKey?: string; label?: string } = {};
+                    if (editSubcatImageFile) {
+                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>('/admin/assets/garment-types/presign', {
+                        method: 'POST', body: JSON.stringify({ contentType: editSubcatImageFile.type }),
+                      });
+                      await fetch(presign.uploadUrl, { method: 'PUT', headers: { 'Content-Type': editSubcatImageFile.type }, body: editSubcatImageFile });
+                      patchBody.thumbnailKey = presign.thumbnailKey;
+                    }
+                    if (editSubcatLabel.trim() !== editingSubcat.label.trim()) {
+                      patchBody.label = editSubcatLabel.trim();
+                    }
+                    if (Object.keys(patchBody).length > 0) {
+                      await apiFetch(`/admin/assets/garment-types/${editingSubcat.id}`, {
+                        method: 'PATCH', body: JSON.stringify(patchBody),
+                      });
+                      setGarmentTypes((prev) => prev.map((s) => s.id === editingSubcat.id ? { ...s, ...patchBody } : s));
+                    }
+                    toast({ title: `${patchBody.label ?? editingSubcat.label} updated` });
                     setEditingSubcat(null);
                     setEditSubcatImageFile(null);
+                    setEditSubcatLabel('');
                   } catch {
-                    toast({ kind: 'error', title: 'Failed to upload image' });
+                    toast({ kind: 'error', title: 'Failed to save' });
                   } finally {
                     setEditSubcatSaving(false);
                   }
                 }}
               >
-                {editSubcatSaving ? 'Uploading…' : 'Save image'}
+                {editSubcatSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>

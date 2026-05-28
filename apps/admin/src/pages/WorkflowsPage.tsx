@@ -16,6 +16,9 @@ export default function WorkflowsPage({ toast }: Props) {
   const [showUpload, setShowUpload] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null); // workflow id being confirmed
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [reassigning, setReassigning] = useState<WorkflowOption | null>(null);
+  const [reassignTargetId, setReassignTargetId] = useState('');
+  const [reassignSaving, setReassignSaving] = useState(false);
 
   const loadWorkflows = useCallback(async () => {
     setLoading(true);
@@ -66,6 +69,32 @@ export default function WorkflowsPage({ toast }: Props) {
       toast({ kind: 'error', title: 'Failed to update workflow' });
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleReassign = async () => {
+    if (!reassigning || !reassignTargetId) return;
+    setReassignSaving(true);
+    try {
+      await apiFetch(`/admin/workflows/${reassigning.id}/reassign`, {
+        method: 'POST',
+        body: JSON.stringify({ targetWorkflowId: reassignTargetId }),
+      });
+      setWorkflows((prev) => prev.map((w) => {
+        if (w.id === reassigning.id) return { ...w, poseCount: 0 };
+        if (w.id === reassignTargetId) return { ...w, poseCount: w.poseCount + reassigning.poseCount };
+        return w;
+      }));
+      toast({ title: `${reassigning.poseCount} pose${reassigning.poseCount === 1 ? '' : 's'} reassigned from "${reassigning.label}"` });
+      setReassigning(null);
+      setReassignTargetId('');
+    } catch (e) {
+      const msg = e instanceof ApiError
+        ? ((e.body as { error?: { message?: string } })?.error?.message ?? 'Failed to reassign')
+        : 'Failed to reassign';
+      toast({ kind: 'error', title: msg });
+    } finally {
+      setReassignSaving(false);
     }
   };
 
@@ -158,6 +187,16 @@ export default function WorkflowsPage({ toast }: Props) {
                         {wf.isActive ? <Icon.Eye /> : <Icon.Eye />}
                         {togglingId === wf.id ? '…' : wf.isActive ? 'Deactivate' : 'Activate'}
                       </button>
+                      {wf.poseCount > 0 && (
+                        <button
+                          className="btn sm ghost"
+                          disabled={workflows.length <= 1}
+                          onClick={() => { setReassigning(wf); setReassignTargetId(''); }}
+                          title={workflows.length <= 1 ? 'No other workflows to reassign to' : `Reassign ${wf.poseCount} pose${wf.poseCount === 1 ? '' : 's'} to another workflow`}
+                        >
+                          <Icon.Replace /> Reassign
+                        </button>
+                      )}
                       <button
                         className="btn sm ghost"
                         style={{ color: 'var(--danger)' }}
@@ -199,6 +238,46 @@ export default function WorkflowsPage({ toast }: Props) {
           onClose={() => setDeleting(null)}
         />
       )}
+
+      {/* Reassign modal */}
+      {reassigning && (
+        <div className="modal-overlay" onClick={reassignSaving ? undefined : () => { setReassigning(null); setReassignTargetId(''); }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 380 }}>
+            <div className="modal-head">
+              <h3>Reassign workflow</h3>
+              <button className="btn sm ghost" onClick={reassignSaving ? undefined : () => { setReassigning(null); setReassignTargetId(''); }} style={{ marginLeft: 'auto' }}>
+                <Icon.Close />
+              </button>
+            </div>
+            <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <p style={{ margin: 0 }}>
+                {reassigning.poseCount} pose{reassigning.poseCount === 1 ? '' : 's'} use <strong>{reassigning.label}</strong>.
+                Choose a target workflow to move them to.
+              </p>
+              <div className="field">
+                <label>Target workflow</label>
+                <select className="select" value={reassignTargetId}
+                  disabled={reassignSaving}
+                  onChange={(e) => setReassignTargetId(e.target.value)}>
+                  <option value="">— Select —</option>
+                  {workflows
+                    .filter((w) => w.id !== reassigning.id)
+                    .map((w) => (
+                      <option key={w.id} value={w.id}>{w.label} ({w.slug})</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={reassignSaving ? undefined : () => { setReassigning(null); setReassignTargetId(''); }}>Cancel</button>
+              <button className="btn primary" disabled={reassignSaving || !reassignTargetId} onClick={handleReassign}>
+                {reassignSaving ? 'Reassigning…' : 'Reassign'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { schema } from '@aivastra/db';
 import { eq, count } from 'drizzle-orm';
 import { z } from 'zod';
-import { CreateWorkflowBody, ParseWorkflowBody, UpdateWorkflowBody } from '@aivastra/types';
+import { CreateWorkflowBody, ParseWorkflowBody, UpdateWorkflowBody, ReassignWorkflowBody } from '@aivastra/types';
 import { requireAdmin } from './guard.js';
 import { AppError } from '../../lib/errors.js';
 
@@ -357,6 +357,40 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       .where(eq(schema.workflowTemplates.id, id));
 
     return { ok: true };
+  });
+
+  // POST /admin/workflows/:id/reassign
+  // Bulk-reassign all poses from source workflow to target workflow — unblocks deletion
+  app.post('/admin/workflows/:id/reassign', {
+    preHandler: W,
+    schema: { params: uuidParam, body: ReassignWorkflowBody },
+  }, async (req) => {
+    const { id: sourceId } = req.params as { id: string };
+    const { targetWorkflowId } = req.body as { targetWorkflowId: string };
+
+    if (sourceId === targetWorkflowId) {
+      throw new AppError('CONFLICT', 409, 'source and target workflow are the same');
+    }
+
+    const [source] = await app.db
+      .select({ id: schema.workflowTemplates.id })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, sourceId));
+    if (!source) throw new AppError('NOT_FOUND', 404, 'source workflow not found');
+
+    const [target] = await app.db
+      .select({ id: schema.workflowTemplates.id })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, targetWorkflowId));
+    if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
+
+    const result = await app.db
+      .update(schema.modelPoses)
+      .set({ workflowTemplateId: targetWorkflowId })
+      .where(eq(schema.modelPoses.workflowTemplateId, sourceId))
+      .returning({ id: schema.modelPoses.id });
+
+    return { ok: true, updated: result.length };
   });
 
   // DELETE /admin/workflows/:id

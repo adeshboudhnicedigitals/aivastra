@@ -45,4 +45,5 @@ export const Icon: Record<string, () => JSX.Element> = {
   ExternalLink: () => <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M6 2.5H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-3M13.5 2.5h-5M13.5 2.5l-7 7"/></svg>,
   MoreHorizontal: () => <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="13" cy="8" r="1.2"/></svg>,
   Workflow: () => <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><rect x="1.5" y="2.5" width="4" height="3" rx="0.8"/><rect x="1.5" y="10.5" width="4" height="3" rx="0.8"/><rect x="10.5" y="6.5" width="4" height="3" rx="0.8"/><path d="M5.5 4h2.5a1 1 0 0 1 1 1v4.5a1 1 0 0 0 1 1H10.5M5.5 12h2.5a1 1 0 0 0 1-1V8"/></svg>,
+  Replace: () => <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 10l-2-2 2-2M13 6l2 2-2 2M1 8h6M15 8H9"/></svg>,
 };

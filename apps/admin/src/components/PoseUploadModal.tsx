@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
 import { apiFetch } from '../lib/data';
@@ -57,6 +57,24 @@ function UploadZone({ id, label, hint, badge, file, onChange, disabled }: {
   onChange: (f: File | null) => void;
   disabled: boolean;
 }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setPreviewUrl(null);
+  }, [file]);
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange(null);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
   return (
     <label htmlFor={id} style={{
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
@@ -68,17 +86,28 @@ function UploadZone({ id, label, hint, badge, file, onChange, disabled }: {
       transition: 'border-color 120ms, background 120ms',
       textAlign: 'center', userSelect: 'none', flex: 1,
       opacity: disabled ? 0.7 : 1,
+      position: 'relative',
     }}>
       {file ? (
         <>
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <circle cx="11" cy="11" r="10" stroke="var(--success)" strokeWidth="1.5" />
-            <path d="M7 11.5l2.5 2.5 5.5-5.5" stroke="var(--success)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
+          {previewUrl && (
+            <img src={previewUrl} alt="preview"
+              style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+          )}
           <span style={{ fontSize: 11.5, fontWeight: 500, color: 'var(--ink)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {file.name.length > 22 ? file.name.slice(0, 20) + '…' : file.name}
+            {file.name.length > 22 ? file.name.slice(0, 20) + '\u2026' : file.name}
           </span>
           <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>{(file.size / 1024).toFixed(0)} KB</span>
+          <button type="button" onClick={handleClear} disabled={disabled} style={{
+            position: 'absolute', top: 4, right: 4, width: 20, height: 20,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: 'none', background: 'var(--surface)', borderRadius: 4,
+            cursor: disabled ? 'not-allowed' : 'pointer', color: 'var(--muted-2)', padding: 0,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M2 2l8 8M10 2l-8 8" />
+            </svg>
+          </button>
         </>
       ) : (
         <>
@@ -102,7 +131,7 @@ function UploadZone({ id, label, hint, badge, file, onChange, disabled }: {
           <span style={{ fontSize: 10.5, color: 'var(--muted-2)' }}>Click to choose</span>
         </>
       )}
-      <input id={id} type="file" accept="image/jpeg,image/png,image/webp"
+      <input ref={fileRef} id={id} type="file" accept="image/jpeg,image/png,image/webp"
         style={{ display: 'none' }} disabled={disabled}
         onChange={(e) => onChange(e.target.files?.[0] ?? null)} />
     </label>
@@ -144,6 +173,56 @@ function SectionHead({ children }: { children: React.ReactNode }) {
         {children}
       </span>
       <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+    </div>
+  );
+}
+
+function CardPicker({ items, value, onChange, disabled, storageBase }: {
+  items: { id: string; label: string; thumbnailKey: string }[];
+  value: string;
+  onChange: (id: string) => void;
+  disabled: boolean;
+  storageBase: string | null;
+}) {
+  if (items.length === 0) {
+    return <span style={{ fontSize: 12, color: 'var(--muted)' }}>No items available — upload new</span>;
+  }
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      {items.map((item) => {
+        const selected = item.id === value;
+        return (
+          <button key={item.id} type="button" disabled={disabled}
+            onClick={() => onChange(item.id)}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              padding: 4, borderRadius: 8, border: selected ? '2px solid var(--accent)' : '2px solid var(--border)',
+              background: selected ? 'var(--accent-soft)' : 'var(--surface)',
+              cursor: disabled ? 'not-allowed' : 'pointer', transition: 'border-color 100ms',
+              position: 'relative',
+            }}>
+            {storageBase && item.thumbnailKey ? (
+              <img src={`${storageBase}/${item.thumbnailKey}`} alt={item.label}
+                style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 4 }}
+                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            ) : (
+              <div style={{ width: 56, height: 56, borderRadius: 4, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
+                {item.label.slice(0, 2)}
+              </div>
+            )}
+            <span style={{ fontSize: 10.5, fontWeight: 500, color: selected ? 'var(--ink)' : 'var(--muted)', maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {item.label}
+            </span>
+            {selected && (
+              <div style={{ position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="#fff" strokeWidth="1.6">
+                  <path d="M2 5l2 2.5L8 2.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -305,15 +384,12 @@ export function PoseUploadModal({ garmentTypeId, garmentTypeGenderSlug, faces, b
     (bgMode === 'existing' ? Boolean(bgId) : Boolean(newBgFile)) &&
     promptFacePhase.trim() && promptGarmentPhase.trim();
 
-  const selectedFace = filteredFaces.find((f) => f.id === faceId) ?? null;
-  const selectedBg = backgrounds.find((b) => b.id === bgId) ?? null;
-
   const faceOpts = [{ value: 'existing', label: 'Use existing' }, { value: 'new', label: 'Upload new' }];
   const bgOpts = [{ value: 'existing', label: 'Use existing' }, { value: 'new', label: 'Upload new' }];
 
   return (
     <div className="modal-overlay" onClick={uploading ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(700px, calc(100vw - 40px))' }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(900px, calc(100vw - 40px))' }}>
 
         {/* Header */}
         <div className="modal-head" style={{ padding: '14px 20px' }}>
@@ -329,7 +405,7 @@ export function PoseUploadModal({ garmentTypeId, garmentTypeGenderSlug, faces, b
         </div>
 
         {/* Body */}
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxHeight: '70vh', overflowY: 'auto', padding: '20px 22px' }}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 20, maxHeight: '80vh', overflowY: 'auto', padding: '20px 22px' }}>
 
           {/* ── Section 1: Required images ── */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -372,25 +448,13 @@ export function PoseUploadModal({ garmentTypeId, garmentTypeGenderSlug, faces, b
                 <Seg options={faceOpts} value={faceMode} onChange={(v) => setFaceMode(v as 'existing' | 'new')} disabled={uploading} />
               </div>
               {faceMode === 'existing' ? (
-                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  {storagePublicUrl && selectedFace?.thumbnailKey ? (
-                    <img
-                      src={`${storagePublicUrl}/${selectedFace.thumbnailKey}`}
-                      alt={selectedFace.label}
-                      style={{ width: 48, height: 64, objectFit: 'cover', borderRadius: 'var(--r)', flexShrink: 0, border: '1px solid var(--border)', background: 'var(--surface-2)' }}
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  ) : (
-                    <div style={{ width: 48, height: 64, borderRadius: 'var(--r)', flexShrink: 0, border: '1px dashed var(--border)', background: 'var(--surface-2)' }} />
-                  )}
-                  <select className="select" value={faceId} disabled={uploading}
-                    onChange={(e) => setFaceId(e.target.value)}
-                    style={{ width: '100%', alignSelf: 'center' }}>
-                    {filteredFaces.length === 0
-                      ? <option value="">No faces available — upload new</option>
-                      : filteredFaces.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-                  </select>
-                </div>
+                <CardPicker
+                  items={filteredFaces}
+                  value={faceId}
+                  onChange={setFaceId}
+                  disabled={uploading}
+                  storageBase={storagePublicUrl}
+                />
               ) : (
                 <UploadZone
                   id="newFaceFile"
@@ -410,25 +474,13 @@ export function PoseUploadModal({ garmentTypeId, garmentTypeGenderSlug, faces, b
                 <Seg options={bgOpts} value={bgMode} onChange={(v) => setBgMode(v as 'existing' | 'new')} disabled={uploading} />
               </div>
               {bgMode === 'existing' ? (
-                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  {storagePublicUrl && selectedBg?.thumbnailKey ? (
-                    <img
-                      src={`${storagePublicUrl}/${selectedBg.thumbnailKey}`}
-                      alt={selectedBg.label}
-                      style={{ width: 48, height: 64, objectFit: 'cover', borderRadius: 'var(--r)', flexShrink: 0, border: '1px solid var(--border)', background: 'var(--surface-2)' }}
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  ) : (
-                    <div style={{ width: 48, height: 64, borderRadius: 'var(--r)', flexShrink: 0, border: '1px dashed var(--border)', background: 'var(--surface-2)' }} />
-                  )}
-                  <select className="select" value={bgId} disabled={uploading}
-                    onChange={(e) => setBgId(e.target.value)}
-                    style={{ width: '100%', alignSelf: 'center' }}>
-                    {backgrounds.length === 0
-                      ? <option value="">No backgrounds available — upload new</option>
-                      : backgrounds.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
-                  </select>
-                </div>
+                <CardPicker
+                  items={backgrounds}
+                  value={bgId}
+                  onChange={setBgId}
+                  disabled={uploading}
+                  storageBase={storagePublicUrl}
+                />
               ) : (
                 <UploadZone
                   id="newBgFile"

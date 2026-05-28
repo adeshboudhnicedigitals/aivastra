@@ -675,7 +675,7 @@ function appJs(): string {
   function renderThumb(url, label) {
     if (!url) return '<div class="thumb-placeholder">—</div>';
     return '<div class="thumb-wrap">' +
-      '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" onclick="window.openLightbox(\'' + esc(url) + '\')">' +
+      '<img class="thumb" src="' + esc(url) + '" alt="' + esc(label) + '" loading="lazy" data-lb="' + esc(url) + '" onclick="window.openLightbox(this.dataset.lb)">' +
       '<div class="img-links">' +
         '<a href="' + esc(url) + '" target="_blank" rel="noreferrer">Open</a>' +
         '<a href="' + esc(url) + '" target="_blank" rel="noreferrer" download="' + esc(label.toLowerCase()) + '.jpg">Download</a>' +

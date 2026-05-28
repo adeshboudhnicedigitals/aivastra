@@ -36,7 +36,16 @@ export async function buildServer(env: Env) {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
-  await app.register(helmet);
+  const r2Origin = new URL(env.R2_PUBLIC_URL).origin;
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'img-src': ["'self'", 'data:', r2Origin],
+        'connect-src': ["'self'", r2Origin],
+      },
+    },
+  });
   await app.register(cors, { origin: env.CORS_ORIGIN, credentials: true });
   await app.register(cookie, { secret: env.COOKIE_SECRET });
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
