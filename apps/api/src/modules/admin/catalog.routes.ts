@@ -82,7 +82,8 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     schema: { params: z.object({ id: z.string().uuid() }),
       body: z.object({
         label: z.string().max(120).optional(), isActive: z.boolean().optional(),
-        sortOrder: z.number().int().optional(), categoryId: z.number().int().optional(),
+        sortOrder: z.number().int().optional(),
+        genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
       }) },
   }, async (req) => {
     const { id } = req.params as any;

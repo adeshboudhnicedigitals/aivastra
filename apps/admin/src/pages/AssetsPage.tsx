@@ -119,6 +119,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [catalogSortDir, setCatalogSortDir] = useState<SortDir>('asc');
   const [confirmDeleteCatalog, setConfirmDeleteCatalog] = useState<string | null>(null);
   const [showCatalogUpload, setShowCatalogUpload] = useState(false);
+  const [editingCatalogItem, setEditingCatalogItem] = useState<CatalogItem | null>(null);
+  const [editCatalogGender, setEditCatalogGender] = useState<string>('men');
+  const [editCatalogSaving, setEditCatalogSaving] = useState(false);
 
   const loadBackgrounds = useCallback(async (genderSlug?: string) => {
     setLoading(true);
@@ -710,6 +713,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       }} /></td>
                       <td><span className="mono">{c.updatedAt.slice(0, 10)}</span></td>
                       <td>
+                        <button className="btn sm ghost" onClick={() => { setEditingCatalogItem(c); setEditCatalogGender(c.genderSlug ?? 'men'); }}><Icon.Edit /></button>
                         <button className="btn sm ghost" onClick={() => setConfirmDeleteCatalog(c.id)}><Icon.Trash /></button>
                       </td>
                     </tr>
@@ -985,6 +989,48 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           </div>
         </div>
       )}
+      {editingCatalogItem && (
+        <div className="modal-overlay" onClick={editCatalogSaving ? undefined : () => setEditingCatalogItem(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(360px, calc(100vw - 40px))' }}>
+            <div className="modal-head">
+              <h3>Edit gender</h3>
+              <button className="btn sm ghost" onClick={() => setEditingCatalogItem(null)} disabled={editCatalogSaving} style={{ marginLeft: 'auto' }}><Icon.Close /></button>
+            </div>
+            <div className="modal-body">
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>{editingCatalogItem.label}</div>
+              <div className="field">
+                <label>Gender</label>
+                <select className="select" value={editCatalogGender} disabled={editCatalogSaving}
+                  onChange={(e) => setEditCatalogGender(e.target.value)}>
+                  <option value="men">Men</option>
+                  <option value="women">Women</option>
+                  <option value="boys">Boys</option>
+                  <option value="girls">Girls</option>
+                </select>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setEditingCatalogItem(null)} disabled={editCatalogSaving}>Cancel</button>
+              <button className="btn primary" disabled={editCatalogSaving} onClick={async () => {
+                setEditCatalogSaving(true);
+                try {
+                  await apiFetch(`/admin/catalog/items/${editingCatalogItem.id}`, {
+                    method: 'PATCH', body: JSON.stringify({ genderSlug: editCatalogGender }),
+                  });
+                  setCatalogItems((prev) => prev.map((x) => x.id === editingCatalogItem.id ? { ...x, genderSlug: editCatalogGender } : x));
+                  toast({ title: `${editingCatalogItem.label} updated` });
+                  setEditingCatalogItem(null);
+                } catch {
+                  toast({ kind: 'error', title: 'Failed to update item' });
+                } finally {
+                  setEditCatalogSaving(false);
+                }
+              }}>{editCatalogSaving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmDeleteCatalog && (
         <div className="modal-overlay" onClick={() => setConfirmDeleteCatalog(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
