@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
 import { apiFetch } from '../lib/data';
-import type { ModelFace, ModelBackground, ModelPose } from '../types';
+import type { ModelFace, ModelBackground, ModelPose, WorkflowOption } from '../types';
 
 interface PresignResult {
   uploadUrl: string;
@@ -47,10 +47,21 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
   const [showsLower, setShowsLower] = useState(false);
   const [showsShoes, setShowsShoes] = useState(false);
   const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [templateIdx, setTemplateIdx] = useState(0); // which file becomes the template for this cell
+  const [templateIdx, setTemplateIdx] = useState(0);
   const [running, setRunning] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
+  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
+  const [workflowTemplateId, setWorkflowTemplateId] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    apiFetch<WorkflowOption[]>('/admin/workflows').then((wfs) => {
+      const active = wfs.filter((w) => w.isActive);
+      setWorkflows(active);
+      if (active.length > 0) setWorkflowTemplateId(active[0]!.id);
+    }).catch(() => toast({ kind: 'error', title: 'Failed to load workflows' }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const busy = running;
 
@@ -69,7 +80,7 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
     setEntries((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
 
   const handleUpload = async () => {
-    if (!faceId || !backgroundId || entries.length === 0) return;
+    if (!faceId || !backgroundId || !workflowTemplateId || entries.length === 0) return;
     setRunning(true);
     setDoneCount(0);
     const added: ModelPose[] = [];
@@ -92,6 +103,9 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
             label: entry.label.trim() || entry.file.name,
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
+            workflowTemplateId,
+            promptFacePhase: '',
+            promptGarmentPhase: '',
             showsLower,
             showsShoes,
             isTemplate: i === templateIdx,
@@ -116,7 +130,7 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
   const allDone = entries.length > 0 && entries.every((e) => e.status === 'done');
   const hasErrors = entries.some((e) => e.status === 'error');
   // templateIdx must point to a valid non-done entry
-  const canUpload = !busy && faceId && backgroundId && entries.length > 0 && !allDone && templateIdx < entries.length;
+  const canUpload = !busy && faceId && backgroundId && workflowTemplateId && entries.length > 0 && !allDone && templateIdx < entries.length;
 
   return (
     <div className="modal-overlay" onClick={busy ? undefined : onClose}>
@@ -146,6 +160,16 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
                 {backgrounds.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
               </select>
             </div>
+          </div>
+
+          <div className="field">
+            <label>Workflow template <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <select className="select" value={workflowTemplateId} disabled={busy}
+              onChange={(e) => setWorkflowTemplateId(e.target.value)}>
+              <option value="">— select —</option>
+              {workflows.map((w) => <option key={w.id} value={w.id}>{w.label} ({w.slug})</option>)}
+            </select>
+            {workflows.length === 0 && <span style={{ fontSize: 12, color: 'var(--muted)' }}>No active workflows — upload one first</span>}
           </div>
 
           <div style={{ display: 'flex', gap: 24 }}>

@@ -18,6 +18,7 @@ export const CreateTryOnJobRequest = z.object({
     outputHeight: z.number().int().min(512).max(4096).optional(),
   }).optional(),
   userHint: z.string().max(300).optional(),
+  aspectRatio: z.string().optional(),
 });
 
 export const PresignUploadBody = z.object({

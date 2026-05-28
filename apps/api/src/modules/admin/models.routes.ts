@@ -217,15 +217,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const newId = randomUUID();
     const r2Key = keys.modelPose(newId);
     const thumbKey = keys.modelPoseThumb(newId);
-    const faceSideKey = keys.modelPoseFaceSide(newId);
-    const bgComfyKey = keys.modelPoseBgComfy(newId);
+    const faceSideKey = faceSideContentType ? keys.modelPoseFaceSide(newId) : null;
+    const bgComfyKey = bgComfyContentType ? keys.modelPoseBgComfy(newId) : null;
 
     const presignTasks: Promise<{ url: string }>[] = [
       app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
       app.storage.presignPut(thumbKey, contentType, 1_000_000, 300),
-      app.storage.presignPut(faceSideKey, faceSideContentType, 10_000_000, 300),
-      app.storage.presignPut(bgComfyKey, bgComfyContentType, 10_000_000, 300),
     ];
+    if (faceSideKey && faceSideContentType) presignTasks.push(app.storage.presignPut(faceSideKey, faceSideContentType, 10_000_000, 300));
+    if (bgComfyKey && bgComfyContentType) presignTasks.push(app.storage.presignPut(bgComfyKey, bgComfyContentType, 10_000_000, 300));
 
     const newFaceId = body.newFaceContentType ? randomUUID() : null;
     const newFaceR2Key = newFaceId ? keys.modelFace(newFaceId) : null;
@@ -247,14 +247,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     let idx = 0;
     const uploadUrl = results[idx++]!.url;
     const thumbnailUploadUrl = results[idx++]!.url;
-    const faceSideUploadUrl = results[idx++]!.url;
-    const bgComfyUploadUrl = results[idx++]!.url;
+    const faceSideUploadUrl = faceSideKey ? results[idx++]!.url : undefined;
+    const bgComfyUploadUrl = bgComfyKey ? results[idx++]!.url : undefined;
 
     const response: Record<string, unknown> = {
       uploadUrl, r2Key, thumbnailUploadUrl, thumbnailKey: thumbKey,
-      faceSideUploadUrl, faceSideR2Key: faceSideKey,
-      bgComfyUploadUrl, bgComfyR2Key: bgComfyKey,
     };
+    if (faceSideUploadUrl && faceSideKey) {
+      response['faceSideUploadUrl'] = faceSideUploadUrl;
+      response['faceSideR2Key'] = faceSideKey;
+    }
+    if (bgComfyUploadUrl && bgComfyKey) {
+      response['bgComfyUploadUrl'] = bgComfyUploadUrl;
+      response['bgComfyR2Key'] = bgComfyKey;
+    }
 
     if (newFaceId && newFaceR2Key && newFaceThumbKey) {
       response['newFaceUploadUrl'] = results[idx++]!.url;

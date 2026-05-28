@@ -200,7 +200,8 @@ export async function processJob(
   } catch (err) {
     jobLog.error({ err }, 'job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
-    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, errMsg);
   }
 }
 
@@ -211,6 +212,7 @@ async function handleFailure(
   stream: string,
   messageId: string,
   log: Logger,
+  errorMessage?: string,
 ): Promise<void> {
   const { db, redis, pub } = cfg;
 
@@ -239,7 +241,8 @@ async function handleFailure(
         jobId,
       });
     });
-    await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode: 'MAX_RETRIES' }, log);
+    const errorCode = errorMessage ? errorMessage.slice(0, 200) : 'MAX_RETRIES';
+    await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     log.warn({ jobId, attempts: newAttempts }, 'job FAILED after max retries — credits refunded');
   } else {

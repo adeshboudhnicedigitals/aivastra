@@ -137,10 +137,10 @@ export const PresignModelPoseBody = z.object({
   newBgContentType: AssetContentType.optional(),
   // Pose body image
   contentType: AssetContentType,
-  // Side/tilt face for ComfyUI (always required)
-  faceSideContentType: AssetContentType,
-  // Per-pose background image for ComfyUI (always required)
-  bgComfyContentType: AssetContentType,
+  // Side/tilt face for ComfyUI (optional — batch uploads omit this and the processor falls back to the display face)
+  faceSideContentType: AssetContentType.optional(),
+  // Per-pose background image for ComfyUI (optional — batch uploads omit this and the processor falls back to the display background)
+  bgComfyContentType: AssetContentType.optional(),
 }).refine(
   (d) => Boolean(d.faceId) !== Boolean(d.newFaceContentType),
   { message: 'Provide either faceId or newFaceContentType, not both', path: ['faceId'] },
@@ -169,10 +169,10 @@ export const ConfirmModelPoseBody = z.object({
   label: z.string().min(1).max(120),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
-  // Side/tilt face (backend only — goes to ComfyUI face node)
-  faceSideR2Key: z.string().min(1),
-  // Per-pose background for ComfyUI (backend only)
-  bgComfyR2Key: z.string().min(1),
+  // Side/tilt face (optional — if absent the processor falls back to the display face r2Key)
+  faceSideR2Key: z.string().min(1).optional(),
+  // Per-pose background for ComfyUI (optional — if absent the processor falls back to the display background)
+  bgComfyR2Key: z.string().min(1).optional(),
   // Workflow — now a UUID FK instead of an enum string
   workflowTemplateId: z.string().uuid(),
   promptFacePhase: z.string().min(1),
