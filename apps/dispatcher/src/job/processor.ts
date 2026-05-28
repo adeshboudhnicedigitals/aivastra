@@ -53,7 +53,6 @@ export async function processJob(
   }
 
   // 2. Resolve face / background / pose IDs → R2 keys
-  const [faceRow] = await db.select({ r2Key: schema.modelFaces.r2Key }).from(schema.modelFaces).where(eq(schema.modelFaces.id, inputs.faceId));
   const [bgRow] = await db.select({ r2Key: schema.modelBackgrounds.r2Key }).from(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, inputs.backgroundId));
   const [poseRow] = await db.select({
     r2Key: schema.modelPoses.r2Key,
@@ -64,20 +63,23 @@ export async function processJob(
     promptGarmentPhase: schema.modelPoses.promptGarmentPhase,
   }).from(schema.modelPoses).where(eq(schema.modelPoses.id, inputs.poseId));
 
-  if (!faceRow || !bgRow || !poseRow) {
+  if (!bgRow || !poseRow) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'CATALOG_NOT_FOUND', jobLog);
     return;
   }
 
-  // Use pose's dedicated ComfyUI background if present; fall back to display background for legacy poses
-  const bgKey = poseRow.bgComfyR2Key ?? bgRow.r2Key;
-  const poseKey = poseRow.r2Key;
-  // Use pose's side-face key for ComfyUI; fall back to display face for legacy poses without it
-  const faceSideKey = poseRow.faceSideR2Key ?? faceRow.r2Key ?? null;
+  // faceSideR2Key is the ComfyUI-specific face image uploaded at pose creation time.
+  // The display face (faceRow.r2Key) is UI-only and must never be sent to ComfyUI.
+  const faceSideKey = poseRow.faceSideR2Key;
   if (!faceSideKey) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog);
     return;
   }
+
+  // bgComfyR2Key is the ComfyUI-specific background; bgRow.r2Key is display-only.
+  // Fall back to display background only for legacy poses that pre-date the bgComfy field.
+  const bgKey = poseRow.bgComfyR2Key ?? bgRow.r2Key;
+  const poseKey = poseRow.r2Key;
   const workflowTemplateId = poseRow.workflowTemplateId;
 
   // Resolve optional lower garment catalog ID → R2 key
@@ -125,34 +127,35 @@ export async function processJob(
       return uploadImageToComfy(w.url, workerApiKey, bytes, `${prefix}_${jobId}.${ext}`, `image/${ext === 'png' ? 'png' : 'jpeg'}`, jobLog);
     }
 
+    // 4. Upload only the images that ComfyUI actually needs.
+    // Display images (faceRow.r2Key, bgRow.r2Key) are UI-only and never sent to ComfyUI.
     jobLog.info('uploading inputs to ComfyUI');
-    const uploadTasks: Promise<string>[] = [
+    const baseTasks: Promise<string>[] = [
       uploadToComfy(inputs.upperGarmentKey, 'garment'),
-      uploadToComfy(faceSideKey, 'faceside'),
-      uploadToComfy(faceRow.r2Key, 'face'),
+      uploadToComfy(faceSideKey, 'face'),
       uploadToComfy(poseKey, 'pose'),
       uploadToComfy(bgKey, 'bg'),
     ];
-    if (lowerKey) uploadTasks.push(uploadToComfy(lowerKey, 'lower'));
-    if (shoeKey) uploadTasks.push(uploadToComfy(shoeKey, 'shoe'));
-    const uploaded = await Promise.all(uploadTasks);
-    const upperGarmentFile = uploaded[0]!;
-    const faceSideFile = uploaded[1]!;
-    const faceFrontFile = uploaded[2]!;
-    const poseFile = uploaded[3]!;
-    const backgroundFile = uploaded[4]!;
-    const lowerGarmentFile = lowerKey ? uploaded[5] : undefined;
-    const shoeGarmentFile = shoeKey ? uploaded[lowerKey ? 6 : 5] : undefined;
-    jobLog.info({ upperGarmentFile, faceSideFile, faceFrontFile, poseFile, backgroundFile, lowerGarmentFile, shoeGarmentFile }, 'inputs uploaded');
+    if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
+    if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
+    const uploaded = await Promise.all(baseTasks);
+
+    let idx = 0;
+    const upperGarmentFile = uploaded[idx++]!;
+    const faceSideFile = uploaded[idx++]!;
+    const poseFile = uploaded[idx++]!;
+    const backgroundFile = uploaded[idx++]!;
+    const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
+    const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
+    jobLog.info({ upperGarmentFile, faceSideFile, poseFile, backgroundFile, lowerGarmentFile, shoeGarmentFile }, 'inputs uploaded');
 
     // 5. Patch workflow template with ComfyUI filenames (loads from DB with 5-min TTL cache)
     const prompt = await patchWorkflow({
       workflowTemplateId,
-      upperGarmentFile: upperGarmentFile!,
-      faceSideFile: faceSideFile!,
-      faceFrontFile: faceFrontFile!,
-      poseFile: poseFile!,
-      backgroundFile: backgroundFile!,
+      upperGarmentFile,
+      faceSideFile,
+      poseFile,
+      backgroundFile,
       lowerGarmentFile,
       shoeGarmentFile,
       promptFacePhase: poseRow.promptFacePhase ?? undefined,

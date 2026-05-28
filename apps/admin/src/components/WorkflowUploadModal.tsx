@@ -7,12 +7,26 @@ interface ParsedNode {
   id: string;
   class_type: string;
   title: string;
-  category: 'image' | 'prompt' | 'other';
+  category: 'image' | 'prompt' | 'latent' | 'other';
+}
+
+interface DetectedMappings {
+  faceNodeId?: string;
+  poseNodeId?: string;
+  bgNodeId?: string;
+  upperNodeIds: string[];
+  lowerNodeId?: string;
+  shoeNodeId?: string;
+  sizeNodeId?: string;
+  positivePromptNode?: string;
+  negativePromptNode?: string;
 }
 
 interface ParseResult {
-  nodes: ParsedNode[];
-  defaultPrompts: { facePhase?: string; garmentPhase?: string };
+  detected: DetectedMappings;
+  allImageNodes: ParsedNode[];
+  allPromptNodes: ParsedNode[];
+  allLatentNodes: ParsedNode[];
 }
 
 interface Props {
@@ -21,64 +35,88 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
+function NodeBadge({ node }: { node: ParsedNode }) {
+  return (
+    <span style={{
+      display: 'inline-block',
+      fontSize: 12,
+      fontFamily: 'monospace',
+      background: 'var(--accent-soft, #eff6ff)',
+      color: 'var(--accent, #2563eb)',
+      border: '1px solid var(--accent-border, #bfdbfe)',
+      borderRadius: 4,
+      padding: '2px 8px',
+    }}>
+      [{node.id}] {node.title}
+    </span>
+  );
+}
+
 function NodeSelect({
   label,
   nodes,
-  filter,
   value,
   onChange,
   required,
   disabled,
+  hint,
 }: {
   label: string;
   nodes: ParsedNode[];
-  filter: ParsedNode['category'] | 'all';
   value: string;
   onChange: (v: string) => void;
   required?: boolean;
   disabled?: boolean;
+  hint?: string;
 }) {
-  const filtered = filter === 'all' ? nodes : nodes.filter((n) => n.category === filter);
   return (
-    <div className="field">
-      <label>{label}{required && <span style={{ color: 'var(--danger)' }}> *</span>}</label>
-      <select className="select" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+    <div className="field" style={{ margin: 0 }}>
+      <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+        {label}{required && <span style={{ color: 'var(--danger)' }}> *</span>}
+      </label>
+      {hint && <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>{hint}</span>}
+      <select className="select" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={{ fontSize: 13 }}>
         <option value="">— select node —</option>
-        {filtered.map((n) => (
-          <option key={n.id} value={n.id}>
-            [{n.id}] {n.title} ({n.class_type})
-          </option>
+        {nodes.map((n) => (
+          <option key={n.id} value={n.id}>[{n.id}] {n.title} ({n.class_type})</option>
         ))}
       </select>
     </div>
   );
 }
 
+const CONVENTION_DOCS = `Required _meta.title values in ComfyUI:
+  face            → face LoadImage node
+  pose            → pose/template LoadImage node
+  background      → background LoadImage node
+  upper_garment   → upper garment LoadImage node (multiple: upper_garment_1, upper_garment_2 …)
+  positive_prompt → positive TextEncode node
+  negative_prompt → negative TextEncode node
+Optional:
+  lower_garment   → lower garment LoadImage node
+  shoes           → shoes LoadImage node
+  size            → EmptyLatentImage node for dynamic aspect ratio`;
+
 export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [jsonFile, setJsonFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<ParseResult | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [showConvention, setShowConvention] = useState(false);
 
-  // Metadata
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
 
-  // Node mappings
+  // Mappings — initialised from auto-detection, overridable by admin
   const [faceNodeId, setFaceNodeId] = useState('');
-  const [faceFrontNodeId, setFaceFrontNodeId] = useState('');
   const [poseNodeId, setPoseNodeId] = useState('');
   const [bgNodeId, setBgNodeId] = useState('');
   const [upperNodeIds, setUpperNodeIds] = useState<string[]>(['']);
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
   const [sizeNodeId, setSizeNodeId] = useState('');
-  const [facePhasePromptNode, setFacePhasePromptNode] = useState('');
-  const [garmentPhasePromptNode, setGarmentPhasePromptNode] = useState('');
-
-  // Prompt preview (editable, sent as overrides)
-  const [promptFacePhase, setPromptFacePhase] = useState('');
-  const [promptGarmentPhase, setPromptGarmentPhase] = useState('');
+  const [positivePromptNode, setPositivePromptNode] = useState('');
+  const [negativePromptNode, setNegativePromptNode] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +126,6 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     setJsonFile(f);
     setParsed(null);
     setError(null);
-    // Auto-slug from filename
     if (f) {
       const name = f.name.replace(/\.json$/i, '').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
       setSlug(name);
@@ -116,20 +153,17 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       });
       setParsed(result);
 
-      // Pre-fill prompt previews from best-guess defaults
-      if (result.defaultPrompts.facePhase) setPromptFacePhase(result.defaultPrompts.facePhase);
-      if (result.defaultPrompts.garmentPhase) setPromptGarmentPhase(result.defaultPrompts.garmentPhase);
-
-      // Pre-select first image nodes and prompt nodes
-      const imageNodes = result.nodes.filter((n) => n.category === 'image');
-      const promptNodes = result.nodes.filter((n) => n.category === 'prompt');
-      if (imageNodes[0]) setFaceNodeId(imageNodes[0].id);
-      if (imageNodes[1]) setFaceFrontNodeId(imageNodes[1].id);
-      if (imageNodes[2]) setPoseNodeId(imageNodes[2].id);
-      if (imageNodes[3]) setBgNodeId(imageNodes[3].id);
-      if (imageNodes[4]) setUpperNodeIds([imageNodes[4].id]);
-      if (promptNodes[0]) setFacePhasePromptNode(promptNodes[0].id);
-      if (promptNodes[1]) setGarmentPhasePromptNode(promptNodes[1].id);
+      // Apply auto-detected mappings
+      const d = result.detected;
+      setFaceNodeId(d.faceNodeId ?? '');
+      setPoseNodeId(d.poseNodeId ?? '');
+      setBgNodeId(d.bgNodeId ?? '');
+      setUpperNodeIds(d.upperNodeIds.length > 0 ? d.upperNodeIds : ['']);
+      setLowerNodeId(d.lowerNodeId ?? '');
+      setShoeNodeId(d.shoeNodeId ?? '');
+      setSizeNodeId(d.sizeNodeId ?? '');
+      setPositivePromptNode(d.positivePromptNode ?? '');
+      setNegativePromptNode(d.negativePromptNode ?? '');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to parse workflow');
     } finally {
@@ -140,8 +174,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const handleSubmit = async () => {
     if (!jsonFile || !parsed) return;
     if (!slug.trim() || !label.trim()) { setError('Slug and label are required'); return; }
-    if (!faceNodeId || !poseNodeId || !bgNodeId || !facePhasePromptNode || !garmentPhasePromptNode) {
-      setError('All required node mappings must be selected');
+    if (!faceNodeId || !poseNodeId || !bgNodeId || !positivePromptNode || !negativePromptNode) {
+      setError('Face, pose, background, positive prompt, and negative prompt nodes are all required');
       return;
     }
     const validUpperIds = upperNodeIds.filter(Boolean);
@@ -160,35 +194,47 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           label: label.trim(),
           jsonContent,
           faceNodeId,
-          faceFrontNodeId: faceFrontNodeId || undefined,
           poseNodeId,
           bgNodeId,
           upperNodeIds: validUpperIds,
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
           sizeNodeId: sizeNodeId || undefined,
-          facePhasePromptNode,
-          garmentPhasePromptNode,
+          // positive → garmentPhasePromptNode (DB field name)
+          // negative → facePhasePromptNode    (DB field name)
+          facePhasePromptNode: negativePromptNode,
+          garmentPhasePromptNode: positivePromptNode,
         }),
       });
       toast({ title: `Workflow "${created.label}" created` });
       onCreated(created);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to create workflow';
-      setError(msg);
+      setError(e instanceof Error ? e.message : 'Failed to create workflow');
     } finally {
       setSaving(false);
     }
   };
 
-  const nodes = parsed?.nodes ?? [];
+  const nodes = parsed ? { image: parsed.allImageNodes, prompt: parsed.allPromptNodes, latent: parsed.allLatentNodes } : null;
+
+  // Count how many required fields are auto-detected
+  const detectedCount = parsed ? [
+    parsed.detected.faceNodeId,
+    parsed.detected.poseNodeId,
+    parsed.detected.bgNodeId,
+    parsed.detected.upperNodeIds.length > 0,
+    parsed.detected.positivePromptNode,
+    parsed.detected.negativePromptNode,
+  ].filter(Boolean).length : 0;
+  const requiredCount = 6;
+
   const canSubmit = !saving && parsed && slug.trim() && label.trim() &&
-    faceNodeId && poseNodeId && bgNodeId && facePhasePromptNode && garmentPhasePromptNode &&
+    faceNodeId && poseNodeId && bgNodeId && positivePromptNode && negativePromptNode &&
     upperNodeIds.filter(Boolean).length > 0;
 
   return (
     <div className="modal-overlay" onClick={saving || parsing ? undefined : onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(680px, calc(100vw - 40px))' }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ width: 'min(700px, calc(100vw - 40px))' }}>
         <div className="modal-head">
           <h3>Upload workflow</h3>
           <button className="btn sm ghost" onClick={onClose} disabled={saving || parsing} style={{ marginLeft: 'auto' }}>
@@ -196,7 +242,24 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           </button>
         </div>
 
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '75vh', overflowY: 'auto' }}>
+        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '80vh', overflowY: 'auto' }}>
+
+          {/* Convention reference */}
+          <div style={{ background: 'var(--subtle)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Node titles in the JSON must follow the <strong>naming convention</strong> for auto-detection.
+              </span>
+              <button className="btn sm ghost" style={{ fontSize: 11 }} onClick={() => setShowConvention((v) => !v)}>
+                {showConvention ? 'Hide' : 'Show'} convention
+              </button>
+            </div>
+            {showConvention && (
+              <pre style={{ margin: '8px 0 0', fontSize: 11, fontFamily: 'monospace', color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                {CONVENTION_DOCS}
+              </pre>
+            )}
+          </div>
 
           {/* Step 1: JSON file */}
           <div className="field">
@@ -210,152 +273,149 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 onChange={handleFileChange}
                 style={{ fontSize: 13, flex: 1 }}
               />
-              <button
-                className="btn sm primary"
-                onClick={handleParse}
-                disabled={!jsonFile || parsing || saving}
-              >
+              <button className="btn sm primary" onClick={handleParse} disabled={!jsonFile || parsing || saving}>
                 {parsing ? 'Parsing…' : 'Parse'}
               </button>
             </div>
-            {jsonFile && !parsed && (
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {jsonFile.name} — click Parse to extract node list
-              </span>
-            )}
             {parsed && (
-              <span style={{ fontSize: 12, color: 'var(--success, #4caf50)' }}>
-                ✓ Parsed — {nodes.length} nodes found ({nodes.filter((n) => n.category === 'image').length} image, {nodes.filter((n) => n.category === 'prompt').length} prompt)
+              <span style={{ fontSize: 12, color: detectedCount === requiredCount ? 'var(--success, #4caf50)' : 'var(--warning, #f59e0b)', marginTop: 4, display: 'block' }}>
+                {detectedCount === requiredCount
+                  ? `✓ All ${requiredCount} required nodes auto-detected`
+                  : `⚠ ${detectedCount}/${requiredCount} required nodes auto-detected — manually set the rest below`}
               </span>
             )}
           </div>
 
-          {parsed && (
+          {parsed && nodes && (
             <>
-              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '0' }} />
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
 
-              {/* Step 2: Metadata */}
+              {/* Metadata */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div className="field">
                   <label>Slug <span style={{ color: 'var(--danger)' }}>*</span>
                     <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>(snake_case)</span>
                   </label>
-                  <input
-                    className="input"
-                    value={slug}
-                    disabled={saving}
-                    placeholder="e.g. twopiece_v3"
-                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-                  />
+                  <input className="input" value={slug} disabled={saving}
+                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} />
                 </div>
                 <div className="field">
                   <label>Label <span style={{ color: 'var(--danger)' }}>*</span></label>
-                  <input
-                    className="input"
-                    value={label}
-                    disabled={saving}
-                    placeholder="e.g. Two-Piece v3"
-                    onChange={(e) => setLabel(e.target.value)}
-                  />
+                  <input className="input" value={label} disabled={saving}
+                    onChange={(e) => setLabel(e.target.value)} />
                 </div>
               </div>
 
-              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '0' }} />
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
 
-              {/* Step 3: Node mappings */}
+              {/* Node mappings — driven by what the JSON contains */}
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                <strong>Node mappings</strong> — select which node handles each input.
-                Dropdowns show all nodes of the expected type. Node IDs are shown in brackets.
+                <strong>Node mappings</strong> — auto-detected from node titles. Override any if needed.
               </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <NodeSelect label="Face side image node" nodes={nodes} filter="image" value={faceNodeId} onChange={setFaceNodeId} required disabled={saving} />
-                <NodeSelect label="Face front image node" nodes={nodes} filter="image" value={faceFrontNodeId} onChange={setFaceFrontNodeId} disabled={saving} />
-                <NodeSelect label="Pose image node" nodes={nodes} filter="image" value={poseNodeId} onChange={setPoseNodeId} required disabled={saving} />
-                <NodeSelect label="Background image node" nodes={nodes} filter="image" value={bgNodeId} onChange={setBgNodeId} required disabled={saving} />
-                <NodeSelect label="Lower garment node" nodes={nodes} filter="image" value={lowerNodeId} onChange={setLowerNodeId} disabled={saving} />
-                <NodeSelect label="Shoe / Footwear node" nodes={nodes} filter="image" value={shoeNodeId} onChange={setShoeNodeId} disabled={saving} />
-                <NodeSelect label="Size node (EmptyLatentImage)" nodes={nodes} filter="all" value={sizeNodeId} onChange={setSizeNodeId} disabled={saving} />
+              {/* Required image nodes */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <NodeSelect label="Face node" nodes={nodes.image} value={faceNodeId} onChange={setFaceNodeId} required disabled={saving}
+                  hint='Title convention: "face"' />
+                <NodeSelect label="Pose / template node" nodes={nodes.image} value={poseNodeId} onChange={setPoseNodeId} required disabled={saving}
+                  hint='Title convention: "pose"' />
+                <NodeSelect label="Background node" nodes={nodes.image} value={bgNodeId} onChange={setBgNodeId} required disabled={saving}
+                  hint='Title convention: "background"' />
               </div>
 
-              {/* Upper garment nodes (can be multiple) */}
+              {/* Upper garment — can have multiple */}
               <div className="field">
-                <label>Upper garment node(s) <span style={{ color: 'var(--danger)' }}>*</span>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>(select all nodes that receive the upper garment)</span>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>
+                  Upper garment node(s) <span style={{ color: 'var(--danger)' }}>*</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>
+                    Title convention: "upper_garment" (or "upper_garment_1", "upper_garment_2" …)
+                  </span>
                 </label>
                 {upperNodeIds.map((uid, idx) => (
                   <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                    <select
-                      className="select"
-                      value={uid}
-                      disabled={saving}
-                      style={{ flex: 1 }}
+                    <select className="select" value={uid} disabled={saving} style={{ flex: 1, fontSize: 13 }}
                       onChange={(e) => {
                         const next = [...upperNodeIds];
                         next[idx] = e.target.value;
                         setUpperNodeIds(next);
-                      }}
-                    >
+                      }}>
                       <option value="">— select node —</option>
-                      {nodes.filter((n) => n.category === 'image').map((n) => (
+                      {nodes.image.map((n) => (
                         <option key={n.id} value={n.id}>[{n.id}] {n.title} ({n.class_type})</option>
                       ))}
                     </select>
                     {upperNodeIds.length > 1 && (
-                      <button
-                        className="btn sm ghost"
-                        disabled={saving}
-                        onClick={() => setUpperNodeIds((prev) => prev.filter((_, i) => i !== idx))}
-                      >
+                      <button className="btn sm ghost" disabled={saving}
+                        onClick={() => setUpperNodeIds((prev) => prev.filter((_, i) => i !== idx))}>
                         <Icon.Close />
                       </button>
                     )}
                   </div>
                 ))}
-                {upperNodeIds.length < 4 && (
-                  <button
-                    className="btn sm ghost"
-                    disabled={saving}
+                {upperNodeIds.length < 8 && (
+                  <button className="btn sm ghost" disabled={saving}
                     onClick={() => setUpperNodeIds((prev) => [...prev, ''])}
-                    style={{ marginTop: 4 }}
-                  >
+                    style={{ marginTop: 2 }}>
                     <Icon.Plus /> Add another upper garment node
                   </button>
                 )}
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <NodeSelect label="Face phase prompt node" nodes={nodes} filter="prompt" value={facePhasePromptNode} onChange={setFacePhasePromptNode} required disabled={saving} />
-                <NodeSelect label="Garment phase prompt node" nodes={nodes} filter="prompt" value={garmentPhasePromptNode} onChange={setGarmentPhasePromptNode} required disabled={saving} />
+              {/* Optional image nodes */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <NodeSelect label="Lower garment node (optional)" nodes={nodes.image} value={lowerNodeId} onChange={setLowerNodeId} disabled={saving}
+                  hint='Title convention: "lower_garment"' />
+                <NodeSelect label="Shoes node (optional)" nodes={nodes.image} value={shoeNodeId} onChange={setShoeNodeId} disabled={saving}
+                  hint='Title convention: "shoes"' />
               </div>
 
-              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '0' }} />
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
 
-              {/* Step 4: Default prompt preview */}
+              {/* Prompt nodes */}
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                <strong>Default prompts</strong> — extracted from the selected prompt nodes.
-                These become the default when uploading new poses.
+                <strong>Prompt nodes</strong> — the positive prompt changes per pose; the negative stays hardcoded in the workflow.
               </p>
-              <div className="field">
-                <label>Face phase prompt (default)</label>
-                <textarea
-                  className="input"
-                  value={promptFacePhase}
-                  disabled
-                  rows={3}
-                  style={{ fontSize: 11, fontFamily: 'monospace', resize: 'none', opacity: 0.7 }}
-                />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <NodeSelect label="Positive prompt node" nodes={nodes.prompt} value={positivePromptNode} onChange={setPositivePromptNode} required disabled={saving}
+                  hint='Title convention: "positive_prompt"' />
+                <NodeSelect label="Negative prompt node" nodes={nodes.prompt} value={negativePromptNode} onChange={setNegativePromptNode} required disabled={saving}
+                  hint='Title convention: "negative_prompt"' />
               </div>
-              <div className="field">
-                <label>Garment phase prompt (default)</label>
-                <textarea
-                  className="input"
-                  value={promptGarmentPhase}
-                  disabled
-                  rows={3}
-                  style={{ fontSize: 11, fontFamily: 'monospace', resize: 'none', opacity: 0.7 }}
-                />
-              </div>
+
+              {/* Size node (EmptyLatentImage) */}
+              {nodes.latent.length > 0 && (
+                <div className="field" style={{ margin: 0 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Size node (optional)</label>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+                    EmptyLatentImage node for dynamic aspect ratio. Title convention: "size"
+                  </span>
+                  <select className="select" value={sizeNodeId} onChange={(e) => setSizeNodeId(e.target.value)} disabled={saving} style={{ fontSize: 13 }}>
+                    <option value="">— not used —</option>
+                    {nodes.latent.map((n) => (
+                      <option key={n.id} value={n.id}>[{n.id}] {n.title} ({n.class_type})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Detected summary */}
+              {detectedCount > 0 && (
+                <div style={{ background: 'var(--success-soft)', border: '1px solid var(--success-border)', borderRadius: 6, padding: '10px 12px', fontSize: 12 }}>
+                  <strong>Auto-detected:</strong>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                    {[
+                      parsed.detected.faceNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.faceNodeId),
+                      parsed.detected.poseNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.poseNodeId),
+                      parsed.detected.bgNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.bgNodeId),
+                      ...parsed.detected.upperNodeIds.map((id) => parsed.allImageNodes.find((n) => n.id === id)),
+                      parsed.detected.lowerNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.lowerNodeId),
+                      parsed.detected.shoeNodeId && parsed.allImageNodes.find((n) => n.id === parsed.detected.shoeNodeId),
+                      parsed.detected.positivePromptNode && parsed.allPromptNodes.find((n) => n.id === parsed.detected.positivePromptNode),
+                      parsed.detected.negativePromptNode && parsed.allPromptNodes.find((n) => n.id === parsed.detected.negativePromptNode),
+                    ].filter(Boolean).map((n) => n && <NodeBadge key={n.id} node={n} />)}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -368,11 +428,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
         <div className="modal-foot">
           <button className="btn ghost" onClick={onClose} disabled={saving || parsing}>Cancel</button>
-          <button
-            className="btn primary"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-          >
+          <button className="btn primary" onClick={handleSubmit} disabled={!canSubmit}>
             <Icon.Upload />
             {saving ? 'Creating…' : 'Create workflow'}
           </button>

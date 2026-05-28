@@ -19,6 +19,7 @@
     { "idx": 14, "version": "7", "when": 1779926400008, "tag": "0014_flatten_backgrounds", "breakpoints": true },
     { "idx": 15, "version": "7", "when": 1779926400009, "tag": "0015_pose_bg_comfy_key", "breakpoints": true },
     { "idx": 16, "version": "7", "when": 1779926400010, "tag": "0016_workflow_face_front_node", "breakpoints": true },
-    { "idx": 17, "version": "7", "when": 1779926400011, "tag": "0017_workflow_size_node", "breakpoints": true }
+    { "idx": 17, "version": "7", "when": 1779926400011, "tag": "0017_workflow_size_node", "breakpoints": true },
+    { "idx": 18, "version": "7", "when": 1779926400012, "tag": "0018_drop_face_front_node", "breakpoints": true }
   ]
 }

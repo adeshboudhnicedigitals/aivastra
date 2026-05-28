@@ -47,7 +47,6 @@ export const workflowTemplates = pgTable('workflow_templates', {
 
   // Node ID mappings (ComfyUI node IDs as strings — may contain colons e.g. "1345:111")
   faceNodeId: text('face_node_id').notNull(),
-  faceFrontNodeId: text('face_front_node_id'), // nullable — front-facing display face; absent in legacy workflows
   poseNodeId: text('pose_node_id').notNull(),
   bgNodeId: text('bg_node_id').notNull(),
   upperNodeIds: text('upper_node_ids').array().notNull(),

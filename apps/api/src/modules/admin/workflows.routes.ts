@@ -6,7 +6,7 @@ import { CreateWorkflowBody, ParseWorkflowBody, UpdateWorkflowBody, ReassignWork
 import { requireAdmin } from './guard.js';
 import { AppError } from '../../lib/errors.js';
 
-// ── Node extraction helpers ───────────────────────────────────────────────
+// ── Node types ────────────────────────────────────────────────────────────
 
 type WorkflowNode = {
   class_type?: string;
@@ -14,44 +14,102 @@ type WorkflowNode = {
   inputs?: Record<string, unknown>;
 };
 
-type NodeCategory = 'image' | 'prompt' | 'other';
+type NodeCategory = 'image' | 'prompt' | 'latent' | 'other';
 
 function classifyNode(classType: string): NodeCategory {
   if (classType === 'LoadImage') return 'image';
   if (classType.includes('TextEncode')) return 'prompt';
+  if (classType === 'EmptyLatentImage') return 'latent';
   return 'other';
 }
 
-function parseWorkflowNodes(json: Record<string, unknown>) {
-  const nodes: { id: string; class_type: string; title: string; category: NodeCategory }[] = [];
+// ── Naming-convention auto-detection ─────────────────────────────────────
+//
+// The workflow JSON _meta.title values must follow this convention:
+//   Required LoadImage nodes : face, pose, background, upper_garment
+//   Optional LoadImage nodes : lower_garment, shoes
+//   Required prompt nodes    : positive_prompt, negative_prompt
+//   Optional latent node     : size
+//
+// Titles are normalised: lowercased, spaces → underscores, trimmed.
+// Multiple upper_garment nodes are supported (upper_garment_1, upper_garment_2 …).
+
+function normaliseTitle(title: string): string {
+  return title.toLowerCase().replace(/[\s\-]+/g, '_').trim();
+}
+
+interface DetectedMappings {
+  faceNodeId?: string;
+  poseNodeId?: string;
+  bgNodeId?: string;
+  upperNodeIds: string[];
+  lowerNodeId?: string;
+  shoeNodeId?: string;
+  sizeNodeId?: string;
+  positivePromptNode?: string; // garmentPhasePromptNode in DB
+  negativePromptNode?: string; // facePhasePromptNode in DB
+}
+
+interface ParsedNode {
+  id: string;
+  class_type: string;
+  title: string;
+  category: NodeCategory;
+}
+
+function detectMappings(json: Record<string, unknown>): {
+  detected: DetectedMappings;
+  allImageNodes: ParsedNode[];
+  allPromptNodes: ParsedNode[];
+  allLatentNodes: ParsedNode[];
+} {
+  const detected: DetectedMappings = { upperNodeIds: [] };
+  const allImageNodes: ParsedNode[] = [];
+  const allPromptNodes: ParsedNode[] = [];
+  const allLatentNodes: ParsedNode[] = [];
 
   for (const [nodeId, raw] of Object.entries(json)) {
     const node = raw as WorkflowNode;
     const classType = node.class_type ?? '';
     const title = node._meta?.title ?? nodeId;
+    const norm = normaliseTitle(title);
     const category = classifyNode(classType);
-    nodes.push({ id: nodeId, class_type: classType, title, category });
+
+    if (category === 'image') {
+      allImageNodes.push({ id: nodeId, class_type: classType, title, category });
+      if (norm === 'face') {
+        detected.faceNodeId = nodeId;
+      } else if (norm === 'pose') {
+        detected.poseNodeId = nodeId;
+      } else if (norm === 'background' || norm === 'bg') {
+        detected.bgNodeId = nodeId;
+      } else if (norm === 'upper_garment' || norm.match(/^upper_garment_\d+$/)) {
+        detected.upperNodeIds.push(nodeId);
+      } else if (norm === 'lower_garment') {
+        detected.lowerNodeId = nodeId;
+      } else if (norm === 'shoes' || norm === 'shoe') {
+        detected.shoeNodeId = nodeId;
+      }
+    } else if (category === 'prompt') {
+      allPromptNodes.push({ id: nodeId, class_type: classType, title, category });
+      if (norm === 'positive_prompt') {
+        detected.positivePromptNode = nodeId;
+      } else if (norm === 'negative_prompt') {
+        detected.negativePromptNode = nodeId;
+      }
+    } else if (category === 'latent') {
+      allLatentNodes.push({ id: nodeId, class_type: classType, title, category });
+      if (norm === 'size') {
+        detected.sizeNodeId = nodeId;
+      }
+    }
   }
 
-  // Sort: images first, then prompts, then other; alphabetical within each group
-  const order: Record<NodeCategory, number> = { image: 0, prompt: 1, other: 2 };
-  return nodes.sort((a, b) => {
-    if (a.category !== b.category) return order[a.category] - order[b.category];
-    return a.title.localeCompare(b.title);
-  });
-}
+  allImageNodes.sort((a, b) => a.title.localeCompare(b.title));
+  allPromptNodes.sort((a, b) => a.title.localeCompare(b.title));
+  allLatentNodes.sort((a, b) => a.title.localeCompare(b.title));
 
-function extractDefaultPrompts(
-  json: Record<string, unknown>,
-  facePhaseNode: string,
-  garmentPhaseNode: string,
-): { defaultFacePhasePrompt: string; defaultGarmentPhasePrompt: string } {
-  const faceNode = json[facePhaseNode] as WorkflowNode | undefined;
-  const garmentNode = json[garmentPhaseNode] as WorkflowNode | undefined;
-  return {
-    defaultFacePhasePrompt: (faceNode?.inputs?.['prompt'] as string | undefined) ?? '',
-    defaultGarmentPhasePrompt: (garmentNode?.inputs?.['prompt'] as string | undefined) ?? '',
-  };
+  return { detected, allImageNodes, allPromptNodes, allLatentNodes };
 }
 
 // ── Validation helpers ────────────────────────────────────────────────────
@@ -74,9 +132,24 @@ function validateNodeType(
   if (actual !== expectedCategory) {
     throw new AppError(
       'VALIDATION', 400,
-      `Node "${nodeId}" (${role}) is type "${classType}" but expected ${expectedCategory === 'image' ? 'LoadImage' : 'TextEncode*'}`,
+      `Node "${nodeId}" (${role}) is type "${classType}" but expected ${
+        expectedCategory === 'image' ? 'LoadImage' : expectedCategory === 'prompt' ? 'TextEncode*' : 'EmptyLatentImage'
+      }`,
     );
   }
+}
+
+function extractDefaultPrompts(
+  json: Record<string, unknown>,
+  negativePromptNode: string,
+  positivePromptNode: string,
+): { defaultFacePhasePrompt: string; defaultGarmentPhasePrompt: string } {
+  const negNode = json[negativePromptNode] as WorkflowNode | undefined;
+  const posNode = json[positivePromptNode] as WorkflowNode | undefined;
+  return {
+    defaultFacePhasePrompt: (negNode?.inputs?.['prompt'] as string | undefined) ?? '',
+    defaultGarmentPhasePrompt: (posNode?.inputs?.['prompt'] as string | undefined) ?? '',
+  };
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────
@@ -86,11 +159,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // GET /admin/workflows
-  // Returns all workflows — serves both the list page and pose modals
   app.get('/admin/workflows', { preHandler: W }, async () => {
     const rows = await app.db.select().from(schema.workflowTemplates);
 
-    // Get pose counts per workflow
     const poseCounts = await app.db
       .select({
         workflowTemplateId: schema.modelPoses.workflowTemplateId,
@@ -114,7 +185,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   });
 
   // POST /admin/workflows/parse
-  // Extract node metadata from a workflow JSON without saving it
+  // Auto-detect node mappings from the workflow JSON using the naming convention.
+  // Returns detected mappings + full lists of image/prompt nodes for manual override.
   app.post('/admin/workflows/parse', {
     preHandler: W,
     schema: { body: ParseWorkflowBody },
@@ -125,25 +197,12 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       throw new AppError('VALIDATION', 400, 'jsonContent must be a JSON object');
     }
 
-    const nodes = parseWorkflowNodes(jsonContent);
+    const { detected, allImageNodes, allPromptNodes, allLatentNodes } = detectMappings(jsonContent);
 
-    // Best-effort: find first prompt node and extract its default prompt text
-    const promptNodes = nodes.filter((n) => n.category === 'prompt');
-    const defaultPrompts: { facePhase?: string; garmentPhase?: string } = {};
-    if (promptNodes[0]) {
-      const n = jsonContent[promptNodes[0].id] as WorkflowNode;
-      defaultPrompts.facePhase = (n?.inputs?.['prompt'] as string | undefined) ?? '';
-    }
-    if (promptNodes[1]) {
-      const n = jsonContent[promptNodes[1].id] as WorkflowNode;
-      defaultPrompts.garmentPhase = (n?.inputs?.['prompt'] as string | undefined) ?? '';
-    }
-
-    return { nodes, defaultPrompts };
+    return { detected, allImageNodes, allPromptNodes, allLatentNodes };
   });
 
   // POST /admin/workflows
-  // Create a new workflow template
   app.post('/admin/workflows', {
     preHandler: W,
     schema: { body: CreateWorkflowBody },
@@ -153,7 +212,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       label: string;
       jsonContent: Record<string, unknown>;
       faceNodeId: string;
-      faceFrontNodeId?: string;
       poseNodeId: string;
       bgNodeId: string;
       upperNodeIds: string[];
@@ -164,50 +222,34 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       garmentPhasePromptNode: string;
     };
 
-    // Validate all referenced node IDs exist in the JSON
-    validateNodeExists(body.jsonContent, body.faceNodeId, 'face image');
-    if (body.faceFrontNodeId) {
-      validateNodeExists(body.jsonContent, body.faceFrontNodeId, 'face front image');
-      validateNodeType(body.jsonContent, body.faceFrontNodeId, 'image', 'face front image');
-    }
-    validateNodeExists(body.jsonContent, body.poseNodeId, 'pose image');
-    validateNodeExists(body.jsonContent, body.bgNodeId, 'background image');
+    validateNodeExists(body.jsonContent, body.faceNodeId, 'face');
+    validateNodeExists(body.jsonContent, body.poseNodeId, 'pose');
+    validateNodeExists(body.jsonContent, body.bgNodeId, 'background');
     for (const uid of body.upperNodeIds) {
-      validateNodeExists(body.jsonContent, uid, 'upper garment image');
+      validateNodeExists(body.jsonContent, uid, 'upper garment');
     }
-    if (body.lowerNodeId) {
-      validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment image');
-    }
-    if (body.shoeNodeId) {
-      validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoe image');
-    }
-    validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'face phase prompt');
-    validateNodeExists(body.jsonContent, body.garmentPhasePromptNode, 'garment phase prompt');
+    if (body.lowerNodeId) validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment');
+    if (body.shoeNodeId) validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoes');
+    validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');
+    validateNodeExists(body.jsonContent, body.garmentPhasePromptNode, 'positive prompt');
 
-    // Validate node types
-    validateNodeType(body.jsonContent, body.faceNodeId, 'image', 'face image');
-    validateNodeType(body.jsonContent, body.poseNodeId, 'image', 'pose image');
-    validateNodeType(body.jsonContent, body.bgNodeId, 'image', 'background image');
+    validateNodeType(body.jsonContent, body.faceNodeId, 'image', 'face');
+    validateNodeType(body.jsonContent, body.poseNodeId, 'image', 'pose');
+    validateNodeType(body.jsonContent, body.bgNodeId, 'image', 'background');
     for (const uid of body.upperNodeIds) {
-      validateNodeType(body.jsonContent, uid, 'image', 'upper garment image');
+      validateNodeType(body.jsonContent, uid, 'image', 'upper garment');
     }
-    if (body.lowerNodeId) {
-      validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment image');
-    }
-    if (body.shoeNodeId) {
-      validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoe image');
-    }
-    validateNodeType(body.jsonContent, body.facePhasePromptNode, 'prompt', 'face phase prompt');
-    validateNodeType(body.jsonContent, body.garmentPhasePromptNode, 'prompt', 'garment phase prompt');
+    if (body.lowerNodeId) validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
+    if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
+    validateNodeType(body.jsonContent, body.facePhasePromptNode, 'prompt', 'negative prompt');
+    validateNodeType(body.jsonContent, body.garmentPhasePromptNode, 'prompt', 'positive prompt');
 
-    // Extract default prompts from JSON
     const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
       body.jsonContent,
       body.facePhasePromptNode,
       body.garmentPhasePromptNode,
     );
 
-    // Check slug uniqueness
     const [existing] = await app.db
       .select({ id: schema.workflowTemplates.id })
       .from(schema.workflowTemplates)
@@ -223,7 +265,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         label: body.label,
         jsonContent: body.jsonContent,
         faceNodeId: body.faceNodeId,
-        faceFrontNodeId: body.faceFrontNodeId ?? null,
         poseNodeId: body.poseNodeId,
         bgNodeId: body.bgNodeId,
         upperNodeIds: body.upperNodeIds,
@@ -250,7 +291,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   });
 
   // GET /admin/workflows/:id
-  // Get full workflow detail including JSON content
   app.get('/admin/workflows/:id', {
     preHandler: W,
     schema: { params: uuidParam },
@@ -267,14 +307,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       .from(schema.modelPoses)
       .where(eq(schema.modelPoses.workflowTemplateId, id));
 
-    return {
-      ...row,
-      poseCount: Number(poseCountRow?.cnt ?? 0),
-    };
+    return { ...row, poseCount: Number(poseCountRow?.cnt ?? 0) };
   });
 
   // PATCH /admin/workflows/:id
-  // Update metadata and/or node mappings (not the JSON content itself)
   app.patch('/admin/workflows/:id', {
     preHandler: W,
     schema: { params: uuidParam, body: UpdateWorkflowBody },
@@ -284,7 +320,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       label?: string;
       isActive?: boolean;
       faceNodeId?: string;
-      faceFrontNodeId?: string | null;
       poseNodeId?: string;
       bgNodeId?: string;
       upperNodeIds?: string[];
@@ -301,47 +336,34 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       .where(eq(schema.workflowTemplates.id, id));
     if (!existing) throw new AppError('NOT_FOUND', 404, 'workflow not found');
 
-    // If prompt nodes are being updated, re-extract defaults from stored JSON
+    const json = existing.jsonContent as Record<string, unknown>;
+
+    if (body.faceNodeId) { validateNodeExists(json, body.faceNodeId, 'face'); validateNodeType(json, body.faceNodeId, 'image', 'face'); }
+    if (body.poseNodeId) { validateNodeExists(json, body.poseNodeId, 'pose'); validateNodeType(json, body.poseNodeId, 'image', 'pose'); }
+    if (body.bgNodeId) { validateNodeExists(json, body.bgNodeId, 'background'); validateNodeType(json, body.bgNodeId, 'image', 'background'); }
+    if (body.upperNodeIds) {
+      for (const uid of body.upperNodeIds) { validateNodeExists(json, uid, 'upper garment'); validateNodeType(json, uid, 'image', 'upper garment'); }
+    }
+    if (body.lowerNodeId) { validateNodeExists(json, body.lowerNodeId, 'lower garment'); validateNodeType(json, body.lowerNodeId, 'image', 'lower garment'); }
+    if (body.shoeNodeId) { validateNodeExists(json, body.shoeNodeId, 'shoes'); validateNodeType(json, body.shoeNodeId, 'image', 'shoes'); }
+    if (body.facePhasePromptNode) { validateNodeExists(json, body.facePhasePromptNode, 'negative prompt'); validateNodeType(json, body.facePhasePromptNode, 'prompt', 'negative prompt'); }
+    if (body.garmentPhasePromptNode) { validateNodeExists(json, body.garmentPhasePromptNode, 'positive prompt'); validateNodeType(json, body.garmentPhasePromptNode, 'prompt', 'positive prompt'); }
+
+    const newNegNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;
+    const newPosNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
+
     let defaultFacePhasePrompt = existing.defaultFacePhasePrompt;
     let defaultGarmentPhasePrompt = existing.defaultGarmentPhasePrompt;
-
-    const json = existing.jsonContent as Record<string, unknown>;
-    const newFacePromptNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;
-    const newGarmentPromptNode = body.garmentPhasePromptNode ?? existing.garmentPhasePromptNode;
-
     if (body.facePhasePromptNode || body.garmentPhasePromptNode) {
-      // Validate new prompt nodes exist
-      if (body.facePhasePromptNode) validateNodeExists(json, body.facePhasePromptNode, 'face phase prompt');
-      if (body.garmentPhasePromptNode) validateNodeExists(json, body.garmentPhasePromptNode, 'garment phase prompt');
-
-      const extracted = extractDefaultPrompts(json, newFacePromptNode, newGarmentPromptNode);
+      const extracted = extractDefaultPrompts(json, newNegNode, newPosNode);
       defaultFacePhasePrompt = extracted.defaultFacePhasePrompt;
       defaultGarmentPhasePrompt = extracted.defaultGarmentPhasePrompt;
     }
 
-    // Validate any new node IDs exist in the stored JSON
-    if (body.faceNodeId) validateNodeExists(json, body.faceNodeId, 'face image');
-    if (body.faceFrontNodeId) {
-      validateNodeExists(json, body.faceFrontNodeId, 'face front image');
-      validateNodeType(json, body.faceFrontNodeId, 'image', 'face front image');
-    }
-    if (body.poseNodeId) validateNodeExists(json, body.poseNodeId, 'pose image');
-    if (body.bgNodeId) validateNodeExists(json, body.bgNodeId, 'background image');
-    if (body.upperNodeIds) {
-      for (const uid of body.upperNodeIds) validateNodeExists(json, uid, 'upper garment image');
-    }
-    if (body.lowerNodeId) validateNodeExists(json, body.lowerNodeId, 'lower garment image');
-    if (body.shoeNodeId) validateNodeExists(json, body.shoeNodeId, 'shoe image');
-
-    const updateValues: Record<string, unknown> = {
-      updatedAt: new Date(),
-      defaultFacePhasePrompt,
-      defaultGarmentPhasePrompt,
-    };
+    const updateValues: Record<string, unknown> = { updatedAt: new Date(), defaultFacePhasePrompt, defaultGarmentPhasePrompt };
     if (body.label !== undefined) updateValues['label'] = body.label;
     if (body.isActive !== undefined) updateValues['isActive'] = body.isActive;
     if (body.faceNodeId !== undefined) updateValues['faceNodeId'] = body.faceNodeId;
-    if ('faceFrontNodeId' in body) updateValues['faceFrontNodeId'] = body.faceFrontNodeId ?? null;
     if (body.poseNodeId !== undefined) updateValues['poseNodeId'] = body.poseNodeId;
     if (body.bgNodeId !== undefined) updateValues['bgNodeId'] = body.bgNodeId;
     if (body.upperNodeIds !== undefined) updateValues['upperNodeIds'] = body.upperNodeIds;
@@ -351,16 +373,12 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     if (body.facePhasePromptNode !== undefined) updateValues['facePhasePromptNode'] = body.facePhasePromptNode;
     if (body.garmentPhasePromptNode !== undefined) updateValues['garmentPhasePromptNode'] = body.garmentPhasePromptNode;
 
-    await app.db
-      .update(schema.workflowTemplates)
-      .set(updateValues)
-      .where(eq(schema.workflowTemplates.id, id));
+    await app.db.update(schema.workflowTemplates).set(updateValues).where(eq(schema.workflowTemplates.id, id));
 
     return { ok: true };
   });
 
   // POST /admin/workflows/:id/reassign
-  // Bulk-reassign all poses from source workflow to target workflow — unblocks deletion
   app.post('/admin/workflows/:id/reassign', {
     preHandler: W,
     schema: { params: uuidParam, body: ReassignWorkflowBody },
@@ -372,16 +390,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       throw new AppError('CONFLICT', 409, 'source and target workflow are the same');
     }
 
-    const [source] = await app.db
-      .select({ id: schema.workflowTemplates.id })
-      .from(schema.workflowTemplates)
-      .where(eq(schema.workflowTemplates.id, sourceId));
+    const [source] = await app.db.select({ id: schema.workflowTemplates.id }).from(schema.workflowTemplates).where(eq(schema.workflowTemplates.id, sourceId));
     if (!source) throw new AppError('NOT_FOUND', 404, 'source workflow not found');
 
-    const [target] = await app.db
-      .select({ id: schema.workflowTemplates.id })
-      .from(schema.workflowTemplates)
-      .where(eq(schema.workflowTemplates.id, targetWorkflowId));
+    const [target] = await app.db.select({ id: schema.workflowTemplates.id }).from(schema.workflowTemplates).where(eq(schema.workflowTemplates.id, targetWorkflowId));
     if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
 
     const result = await app.db
@@ -394,35 +406,22 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   });
 
   // DELETE /admin/workflows/:id
-  // Hard delete — blocked if any poses currently use this workflow
   app.delete('/admin/workflows/:id', {
     preHandler: W,
     schema: { params: uuidParam },
   }, async (req) => {
     const { id } = req.params as { id: string };
 
-    const [row] = await app.db
-      .select({ id: schema.workflowTemplates.id })
-      .from(schema.workflowTemplates)
-      .where(eq(schema.workflowTemplates.id, id));
+    const [row] = await app.db.select({ id: schema.workflowTemplates.id }).from(schema.workflowTemplates).where(eq(schema.workflowTemplates.id, id));
     if (!row) throw new AppError('NOT_FOUND', 404, 'workflow not found');
 
-    const [poseCountRow] = await app.db
-      .select({ cnt: count() })
-      .from(schema.modelPoses)
-      .where(eq(schema.modelPoses.workflowTemplateId, id));
-
+    const [poseCountRow] = await app.db.select({ cnt: count() }).from(schema.modelPoses).where(eq(schema.modelPoses.workflowTemplateId, id));
     const poseCount = Number(poseCountRow?.cnt ?? 0);
     if (poseCount > 0) {
-      throw new AppError(
-        'CONFLICT', 409,
-        `Cannot delete: ${poseCount} pose${poseCount === 1 ? '' : 's'} use this workflow. Delete those poses first.`,
-      );
+      throw new AppError('CONFLICT', 409, `Cannot delete: ${poseCount} pose${poseCount === 1 ? '' : 's'} use this workflow. Reassign those poses first.`);
     }
 
-    await app.db
-      .delete(schema.workflowTemplates)
-      .where(eq(schema.workflowTemplates.id, id));
+    await app.db.delete(schema.workflowTemplates).where(eq(schema.workflowTemplates.id, id));
 
     return { ok: true };
   });
