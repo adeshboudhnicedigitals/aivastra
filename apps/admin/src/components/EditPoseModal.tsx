@@ -41,8 +41,9 @@ export function EditPoseModal({ pose, faces, backgrounds, catalogItems, onSaved,
 
   const [lowerItemIds, setLowerItemIds] = useState<string[]>(pose.lowerItemIds ?? []);
   const [shoeItemIds, setShoeItemIds] = useState<string[]>(pose.shoeItemIds ?? []);
-  const lowerItems = catalogItems.filter((c) => c.type === 'lower');
-  const shoeItems = catalogItems.filter((c) => c.type === 'shoe');
+  const selectedFaceGender = faces.find((f) => f.id === form.faceId)?.gender;
+  const lowerItems = catalogItems.filter((c) => c.type === 'lower' && (!selectedFaceGender || c.genderSlug === selectedFaceGender));
+  const shoeItems = catalogItems.filter((c) => c.type === 'shoe' && (!selectedFaceGender || c.genderSlug === selectedFaceGender));
 
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [faceSideFile, setFaceSideFile] = useState<File | null>(null);

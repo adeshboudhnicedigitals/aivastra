@@ -257,8 +257,8 @@ export function PoseUploadModal({ garmentTypeId, garmentTypeGenderSlug, faces, b
   const [lowerItemIds, setLowerItemIds] = useState<string[]>([]);
   const [shoeItemIds, setShoeItemIds] = useState<string[]>([]);
 
-  const lowerItems = catalogItems.filter((c) => c.type === 'lower');
-  const shoeItems = catalogItems.filter((c) => c.type === 'shoe');
+  const lowerItems = catalogItems.filter((c) => c.type === 'lower' && c.genderSlug === garmentTypeGenderSlug);
+  const shoeItems = catalogItems.filter((c) => c.type === 'shoe' && c.genderSlug === garmentTypeGenderSlug);
   const [sortOrder, setSortOrder] = useState(0);
   const [isTemplate, setIsTemplate] = useState(false);
 
