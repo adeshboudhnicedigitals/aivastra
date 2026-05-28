@@ -104,8 +104,6 @@ export function BatchPoseUploadModal({ garmentTypeId, faces, backgrounds, onDone
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
             workflowTemplateId,
-            promptFacePhase: '',
-            promptGarmentPhase: '',
             showsLower,
             showsShoes,
             isTemplate: i === templateIdx,

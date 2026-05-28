@@ -241,7 +241,7 @@ async function handleFailure(
         jobId,
       });
     });
-    const errorCode = errorMessage ? errorMessage.slice(0, 200) : 'MAX_RETRIES';
+    const errorCode = errorMessage ? errorMessage.slice(0, 1000) : 'MAX_RETRIES';
     await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     log.warn({ jobId, attempts: newAttempts }, 'job FAILED after max retries — credits refunded');

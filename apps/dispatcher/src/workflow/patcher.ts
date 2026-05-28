@@ -149,11 +149,13 @@ export async function patchWorkflow(
     );
   }
 
-  // Patch positive prompts if overridden by the pose's stored prompts
-  if (inputs.promptFacePhase !== undefined && workflow[tmpl.facePhasePromptNode]) {
+  // Patch positive prompts only when the pose provides a non-empty override.
+  // Guard is truthy (not !== undefined) so empty strings from legacy poses are skipped
+  // and the workflow template's default prompt text is preserved in ComfyUI.
+  if (inputs.promptFacePhase && workflow[tmpl.facePhasePromptNode]) {
     workflow[tmpl.facePhasePromptNode]!.inputs['prompt'] = inputs.promptFacePhase;
   }
-  if (inputs.promptGarmentPhase !== undefined && workflow[tmpl.garmentPhasePromptNode]) {
+  if (inputs.promptGarmentPhase && workflow[tmpl.garmentPhasePromptNode]) {
     workflow[tmpl.garmentPhasePromptNode]!.inputs['prompt'] = inputs.promptGarmentPhase;
   }
 

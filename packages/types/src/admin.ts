@@ -175,8 +175,9 @@ export const ConfirmModelPoseBody = z.object({
   bgComfyR2Key: z.string().min(1).optional(),
   // Workflow — now a UUID FK instead of an enum string
   workflowTemplateId: z.string().uuid(),
-  promptFacePhase: z.string().min(1),
-  promptGarmentPhase: z.string().min(1),
+  // Optional — if absent or empty the workflow template's own prompt text is used
+  promptFacePhase: z.string().optional(),
+  promptGarmentPhase: z.string().optional(),
   // Existing fields
   showsLower: z.boolean().default(false),
   showsShoes: z.boolean().default(false),
@@ -200,8 +201,8 @@ export const PatchModelPoseBody = z.object({
   showsLower: z.boolean().optional(),
   showsShoes: z.boolean().optional(),
   workflowTemplateId: z.string().uuid().optional(),
-  promptFacePhase: z.string().min(1).optional(),
-  promptGarmentPhase: z.string().min(1).optional(),
+  promptFacePhase: z.string().optional(),
+  promptGarmentPhase: z.string().optional(),
   /** Updated after re-uploading the side/tilt face via presign-faceside */
   faceSideR2Key: z.string().min(1).optional(),
 });
