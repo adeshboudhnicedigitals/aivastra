@@ -95,6 +95,7 @@ export const CreateWorkflowBody = z.object({
   upperNodeIds: z.array(z.string().min(1)).min(1).max(4),
   lowerNodeId: z.string().min(1).optional(),
   shoeNodeId: z.string().min(1).optional(),
+  sizeNodeId: z.string().min(1).optional(),
   facePhasePromptNode: z.string().min(1),
   garmentPhasePromptNode: z.string().min(1),
 });
@@ -114,6 +115,7 @@ export const UpdateWorkflowBody = z.object({
   upperNodeIds: z.array(z.string().min(1)).min(1).max(4).optional(),
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
+  sizeNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
 });

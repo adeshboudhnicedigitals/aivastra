@@ -61,6 +61,16 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
   return node;
 }
 
+// ── Aspect ratio dimensions ───────────────────────────────────────────────
+
+const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  '1:1':  { width: 1536, height: 1536 },
+  '3:4':  { width: 1331, height: 1774 },
+  '4:5':  { width: 1375, height: 1718 },
+  '9:16': { width: 1152, height: 2048 },
+  '16:9': { width: 2048, height: 1152 },
+};
+
 // ── Public interface ──────────────────────────────────────────────────────
 
 export interface WorkflowInputs {
@@ -78,6 +88,8 @@ export interface WorkflowInputs {
   promptFacePhase?: string;
   /** If provided, overwrites the template default */
   promptGarmentPhase?: string;
+  /** e.g. "4:5" — patches width/height on sizeNodeId if workflow has one */
+  aspectRatio?: string;
 }
 
 type PatchLog = { warn: (msg: string, ...args: unknown[]) => void };
@@ -143,6 +155,17 @@ export async function patchWorkflow(
   }
   if (inputs.promptGarmentPhase !== undefined && workflow[tmpl.garmentPhasePromptNode]) {
     workflow[tmpl.garmentPhasePromptNode]!.inputs['prompt'] = inputs.promptGarmentPhase;
+  }
+
+  // Patch EmptyLatentImage dimensions for selected aspect ratio
+  if (tmpl.sizeNodeId && inputs.aspectRatio) {
+    const dims = ASPECT_DIMENSIONS[inputs.aspectRatio];
+    if (dims && workflow[tmpl.sizeNodeId]) {
+      workflow[tmpl.sizeNodeId]!.inputs['width'] = dims.width;
+      workflow[tmpl.sizeNodeId]!.inputs['height'] = dims.height;
+    } else if (!dims) {
+      log?.warn(`patchWorkflow: unknown aspectRatio "${inputs.aspectRatio}" — skipping size patch`);
+    }
   }
 
   return workflow as unknown as Record<string, unknown>;

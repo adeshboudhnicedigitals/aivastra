@@ -150,6 +150,7 @@ export default function StudioPage(): React.ReactElement {
     try {
       const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
         inputs: { upperGarmentKey: garmentKey, faceId, backgroundId, poseIds, lowerCatalogId: lowerCatalogId || undefined, shoeCatalogId: shoeCatalogId || undefined },
+        aspectRatio: aspect,
       });
       router.push(`/catalogues/${catalogueId}`);
     } catch (e) { setSubmitError((e as Error).message); setIsSubmitting(false); }

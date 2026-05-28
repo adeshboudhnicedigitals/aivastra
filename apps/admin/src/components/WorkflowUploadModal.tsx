@@ -72,6 +72,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [upperNodeIds, setUpperNodeIds] = useState<string[]>(['']);
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
+  const [sizeNodeId, setSizeNodeId] = useState('');
   const [facePhasePromptNode, setFacePhasePromptNode] = useState('');
   const [garmentPhasePromptNode, setGarmentPhasePromptNode] = useState('');
 
@@ -165,6 +166,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           upperNodeIds: validUpperIds,
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
+          sizeNodeId: sizeNodeId || undefined,
           facePhasePromptNode,
           garmentPhasePromptNode,
         }),
@@ -273,6 +275,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 <NodeSelect label="Background image node" nodes={nodes} filter="image" value={bgNodeId} onChange={setBgNodeId} required disabled={saving} />
                 <NodeSelect label="Lower garment node" nodes={nodes} filter="image" value={lowerNodeId} onChange={setLowerNodeId} disabled={saving} />
                 <NodeSelect label="Shoe / Footwear node" nodes={nodes} filter="image" value={shoeNodeId} onChange={setShoeNodeId} disabled={saving} />
+                <NodeSelect label="Size node (EmptyLatentImage)" nodes={nodes} filter="all" value={sizeNodeId} onChange={setSizeNodeId} disabled={saving} />
               </div>
 
               {/* Upper garment nodes (can be multiple) */}

@@ -157,6 +157,7 @@ export async function processJob(
       shoeGarmentFile,
       promptFacePhase: poseRow.promptFacePhase ?? undefined,
       promptGarmentPhase: poseRow.promptGarmentPhase ?? undefined,
+      aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio as string | undefined,
     }, db, jobLog);
 
     // 6. Submit to ComfyUI

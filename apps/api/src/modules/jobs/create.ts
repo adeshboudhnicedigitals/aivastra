@@ -10,6 +10,7 @@ const COST = 1;
 
 export async function createJob(app: FastifyInstance, userId: string, body: any) {
   const { faceId, backgroundId, poseIds, upperGarmentKey, lowerCatalogId, shoeCatalogId } = body.inputs;
+  const aspectRatio: string | undefined = body.aspectRatio;
 
   const [face, background, poses] = await Promise.all([
     app.db.select({ id: schema.modelFaces.id }).from(schema.modelFaces)
@@ -45,7 +46,7 @@ export async function createJob(app: FastifyInstance, userId: string, body: any)
         lowerCatalogId: lowerCatalogId ?? null,
         shoeCatalogId: shoeCatalogId ?? null,
         userHint: promptGuard(body.userHint),
-        params: body.params ?? null,
+        params: { ...(body.params ?? {}), ...(aspectRatio ? { aspectRatio } : {}) },
       });
       created.push(job.id);
     }

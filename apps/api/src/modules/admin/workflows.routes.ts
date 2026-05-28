@@ -159,6 +159,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       upperNodeIds: string[];
       lowerNodeId?: string;
       shoeNodeId?: string;
+      sizeNodeId?: string;
       facePhasePromptNode: string;
       garmentPhasePromptNode: string;
     };
@@ -228,6 +229,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         upperNodeIds: body.upperNodeIds,
         lowerNodeId: body.lowerNodeId ?? null,
         shoeNodeId: body.shoeNodeId ?? null,
+        sizeNodeId: body.sizeNodeId ?? null,
         facePhasePromptNode: body.facePhasePromptNode,
         garmentPhasePromptNode: body.garmentPhasePromptNode,
         defaultFacePhasePrompt,
@@ -288,6 +290,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       upperNodeIds?: string[];
       lowerNodeId?: string | null;
       shoeNodeId?: string | null;
+      sizeNodeId?: string | null;
       facePhasePromptNode?: string;
       garmentPhasePromptNode?: string;
     };
@@ -344,6 +347,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
     if (body.upperNodeIds !== undefined) updateValues['upperNodeIds'] = body.upperNodeIds;
     if ('lowerNodeId' in body) updateValues['lowerNodeId'] = body.lowerNodeId ?? null;
     if ('shoeNodeId' in body) updateValues['shoeNodeId'] = body.shoeNodeId ?? null;
+    if ('sizeNodeId' in body) updateValues['sizeNodeId'] = body.sizeNodeId ?? null;
     if (body.facePhasePromptNode !== undefined) updateValues['facePhasePromptNode'] = body.facePhasePromptNode;
     if (body.garmentPhasePromptNode !== undefined) updateValues['garmentPhasePromptNode'] = body.garmentPhasePromptNode;
 
