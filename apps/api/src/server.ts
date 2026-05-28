@@ -40,7 +40,6 @@ export async function buildServer(env: Env) {
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: {
-        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
         'img-src': ["'self'", 'data:', r2Origin],
         'connect-src': ["'self'", r2Origin],
       },
