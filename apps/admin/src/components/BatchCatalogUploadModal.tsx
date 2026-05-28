@@ -40,8 +40,8 @@ async function uploadFile(url: string, file: File): Promise<void> {
   });
 }
 
-export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defaultGenderSlug = '' }: Props) {
-  const [genderSlug, setGenderSlug] = useState(defaultGenderSlug);
+export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defaultGenderSlug = 'men' }: Props) {
+  const [genderSlug, setGenderSlug] = useState(defaultGenderSlug || 'men');
   const [sortStart, setSortStart] = useState(0);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [running, setRunning] = useState(false);
@@ -100,7 +100,7 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
             sortOrder: sortStart + i,
-            genderSlug: genderSlug || null,
+            genderSlug,
           }),
         });
         added.push(row);
@@ -143,7 +143,6 @@ export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defa
               <label>Gender (applied to all items)</label>
               <select className="select" value={genderSlug} disabled={busy}
                 onChange={(e) => setGenderSlug(e.target.value)}>
-                <option value="">All genders</option>
                 <option value="men">Men</option>
                 <option value="women">Women</option>
                 <option value="boys">Boys</option>
