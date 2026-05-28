@@ -188,6 +188,8 @@ export const ConfirmModelPoseBody = z.object({
   // Existing fields
   showsLower: z.boolean().default(false),
   showsShoes: z.boolean().default(false),
+  lowerItemIds: z.array(z.string().uuid()).optional(),
+  shoeItemIds: z.array(z.string().uuid()).optional(),
   isTemplate: z.boolean().default(false),
   sortOrder: z.number().int().default(0),
 }).refine(
@@ -207,6 +209,8 @@ export const PatchModelPoseBody = z.object({
   sortOrder: z.number().int().optional(),
   showsLower: z.boolean().optional(),
   showsShoes: z.boolean().optional(),
+  lowerItemIds: z.array(z.string().uuid()).optional(),
+  shoeItemIds: z.array(z.string().uuid()).optional(),
   workflowTemplateId: z.string().uuid().optional(),
   promptFacePhase: z.string().optional(),
   promptGarmentPhase: z.string().optional(),

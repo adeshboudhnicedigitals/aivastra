@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, boolean, integer, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, boolean, integer, timestamp, index, uniqueIndex, jsonb, primaryKey } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const modelFaces = pgTable('model_faces', {
@@ -99,4 +99,12 @@ export const modelPoses = pgTable('model_poses', {
   templateIdx: uniqueIndex('model_poses_template_idx')
     .on(table.subcategoryId, table.faceId, table.backgroundId)
     .where(sql`is_template = true`),
+}));
+
+// Many-to-many: which catalog items are allowed for a given pose
+export const poseCatalogItems = pgTable('pose_catalog_items', {
+  poseId: uuid('pose_id').notNull().references(() => modelPoses.id, { onDelete: 'cascade' }),
+  catalogItemId: uuid('catalog_item_id').notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.poseId, table.catalogItemId] }),
 }));

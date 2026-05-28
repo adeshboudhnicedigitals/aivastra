@@ -23,6 +23,7 @@
     { "idx": 18, "version": "7", "when": 1779926400012, "tag": "0018_drop_face_front_node", "breakpoints": true },
     { "idx": 19, "version": "7", "when": 1779926400013, "tag": "0019_gender_slug_bg_catalog", "breakpoints": true },
     { "idx": 20, "version": "7", "when": 1779926400014, "tag": "0020_category_gender_slug", "breakpoints": true },
-    { "idx": 21, "version": "7", "when": 1779926400015, "tag": "0021_catalog_item_direct_type", "breakpoints": true }
+    { "idx": 21, "version": "7", "when": 1779926400015, "tag": "0021_catalog_item_direct_type", "breakpoints": true },
+    { "idx": 22, "version": "7", "when": 1779926400016, "tag": "0022_pose_catalog_items", "breakpoints": true }
   ]
 }

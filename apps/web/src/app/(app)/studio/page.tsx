@@ -140,8 +140,17 @@ export default function StudioPage(): React.ReactElement {
   const needsLower = selectedPoses.some((p) => p.showsLower);
   const needsShoes = selectedPoses.some((p) => p.showsShoes);
 
-  const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({ queryKey: ['catalog', 'lower', gender], queryFn: () => api.get(`/v1/catalog/lower${gender ? `?gender=${gender}` : ''}`), enabled: step >= 3 });
-  const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({ queryKey: ['catalog', 'shoe', gender], queryFn: () => api.get(`/v1/catalog/shoe${gender ? `?gender=${gender}` : ''}`), enabled: step >= 3 });
+  const poseIdsParam = poseIds.length > 0 ? `poseIds=${poseIds.join(',')}` : '';
+  const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
+    queryKey: ['catalog', 'lower', gender, poseIds.join(',')],
+    queryFn: () => api.get(`/v1/catalog/lower?${[poseIdsParam, gender ? `gender=${gender}` : ''].filter(Boolean).join('&')}`),
+    enabled: step >= 3 && needsLower,
+  });
+  const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
+    queryKey: ['catalog', 'shoe', gender, poseIds.join(',')],
+    queryFn: () => api.get(`/v1/catalog/shoe?${[poseIdsParam, gender ? `gender=${gender}` : ''].filter(Boolean).join('&')}`),
+    enabled: step >= 3 && needsShoes,
+  });
   const lowerItems = lowerCatalog ? flattenCatalog(lowerCatalog.tree) : [];
   const shoeItems = shoesCatalog ? flattenCatalog(shoesCatalog.tree) : [];
 

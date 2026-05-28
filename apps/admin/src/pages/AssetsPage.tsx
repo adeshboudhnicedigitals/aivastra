@@ -202,6 +202,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       .then((r) => setFaces(r.items)).catch(() => {});
     apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds')
       .then((r) => setAllBackgrounds(r.items)).catch(() => {});
+    apiFetch<CatalogItem[]>('/admin/catalog/items')
+      .then((items) => setCatalogItems(items)).catch(() => {});
   }, []);
 
   const toggleBg = async (id: string) => {
@@ -772,6 +774,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           garmentTypeGenderSlug={subView.sub.genderSlug}
           faces={faces}
           backgrounds={allBackgrounds}
+          catalogItems={catalogItems}
           onDone={(added) => {
             setShowPoseUpload(false);
             setPoses((prev) => [...prev, added]);
@@ -787,6 +790,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           pose={editingPose}
           faces={faces}
           backgrounds={allBackgrounds}
+          catalogItems={catalogItems}
           onSaved={(updated) => {
             setPoses((prev) => prev.map((p) => p.id === updated.id ? updated : p));
             setEditingPose(null);

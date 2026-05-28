@@ -194,7 +194,37 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     if (faceId) conditions.push(eq(schema.modelPoses.faceId, faceId));
     if (backgroundId) conditions.push(eq(schema.modelPoses.backgroundId, backgroundId));
     const rows = await app.db.select().from(schema.modelPoses).where(and(...conditions));
-    return { items: rows };
+    if (rows.length === 0) return { items: [] };
+
+    const poseIds = rows.map((r) => r.id);
+    const links = await app.db.select().from(schema.poseCatalogItems)
+      .where(inArray(schema.poseCatalogItems.poseId, poseIds));
+
+    const lowerSet = new Map<string, string[]>();
+    const shoeSet = new Map<string, string[]>();
+    const catalogIds = [...new Set(links.map((l) => l.catalogItemId))];
+    let typeMap = new Map<string, string>();
+    if (catalogIds.length > 0) {
+      const items = await app.db.select({ id: schema.catalogItems.id, type: schema.catalogItems.type })
+        .from(schema.catalogItems).where(inArray(schema.catalogItems.id, catalogIds));
+      typeMap = new Map(items.map((i) => [i.id, i.type]));
+    }
+    for (const l of links) {
+      const t = typeMap.get(l.catalogItemId);
+      if (t === 'lower') {
+        if (!lowerSet.has(l.poseId)) lowerSet.set(l.poseId, []);
+        lowerSet.get(l.poseId)!.push(l.catalogItemId);
+      } else if (t === 'shoe') {
+        if (!shoeSet.has(l.poseId)) shoeSet.set(l.poseId, []);
+        shoeSet.get(l.poseId)!.push(l.catalogItemId);
+      }
+    }
+    const items = rows.map((r) => ({
+      ...r,
+      lowerItemIds: lowerSet.get(r.id) ?? [],
+      shoeItemIds: shoeSet.get(r.id) ?? [],
+    }));
+    return { items };
   });
 
   app.post('/admin/assets/poses/presign', {
@@ -357,7 +387,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           sortOrder: body.sortOrder,
         })
         .returning();
-      return inserted;
+      const allItemIds = [...(body.lowerItemIds ?? []), ...(body.shoeItemIds ?? [])];
+      if (allItemIds.length > 0) {
+        await tx.insert(schema.poseCatalogItems)
+          .values(allItemIds.map((id) => ({ poseId: inserted!.id, catalogItemId: id })));
+      }
+      return { ...inserted, lowerItemIds: body.lowerItemIds ?? [], shoeItemIds: body.shoeItemIds ?? [] };
     });
 
     return row;
@@ -393,10 +428,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (!wfCheck) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
     }
 
-    if (body.isTemplate === true) {
-      const [pose] = await app.db.select().from(schema.modelPoses).where(eq(schema.modelPoses.id, id));
-      if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
-      await app.db.transaction(async (tx) => {
+    const { lowerItemIds, shoeItemIds, ...poseFields } = body as any;
+
+    await app.db.transaction(async (tx) => {
+      if (poseFields.isTemplate === true) {
+        const [pose] = await tx.select().from(schema.modelPoses).where(eq(schema.modelPoses.id, id));
+        if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
         await tx.update(schema.modelPoses)
           .set({ isTemplate: false, updatedAt: new Date() })
           .where(and(
@@ -405,18 +442,24 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             eq(schema.modelPoses.backgroundId, pose.backgroundId),
             eq(schema.modelPoses.isTemplate, true),
           ));
-        await tx.update(schema.modelPoses)
-          .set({ ...body, updatedAt: new Date() })
-          .where(eq(schema.modelPoses.id, id));
-      });
-    } else {
-      const [updated] = await app.db
-        .update(schema.modelPoses)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(schema.modelPoses.id, id))
-        .returning({ id: schema.modelPoses.id });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'pose not found');
-    }
+      }
+      if (Object.keys(poseFields).length > 0) {
+        const [updated] = await tx.update(schema.modelPoses)
+          .set({ ...poseFields, updatedAt: new Date() })
+          .where(eq(schema.modelPoses.id, id))
+          .returning({ id: schema.modelPoses.id });
+        if (!updated) throw new AppError('NOT_FOUND', 404, 'pose not found');
+      }
+
+      if (lowerItemIds !== undefined || shoeItemIds !== undefined) {
+        await tx.delete(schema.poseCatalogItems).where(eq(schema.poseCatalogItems.poseId, id));
+        const allItemIds = [...(lowerItemIds ?? []), ...(shoeItemIds ?? [])];
+        if (allItemIds.length > 0) {
+          await tx.insert(schema.poseCatalogItems)
+            .values(allItemIds.map((cid: string) => ({ poseId: id, catalogItemId: cid })));
+        }
+      }
+    });
     return { ok: true };
   });
 
