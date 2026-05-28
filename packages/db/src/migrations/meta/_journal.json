@@ -20,6 +20,7 @@
     { "idx": 15, "version": "7", "when": 1779926400009, "tag": "0015_pose_bg_comfy_key", "breakpoints": true },
     { "idx": 16, "version": "7", "when": 1779926400010, "tag": "0016_workflow_face_front_node", "breakpoints": true },
     { "idx": 17, "version": "7", "when": 1779926400011, "tag": "0017_workflow_size_node", "breakpoints": true },
-    { "idx": 18, "version": "7", "when": 1779926400012, "tag": "0018_drop_face_front_node", "breakpoints": true }
+    { "idx": 18, "version": "7", "when": 1779926400012, "tag": "0018_drop_face_front_node", "breakpoints": true },
+    { "idx": 19, "version": "7", "when": 1779926400013, "tag": "0019_gender_slug_bg_catalog", "breakpoints": true }
   ]
 }

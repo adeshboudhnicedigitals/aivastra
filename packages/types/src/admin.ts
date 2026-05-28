@@ -37,6 +37,7 @@ export const ConfirmCatalogItemBody = z.object({
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
   sortOrder: z.number().int().default(0),
+  genderSlug: z.enum(['men', 'women', 'boys', 'girls']).optional(),
 });
 export const SystemConfigBody = z.object({
   creditCostPerJob: z.number().int().positive().max(100).optional(),
@@ -75,9 +76,11 @@ export const ConfirmModelBackgroundBody = z.object({
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
   sortOrder: z.number().int().default(0),
+  genderSlug: GenderEnum.optional(),
 });
 export const PatchModelBackgroundBody = z.object({
   label: z.string().min(1).max(120).optional(),
+  genderSlug: GenderEnum.nullable().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
 });

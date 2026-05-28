@@ -21,6 +21,7 @@ export interface ModelBackground {
   r2Key: string;
   isActive: boolean;
   sortOrder: number;
+  genderSlug: string | null;
   createdAt: string;
   updatedAt: string;
 }

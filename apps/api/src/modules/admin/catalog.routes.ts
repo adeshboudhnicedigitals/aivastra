@@ -13,7 +13,11 @@ import { AppError } from '../../lib/errors.js';
 export async function adminCatalogRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
 
-  app.get('/admin/catalog/items', { preHandler: W }, async () => {
+  app.get('/admin/catalog/items', {
+    preHandler: W,
+    schema: { querystring: z.object({ genderSlug: z.string().optional() }) },
+  }, async (req) => {
+    const { genderSlug } = req.query as { genderSlug?: string };
     const rows = await app.db
       .select({
         id: schema.catalogItems.id,
@@ -21,6 +25,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         label: schema.catalogItems.label,
         r2Key: schema.catalogItems.r2Key,
         thumbnailKey: schema.catalogItems.thumbnailKey,
+        genderSlug: schema.catalogItems.genderSlug,
         isActive: schema.catalogItems.isActive,
         sortOrder: schema.catalogItems.sortOrder,
         createdAt: schema.catalogItems.createdAt,
@@ -29,7 +34,8 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       })
       .from(schema.catalogItems)
       .innerJoin(schema.catalogCategories, eq(schema.catalogItems.categoryId, schema.catalogCategories.id))
-      .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id));
+      .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id))
+      .where(genderSlug ? eq(schema.catalogItems.genderSlug, genderSlug) : undefined);
     return rows;
   });
 
@@ -69,9 +75,9 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
 
   app.post('/admin/catalog/items/confirm', { preHandler: W, schema: { body: ConfirmCatalogItemBody } },
     async (req) => {
-      const { categoryId, label, r2Key, thumbnailKey, sortOrder } = req.body as any;
+      const { categoryId, label, r2Key, thumbnailKey, sortOrder, genderSlug } = req.body as any;
       const [row] = await app.db.insert(schema.catalogItems)
-        .values({ categoryId, label, r2Key, thumbnailKey, sortOrder }).returning();
+        .values({ categoryId, label, r2Key, thumbnailKey, sortOrder, genderSlug: genderSlug ?? null }).returning();
       return row;
     });
 
@@ -81,6 +87,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       body: z.object({
         label: z.string().max(120).optional(), isActive: z.boolean().optional(),
         sortOrder: z.number().int().optional(), categoryId: z.number().int().optional(),
+        genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
       }) },
   }, async (req) => {
     const { id } = req.params as any;

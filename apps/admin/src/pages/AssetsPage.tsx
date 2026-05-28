@@ -125,10 +125,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [editCatalogSaving, setEditCatalogSaving] = useState(false);
   const [showCatalogUpload, setShowCatalogUpload] = useState(false);
 
-  const loadBackgrounds = useCallback(async () => {
+  const loadBackgrounds = useCallback(async (genderSlug?: string) => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds');
+      const qs = genderSlug ? `?genderSlug=${genderSlug}` : '';
+      const res = await apiFetch<{ items: ModelBackground[] }>(`/admin/assets/backgrounds${qs}`);
       setBackgrounds(res.items);
     } catch {
       toast({ kind: 'error', title: 'Failed to load backgrounds' });
@@ -173,11 +174,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   }, [toast]);
 
-  const loadCatalog = useCallback(async () => {
+  const loadCatalog = useCallback(async (genderSlug?: string) => {
     setLoading(true);
     try {
+      const qs = genderSlug ? `?genderSlug=${genderSlug}` : '';
       const [itemsRes, catsRes] = await Promise.all([
-        apiFetch<CatalogItem[]>('/admin/catalog/items'),
+        apiFetch<CatalogItem[]>(`/admin/catalog/items${qs}`),
         apiFetch<{ id: number; label: string; typeSlug: string }[]>('/admin/catalog/categories'),
       ]);
       setCatalogItems(itemsRes);
@@ -190,14 +192,15 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   }, [toast]);
 
   useEffect(() => {
-    if (activeTab === 'backgrounds') { loadBackgrounds(); }
+    const g = genderFilter === 'all' ? undefined : genderFilter;
+    if (activeTab === 'backgrounds') { loadBackgrounds(g); }
     else if (activeTab === 'faces') loadFaces();
-    else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog();
+    else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog(g);
     else if (activeTab === 'garment-types') {
       if (subView.kind === 'list') loadGarmentTypes();
       else loadGarmentTypeAssets(subView.sub.id);
     }
-  }, [activeTab, subView, loadBackgrounds, loadFaces, loadGarmentTypes, loadGarmentTypeAssets, loadCatalog]);
+  }, [activeTab, genderFilter, subView, loadBackgrounds, loadFaces, loadGarmentTypes, loadGarmentTypeAssets, loadCatalog]);
 
   // Preload faces + backgrounds silently so upload selects + filters are populated
   useEffect(() => {
@@ -396,11 +399,19 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {!loading && activeTab === 'backgrounds' && (
+        <>
+          <div className="tabs" style={{ marginTop: -8 }}>
+            {GENDER_TABS.map((t) => (
+              <button key={t.k} className={`tab ${genderFilter === t.k ? 'active' : ''}`}
+                onClick={() => setGenderFilter(t.k)}>{t.l}</button>
+            ))}
+          </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Label</th>
+                <th>Gender</th>
                 <th>Active</th>
                 <th></th>
               </tr>
@@ -417,6 +428,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       </div>
                     </div>
                   </td>
+                  <td><span className="badge dot">{(bg as any).genderSlug ?? 'all'}</span></td>
                   <td><Switch checked={bg.isActive} onChange={() => toggleBg(bg.id)} /></td>
                   <td>
                     <div style={{ display: 'flex', gap: 4 }}>
@@ -427,11 +439,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 </tr>
               ))}
               {backgrounds.length === 0 && (
-                <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No backgrounds yet.</td></tr>
+                <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}>No backgrounds yet.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {!loading && activeTab === 'faces' && (
@@ -650,6 +663,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         const paged = sorted.slice(catalogPage * PAGE_SIZE, (catalogPage + 1) * PAGE_SIZE);
         return (
           <>
+            <div className="tabs" style={{ marginTop: -8, marginBottom: 4 }}>
+              {GENDER_TABS.map((t) => (
+                <button key={t.k} className={`tab ${genderFilter === t.k ? 'active' : ''}`}
+                  onClick={() => setGenderFilter(t.k)}>{t.l}</button>
+              ))}
+            </div>
             <div style={{ marginBottom: 12 }}>
               <input className="input" placeholder="Search by label or ID…" value={catalogQuery}
                 onChange={(e) => { setCatalogQuery(e.target.value); setCatalogPage(0); }}

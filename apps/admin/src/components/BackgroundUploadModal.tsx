@@ -38,6 +38,7 @@ export function BackgroundUploadModal({ onDone, onClose, toast }: Props) {
   const [thumbPreview, setThumbPreview] = useState<string | null>(null);
   const [label, setLabel] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
+  const [genderSlug, setGenderSlug] = useState('');
   const [status, setStatus] = useState<'idle' | 'uploading' | 'confirming'>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +90,7 @@ export function BackgroundUploadModal({ onDone, onClose, toast }: Props) {
 
       const row = await apiFetch<ModelBackground>('/admin/assets/backgrounds/confirm', {
         method: 'POST',
-        body: JSON.stringify({ label: label.trim(), r2Key: presign.r2Key, thumbnailKey: presign.thumbnailKey, sortOrder }),
+        body: JSON.stringify({ label: label.trim(), r2Key: presign.r2Key, thumbnailKey: presign.thumbnailKey, sortOrder, genderSlug: genderSlug || undefined }),
       });
 
       setProgress(100);
@@ -157,6 +158,17 @@ export function BackgroundUploadModal({ onDone, onClose, toast }: Props) {
             <label>Sort order (lower = first)</label>
             <input className="input" type="number" min={0} value={sortOrder} disabled={busy}
               style={{ width: 100 }} onChange={(e) => setSortOrder(Number(e.target.value))} />
+          </div>
+
+          <div className="field">
+            <label>Gender</label>
+            <select className="select" value={genderSlug} disabled={busy} onChange={(e) => setGenderSlug(e.target.value)}>
+              <option value="">All genders</option>
+              <option value="men">Men</option>
+              <option value="women">Women</option>
+              <option value="boys">Boys</option>
+              <option value="girls">Girls</option>
+            </select>
           </div>
 
           {busy && (

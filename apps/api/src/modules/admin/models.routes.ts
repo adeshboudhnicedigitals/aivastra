@@ -97,8 +97,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   // ── Backgrounds (global) ──────────────────────────────────────────────────
 
-  app.get('/admin/assets/backgrounds', { preHandler: W }, async () => {
-    const rows = await app.db.select().from(schema.modelBackgrounds);
+  app.get('/admin/assets/backgrounds', {
+    preHandler: W,
+    schema: { querystring: z.object({ genderSlug: z.string().optional() }) },
+  }, async (req) => {
+    const { genderSlug } = req.query as { genderSlug?: string };
+    const rows = await app.db.select().from(schema.modelBackgrounds)
+      .where(genderSlug ? eq(schema.modelBackgrounds.genderSlug, genderSlug) : undefined);
     return { items: rows };
   });
 
@@ -122,7 +127,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     schema: { body: ConfirmModelBackgroundBody },
   }, async (req) => {
     const body = req.body as {
-      label: string; r2Key: string; thumbnailKey: string; sortOrder: number;
+      label: string; r2Key: string; thumbnailKey: string; sortOrder: number; genderSlug?: string;
     };
     const [row] = await app.db
       .insert(schema.modelBackgrounds)
@@ -131,6 +136,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         r2Key: body.r2Key,
         thumbnailKey: body.thumbnailKey,
         sortOrder: body.sortOrder,
+        genderSlug: body.genderSlug ?? null,
       })
       .returning();
     return row;

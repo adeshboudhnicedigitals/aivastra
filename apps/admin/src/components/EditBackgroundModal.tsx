@@ -14,6 +14,7 @@ export function EditBackgroundModal({ background, onSaved, onClose, toast }: Pro
   const [form, setForm] = useState({
     label: background.label,
     sortOrder: background.sortOrder,
+    genderSlug: background.genderSlug ?? '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -23,6 +24,7 @@ export function EditBackgroundModal({ background, onSaved, onClose, toast }: Pro
       const body: Record<string, unknown> = {
         label: form.label,
         sortOrder: form.sortOrder,
+        genderSlug: form.genderSlug || null,
       };
       await apiFetch(`/admin/assets/backgrounds/${background.id}`, {
         method: 'PATCH',
@@ -32,6 +34,7 @@ export function EditBackgroundModal({ background, onSaved, onClose, toast }: Pro
         ...background,
         label: form.label,
         sortOrder: form.sortOrder,
+        genderSlug: form.genderSlug || null,
       };
       onSaved(updated);
       toast({ title: `${form.label} updated` });
@@ -75,6 +78,21 @@ export function EditBackgroundModal({ background, onSaved, onClose, toast }: Pro
               style={{ width: 100 }}
               onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
             />
+          </div>
+          <div className="field">
+            <label>Gender</label>
+            <select
+              className="select"
+              value={form.genderSlug}
+              disabled={saving}
+              onChange={(e) => setForm((f) => ({ ...f, genderSlug: e.target.value }))}
+            >
+              <option value="">All genders</option>
+              <option value="men">Men</option>
+              <option value="women">Women</option>
+              <option value="boys">Boys</option>
+              <option value="girls">Girls</option>
+            </select>
           </div>
         </div>
 

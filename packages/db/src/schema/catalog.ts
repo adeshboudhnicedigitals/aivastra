@@ -22,6 +22,7 @@ export const catalogItems = pgTable('catalog_items', {
   label: text('label').notNull(),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
+  genderSlug: text('gender_slug'), // nullable — null means all genders
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
