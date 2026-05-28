@@ -32,6 +32,13 @@ const GENDERS = [
 ];
 const PLATFORMS = ['Amazon', 'Myntra', 'Flipkart', 'Meesho', 'Shopify'];
 const ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
+const ASPECT_DIMS: Record<string, string> = {
+  '1:1': '1536 × 1536 px',
+  '3:4': '1331 × 1774 px',
+  '4:5': '1375 × 1718 px',
+  '9:16': '1152 × 2048 px',
+  '16:9': '2048 × 1152 px',
+};
 const OUTFIT_IMG: Record<string, string> = {
   kurta: `${BASE}/assets/outfit-kurta.png`,
   saree: `${BASE}/assets/outfit-saree.png`,
@@ -43,12 +50,12 @@ function VisualCard({ selected, onClick, img, label, imgStyle }: { selected: boo
   return (
     <div onClick={onClick} style={{ cursor: 'pointer', textAlign: 'center', flexShrink: 0 }}>
       <div style={{ width: 100, height: 110, borderRadius: 8, overflow: 'hidden', position: 'relative', border: selected ? '2px solid transparent' : `2px solid ${C.border}`, backgroundImage: selected ? grad : 'none', padding: selected ? 2 : 0, boxSizing: 'border-box' }}>
-        <div style={{ width: '100%', height: '100%', borderRadius: 6, overflow: 'hidden', background: '#f0f0f0' }}>
+        <div style={{ width: '100%', height: '100%', borderRadius: 6, overflow: 'hidden', background: C.lighter }}>
           {img ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={img} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center', ...imgStyle }} />
           ) : (
-            <div style={{ width: '100%', height: '100%', background: 'linear-gradient(135deg, #f5f5f5, #e8e8e8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#aaa', fontSize: 11 }}>{label}</div>
+            <div style={{ width: '100%', height: '100%', background: C.field, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.light, fontSize: 11 }}>{label}</div>
           )}
         </div>
         {selected && <div style={{ position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: '50%', background: grad, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CheckIcon color={C.white} size={11} /></div>}
@@ -63,7 +70,7 @@ function SelCard({ selected, onClick, imageUrl, label, w = 130, h = 170, badges 
   return (
     <div onClick={onClick} style={{ cursor: 'pointer', textAlign: 'center', flexShrink: 0 }}>
       <div style={{ width: w, height: h, borderRadius: 10, overflow: 'hidden', position: 'relative', border: selected ? '2px solid transparent' : `2px solid ${C.border}`, background: selected ? grad : 'transparent', padding: selected ? 2 : 0, boxSizing: 'border-box' }}>
-        <div style={{ width: '100%', height: '100%', borderRadius: 8, overflow: 'hidden', background: '#f0f0f0' }}>
+        <div style={{ width: '100%', height: '100%', borderRadius: 8, overflow: 'hidden', background: C.lighter }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imageUrl} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
@@ -217,6 +224,7 @@ export default function StudioPage(): React.ReactElement {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {ASPECTS.map((r) => <button key={r} onClick={() => setAspect(r)} style={pill(aspect === r)}>{r}</button>)}
                 </div>
+                <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>{ASPECT_DIMS[aspect]}</div>
               </section>
             </div>
 
@@ -251,7 +259,7 @@ export default function StudioPage(): React.ReactElement {
                   )}
                   <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleGarmentUpload(f); }} />
                 </label>
-                <div style={{ flex: 1.2, minWidth: 240, background: '#FAFAFA', borderRadius: 10, border: `1px solid ${C.border}`, padding: 16 }}>
+                <div style={{ flex: 1.2, minWidth: 240, background: C.field, borderRadius: 10, border: `1px solid ${C.border}`, padding: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}><span style={{ fontSize: 14 }}>💡</span><span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>Use clean flat lay images for best AI catalogue results.</span></div>
                   <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {['Even, diffuse daylight', 'Minimal wrinkles, garment laid flat', 'Plain, contrasting background'].map((t) => <li key={t} style={{ fontSize: 12, color: C.mid }}>{t}</li>)}
@@ -357,12 +365,12 @@ export default function StudioPage(): React.ReactElement {
         <button onClick={reset} style={{
           display: 'flex', alignItems: 'center', gap: 10,
           width: 85, height: 44, borderRadius: 8,
-          border: '1px solid #EEEEEE',
-          background: '#F9F9F9',
+          border: `1px solid ${C.border}`,
+          background: C.field,
           padding: '12px 20px',
           fontFamily: 'var(--font-poppins), Poppins, sans-serif',
           fontWeight: 600, fontSize: 16, lineHeight: '20px',
-          color: '#626262',
+          color: C.mid,
           cursor: 'pointer', textAlign: 'center',
         }}>Reset</button>
         <button onClick={goBack} disabled={step === 0} style={{ ...ghostBtn, opacity: step === 0 ? 0.3 : 1 }}><ArrowLeft /> Back</button>

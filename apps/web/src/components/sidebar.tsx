@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { C } from './tokens';
-import { SettingsIcon, LogOutIcon, PlusIcon, DotsIcon } from './icons';
+import { SettingsIcon, LogOutIcon, PlusIcon } from './icons';
 
 interface CreditsResponse { balance: number }
 interface MeResponse { email: string; displayName: string | null }
@@ -24,6 +24,8 @@ export function Sidebar() {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [popupOpen, setPopupOpen] = useState(false);
+  const [popupRect, setPopupRect] = useState<{ bottom: number; left: number; width: number } | null>(null);
+  const [profileHover, setProfileHover] = useState(false);
   const [logoHover, setLogoHover] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
 
@@ -194,7 +196,7 @@ export function Sidebar() {
                       width: '100%', height: '100%',
                       backgroundColor: '#141414',
                       backgroundImage: 'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 100%)',
-                      color: C.white, fontWeight: 500, fontSize: 14,
+                      color: C.onDark, fontWeight: 500, fontSize: 14,
                     }}
                   >
                     {linkContent}
@@ -217,7 +219,7 @@ export function Sidebar() {
                   justifyContent: collapsed ? 'center' : 'flex-start',
                   width: collapsed ? undefined : 220, height: 40,
                   background: 'transparent',
-                  color: isActive ? C.white : '#EEEEEE', fontWeight: 500, fontSize: 14,
+                  color: isActive ? C.onDark : '#EEEEEE', fontWeight: 500, fontSize: 14,
                   transition: 'background .15s',
                 }}
                 onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
@@ -244,14 +246,14 @@ export function Sidebar() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: 14 }}>🔗</span>
-                <span style={{ color: C.white, fontSize: 13, fontWeight: 500 }}>Credits Left:</span>
+                <span style={{ color: C.onDark, fontSize: 13, fontWeight: 500 }}>Credits Left:</span>
               </div>
-              <span style={{ color: C.white, fontSize: 13, fontWeight: 500 }}>{balance}<span style={{ color: '#888', fontSize: 11 }}>/{maxBalance}</span></span>
+              <span style={{ color: C.onDark, fontSize: 13, fontWeight: 500 }}>{balance}<span style={{ color: '#888', fontSize: 11 }}>/{maxBalance}</span></span>
             </div>
             <Link href="/pricing" onClick={(e) => e.stopPropagation()} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, textDecoration: 'none',
               width: '100%', padding: '7px 12px', borderRadius: 6,
-              background: 'rgba(255,255,255,0.08)', color: C.white, fontSize: 13, fontWeight: 500,
+              background: 'rgba(255,255,255,0.08)', color: C.onDark, fontSize: 13, fontWeight: 500,
             }}>
               <PlusIcon /> Buy Credits
             </Link>
@@ -265,15 +267,17 @@ export function Sidebar() {
             <>
               <div onClick={(e) => { e.stopPropagation(); setPopupOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 99 }} />
               <div style={{
-                position: 'absolute', bottom: 'calc(100% + 8px)', left: 0,
-                width: 200,
+                position: 'fixed',
+                bottom: popupRect ? window.innerHeight - popupRect.bottom + 8 : 80,
+                left: popupRect ? popupRect.left : 10,
+                width: 240,
                 background: '#1E1E1E', border: '1px solid rgba(255,255,255,0.1)',
                 borderRadius: 10, overflow: 'hidden', zIndex: 100,
                 boxShadow: '0 -8px 24px rgba(0,0,0,0.4)',
               }}>
                 <Link href="/settings" onClick={(e) => { e.stopPropagation(); setPopupOpen(false); }} style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '12px 16px', textDecoration: 'none', color: C.white,
+                  padding: '12px 16px', textDecoration: 'none', color: C.onDark,
                   fontSize: 13, fontWeight: 500,
                 }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
@@ -296,37 +300,32 @@ export function Sidebar() {
             </>
           )}
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'space-between', gap: 8 }}>
-            {/* Avatar */}
-            <button
-              onClick={(e) => { e.stopPropagation(); setPopupOpen((v) => !v); }}
-              title={collapsed ? 'Account options' : undefined}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', flexShrink: 0 }}
-            >
-              <div style={{ width: 38, height: 38, borderRadius: 8, background: '#FCE8CA', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: C.dark }}>{initials}</div>
-            </button>
-
-            {/* Name + email + dots — hidden when collapsed */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!popupOpen && popupRef.current) {
+                const r = popupRef.current.getBoundingClientRect();
+                setPopupRect({ bottom: r.top, left: r.left, width: r.width });
+              }
+              setPopupOpen((v) => !v);
+            }}
+            title="Account options"
+            onMouseEnter={() => setProfileHover(true)}
+            onMouseLeave={() => setProfileHover(false)}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: (popupOpen || profileHover) ? 'rgba(255,255,255,0.1)' : 'none', border: 'none', cursor: 'pointer', padding: '4px 2px', borderRadius: 8, justifyContent: collapsed ? 'center' : 'flex-start' }}
+          >
+            <div style={{ width: 38, height: 38, borderRadius: 8, background: '#FCE8CA', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: C.dark, flexShrink: 0 }}>{initials}</div>
             <div style={{
-              display: 'flex', alignItems: 'center', flex: 1, minWidth: 0,
+              flex: 1, minWidth: 0, textAlign: 'left',
               maxWidth: collapsed ? 0 : 160,
               opacity: collapsed ? 0 : 1,
               overflow: 'hidden',
               transition: 'max-width .22s ease, opacity .18s ease',
             }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: C.white, fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
-                {email && <div style={{ color: '#EEEEEE', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>}
-              </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); setPopupOpen((v) => !v); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: popupOpen ? C.white : '#888', flexShrink: 0, padding: 4 }}
-                title="Account options"
-              >
-                <DotsIcon />
-              </button>
+              <div style={{ color: C.onDark, fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{displayName}</div>
+              {email && <div style={{ color: '#EEEEEE', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>}
             </div>
-          </div>
+          </button>
         </div>
       </div>
     </div>

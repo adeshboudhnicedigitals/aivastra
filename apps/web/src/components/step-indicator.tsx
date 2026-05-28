@@ -19,9 +19,9 @@ export function StepBar({ step }: { step: number }) {
                 width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 background: active ? C.dark : done ? grad : C.border2,
                 fontSize: 10, fontWeight: 600,
-                color: active || done ? C.white : C.mid, flexShrink: 0,
+                color: active || done ? C.onDark : C.mid, flexShrink: 0,
               }}>
-                {done ? <CheckIcon color={C.white} size={12} /> : num}
+                {done ? <CheckIcon color={C.onDark} size={12} /> : num}
               </div>
               <span style={{ fontSize: 12, fontWeight: 500, color: active ? C.text : C.mid, whiteSpace: 'nowrap' }}>{s}</span>
             </div>

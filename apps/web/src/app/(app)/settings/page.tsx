@@ -1,11 +1,11 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
-import { LogOutIcon, ChevronDown, DownloadIcon, EyeOff, Eye } from '@/components/icons';
+import { LogOutIcon, ChevronDown, DownloadIcon, EyeOff, Eye, MoonIcon, SunIcon } from '@/components/icons';
 
 type Tab = 'Profile Details' | 'Billing' | 'Credit History' | 'Invoices';
 const TABS: Tab[] = ['Profile Details', 'Billing', 'Credit History', 'Invoices'];
@@ -72,6 +72,15 @@ export default function SettingsPage(): React.ReactElement {
   const [name, setName] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+  useEffect(() => { setDarkMode(document.documentElement.classList.contains('dark')); }, []);
+
+  function toggleTheme() {
+    const next = !darkMode;
+    setDarkMode(next);
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+  }
 
   const { data: me } = useQuery<MeResponse>({ queryKey: ['me'], queryFn: () => api.get('/v1/me') });
   const { data: credits } = useQuery<CreditsResponse>({ queryKey: ['credits'], queryFn: () => api.get('/v1/credits') });
@@ -108,11 +117,18 @@ export default function SettingsPage(): React.ReactElement {
         title="Account Settings"
         subtitle="Manage your profile, billing, credits, subscriptions, and account activity."
         right={
-          <button onClick={() => void handleSignOut()} style={{
-            display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px',
-            borderRadius: 8, border: `1px solid ${C.border2}`, background: C.white,
-            fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: C.text,
-          }}><LogOutIcon /> Log Out</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={toggleTheme} title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px',
+              borderRadius: 8, border: `1px solid ${C.border2}`, background: C.white,
+              fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: C.text,
+            }}>{darkMode ? <SunIcon /> : <MoonIcon />}</button>
+            <button onClick={() => void handleSignOut()} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '9px 16px',
+              borderRadius: 8, border: `1px solid ${C.border2}`, background: C.white,
+              fontFamily: 'inherit', fontSize: 13, fontWeight: 500, cursor: 'pointer', color: C.text,
+            }}><LogOutIcon /> Log Out</button>
+          </div>
         }
       />
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>

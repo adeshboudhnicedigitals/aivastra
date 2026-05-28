@@ -91,22 +91,22 @@ export default function PricingPage(): React.ReactElement {
         <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}` }}>
           <div style={{ width: 260, flexShrink: 0, padding: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 18 }}>✦</span>
-            <span style={{ fontWeight: 700, fontSize: 16, color: '#1F2937' }}>Features</span>
+            <span style={{ fontWeight: 700, fontSize: 16, color: C.text }}>Features</span>
           </div>
           {PLANS.map((plan, pi) => (
             <div key={pi} style={{ flex: 1, padding: 16, background: plan.highlight ? grad : pi === 0 ? 'rgba(254,239,242,0.4)' : 'rgba(254,239,242,0.2)', borderLeft: `1px solid ${C.border}`, position: 'relative' }}>
-              {plan.badge && <div style={{ position: 'absolute', top: 10, right: 10, padding: '3px 10px', borderRadius: 4, background: 'rgba(255,255,255,0.22)', fontSize: 11, fontWeight: 700, color: C.white }}>⭐ {plan.badge}</div>}
-              <div style={{ fontWeight: 700, fontSize: 15, color: plan.highlight ? C.white : '#1F2937', marginBottom: 4 }}>{plan.name}</div>
-              <div style={{ fontSize: 13, color: plan.highlight ? '#f9f9f9' : C.mid, marginBottom: 10 }}>{plan.sub}</div>
-              <div style={{ fontWeight: 700, fontSize: 22, color: plan.highlight ? C.white : C.text, marginBottom: 14 }}>{plan.credits} Credits</div>
-              <button onClick={() => void buy(plan)} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, background: plan.highlight ? C.white : grad, color: plan.highlight ? C.text : C.white }}>Buy @ {plan.price}</button>
+              {plan.badge && <div style={{ position: 'absolute', top: 10, right: 10, padding: '3px 10px', borderRadius: 4, background: 'rgba(255,255,255,0.22)', fontSize: 11, fontWeight: 700, color: C.onDark }}>⭐ {plan.badge}</div>}
+              <div style={{ fontWeight: 700, fontSize: 15, color: plan.highlight ? C.onDark : C.text, marginBottom: 4 }}>{plan.name}</div>
+              <div style={{ fontSize: 13, color: plan.highlight ? C.onDark : C.mid, marginBottom: 10 }}>{plan.sub}</div>
+              <div style={{ fontWeight: 700, fontSize: 22, color: plan.highlight ? C.onDark : C.text, marginBottom: 14 }}>{plan.credits} Credits</div>
+              <button onClick={() => void buy(plan)} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, fontSize: 13, background: plan.highlight ? C.onDark : grad, color: plan.highlight ? C.dark : C.onDark }}>Buy @ {plan.price}</button>
             </div>
           ))}
         </div>
 
         {SECTIONS.map((sec, si) => (
           <Fragment key={si}>
-            <div style={{ display: 'flex', background: '#FAFAFA', borderBottom: `1px solid ${C.border}` }}>
+            <div style={{ display: 'flex', background: C.field, borderBottom: `1px solid ${C.border}` }}>
               <div style={{ width: 260, flexShrink: 0, padding: '10px 20px', fontSize: 11, fontWeight: 700, color: C.mid, letterSpacing: '.5px' }}>{sec.title}</div>
               {PLANS.map((_, pi) => <div key={pi} style={{ flex: 1, borderLeft: `1px solid ${C.border}`, background: pi === 1 ? 'rgba(245,92,122,0.03)' : 'transparent' }} />)}
             </div>
@@ -115,8 +115,8 @@ export default function PricingPage(): React.ReactElement {
                 <div style={{ width: 260, flexShrink: 0, padding: '14px 20px', fontSize: 13, color: C.text, fontWeight: 500 }}>{row.feature}</div>
                 {row.vals.map((v, vi) => (
                   <div key={vi} style={{ flex: 1, padding: '14px 12px', textAlign: 'center', fontSize: 13, color: v === 'No' ? '#9CA3AF' : v === 'Yes' ? C.mint : v === 'Full' ? C.pink : v === 'Limited' ? C.amber : C.mid, fontWeight: ['Yes', 'No', 'Full', 'Limited'].includes(v) ? 500 : 400, borderLeft: `1px solid ${C.border}`, background: vi === 1 ? 'rgba(245,92,122,0.03)' : 'transparent' }}>
-                    {v === 'Yes' ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: '#e8f5e9' }}><CheckIcon color={C.mint} size={13} /></span>
-                      : v === 'No' ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: '#fce4ec' }}><XIcon size={13} /></span>
+                    {v === 'Yes' ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: 'rgba(32,158,70,0.12)' }}><CheckIcon color={C.mint} size={13} /></span>
+                      : v === 'No' ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: 'rgba(245,92,122,0.12)' }}><XIcon size={13} /></span>
                       : v}
                   </div>
                 ))}
@@ -126,7 +126,7 @@ export default function PricingPage(): React.ReactElement {
         ))}
       </div>
 
-      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: C.dark, color: C.white, padding: '10px 20px', borderRadius: 8, fontSize: 13, zIndex: 1000 }}>{toast}</div>}
+      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: C.dark, color: C.onDark, padding: '10px 20px', borderRadius: 8, fontSize: 13, zIndex: 1000 }}>{toast}</div>}
     </div>
   );
 }

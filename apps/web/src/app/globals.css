@@ -1,13 +1,50 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root {
+  --c-pink: #F55C7A;
+  --c-amber: #F6B553;
+  --c-dark: #141414;
+  --c-dark2: #282828;
+  --c-on-dark: #FEFEFE;
+  --c-white: #FEFEFE;
+  --c-bg: #FBFBFB;
+  --c-card: #FFFFFF;
+  --c-border: #EEEEEE;
+  --c-border2: #E8E8E8;
+  --c-text: #141414;
+  --c-mid: #626262;
+  --c-light: #939393;
+  --c-lighter: #EEEEEE;
+  --c-field: #F9F9F9;
+  --c-mint: #209E46;
+  --c-grad-subtle: linear-gradient(135deg, rgba(245,92,122,0.15), rgba(246,181,83,0.15));
+}
+
+html.dark {
+  color-scheme: dark;
+  --c-bg: #111111;
+  --c-card: #1C1C1C;
+  --c-white: #1C1C1C;
+  --c-surface-text: #F0F0F0;
+  --c-border: #2A2A2A;
+  --c-border2: #313131;
+  --c-text: #F0F0F0;
+  --c-mid: #A0A0A0;
+  --c-light: #6A6A6A;
+  --c-lighter: #2A2A2A;
+  --c-field: #242424;
+  --c-mint: #2ECC57;
+  --c-grad-subtle: linear-gradient(135deg, rgba(245,92,122,0.2), rgba(246,181,83,0.2));
+}
+
 html { color-scheme: light; }
 
 html, body { height: 100%; width: 100%; }
 
 body {
   font-family: var(--font-poppins), 'Poppins', sans-serif;
-  background: #FBFBFB;
-  color: #141414;
+  background: var(--c-bg);
+  color: var(--c-text);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
