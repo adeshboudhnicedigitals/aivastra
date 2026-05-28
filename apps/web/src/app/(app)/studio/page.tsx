@@ -120,7 +120,15 @@ export default function StudioPage(): React.ReactElement {
   const showToast = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(''), 1800); }, []);
 
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({ queryKey: ['garmentTypes', gender], queryFn: () => api.get(`/v1/models/garment-types?gender=${gender}`), enabled: !!gender });
-  const { data: faces } = useQuery<{ items: FaceItem[] }>({ queryKey: ['faces', gender], queryFn: () => api.get(`/v1/models/faces?gender=${gender}`), enabled: !!gender && step >= 1 });
+  const { data: faces } = useQuery<{ items: FaceItem[] }>({
+    queryKey: ['faces', gender, garmentTypeId],
+    queryFn: () => {
+      const p = new URLSearchParams({ gender });
+      if (garmentTypeId) p.set('garmentTypeId', garmentTypeId);
+      return api.get(`/v1/models/faces?${p}`);
+    },
+    enabled: !!gender && step >= 1,
+  });
   const { data: backgrounds } = useQuery<BackgroundsResponse>({
     queryKey: ['backgrounds', faceId, garmentTypeId],
     queryFn: () => { const p = new URLSearchParams(); if (faceId) p.set('faceId', faceId); if (garmentTypeId) p.set('garmentTypeId', garmentTypeId); return api.get(`/v1/models/backgrounds?${p}`); },

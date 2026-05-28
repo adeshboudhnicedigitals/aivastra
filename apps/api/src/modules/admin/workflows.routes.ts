@@ -5,112 +5,13 @@ import { z } from 'zod';
 import { CreateWorkflowBody, ParseWorkflowBody, UpdateWorkflowBody, ReassignWorkflowBody } from '@aivastra/types';
 import { requireAdmin } from './guard.js';
 import { AppError } from '../../lib/errors.js';
-
-// ── Node types ────────────────────────────────────────────────────────────
+import { detectMappings, classifyNode, type NodeCategory } from './workflow-detect.js';
 
 type WorkflowNode = {
   class_type?: string;
   _meta?: { title?: string };
   inputs?: Record<string, unknown>;
 };
-
-type NodeCategory = 'image' | 'prompt' | 'latent' | 'other';
-
-function classifyNode(classType: string): NodeCategory {
-  if (classType === 'LoadImage') return 'image';
-  if (classType.includes('TextEncode')) return 'prompt';
-  if (classType === 'EmptyLatentImage') return 'latent';
-  return 'other';
-}
-
-// ── Naming-convention auto-detection ─────────────────────────────────────
-//
-// The workflow JSON _meta.title values must follow this convention:
-//   Required LoadImage nodes : face, pose, background, upper_garment
-//   Optional LoadImage nodes : lower_garment, shoes
-//   Required prompt nodes    : positive_prompt, negative_prompt
-//   Optional latent node     : size
-//
-// Titles are normalised: lowercased, spaces → underscores, trimmed.
-// Multiple upper_garment nodes are supported (upper_garment_1, upper_garment_2 …).
-
-function normaliseTitle(title: string): string {
-  return title.toLowerCase().replace(/[\s\-]+/g, '_').trim();
-}
-
-interface DetectedMappings {
-  faceNodeId?: string;
-  poseNodeId?: string;
-  bgNodeId?: string;
-  upperNodeIds: string[];
-  lowerNodeId?: string;
-  shoeNodeId?: string;
-  sizeNodeId?: string;
-  positivePromptNode?: string; // garmentPhasePromptNode in DB
-  negativePromptNode?: string; // facePhasePromptNode in DB
-}
-
-interface ParsedNode {
-  id: string;
-  class_type: string;
-  title: string;
-  category: NodeCategory;
-}
-
-function detectMappings(json: Record<string, unknown>): {
-  detected: DetectedMappings;
-  allImageNodes: ParsedNode[];
-  allPromptNodes: ParsedNode[];
-  allLatentNodes: ParsedNode[];
-} {
-  const detected: DetectedMappings = { upperNodeIds: [] };
-  const allImageNodes: ParsedNode[] = [];
-  const allPromptNodes: ParsedNode[] = [];
-  const allLatentNodes: ParsedNode[] = [];
-
-  for (const [nodeId, raw] of Object.entries(json)) {
-    const node = raw as WorkflowNode;
-    const classType = node.class_type ?? '';
-    const title = node._meta?.title ?? nodeId;
-    const norm = normaliseTitle(title);
-    const category = classifyNode(classType);
-
-    if (category === 'image') {
-      allImageNodes.push({ id: nodeId, class_type: classType, title, category });
-      if (norm === 'face') {
-        detected.faceNodeId = nodeId;
-      } else if (norm === 'pose') {
-        detected.poseNodeId = nodeId;
-      } else if (norm === 'background' || norm === 'bg') {
-        detected.bgNodeId = nodeId;
-      } else if (norm === 'upper_garment' || norm.match(/^upper_garment_\d+$/)) {
-        detected.upperNodeIds.push(nodeId);
-      } else if (norm === 'lower_garment') {
-        detected.lowerNodeId = nodeId;
-      } else if (norm === 'shoes' || norm === 'shoe') {
-        detected.shoeNodeId = nodeId;
-      }
-    } else if (category === 'prompt') {
-      allPromptNodes.push({ id: nodeId, class_type: classType, title, category });
-      if (norm === 'positive_prompt') {
-        detected.positivePromptNode = nodeId;
-      } else if (norm === 'negative_prompt') {
-        detected.negativePromptNode = nodeId;
-      }
-    } else if (category === 'latent') {
-      allLatentNodes.push({ id: nodeId, class_type: classType, title, category });
-      if (norm === 'size') {
-        detected.sizeNodeId = nodeId;
-      }
-    }
-  }
-
-  allImageNodes.sort((a, b) => a.title.localeCompare(b.title));
-  allPromptNodes.sort((a, b) => a.title.localeCompare(b.title));
-  allLatentNodes.sort((a, b) => a.title.localeCompare(b.title));
-
-  return { detected, allImageNodes, allPromptNodes, allLatentNodes };
-}
 
 // ── Validation helpers ────────────────────────────────────────────────────
 

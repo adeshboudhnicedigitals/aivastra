@@ -5,9 +5,6 @@ type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta
 type Workflow = Record<string, WorkflowNode>;
 
 // ── TTL cache ─────────────────────────────────────────────────────────────
-// Caches the full workflow record from the DB to avoid a round-trip per job.
-// Entries expire after 5 minutes — so updated node mappings take effect within
-// one cache window without requiring a dispatcher restart.
 
 interface CacheEntry {
   record: typeof schema.workflowTemplates.$inferSelect;
@@ -15,7 +12,7 @@ interface CacheEntry {
 }
 
 const workflowCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 async function loadWorkflow(
   db: DB,
@@ -35,15 +32,10 @@ async function loadWorkflow(
     throw new Error(`Workflow template "${workflowTemplateId}" not found in database`);
   }
 
-  workflowCache.set(workflowTemplateId, {
-    record,
-    expiresAt: Date.now() + CACHE_TTL_MS,
-  });
-
+  workflowCache.set(workflowTemplateId, { record, expiresAt: Date.now() + CACHE_TTL_MS });
   return record;
 }
 
-/** Force-evict a workflow from the cache (e.g. after admin update). Not required — TTL handles it. */
 export function evictWorkflowCache(workflowTemplateId: string): void {
   workflowCache.delete(workflowTemplateId);
 }
@@ -63,7 +55,7 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
 
 // ── Aspect ratio dimensions ───────────────────────────────────────────────
 
-const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
+export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
   '1:1':  { width: 1536, height: 1536 },
   '3:4':  { width: 1331, height: 1774 },
   '4:5':  { width: 1375, height: 1718 },
@@ -86,82 +78,68 @@ export interface WorkflowInputs {
   aspectRatio?: string;
 }
 
+export type WorkflowTemplate = typeof schema.workflowTemplates.$inferSelect;
 type PatchLog = { warn: (msg: string, ...args: unknown[]) => void };
 
 /**
- * Loads the workflow template from the database (with 5-minute TTL cache),
- * deep-clones the JSON, patches LoadImage nodes with ComfyUI filenames,
- * and optionally patches positive prompt nodes.
- * Returns the object suitable for the `prompt` field in POST /prompt.
+ * Pure patch function — takes the already-loaded template record and a deep-cloned
+ * workflow JSON, applies all node substitutions, and returns the patched workflow.
+ * Exported for unit testing without a database dependency.
  */
-export async function patchWorkflow(
-  inputs: WorkflowInputs,
-  db: DB,
+export function applyWorkflowPatch(
+  workflow: Workflow,
+  tmpl: WorkflowTemplate,
+  inputs: Omit<WorkflowInputs, 'workflowTemplateId'>,
   log?: PatchLog,
-): Promise<Record<string, unknown>> {
-  const tmpl = await loadWorkflow(db, inputs.workflowTemplateId);
-  const workflow = JSON.parse(JSON.stringify(tmpl.jsonContent)) as Workflow;
-
-  // Patch required image nodes
+): Record<string, unknown> {
+  // Required image nodes — throw if any are missing from the JSON
   requireNode(workflow, tmpl.faceNodeId, 'face').inputs['image'] = inputs.faceSideFile;
   requireNode(workflow, tmpl.poseNodeId, 'pose').inputs['image'] = inputs.poseFile;
   requireNode(workflow, tmpl.bgNodeId, 'bg').inputs['image'] = inputs.backgroundFile;
 
-  // Patch upper garment into all configured upper nodes
+  // Upper garment — patch all mapped nodes
   for (const uid of tmpl.upperNodeIds) {
     if (workflow[uid]) {
       workflow[uid]!.inputs['image'] = inputs.upperGarmentFile;
     }
   }
 
-  // Patch lower garment if configured.
-  // If the node is mapped but no lower garment was selected, fall back to the upper garment
-  // so ComfyUI always receives a valid file reference instead of the stale test filename
-  // baked into the workflow JSON at design time.
+  // Lower garment — fall back to upper garment when not provided so ComfyUI
+  // never receives a stale/empty filename from the original workflow design.
   if (tmpl.lowerNodeId) {
     if (workflow[tmpl.lowerNodeId]) {
       const lowerFile = inputs.lowerGarmentFile ?? inputs.upperGarmentFile;
       if (!inputs.lowerGarmentFile) {
-        log?.warn(
-          `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
-        );
+        log?.warn(`patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`);
       }
       workflow[tmpl.lowerNodeId]!.inputs['image'] = lowerFile;
     }
   } else if (inputs.lowerGarmentFile) {
-    log?.warn(
-      `patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`,
-    );
+    log?.warn(`patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`);
   }
 
-  // Patch shoe garment if configured — same fallback pattern as lower garment.
+  // Shoe — same fallback pattern as lower garment
   if (tmpl.shoeNodeId) {
     if (workflow[tmpl.shoeNodeId]) {
       const shoeFile = inputs.shoeGarmentFile ?? inputs.upperGarmentFile;
       if (!inputs.shoeGarmentFile) {
-        log?.warn(
-          `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
-        );
+        log?.warn(`patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`);
       }
       workflow[tmpl.shoeNodeId]!.inputs['image'] = shoeFile;
     }
   } else if (inputs.shoeGarmentFile) {
-    log?.warn(
-      `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
-    );
+    log?.warn(`patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`);
   }
 
-  // Patch positive prompts only when the pose provides a non-empty override.
-  // Guard is truthy (not !== undefined) so empty strings from legacy poses are skipped
-  // and the workflow template's default prompt text is preserved in ComfyUI.
-  if (inputs.promptFacePhase && workflow[tmpl.facePhasePromptNode]) {
-    workflow[tmpl.facePhasePromptNode]!.inputs['prompt'] = inputs.promptFacePhase;
-  }
-  if (inputs.promptGarmentPhase && workflow[tmpl.garmentPhasePromptNode]) {
+  // Positive prompt — only override when pose provides a non-empty, non-whitespace string.
+  // Empty or whitespace-only strings are skipped so the workflow's hardcoded default is preserved.
+  // Whitespace-only prompts would cause ComfyUI to reject the submission (same as empty string).
+  if (inputs.promptGarmentPhase?.trim() && workflow[tmpl.garmentPhasePromptNode]) {
     workflow[tmpl.garmentPhasePromptNode]!.inputs['prompt'] = inputs.promptGarmentPhase;
   }
+  // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
 
-  // Patch EmptyLatentImage dimensions for selected aspect ratio
+  // Aspect ratio — patch EmptyLatentImage dimensions if a size node is configured
   if (tmpl.sizeNodeId && inputs.aspectRatio) {
     const dims = ASPECT_DIMENSIONS[inputs.aspectRatio];
     if (dims && workflow[tmpl.sizeNodeId]) {
@@ -173,4 +151,18 @@ export async function patchWorkflow(
   }
 
   return workflow as unknown as Record<string, unknown>;
+}
+
+/**
+ * Loads the workflow template from the DB (with 5-min TTL cache), deep-clones
+ * the JSON, and delegates to applyWorkflowPatch.
+ */
+export async function patchWorkflow(
+  inputs: WorkflowInputs,
+  db: DB,
+  log?: PatchLog,
+): Promise<Record<string, unknown>> {
+  const tmpl = await loadWorkflow(db, inputs.workflowTemplateId);
+  const workflow = JSON.parse(JSON.stringify(tmpl.jsonContent)) as Workflow;
+  return applyWorkflowPatch(workflow, tmpl, inputs, log);
 }

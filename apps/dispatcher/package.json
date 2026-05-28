@@ -8,7 +8,8 @@
     "dev": "tsx watch --env-file=../../.env src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file=../../.env dist/index.js",
-    "test": "vitest run --reporter=verbose"
+    "test": "vitest run --reporter=verbose",
+    "test:unit": "vitest run --reporter=verbose"
   },
   "dependencies": {
     "@aivastra/db": "workspace:*",

@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
 
 
+
 export async function modelsRoutes(app: FastifyInstance) {
   app.get('/v1/models/garment-types', {
     preHandler: app.requireUser,
@@ -24,13 +25,49 @@ export async function modelsRoutes(app: FastifyInstance) {
 
   app.get('/v1/models/faces', {
     preHandler: app.requireUser,
-    schema: { querystring: z.object({ gender: z.enum(['men', 'women', 'boys', 'girls']) }) },
+    schema: {
+      querystring: z.object({
+        gender: z.enum(['men', 'women', 'boys', 'girls']),
+        // When provided, only return faces that have ≥1 active pose for this garment type.
+        // Without this filter, all faces for the gender are shown even if they have no
+        // poses for the selected garment type — the root cause of the filtering bug.
+        garmentTypeId: z.string().uuid().optional(),
+      }),
+    },
   }, async (req) => {
-    const { gender } = req.query as { gender: string };
-    const items = await app.db
-      .select({ id: schema.modelFaces.id, gender: schema.modelFaces.gender, label: schema.modelFaces.label, thumbnailUrl: schema.modelFaces.thumbnailKey })
-      .from(schema.modelFaces)
-      .where(and(eq(schema.modelFaces.gender, gender), eq(schema.modelFaces.isActive, true)));
+    const { gender, garmentTypeId } = req.query as { gender: string; garmentTypeId?: string };
+
+    const cols = {
+      id: schema.modelFaces.id,
+      gender: schema.modelFaces.gender,
+      label: schema.modelFaces.label,
+      thumbnailUrl: schema.modelFaces.thumbnailKey,
+    };
+
+    const items = garmentTypeId
+      ? await app.db
+          .selectDistinct(cols)
+          .from(schema.modelFaces)
+          .innerJoin(
+            schema.modelPoses,
+            and(
+              eq(schema.modelPoses.faceId, schema.modelFaces.id),
+              eq(schema.modelPoses.subcategoryId, garmentTypeId),
+              eq(schema.modelPoses.isActive, true),
+            ),
+          )
+          .where(and(
+            eq(schema.modelFaces.gender, gender),
+            eq(schema.modelFaces.isActive, true),
+          ))
+      : await app.db
+          .select(cols)
+          .from(schema.modelFaces)
+          .where(and(
+            eq(schema.modelFaces.gender, gender),
+            eq(schema.modelFaces.isActive, true),
+          ));
+
     return {
       items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })),
     };

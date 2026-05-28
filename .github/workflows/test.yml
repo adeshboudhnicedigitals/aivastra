@@ -1,0 +1,41 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages (types + db required by tests)
+        run: |
+          pnpm --filter @aivastra/db build
+          pnpm --filter @aivastra/types build
+          pnpm --filter @aivastra/logger build
+          pnpm --filter @aivastra/storage build
+
+      - name: Run dispatcher unit tests
+        run: pnpm --filter @aivastra/dispatcher test
+
+      - name: Run API unit tests
+        run: pnpm --filter @aivastra/api test

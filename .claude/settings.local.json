@@ -56,7 +56,8 @@
       "Bash(node -e ' *)",
       "Bash(node --env-file=.env -e ' *)",
       "Bash(node -e \"require\\('child_process'\\).execSync\\('pnpm --filter @aivastra/db run migrate', {stdio:'inherit'}\\)\")",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in {**d.get\\('scripts',{}\\), **d.get\\('devDependencies',{}\\), **d.get\\('dependencies',{}\\)}.items\\(\\) if 'test' in k or 'vitest' in k or 'jest' in k}, indent=2\\)\\)\")"
     ]
   }
 }

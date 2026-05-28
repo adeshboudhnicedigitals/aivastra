@@ -13,6 +13,9 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   title: 'Ai Vastra — AI catalogues for fashion brands',
   description: 'Generate premium ecommerce model shoots from your garment photos in minutes. No studio, no shoot day.',
+  icons: {
+    icon: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
