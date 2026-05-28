@@ -19,7 +19,9 @@ export const catalogCategories = pgTable('catalog_categories', {
 
 export const catalogItems = pgTable('catalog_items', {
   id: uuid('id').primaryKey().defaultRandom(),
-  categoryId: integer('category_id').notNull().references(() => catalogCategories.id),
+  categoryId: integer('category_id').references(() => catalogCategories.id),
+  type: text('type').notNull(),       // 'lower' | 'shoe' — stored directly
+  genderSlug: text('gender_slug'),    // nullable = all genders
   label: text('label').notNull(),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),

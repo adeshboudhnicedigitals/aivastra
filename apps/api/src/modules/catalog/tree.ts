@@ -11,6 +11,7 @@ export function buildTree(cats: Cat[], items: Item[]) {
   }
   const itemsByCat = new Map<number, Item[]>();
   for (const i of items) {
+    if (i.categoryId == null) continue;
     if (!itemsByCat.has(i.categoryId)) itemsByCat.set(i.categoryId, []);
     itemsByCat.get(i.categoryId)!.push(i);
   }

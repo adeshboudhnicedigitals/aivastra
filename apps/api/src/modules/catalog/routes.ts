@@ -30,7 +30,7 @@ export async function catalogRoutes(app: FastifyInstance) {
     const catIds = new Set(cats.map((c) => c.id));
     const allItems = await app.db.select().from(schema.catalogItems)
       .where(eq(schema.catalogItems.isActive, true));
-    const items = allItems.filter((i) => catIds.has(i.categoryId));
+    const items = allItems.filter((i) => i.categoryId != null && catIds.has(i.categoryId));
     const enriched = items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailKey) }));
     return { type, tree: buildTree(cats, enriched) };
   });

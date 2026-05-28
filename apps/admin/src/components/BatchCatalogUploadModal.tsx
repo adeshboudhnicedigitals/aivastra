@@ -20,15 +20,8 @@ interface FileEntry {
   error?: string;
 }
 
-interface CategoryRow {
-  id: number;
-  label: string;
-  typeSlug: string;
-}
-
 interface Props {
   typeSlug: 'lower' | 'shoe';
-  categories: CategoryRow[];
   onDone: (added: CatalogItem[]) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -47,9 +40,7 @@ async function uploadFile(url: string, file: File): Promise<void> {
   });
 }
 
-export function BatchCatalogUploadModal({ typeSlug, categories, onDone, onClose, toast, defaultGenderSlug = '' }: Props) {
-  const relevant = categories.filter((c) => c.typeSlug === typeSlug);
-  const [categoryId, setCategoryId] = useState(String(relevant[0]?.id ?? ''));
+export function BatchCatalogUploadModal({ typeSlug, onDone, onClose, toast, defaultGenderSlug = '' }: Props) {
   const [genderSlug, setGenderSlug] = useState(defaultGenderSlug);
   const [sortStart, setSortStart] = useState(0);
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -81,7 +72,7 @@ export function BatchCatalogUploadModal({ typeSlug, categories, onDone, onClose,
   };
 
   const handleUpload = async () => {
-    if (!categoryId || entries.length === 0) return;
+    if (entries.length === 0) return;
     setRunning(true);
     setDoneCount(0);
     const added: CatalogItem[] = [];
@@ -94,7 +85,7 @@ export function BatchCatalogUploadModal({ typeSlug, categories, onDone, onClose,
         const presign = await apiFetch<PresignResult>('/admin/catalog/items/presign', {
           method: 'POST',
           body: JSON.stringify({
-            categoryId: Number(categoryId),
+            typeSlug,
             label: entry.label.trim() || entry.file.name,
             contentType: entry.file.type,
           }),
@@ -104,12 +95,12 @@ export function BatchCatalogUploadModal({ typeSlug, categories, onDone, onClose,
         const row = await apiFetch<CatalogItem>('/admin/catalog/items/confirm', {
           method: 'POST',
           body: JSON.stringify({
-            categoryId: Number(categoryId),
+            typeSlug,
             label: entry.label.trim() || entry.file.name,
             r2Key: presign.r2Key,
             thumbnailKey: presign.thumbnailKey,
             sortOrder: sortStart + i,
-            genderSlug: genderSlug || undefined,
+            genderSlug: genderSlug || null,
           }),
         });
         added.push(row);
@@ -129,7 +120,7 @@ export function BatchCatalogUploadModal({ typeSlug, categories, onDone, onClose,
 
   const allDone = entries.length > 0 && entries.every((e) => e.status === 'done');
   const hasErrors = entries.some((e) => e.status === 'error');
-  const canUpload = !busy && !!categoryId && entries.length > 0 && !allDone;
+  const canUpload = !busy && entries.length > 0 && !allDone;
   const pendingCount = entries.filter((e) => e.status !== 'done').length;
 
   const typeLabel = typeSlug === 'lower' ? 'lower garment' : 'shoe';
@@ -148,15 +139,6 @@ export function BatchCatalogUploadModal({ typeSlug, categories, onDone, onClose,
 
           {/* Shared settings */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 10 }}>
-            <div className="field">
-              <label>Category (applied to all items)</label>
-              <select className="select" value={categoryId} disabled={busy}
-                onChange={(e) => setCategoryId(e.target.value)}>
-                {relevant.map((c) => (
-                  <option key={c.id} value={String(c.id)}>{c.label}</option>
-                ))}
-              </select>
-            </div>
             <div className="field">
               <label>Gender (applied to all items)</label>
               <select className="select" value={genderSlug} disabled={busy}

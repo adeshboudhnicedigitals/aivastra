@@ -15,13 +15,17 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
 
   app.get('/admin/catalog/items', {
     preHandler: W,
-    schema: { querystring: z.object({ genderSlug: z.string().optional() }) },
+    schema: { querystring: z.object({ genderSlug: z.string().optional(), type: z.string().optional() }) },
   }, async (req) => {
-    const { genderSlug } = req.query as { genderSlug?: string };
+    const { genderSlug, type } = req.query as { genderSlug?: string; type?: string };
+    const conditions = [];
+    if (genderSlug) conditions.push(eq(schema.catalogItems.genderSlug, genderSlug));
+    if (type) conditions.push(eq(schema.catalogItems.type, type));
     const rows = await app.db
       .select({
         id: schema.catalogItems.id,
-        categoryId: schema.catalogItems.categoryId,
+        type: schema.catalogItems.type,
+        genderSlug: schema.catalogItems.genderSlug,
         label: schema.catalogItems.label,
         r2Key: schema.catalogItems.r2Key,
         thumbnailKey: schema.catalogItems.thumbnailKey,
@@ -29,13 +33,9 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         sortOrder: schema.catalogItems.sortOrder,
         createdAt: schema.catalogItems.createdAt,
         updatedAt: schema.catalogItems.updatedAt,
-        type: schema.catalogTypes.slug,
-        categoryGenderSlug: schema.catalogCategories.genderSlug,
       })
       .from(schema.catalogItems)
-      .innerJoin(schema.catalogCategories, eq(schema.catalogItems.categoryId, schema.catalogCategories.id))
-      .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id))
-      .where(genderSlug ? eq(schema.catalogCategories.genderSlug, genderSlug) : undefined);
+      .where(conditions.length > 0 ? and(...conditions) : undefined);
     return rows;
   });
 
@@ -60,15 +60,10 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
 
   app.post('/admin/catalog/items/presign', { preHandler: W, schema: { body: PresignCatalogItemBody } },
     async (req) => {
-      const { contentType, categoryId } = req.body as any;
-      const [cat] = await app.db.select().from(schema.catalogCategories)
-        .where(eq(schema.catalogCategories.id, categoryId));
-      if (!cat) throw new AppError('NOT_FOUND', 404, 'category not found');
-      const [type] = await app.db.select().from(schema.catalogTypes)
-        .where(eq(schema.catalogTypes.id, cat.typeId));
+      const { contentType, typeSlug } = req.body as any;
       const newId = randomUUID();
-      const r2Key = keys.catalogItem(type!.slug, newId);
-      const thumbKey = keys.catalogThumb(type!.slug, newId);
+      const r2Key = keys.catalogItem(typeSlug, newId);
+      const thumbKey = keys.catalogThumb(typeSlug, newId);
       const main = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
       const thumb = await app.storage.presignPut(thumbKey, contentType, 1_000_000, 300);
       return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey: thumbKey };
@@ -76,9 +71,9 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
 
   app.post('/admin/catalog/items/confirm', { preHandler: W, schema: { body: ConfirmCatalogItemBody } },
     async (req) => {
-      const { categoryId, label, r2Key, thumbnailKey, sortOrder } = req.body as any;
+      const { typeSlug, genderSlug, label, r2Key, thumbnailKey, sortOrder } = req.body as any;
       const [row] = await app.db.insert(schema.catalogItems)
-        .values({ categoryId, label, r2Key, thumbnailKey, sortOrder }).returning();
+        .values({ type: typeSlug, genderSlug: genderSlug ?? null, label, r2Key, thumbnailKey, sortOrder }).returning();
       return row;
     });
 

@@ -76,10 +76,9 @@ export interface ModelPose {
 
 export interface CatalogItem {
   id: string;
-  categoryId?: number;
-  label: string;
   type: 'lower' | 'shoe';
-  categoryGenderSlug: string | null;
+  genderSlug: string | null;
+  label: string;
   thumbnailKey: string;
   isActive: boolean;
   sortOrder: number;

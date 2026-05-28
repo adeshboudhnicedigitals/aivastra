@@ -26,18 +26,24 @@ export const CreateCategoryBody = z.object({
   sortOrder: z.number().int().default(0),
 });
 const CoercedPositiveInt = z.union([z.number().int().positive(), z.string().regex(/^\d+$/).transform(Number)]);
+const CatalogTypeSlug = z.enum(['lower', 'shoe']);
 
 export const PresignCatalogItemBody = z.object({
-  categoryId: CoercedPositiveInt,
+  typeSlug: CatalogTypeSlug,
   label: z.string().min(1).max(120),
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  // Legacy — still accepted but ignored if typeSlug provided
+  categoryId: CoercedPositiveInt.optional(),
 });
 export const ConfirmCatalogItemBody = z.object({
-  categoryId: CoercedPositiveInt,
+  typeSlug: CatalogTypeSlug,
+  genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
   label: z.string().min(1).max(120),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
   sortOrder: z.number().int().default(0),
+  // Legacy — still accepted but ignored
+  categoryId: CoercedPositiveInt.optional(),
 });
 export const SystemConfigBody = z.object({
   creditCostPerJob: z.number().int().positive().max(100).optional(),

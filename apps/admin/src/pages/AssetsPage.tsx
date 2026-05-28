@@ -113,7 +113,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   // Catalog (lower / shoe) state
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
-  const [catalogCategories, setCatalogCategories] = useState<{ id: number; label: string; typeSlug: string; genderSlug: string | null }[]>([]);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogPage, setCatalogPage] = useState(0);
   const [catalogSortKey, setCatalogSortKey] = useState<keyof CatalogItem>('sortOrder');
@@ -174,12 +173,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     setLoading(true);
     try {
       const qs = genderSlug ? `?genderSlug=${genderSlug}` : '';
-      const [itemsRes, catsRes] = await Promise.all([
-        apiFetch<CatalogItem[]>(`/admin/catalog/items${qs}`),
-        apiFetch<{ id: number; label: string; typeSlug: string; genderSlug: string | null }[]>('/admin/catalog/categories'),
-      ]);
-      setCatalogItems(itemsRes);
-      setCatalogCategories(catsRes);
+      const items = await apiFetch<CatalogItem[]>(`/admin/catalog/items${qs}`);
+      setCatalogItems(items);
     } catch {
       toast({ kind: 'error', title: 'Failed to load catalog' });
     } finally {
@@ -675,7 +670,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 <thead>
                   <tr>
                     <Th k="label" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Label</Th>
-                    <th>Category</th>
+                    <th>Gender</th>
                     <Th k="sortOrder" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Order</Th>
                     <Th k="isActive" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Active</Th>
                     <Th k="updatedAt" sortKey={catalogSortKey} sortDir={catalogSortDir} onSort={(k) => { if (k === catalogSortKey) setCatalogSortDir((d) => d === 'asc' ? 'desc' : 'asc'); else { setCatalogSortKey(k as keyof CatalogItem); setCatalogSortDir('asc'); } }}>Updated</Th>
@@ -700,7 +695,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                           </div>
                         </div>
                       </td>
-                      <td><span className="badge">{catalogCategories.find((x) => x.id === c.categoryId)?.label ?? '—'}</span></td>
+                      <td><span className="badge dot">{c.genderSlug ?? 'all'}</span></td>
                       <td><span className="mono">{c.sortOrder}</span></td>
                       <td><Switch checked={c.isActive} onChange={async () => {
                         const next = !c.isActive;
@@ -1015,34 +1010,19 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         </div>
       )}
       {showCatalogUpload && (
-        catalogCategories.length === 0 ? (
-          <div className="modal-overlay" onClick={() => setShowCatalogUpload(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-head"><h3>No categories found</h3></div>
-              <div className="modal-body">
-                <p>Run <code>pnpm db:migrate</code> to seed the lower &amp; shoe categories, then reload.</p>
-              </div>
-              <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setShowCatalogUpload(false)}>Close</button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <BatchCatalogUploadModal
-            typeSlug={activeTab === 'shoe' ? 'shoe' : 'lower'}
-            categories={catalogCategories}
-            defaultGenderSlug={genderFilter === 'all' ? '' : genderFilter}
-            onDone={(added) => {
-              setShowCatalogUpload(false);
-              setCatalogItems((prev) => [...prev, ...(added as unknown as CatalogItem[])]);
-              apiFetch<CatalogItem[]>('/admin/catalog/items').then(setCatalogItems).catch(() => {
-                toast({ kind: 'error', title: 'Items added but failed to refresh list' });
-              });
-            }}
-            onClose={() => setShowCatalogUpload(false)}
-            toast={toast}
-          />
-        )
+        <BatchCatalogUploadModal
+          typeSlug={activeTab === 'shoe' ? 'shoe' : 'lower'}
+          defaultGenderSlug={genderFilter === 'all' ? '' : genderFilter}
+          onDone={(added) => {
+            setShowCatalogUpload(false);
+            setCatalogItems((prev) => [...prev, ...(added as unknown as CatalogItem[])]);
+            apiFetch<CatalogItem[]>('/admin/catalog/items').then(setCatalogItems).catch(() => {
+              toast({ kind: 'error', title: 'Items added but failed to refresh list' });
+            });
+          }}
+          onClose={() => setShowCatalogUpload(false)}
+          toast={toast}
+        />
       )}
     </>
   );
