@@ -1,8 +1,15 @@
 'use client';
+import { Fragment, useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Fragment, useState } from 'react';
-import { CheckIcon, XIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
+import { CheckIcon, XIcon, SparklesIcon, ChevronDown, FlagIN, FlagUS, FlagGB, FlagAE } from '@/components/icons';
+
+const FLAGS: Record<string, React.ReactElement> = {
+  IN: <FlagIN size={16} />,
+  US: <FlagUS size={16} />,
+  GB: <FlagGB size={16} />,
+  AE: <FlagAE size={16} />,
+};
 
 const RAZORPAY_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY ?? '';
 
@@ -110,6 +117,24 @@ function loadRazorpay(): Promise<boolean> {
 export default function PricingPage(): React.ReactElement {
   const router = useRouter();
   const [toast, setToast] = useState('');
+  const [country, setCountry] = useState('IN');
+  const [showCountry, setShowCountry] = useState(false);
+  const countryRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (countryRef.current && !countryRef.current.contains(e.target as Node)) setShowCountry(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const COUNTRIES = [
+    { code: 'IN', label: 'India (₹)', name: 'India' },
+    { code: 'US', label: 'United States ($)', name: 'USA' },
+    { code: 'GB', label: 'United Kingdom (£)', name: 'UK' },
+    { code: 'AE', label: 'UAE (د.إ)', name: 'UAE' },
+  ];
 
   async function buy(plan: Plan) {
     // TODO(wire): real order creation must come from backend; this is a test-mode stub.
@@ -141,226 +166,68 @@ export default function PricingPage(): React.ReactElement {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
-      <div style={{ padding: '40px 80px 28px', textAlign: 'center' }}>
-        <h1
-          style={{
-            fontWeight: 700,
-            fontSize: 28,
-            color: C.text,
-            marginBottom: 10,
-            lineHeight: 1.3,
-          }}
-        >
-          Simple pricing for catalogue-ready visuals
-        </h1>
-        <p style={{ fontSize: 16, color: C.mid }}>
-          Create professional fashion catalogues without photoshoots, models, or editing headaches.
-        </p>
+      <div style={{ width: '100%', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: 40, marginBottom: 40, paddingRight: 28 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, height: 72 }}>
+          <div style={{ width: '100%', height: 40, fontWeight: 600, fontSize: 28, lineHeight: '40px', color: C.text, textAlign: 'center' }}>Simple pricing for catalogue-ready visuals</div>
+          <div style={{ width: '100%', height: 20, fontWeight: 500, fontSize: 16, lineHeight: '20px', color: C.mid, textAlign: 'center' }}>Create professional fashion catalogues without photoshoots, models, or editing headaches.</div>
+        </div>
+        <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
+          <button
+            onClick={() => setShowCountry(!showCountry)}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 8, width: 130, height: 32, borderRadius: 8, border: '1px solid #EEEEEE', background: '#FEFEFE', fontFamily: 'inherit', fontSize: 13, fontWeight: 500, color: C.text, cursor: 'pointer', boxSizing: 'border-box' }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ display: 'flex', alignItems: 'center' }}>{FLAGS[country]}</span>
+              <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px', color: '#626262' }}>{COUNTRIES.find((c) => c.code === country)?.name}</span>
+            </span>
+            <ChevronDown size={14} />
+          </button>
+          {showCountry && (
+            <div style={{ position: 'absolute', top: 36, right: 0, width: 200, background: '#FEFEFE', border: '1px solid #EEEEEE', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', overflow: 'hidden', zIndex: 10 }}>
+              {COUNTRIES.map((c) => (
+                <div key={c.code} onClick={() => { setCountry(c.code); setShowCountry(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', fontSize: 13, fontWeight: 500, color: country === c.code ? C.pink : C.mid, cursor: 'pointer', background: country === c.code ? 'rgba(245,92,122,0.06)' : 'transparent' }}>
+                  {FLAGS[c.code]} {c.label}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div
-        style={{
-          margin: '0 28px 40px',
-          background: C.white,
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          overflow: 'hidden',
-        }}
-      >
+      <div style={{ width: 1140, margin: '0 auto 40px', background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, boxSizing: 'border-box' }}>
         {/* Plan headers */}
-        <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}` }}>
-          <div
-            style={{
-              width: 260,
-              flexShrink: 0,
-              padding: 20,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <span style={{ fontSize: 18 }}>✦</span>
-            <span style={{ fontWeight: 700, fontSize: 16, color: C.text }}>Features</span>
+        <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
+          <div style={{ width: 262, height: 178, background: '#F9F9F9', border: '1px solid #EEEEEE', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', boxSizing: 'border-box' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <SparklesIcon size={18} />
+              <span style={{ fontSize: 16, fontWeight: 600, lineHeight: '20px', color: '#1F2937' }}>Features</span>
+            </div>
           </div>
           {PLANS.map((plan, pi) => (
-            <div
-              key={pi}
-              style={{
-                flex: 1,
-                padding: 16,
-                background: plan.highlight
-                  ? grad
-                  : pi === 0
-                    ? 'rgba(254,239,242,0.4)'
-                    : 'rgba(254,239,242,0.2)',
-                borderLeft: `1px solid ${C.border}`,
-                position: 'relative',
-              }}
-            >
-              {plan.badge && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 10,
-                    right: 10,
-                    padding: '3px 10px',
-                    borderRadius: 4,
-                    background: 'rgba(255,255,255,0.22)',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: C.onDark,
-                  }}
-                >
-                  ⭐ {plan.badge}
-                </div>
-              )}
-              <div
-                style={{
-                  fontWeight: 700,
-                  fontSize: 15,
-                  color: plan.highlight ? C.onDark : C.text,
-                  marginBottom: 4,
-                }}
-              >
-                {plan.name}
-              </div>
-              <div
-                style={{ fontSize: 13, color: plan.highlight ? C.onDark : C.mid, marginBottom: 10 }}
-              >
-                {plan.sub}
-              </div>
-              <div
-                style={{
-                  fontWeight: 700,
-                  fontSize: 22,
-                  color: plan.highlight ? C.onDark : C.text,
-                  marginBottom: 14,
-                }}
-              >
-                {plan.credits} Credits
-              </div>
-              <button
-                onClick={() => void buy(plan)}
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  borderRadius: 8,
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  fontWeight: 600,
-                  fontSize: 13,
-                  background: plan.highlight ? C.onDark : grad,
-                  color: plan.highlight ? C.dark : C.onDark,
-                }}
-              >
-                Buy @ {plan.price}
-              </button>
+            <div key={pi} style={{ width: 262, height: 178, background: plan.highlight ? 'linear-gradient(90deg, #D94D69 0%, #D49332 100%)' : '#FEEFF266', border: '1px solid #EEEEEE', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', boxSizing: 'border-box', position: 'relative' }}>
+              {plan.badge && <div style={{ position: 'absolute', top: 8, right: 8, padding: '3px 10px', borderRadius: 4, background: plan.highlight ? 'rgba(255,255,255,0.22)' : grad, fontSize: 11, fontWeight: 700, color: C.onDark }}>⭐ {plan.badge}</div>}
+              <div style={{ fontWeight: 700, fontSize: 15, color: plan.highlight ? '#FFFFFF' : C.text, marginBottom: 4 }}>{plan.name}</div>
+              <div style={{ fontSize: 13, color: plan.highlight ? 'rgba(255,255,255,0.8)' : C.mid, marginBottom: 10 }}>{plan.sub}</div>
+              <div style={{ fontWeight: 700, fontSize: 22, color: plan.highlight ? '#FFFFFF' : C.text, marginBottom: 14 }}>{plan.credits} Credits</div>
+              <button onClick={() => void buy(plan)} style={{ width: '100%', padding: '8px 20px', height: 36, borderRadius: 8, border: '1px solid #EEEEEE', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, fontSize: 14, lineHeight: '20px', background: '#FEFEFE', color: '#626262', boxSizing: 'border-box' }}>Buy @ {plan.price}</button>
             </div>
           ))}
         </div>
 
         {SECTIONS.map((sec, si) => (
           <Fragment key={si}>
-            <div
-              style={{
-                display: 'flex',
-                background: C.field,
-                borderBottom: `1px solid ${C.border}`,
-              }}
-            >
-              <div
-                style={{
-                  width: 260,
-                  flexShrink: 0,
-                  padding: '10px 20px',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: C.mid,
-                  letterSpacing: '.5px',
-                }}
-              >
-                {sec.title}
-              </div>
-              {PLANS.map((_, pi) => (
-                <div
-                  key={pi}
-                  style={{
-                    flex: 1,
-                    borderLeft: `1px solid ${C.border}`,
-                    background: pi === 1 ? 'rgba(245,92,122,0.03)' : 'transparent',
-                  }}
-                />
-              ))}
+            <div style={{ display: 'flex', gap: 20, background: C.field, borderBottom: `1px solid ${C.border}`, padding: '10px 16px' }}>
+              <div style={{ width: 262, fontSize: 11, fontWeight: 700, color: C.mid, letterSpacing: '.5px' }}>{sec.title}</div>
+              {PLANS.map((_, pi) => <div key={pi} style={{ width: 262 }} />)}
             </div>
             {sec.rows.map((row, ri) => (
-              <div key={ri} style={{ display: 'flex', borderBottom: `1px solid ${C.border}` }}>
-                <div
-                  style={{
-                    width: 260,
-                    flexShrink: 0,
-                    padding: '14px 20px',
-                    fontSize: 13,
-                    color: C.text,
-                    fontWeight: 500,
-                  }}
-                >
-                  {row.feature}
-                </div>
+              <div key={ri} style={{ display: 'flex', gap: 20, borderBottom: `1px solid ${C.border}`, padding: '14px 16px' }}>
+                <div style={{ width: 262, fontSize: 13, color: C.text, fontWeight: 500 }}>{row.feature}</div>
                 {row.vals.map((v, vi) => (
-                  <div
-                    key={vi}
-                    style={{
-                      flex: 1,
-                      padding: '14px 12px',
-                      textAlign: 'center',
-                      fontSize: 13,
-                      color:
-                        v === 'No'
-                          ? '#9CA3AF'
-                          : v === 'Yes'
-                            ? C.mint
-                            : v === 'Full'
-                              ? C.pink
-                              : v === 'Limited'
-                                ? C.amber
-                                : C.mid,
-                      fontWeight: ['Yes', 'No', 'Full', 'Limited'].includes(v) ? 500 : 400,
-                      borderLeft: `1px solid ${C.border}`,
-                      background: vi === 1 ? 'rgba(245,92,122,0.03)' : 'transparent',
-                    }}
-                  >
-                    {v === 'Yes' ? (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          background: 'rgba(32,158,70,0.12)',
-                        }}
-                      >
-                        <CheckIcon color={C.mint} size={13} />
-                      </span>
-                    ) : v === 'No' ? (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          background: 'rgba(245,92,122,0.12)',
-                        }}
-                      >
-                        <XIcon size={13} />
-                      </span>
-                    ) : (
-                      v
-                    )}
+                  <div key={vi} style={{ width: 262, textAlign: 'center', fontSize: 13, color: v === 'No' ? '#9CA3AF' : v === 'Yes' ? C.mint : v === 'Full' ? C.pink : v === 'Limited' ? C.amber : C.mid, fontWeight: ['Yes', 'No', 'Full', 'Limited'].includes(v) ? 500 : 400 }}>
+                    {v === 'Yes' ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: 'rgba(32,158,70,0.12)' }}><CheckIcon color={C.mint} size={13} /></span>
+                      : v === 'No' ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', background: 'rgba(245,92,122,0.12)' }}><XIcon size={13} /></span>
+                      : v}
                   </div>
                 ))}
               </div>
