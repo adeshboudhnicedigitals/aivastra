@@ -205,30 +205,40 @@ function SelCard({
         style={{
           width: w,
           height: h,
-          borderRadius: 10,
+          borderRadius: 8,
           overflow: 'hidden',
           position: 'relative',
           border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
-          background: selected ? grad : 'transparent',
+          background: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : 'transparent',
           padding: selected ? 2 : 0,
           boxSizing: 'border-box',
+        }}
+        onMouseOver={(e) => {
+          const zoom = e.currentTarget.querySelector('[data-zoom]') as HTMLElement;
+          if (zoom) zoom.style.transform = 'scale(1.05)';
+        }}
+        onMouseOut={(e) => {
+          const zoom = e.currentTarget.querySelector('[data-zoom]') as HTMLElement;
+          if (zoom) zoom.style.transform = 'scale(1)';
         }}
       >
         <div
           style={{
             width: '100%',
             height: '100%',
-            borderRadius: 8,
+            borderRadius: 6,
             overflow: 'hidden',
             background: C.lighter,
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageUrl}
-            alt={label}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
+          <div data-zoom style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={label}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+          </div>
         </div>
         {selected && (
           <div
@@ -239,7 +249,7 @@ function SelCard({
               width: 20,
               height: 20,
               borderRadius: '50%',
-              background: grad,
+              background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -905,7 +915,14 @@ export default function StudioPage(): React.ReactElement {
                 <SpinnerIcon />
               </div>
             ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, 215.2px)',
+                  gap: 16,
+                  width: '100%',
+                }}
+              >
                 {faces.items
                   .filter((f) => modelFilter === 'All' || f.gender === modelFilter)
                   .map((f) => (
@@ -915,6 +932,8 @@ export default function StudioPage(): React.ReactElement {
                       onClick={() => handleFaceSelect(f.id)}
                       imageUrl={f.thumbnailUrl}
                       label={f.label}
+                      w={215.2}
+                      h={212.67}
                     />
                   ))}
               </div>
@@ -942,7 +961,14 @@ export default function StudioPage(): React.ReactElement {
                 No backgrounds available for this model yet. Try a different model.
               </p>
             ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, 215.2px)',
+                  gap: 16,
+                  width: '100%',
+                }}
+              >
                 {backgrounds.items.map((b) => (
                   <SelCard
                     key={b.id}
@@ -950,8 +976,8 @@ export default function StudioPage(): React.ReactElement {
                     onClick={() => handleBackgroundSelect(b.id)}
                     imageUrl={b.previewUrl || b.thumbnailUrl}
                     label={b.label}
-                    w={130}
-                    h={100}
+                    w={215.2}
+                    h={212.67}
                   />
                 ))}
               </div>
@@ -980,7 +1006,14 @@ export default function StudioPage(): React.ReactElement {
                   No poses for this combination. Go back and try a different background.
                 </p>
               ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, 215.2px)',
+                    gap: 8,
+                    width: '100%',
+                  }}
+                >
                   {poses.items.map((p) => (
                     <SelCard
                       key={p.id}
@@ -988,52 +1021,8 @@ export default function StudioPage(): React.ReactElement {
                       onClick={() => handlePoseSelect(p.id)}
                       imageUrl={p.thumbnailUrl}
                       label={p.label}
-                      w={160}
-                      h={220}
-                      badges={
-                        (p.showsLower || p.showsShoes) && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: 8,
-                              left: 8,
-                              display: 'flex',
-                              gap: 4,
-                              flexDirection: 'column',
-                              pointerEvents: 'none',
-                            }}
-                          >
-                            {p.showsLower && (
-                              <span
-                                style={{
-                                  padding: '2px 7px',
-                                  borderRadius: 6,
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  background: 'rgba(246,181,83,0.92)',
-                                  color: '#7a5200',
-                                }}
-                              >
-                                LOWER
-                              </span>
-                            )}
-                            {p.showsShoes && (
-                              <span
-                                style={{
-                                  padding: '2px 7px',
-                                  borderRadius: 6,
-                                  fontSize: 10,
-                                  fontWeight: 700,
-                                  background: 'rgba(32,158,70,0.92)',
-                                  color: 'white',
-                                }}
-                              >
-                                SHOES
-                              </span>
-                            )}
-                          </div>
-                        )
-                      }
+                      w={215.2}
+                      h={282}
                     />
                   ))}
                 </div>
@@ -1061,7 +1050,14 @@ export default function StudioPage(): React.ReactElement {
                   No lower garment options available yet.
                 </p>
               ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
+                    gap: 12,
+                    width: '100%',
+                  }}
+                >
                   {lowerItems.map((i) => (
                     <SelCard
                       key={i.id}
@@ -1069,6 +1065,8 @@ export default function StudioPage(): React.ReactElement {
                       onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
                       imageUrl={i.thumbnailUrl}
                       label={i.label}
+                      w={152.57}
+                      h={119}
                     />
                   ))}
                 </div>
@@ -1094,7 +1092,14 @@ export default function StudioPage(): React.ReactElement {
               ) : shoeItems.length === 0 ? (
                 <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
               ) : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
+                    gap: 12,
+                    width: '100%',
+                  }}
+                >
                   {shoeItems.map((i) => (
                     <SelCard
                       key={i.id}
@@ -1102,6 +1107,8 @@ export default function StudioPage(): React.ReactElement {
                       onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
                       imageUrl={i.thumbnailUrl}
                       label={i.label}
+                      w={152.57}
+                      h={119}
                     />
                   ))}
                 </div>
