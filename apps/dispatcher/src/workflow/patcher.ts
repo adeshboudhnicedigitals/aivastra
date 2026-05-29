@@ -59,6 +59,7 @@ export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }
   '1:1': { width: 1536, height: 1536 },
   '3:4': { width: 1331, height: 1774 },
   '4:5': { width: 1375, height: 1718 },
+  '3:2': { width: 2048, height: 1365 },
   '9:16': { width: 1152, height: 2048 },
   '16:9': { width: 2048, height: 1152 },
 };
@@ -93,14 +94,14 @@ export function applyWorkflowPatch(
   log?: PatchLog,
 ): Record<string, unknown> {
   // Required image nodes — throw if any are missing from the JSON
-  requireNode(workflow, tmpl.faceNodeId, 'face').inputs['image'] = inputs.faceSideFile;
-  requireNode(workflow, tmpl.poseNodeId, 'pose').inputs['image'] = inputs.poseFile;
-  requireNode(workflow, tmpl.bgNodeId, 'bg').inputs['image'] = inputs.backgroundFile;
+  requireNode(workflow, tmpl.faceNodeId, 'face').inputs.image = inputs.faceSideFile;
+  requireNode(workflow, tmpl.poseNodeId, 'pose').inputs.image = inputs.poseFile;
+  requireNode(workflow, tmpl.bgNodeId, 'bg').inputs.image = inputs.backgroundFile;
 
   // Upper garment — patch all mapped nodes
   for (const uid of tmpl.upperNodeIds) {
     if (workflow[uid]) {
-      workflow[uid]!.inputs['image'] = inputs.upperGarmentFile;
+      workflow[uid]?.inputs.image = inputs.upperGarmentFile;
     }
   }
 
@@ -114,7 +115,7 @@ export function applyWorkflowPatch(
           `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
         );
       }
-      workflow[tmpl.lowerNodeId]!.inputs['image'] = lowerFile;
+      workflow[tmpl.lowerNodeId]?.inputs.image = lowerFile;
     }
   } else if (inputs.lowerGarmentFile) {
     log?.warn(
@@ -131,7 +132,7 @@ export function applyWorkflowPatch(
           `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
         );
       }
-      workflow[tmpl.shoeNodeId]!.inputs['image'] = shoeFile;
+      workflow[tmpl.shoeNodeId]?.inputs.image = shoeFile;
     }
   } else if (inputs.shoeGarmentFile) {
     log?.warn(
@@ -143,7 +144,7 @@ export function applyWorkflowPatch(
   // Empty or whitespace-only strings are skipped so the workflow's hardcoded default is preserved.
   // Whitespace-only prompts would cause ComfyUI to reject the submission (same as empty string).
   if (inputs.promptGarmentPhase?.trim() && workflow[tmpl.garmentPhasePromptNode]) {
-    workflow[tmpl.garmentPhasePromptNode]!.inputs['prompt'] = inputs.promptGarmentPhase;
+    workflow[tmpl.garmentPhasePromptNode]?.inputs.prompt = inputs.promptGarmentPhase;
   }
   // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
 
@@ -160,12 +161,12 @@ export function applyWorkflowPatch(
           node.inputs['resize_type.width'] = dims.width;
           node.inputs['resize_type.height'] = dims.height;
         } else if (node.class_type === 'ResizeAndPadImage') {
-          node.inputs['target_width'] = dims.width;
-          node.inputs['target_height'] = dims.height;
+          node.inputs.target_width = dims.width;
+          node.inputs.target_height = dims.height;
         } else {
           // EmptyLatentImage and generic fallback
-          node.inputs['width'] = dims.width;
-          node.inputs['height'] = dims.height;
+          node.inputs.width = dims.width;
+          node.inputs.height = dims.height;
         }
       }
     }

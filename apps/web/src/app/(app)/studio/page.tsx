@@ -11,7 +11,6 @@ import {
   SearchIcon,
   SparkleIcon,
   SpinnerIcon,
-  UploadIcon,
   XIcon,
 } from '@/components/icons';
 import { StepBar } from '@/components/step-indicator';
@@ -74,12 +73,27 @@ const GENDERS = [
   { value: 'boys', label: 'Boy', img: `${BASE}/assets/seg-boy.png` },
   { value: 'girls', label: 'Girl', img: `${BASE}/assets/seg-girl.png` },
 ];
-const PLATFORMS = ['Amazon', 'Myntra', 'Flipkart', 'Meesho', 'Shopify'];
-const ASPECTS = ['1:1', '3:4', '4:5', '9:16', '16:9'];
+interface BrandConfig {
+  ratios: string[];
+  default: string;
+}
+const BRAND_CONFIG: Record<string, BrandConfig> = {
+  Amazon: { ratios: ['1:1'], default: '1:1' },
+  Flipkart: { ratios: ['1:1', '3:4'], default: '1:1' },
+  Myntra: { ratios: ['3:4'], default: '3:4' },
+  AJIO: { ratios: ['1:1', '3:4'], default: '3:4' },
+  Meesho: { ratios: ['1:1'], default: '1:1' },
+  'Nykaa Fashion': { ratios: ['3:4'], default: '3:4' },
+  Shopify: { ratios: ['1:1', '4:5', '16:9'], default: '1:1' },
+  Etsy: { ratios: ['1:1', '4:5', '3:2'], default: '1:1' },
+};
+const PLATFORMS = Object.keys(BRAND_CONFIG);
+const ALL_ASPECTS = ['1:1', '3:4', '4:5', '3:2', '9:16', '16:9'];
 const ASPECT_DIMS: Record<string, string> = {
   '1:1': '1536 × 1536 px',
   '3:4': '1331 × 1774 px',
   '4:5': '1375 × 1718 px',
+  '3:2': '2048 × 1365 px',
   '9:16': '1152 × 2048 px',
   '16:9': '2048 × 1152 px',
 };
@@ -303,7 +317,15 @@ export default function StudioPage(): React.ReactElement {
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
   const [platform, setPlatform] = useState('Amazon');
-  const [aspect, setAspect] = useState('4:5');
+  const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default);
+
+  const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
+
+  const handlePlatformChange = (p: string) => {
+    setPlatform(p);
+    const cfg = BRAND_CONFIG[p];
+    if (cfg) setAspect(cfg.default);
+  };
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
   const [garmentKey, setGarmentKey] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -558,7 +580,11 @@ export default function StudioPage(): React.ReactElement {
                 <SectionHead title="Publishing Platform" />
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   {PLATFORMS.map((p) => (
-                    <button key={p} onClick={() => setPlatform(p)} style={pill(platform === p)}>
+                    <button
+                      key={p}
+                      onClick={() => handlePlatformChange(p)}
+                      style={pill(platform === p)}
+                    >
                       {p}
                     </button>
                   ))}
@@ -567,7 +593,7 @@ export default function StudioPage(): React.ReactElement {
               <section style={{ flex: 1, minWidth: 200 }}>
                 <SectionHead title="Aspect Ratio" />
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {ASPECTS.map((r) => (
+                  {brandAspects.map((r) => (
                     <button key={r} onClick={() => setAspect(r)} style={pill(aspect === r)}>
                       {r}
                     </button>
