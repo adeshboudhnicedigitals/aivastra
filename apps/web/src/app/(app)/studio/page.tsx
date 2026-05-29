@@ -103,8 +103,28 @@ function VisualCard({
 }) {
   return (
     <div onClick={onClick} style={{ cursor: 'pointer', textAlign: 'center', flexShrink: 0 }}>
-      <div style={{ width: 108.8, height: 109, borderRadius: 8, overflow: 'hidden', position: 'relative', border: selected ? '2px solid transparent' : `2px solid ${C.border}`, backgroundImage: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : 'none', padding: selected ? 2 : 0, boxSizing: 'border-box' }}>
-        <div style={{ width: '100%', height: '100%', borderRadius: 6, overflow: 'hidden', background: C.lighter }}>
+      <div
+        style={{
+          width: 108.8,
+          height: 109,
+          borderRadius: 8,
+          overflow: 'hidden',
+          position: 'relative',
+          border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
+          backgroundImage: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : 'none',
+          padding: selected ? 2 : 0,
+          boxSizing: 'border-box',
+        }}
+      >
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            borderRadius: 6,
+            overflow: 'hidden',
+            background: C.lighter,
+          }}
+        >
           {img ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -135,7 +155,24 @@ function VisualCard({
             </div>
           )}
         </div>
-        {selected && <div style={{ position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: '50%', background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><CheckIcon color={C.white} size={11} /></div>}
+        {selected && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 6,
+              right: 6,
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <CheckIcon color={C.white} size={11} />
+          </div>
+        )}
       </div>
       <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>{label}</div>
     </div>
@@ -533,119 +570,257 @@ export default function StudioPage(): React.ReactElement {
             <section>
               <SectionHead title="Upload Garment Image" />
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                <div style={{ width: 560, height: 238, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F9F9F9', borderRadius: 12, border: '1px dashed #B1B1B1', padding: '0 10px', boxSizing: 'border-box' }}>
-                <label
-                  style={{ width: 265, height: 210, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, background: '#FEFEFE', border: '1px solid #EEEEEE', borderRadius: 8, padding: 12, cursor: 'pointer', boxSizing: 'border-box' }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const f = e.dataTransfer.files?.[0];
-                    if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
-                      handleGarmentUpload(f);
+                <div
+                  style={{
+                    width: 560,
+                    height: 238,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: '#F9F9F9',
+                    borderRadius: 12,
+                    border: '1px dashed #B1B1B1',
+                    padding: '0 10px',
+                    boxSizing: 'border-box',
                   }}
                 >
-                  {garmentFile ? (
-                    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={URL.createObjectURL(garmentFile)} alt={garmentFile.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 6 }} />
-                      <button type="button" onClick={(e) => { e.preventDefault(); setGarmentFile(null); setGarmentKey(''); }} style={{ position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', border: 'none', color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><XIcon size={14} /></button>
-                      {isUploading && (
-                        <div
+                  <label
+                    style={{
+                      width: 265,
+                      height: 210,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 12,
+                      background: '#FEFEFE',
+                      border: '1px solid #EEEEEE',
+                      borderRadius: 8,
+                      padding: 12,
+                      cursor: 'pointer',
+                      boxSizing: 'border-box',
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const f = e.dataTransfer.files?.[0];
+                      if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                        handleGarmentUpload(f);
+                    }}
+                  >
+                    {garmentFile ? (
+                      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={URL.createObjectURL(garmentFile)}
+                          alt={garmentFile.name}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            borderRadius: 6,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setGarmentFile(null);
+                            setGarmentKey('');
+                          }}
                           style={{
                             position: 'absolute',
-                            bottom: 8,
-                            left: 8,
-                            right: 8,
-                            background: 'rgba(255,255,255,0.95)',
-                            borderRadius: 8,
-                            padding: '6px 10px',
+                            top: 6,
+                            right: 6,
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            background: 'rgba(0,0,0,0.5)',
+                            border: 'none',
+                            color: 'white',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                           }}
                         >
+                          <XIcon size={14} />
+                        </button>
+                        {isUploading && (
                           <div
                             style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              fontSize: 12,
-                              color: C.text,
-                            }}
-                          >
-                            <SpinnerIcon size={14} /> {uploadProgress}%
-                          </div>
-                          <div
-                            style={{
-                              marginTop: 4,
-                              height: 4,
-                              borderRadius: 99,
-                              background: C.border,
-                              overflow: 'hidden',
+                              position: 'absolute',
+                              bottom: 8,
+                              left: 8,
+                              right: 8,
+                              background: 'rgba(255,255,255,0.95)',
+                              borderRadius: 8,
+                              padding: '6px 10px',
                             }}
                           >
                             <div
                               style={{
-                                height: '100%',
-                                width: `${uploadProgress}%`,
-                                background: grad,
-                                borderRadius: 99,
-                                transition: 'width .3s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                fontSize: 12,
+                                color: C.text,
                               }}
-                            />
+                            >
+                              <SpinnerIcon size={14} /> {uploadProgress}%
+                            </div>
+                            <div
+                              style={{
+                                marginTop: 4,
+                                height: 4,
+                                borderRadius: 99,
+                                background: C.border,
+                                overflow: 'hidden',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  height: '100%',
+                                  width: `${uploadProgress}%`,
+                                  background: grad,
+                                  borderRadius: 99,
+                                  transition: 'width .3s',
+                                }}
+                              />
+                            </div>
                           </div>
-                        </div>
-                      )}
-                      {garmentKey && (
-                        <div
+                        )}
+                        {garmentKey && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: 8,
+                              left: 8,
+                              background: C.mint,
+                              color: 'white',
+                              borderRadius: 6,
+                              padding: '3px 8px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <CheckIcon color="#fff" size={10} /> Uploaded
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`${BASE}/assets/upperGarmentRef.png`}
+                          alt="Upper garment reference"
+                          style={{ width: 92, height: 92, borderRadius: 8, objectFit: 'cover' }}
+                        />
+                        <span
                           style={{
-                            position: 'absolute',
-                            top: 8,
-                            left: 8,
-                            background: C.mint,
-                            color: 'white',
-                            borderRadius: 6,
-                            padding: '3px 8px',
-                            fontSize: 11,
-                            fontWeight: 600,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
+                            width: 241,
+                            height: 18,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            lineHeight: '100%',
+                            color: '#141414',
+                            textAlign: 'center',
                           }}
                         >
-                          <CheckIcon color="#fff" size={10} /> Uploaded
+                          Upload Top Wear
+                        </span>
+                        <span
+                          style={{
+                            width: 241,
+                            height: 30,
+                            fontSize: 10,
+                            fontWeight: 500,
+                            lineHeight: '100%',
+                            color: '#939393',
+                            textAlign: 'center',
+                          }}
+                        >
+                          Drag and drop an image here · JPG, PNG · Max 10MB
+                        </span>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            width: 110,
+                            height: 18,
+                          }}
+                        >
+                          <ImagePlusIcon size={16} />
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 500,
+                              lineHeight: '18px',
+                              color: '#141414',
+                              textAlign: 'center',
+                            }}
+                          >
+                            Browse Image
+                          </span>
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={`${BASE}/assets/upperGarmentRef.png`} alt="Upper garment reference" style={{ width: 92, height: 92, borderRadius: 8, objectFit: 'cover' }} />
-                      <span style={{ width: 241, height: 18, fontSize: 12, fontWeight: 500, lineHeight: '100%', color: '#141414', textAlign: 'center' }}>Upload Top Wear</span>
-                      <span style={{ width: 241, height: 30, fontSize: 10, fontWeight: 500, lineHeight: '100%', color: '#939393', textAlign: 'center' }}>Drag and drop an image here · JPG, PNG · Max 10MB</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 110, height: 18 }}>
-                        <ImagePlusIcon size={16} />
-                        <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '18px', color: '#141414', textAlign: 'center' }}>Browse Image</span>
-                      </div>
-                    </>
-                  )}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    style={{ display: 'none' }}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleGarmentUpload(f);
-                    }}
-                  />
-                </label>
+                      </>
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleGarmentUpload(f);
+                      }}
+                    />
+                  </label>
                 </div>
-                <div style={{ width: 560, height: 238, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: '#FEFEFE', borderRadius: 12, border: '1px solid #EEEEEE', padding: 16, boxSizing: 'border-box' }}>
+                <div
+                  style={{
+                    width: 560,
+                    height: 238,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    background: '#FEFEFE',
+                    borderRadius: 12,
+                    border: '1px solid #EEEEEE',
+                    padding: 16,
+                    boxSizing: 'border-box',
+                  }}
+                >
                   <div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, width: 528, height: 18, marginBottom: 12 }}>
-                      <span style={{ display: 'flex', color: C.text }}><LightbulbIcon size={14} /></span>
-                      <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '100%', color: C.text }}>Use clean flat lay images for best AI catalogue results.</span>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 4,
+                        width: 528,
+                        height: 18,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <span style={{ display: 'flex', color: C.text }}>
+                        <LightbulbIcon size={14} />
+                      </span>
+                      <span
+                        style={{ fontSize: 12, fontWeight: 500, lineHeight: '100%', color: C.text }}
+                      >
+                        Use clean flat lay images for best AI catalogue results.
+                      </span>
                     </div>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`${BASE}/assets/instructions.png`} alt="Garment guidelines" style={{ width: '100%', height: 173, objectFit: 'contain', borderRadius: 8 }} />
+                    <img
+                      src={`${BASE}/assets/instructions.png`}
+                      alt="Garment guidelines"
+                      style={{ width: '100%', height: 173, objectFit: 'contain', borderRadius: 8 }}
+                    />
                   </div>
                 </div>
               </div>

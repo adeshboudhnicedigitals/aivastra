@@ -58,12 +58,9 @@
       "Bash(node -e \"require\\('child_process'\\).execSync\\('pnpm --filter @aivastra/db run migrate', {stdio:'inherit'}\\)\")",
       "Bash(echo \"exit: $?\")",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in {**d.get\\('scripts',{}\\), **d.get\\('devDependencies',{}\\), **d.get\\('dependencies',{}\\)}.items\\(\\) if 'test' in k or 'vitest' in k or 'jest' in k}, indent=2\\)\\)\")",
-      "Bash(node --input-type=module)",
-      "Bash(2>&1)",
-      "Bash(redis-cli -h 127.0.0.1 COMMAND DOCS GETDEL)",
-      "Bash(cat)",
-      "Read(//tmp/**)",
-      "Bash(pnpm biome *)"
+      "PowerShell(git pull --rebase origin master)",
+      "PowerShell(git stash)",
+      "PowerShell(git stash pop)"
     ]
   }
 }

@@ -26,8 +26,24 @@ export function TopBar({
     >
       {lead ?? (
         <div>
-          {title && <div style={{ fontWeight: 600, fontSize: 20, lineHeight: '32px', color: C.text }}>{title}</div>}
-          {subtitle && <div style={{ fontWeight: 500, fontSize: 14, lineHeight: '20px', color: C.mid, marginTop: 2 }}>{subtitle}</div>}
+          {title && (
+            <div style={{ fontWeight: 600, fontSize: 20, lineHeight: '32px', color: C.text }}>
+              {title}
+            </div>
+          )}
+          {subtitle && (
+            <div
+              style={{
+                fontWeight: 500,
+                fontSize: 14,
+                lineHeight: '20px',
+                color: C.mid,
+                marginTop: 2,
+              }}
+            >
+              {subtitle}
+            </div>
+          )}
         </div>
       )}
       {right}

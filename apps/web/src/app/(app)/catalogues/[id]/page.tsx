@@ -1,7 +1,7 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { use, useState, useEffect } from 'react';
+import { use, useEffect, useState } from 'react';
 import {
   ArrowLeft,
   DownloadIcon,
@@ -71,8 +71,20 @@ function ImageCard({
   return (
     <div style={{ width: '100%', height: 316, display: 'flex', flexDirection: 'column', gap: 5 }}>
       <div
-        style={{ flex: 1, background: tint, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', borderRadius: 8, overflow: 'hidden', cursor: isCompleted && result?.url ? 'pointer' : 'default' }}
-        onClick={() => { if (isCompleted && result?.url) onZoom(result.url); }}
+        style={{
+          flex: 1,
+          background: tint,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          position: 'relative',
+          borderRadius: 8,
+          overflow: 'hidden',
+          cursor: isCompleted && result?.url ? 'pointer' : 'default',
+        }}
+        onClick={() => {
+          if (isCompleted && result?.url) onZoom(result.url);
+        }}
       >
         {isCompleted && result?.url ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -98,18 +110,75 @@ function ImageCard({
           </div>
         )}
       </div>
-      <div style={{ height: 28, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div
+        style={{
+          height: 28,
+          padding: '0 4px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
         <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>#{job.id.slice(0, 8)}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {TERMINAL.includes(job.status) && (
-            <button onClick={handleDelete} disabled={deleting} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.pink, display: 'flex', padding: 2, opacity: deleting ? 0.5 : 1 }} title="Delete">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: C.pink,
+                display: 'flex',
+                padding: 2,
+                opacity: deleting ? 0.5 : 1,
+              }}
+              title="Delete"
+            >
               {deleting ? <SpinnerIcon size={14} /> : <TrashIcon />}
             </button>
           )}
           {isCompleted && result?.url && (
             <>
-              <button onClick={() => onZoom(result.url)} style={{ width: 28, height: 28, borderRadius: 8, background: '#EEEEEE', backdropFilter: 'blur(10px)', border: 'none', cursor: 'pointer', color: C.mid, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}><FullscreenIcon /></button>
-              <a href={result.url} download={`aivastra-${job.id.slice(0, 8)}.jpg`} target="_blank" rel="noreferrer" style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.white }}><DownloadIcon size={16} /></a>
+              <button
+                onClick={() => onZoom(result.url)}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 8,
+                  background: '#EEEEEE',
+                  backdropFilter: 'blur(10px)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: C.mid,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                }}
+              >
+                <FullscreenIcon />
+              </button>
+              <a
+                href={result.url}
+                download={`aivastra-${job.id.slice(0, 8)}.jpg`}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 8,
+                  background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: C.white,
+                }}
+              >
+                <DownloadIcon size={16} />
+              </a>
             </>
           )}
         </div>
@@ -176,10 +245,50 @@ export default function CataloguePage({
         }
         right={
           <div style={{ display: 'flex', gap: 12 }}>
-            <button style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '12px 20px', height: 44, width: 133, borderRadius: 8, border: '1px solid #EEEEEE', background: '#F9F9F9', color: '#626262', fontFamily: 'inherit', fontSize: 16, fontWeight: 500, lineHeight: '20px', cursor: 'pointer', boxSizing: 'border-box' }}>
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                padding: '12px 20px',
+                height: 44,
+                width: 133,
+                borderRadius: 8,
+                border: '1px solid #EEEEEE',
+                background: '#F9F9F9',
+                color: '#626262',
+                fontFamily: 'inherit',
+                fontSize: 16,
+                fontWeight: 500,
+                lineHeight: '20px',
+                cursor: 'pointer',
+                boxSizing: 'border-box',
+              }}
+            >
               <MonitorPlayIcon size={20} /> Preview
             </button>
-            <button style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '12px 20px', height: 44, width: 177, borderRadius: 8, border: 'none', background: '#141414', color: '#FEFEFE', fontFamily: 'inherit', fontSize: 16, fontWeight: 600, lineHeight: '20px', cursor: 'pointer', boxSizing: 'border-box' }}>
+            <button
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                padding: '12px 20px',
+                height: 44,
+                width: 177,
+                borderRadius: 8,
+                border: 'none',
+                background: '#141414',
+                color: '#FEFEFE',
+                fontFamily: 'inherit',
+                fontSize: 16,
+                fontWeight: 600,
+                lineHeight: '20px',
+                cursor: 'pointer',
+                boxSizing: 'border-box',
+              }}
+            >
               Download All <ImageDownIcon size={20} />
             </button>
           </div>
@@ -194,7 +303,14 @@ export default function CataloguePage({
           </div>
         )}
         {data && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 369.33px)', gap: 16, width: '100%' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, 369.33px)',
+              gap: 16,
+              width: '100%',
+            }}
+          >
             {data.jobs.map((job, i) => (
               <ImageCard
                 key={job.id}
@@ -243,7 +359,19 @@ export default function CataloguePage({
             <XIcon size={20} />
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={zoom} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 8, transform: zoomVisible ? 'translateX(0)' : 'translateX(100%)', transition: 'transform 300ms ease-out' }} onClick={(e) => e.stopPropagation()} />
+          <img
+            src={zoom}
+            alt=""
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              objectFit: 'contain',
+              borderRadius: 8,
+              transform: zoomVisible ? 'translateX(0)' : 'translateX(100%)',
+              transition: 'transform 300ms ease-out',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </>
