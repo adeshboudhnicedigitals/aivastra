@@ -190,10 +190,15 @@ export async function modelsRoutes(app: FastifyInstance) {
           id: schema.modelPoses.id,
           label: schema.modelPoses.label,
           thumbnailUrl: schema.modelPoses.thumbnailKey,
-          showsLower: schema.modelPoses.showsLower,
-          showsShoes: schema.modelPoses.showsShoes,
+          lowerNodeId: schema.workflowTemplates.lowerNodeId,
+          shoeNodeId: schema.workflowTemplates.shoeNodeId,
+          sizeNodeId: schema.workflowTemplates.sizeNodeId,
         })
         .from(schema.modelPoses)
+        .leftJoin(
+          schema.workflowTemplates,
+          eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
+        )
         .where(
           and(
             eq(schema.modelPoses.subcategoryId, garmentTypeId),
@@ -203,7 +208,14 @@ export async function modelsRoutes(app: FastifyInstance) {
           ),
         );
       return {
-        items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })),
+        items: items.map((i) => ({
+          id: i.id,
+          label: i.label,
+          thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl),
+          hasLower: i.lowerNodeId != null,
+          hasShoes: i.shoeNodeId != null,
+          hasAspectRatio: i.sizeNodeId != null,
+        })),
       };
     },
   );

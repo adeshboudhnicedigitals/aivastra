@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
 import type { CatalogItem, ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
-import { Switch } from './Switch';
 
 interface Props {
   pose: ModelPose;
@@ -41,8 +40,6 @@ export function EditPoseModal({
     label: pose.label,
     faceId: pose.faceId,
     backgroundId: pose.backgroundId,
-    showsLower: pose.showsLower,
-    showsShoes: pose.showsShoes,
     sortOrder: pose.sortOrder,
     workflowTemplateId: pose.workflowTemplateId,
     promptFacePhase: pose.promptFacePhase ?? '',
@@ -64,13 +61,17 @@ export function EditPoseModal({
   const faceSideRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
 
+  const selectedWorkflow = workflows.find((w) => w.id === form.workflowTemplateId);
+  const hasLower = selectedWorkflow?.lowerNodeId != null;
+  const hasShoes = selectedWorkflow?.shoeNodeId != null;
+
   // Fetch workflows from DB on mount
   useEffect(() => {
     apiFetch<WorkflowOption[]>('/admin/workflows')
       .then((wfs) => setWorkflows(wfs.filter((w) => w.isActive)))
       .catch(() => toast({ kind: 'error', title: 'Failed to load workflow options' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toast]);
 
   const handleWorkflowChange = (id: string) => {
     setForm((f) => ({ ...f, workflowTemplateId: id }));
@@ -96,9 +97,9 @@ export function EditPoseModal({
         promptFacePhase: form.promptFacePhase.trim() || undefined,
         promptGarmentPhase: form.promptGarmentPhase.trim() || undefined,
       };
-      if (faceSideR2Key) patch['faceSideR2Key'] = faceSideR2Key;
-      patch['lowerItemIds'] = form.showsLower ? lowerItemIds : [];
-      patch['shoeItemIds'] = form.showsShoes ? shoeItemIds : [];
+      if (faceSideR2Key) patch.faceSideR2Key = faceSideR2Key;
+      patch.lowerItemIds = hasLower ? lowerItemIds : [];
+      patch.shoeItemIds = hasShoes ? shoeItemIds : [];
 
       await apiFetch(`/admin/assets/poses/${pose.id}`, {
         method: 'PATCH',
@@ -108,8 +109,8 @@ export function EditPoseModal({
       onSaved({
         ...pose,
         ...form,
-        lowerItemIds: form.showsLower ? lowerItemIds : [],
-        shoeItemIds: form.showsShoes ? shoeItemIds : [],
+        lowerItemIds: hasLower ? lowerItemIds : [],
+        shoeItemIds: hasShoes ? shoeItemIds : [],
         promptFacePhase: form.promptFacePhase.trim() || pose.promptFacePhase,
         promptGarmentPhase: form.promptGarmentPhase.trim() || pose.promptGarmentPhase,
         ...(faceSideR2Key ? { faceSideR2Key } : {}),
@@ -294,159 +295,119 @@ export function EditPoseModal({
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '2px 0' }} />
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div
-              className="field"
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}
-            >
-              <Switch
-                checked={form.showsLower}
-                onChange={() => {
-                  if (!saving) {
-                    setForm((f) => ({ ...f, showsLower: !f.showsLower }));
-                    if (form.showsLower) setLowerItemIds([]);
-                  }
-                }}
-              />
-              <label
-                style={{ margin: 0, cursor: 'pointer' }}
-                onClick={() => {
-                  if (!saving) {
-                    setForm((f) => ({ ...f, showsLower: !f.showsLower }));
-                    if (form.showsLower) setLowerItemIds([]);
-                  }
-                }}
-              >
-                Shows lower garment
-              </label>
-            </div>
-            {form.showsLower && (
-              <div
-                style={{
-                  padding: '8px 12px',
-                  background: 'var(--subtle)',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  maxHeight: 150,
-                  overflowY: 'auto',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-                  Allowed items ({lowerItemIds.length} selected)
+            {hasLower && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                  Lower garment allowlist
                 </div>
-                {lowerItems.length === 0 ? (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    No lower garment items uploaded yet.
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    background: 'var(--subtle)',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    maxHeight: 150,
+                    overflowY: 'auto',
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+                    Allowed items ({lowerItemIds.length} selected)
                   </div>
-                ) : (
-                  lowerItems.map((item) => (
-                    <label
-                      key={item.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '3px 0',
-                        cursor: saving ? 'default' : 'pointer',
-                        fontSize: 12.5,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={lowerItemIds.includes(item.id)}
-                        disabled={saving}
-                        onChange={(e) =>
-                          setLowerItemIds((prev) =>
-                            e.target.checked
-                              ? [...prev, item.id]
-                              : prev.filter((id) => id !== item.id),
-                          )
-                        }
-                      />
-                      <span>{item.label}</span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                        {item.genderSlug ?? 'all'}
-                      </span>
-                    </label>
-                  ))
-                )}
-              </div>
+                  {lowerItems.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      No lower garment items uploaded yet.
+                    </div>
+                  ) : (
+                    lowerItems.map((item) => (
+                      <label
+                        key={item.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '3px 0',
+                          cursor: saving ? 'default' : 'pointer',
+                          fontSize: 12.5,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={lowerItemIds.includes(item.id)}
+                          disabled={saving}
+                          onChange={(e) =>
+                            setLowerItemIds((prev) =>
+                              e.target.checked
+                                ? [...prev, item.id]
+                                : prev.filter((id) => id !== item.id),
+                            )
+                          }
+                        />
+                        <span>{item.label}</span>
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                          {item.genderSlug ?? 'all'}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </>
             )}
-            <div
-              className="field"
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}
-            >
-              <Switch
-                checked={form.showsShoes}
-                onChange={() => {
-                  if (!saving) {
-                    setForm((f) => ({ ...f, showsShoes: !f.showsShoes }));
-                    if (form.showsShoes) setShoeItemIds([]);
-                  }
-                }}
-              />
-              <label
-                style={{ margin: 0, cursor: 'pointer' }}
-                onClick={() => {
-                  if (!saving) {
-                    setForm((f) => ({ ...f, showsShoes: !f.showsShoes }));
-                    if (form.showsShoes) setShoeItemIds([]);
-                  }
-                }}
-              >
-                Shows shoes
-              </label>
-            </div>
-            {form.showsShoes && (
-              <div
-                style={{
-                  padding: '8px 12px',
-                  background: 'var(--subtle)',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  maxHeight: 150,
-                  overflowY: 'auto',
-                }}
-              >
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-                  Allowed shoes ({shoeItemIds.length} selected)
+            {hasShoes && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                  Shoes allowlist
                 </div>
-                {shoeItems.length === 0 ? (
-                  <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    No shoe items uploaded yet.
+                <div
+                  style={{
+                    padding: '8px 12px',
+                    background: 'var(--subtle)',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    maxHeight: 150,
+                    overflowY: 'auto',
+                  }}
+                >
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+                    Allowed shoes ({shoeItemIds.length} selected)
                   </div>
-                ) : (
-                  shoeItems.map((item) => (
-                    <label
-                      key={item.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '3px 0',
-                        cursor: saving ? 'default' : 'pointer',
-                        fontSize: 12.5,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={shoeItemIds.includes(item.id)}
-                        disabled={saving}
-                        onChange={(e) =>
-                          setShoeItemIds((prev) =>
-                            e.target.checked
-                              ? [...prev, item.id]
-                              : prev.filter((id) => id !== item.id),
-                          )
-                        }
-                      />
-                      <span>{item.label}</span>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                        {item.genderSlug ?? 'all'}
-                      </span>
-                    </label>
-                  ))
-                )}
-              </div>
+                  {shoeItems.length === 0 ? (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      No shoe items uploaded yet.
+                    </div>
+                  ) : (
+                    shoeItems.map((item) => (
+                      <label
+                        key={item.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '3px 0',
+                          cursor: saving ? 'default' : 'pointer',
+                          fontSize: 12.5,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={shoeItemIds.includes(item.id)}
+                          disabled={saving}
+                          onChange={(e) =>
+                            setShoeItemIds((prev) =>
+                              e.target.checked
+                                ? [...prev, item.id]
+                                : prev.filter((id) => id !== item.id),
+                            )
+                          }
+                        />
+                        <span>{item.label}</span>
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                          {item.genderSlug ?? 'all'}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </>
             )}
           </div>
 

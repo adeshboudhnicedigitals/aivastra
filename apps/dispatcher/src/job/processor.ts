@@ -224,6 +224,31 @@ export async function processJob(
     const { promptId } = await submitPrompt(w.url, workerApiKey, clientUuid, prompt, jobLog);
     jobLog.info({ promptId }, 'prompt submitted to ComfyUI');
 
+    // Store dispatch summary as a job event so admin can inspect what was sent to ComfyUI.
+    // Full workflow JSON is stored under `prompt` — expand in jobs panel to debug node patches.
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'COMFY_DISPATCH',
+      payload: {
+        promptId,
+        workerId: w.id,
+        workerUrl: w.url,
+        workflowTemplateId,
+        inputs: {
+          upperGarmentFile,
+          faceSideFile,
+          poseFile,
+          backgroundFile,
+          lowerGarmentFile,
+          shoeGarmentFile,
+          promptFacePhase: poseRow.promptFacePhase ?? null,
+          promptGarmentPhase: poseRow.promptGarmentPhase ?? null,
+          aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio ?? null,
+        },
+        prompt,
+      },
+    });
+
     // 7. Wait for completion via WebSocket (5 min max)
     await waitForCompletion(
       w.url,

@@ -48,8 +48,8 @@ interface PoseItem {
   id: string;
   label: string;
   thumbnailUrl: string;
-  showsLower: boolean;
-  showsShoes: boolean;
+  hasLower: boolean;
+  hasShoes: boolean;
 }
 interface CatalogItem {
   id: string;
@@ -359,8 +359,8 @@ export default function StudioPage(): React.ReactElement {
   });
 
   const selectedPoses = poses?.items.filter((p) => poseIds.includes(p.id)) ?? [];
-  const needsLower = selectedPoses.some((p) => p.showsLower);
-  const needsShoes = selectedPoses.some((p) => p.showsShoes);
+  const needsLower = selectedPoses.some((p) => p.hasLower);
+  const needsShoes = selectedPoses.some((p) => p.hasShoes);
 
   const poseIdsParam = poseIds.length > 0 ? `poseIds=${poseIds.join(',')}` : '';
   const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
@@ -1023,6 +1023,50 @@ export default function StudioPage(): React.ReactElement {
                       label={p.label}
                       w={215.2}
                       h={282}
+                      badges={
+                        (p.hasLower || p.hasShoes) && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: 8,
+                              left: 8,
+                              display: 'flex',
+                              gap: 4,
+                              flexDirection: 'column',
+                              pointerEvents: 'none',
+                            }}
+                          >
+                            {p.hasLower && (
+                              <span
+                                style={{
+                                  padding: '2px 7px',
+                                  borderRadius: 6,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  background: 'rgba(246,181,83,0.92)',
+                                  color: '#7a5200',
+                                }}
+                              >
+                                LOWER
+                              </span>
+                            )}
+                            {p.hasShoes && (
+                              <span
+                                style={{
+                                  padding: '2px 7px',
+                                  borderRadius: 6,
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  background: 'rgba(32,158,70,0.92)',
+                                  color: 'white',
+                                }}
+                              >
+                                SHOES
+                              </span>
+                            )}
+                          </div>
+                        )
+                      }
                     />
                   ))}
                 </div>

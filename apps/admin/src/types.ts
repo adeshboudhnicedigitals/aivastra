@@ -48,6 +48,9 @@ export interface WorkflowOption {
   poseCount: number;
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
+  lowerNodeId: string | null;
+  shoeNodeId: string | null;
+  sizeNodeIds: string[];
   createdAt: string;
 }
 

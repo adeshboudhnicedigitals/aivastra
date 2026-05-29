@@ -437,12 +437,18 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(eq(schema.garmentSubcategories.id, body.garmentTypeId));
       if (!subCheck) throw new AppError('NOT_FOUND', 404, 'garment type not found');
 
-      // Validate workflowTemplateId exists and is active
+      // Validate workflowTemplateId exists and derive lower/shoe capability from it
       const [wfCheck] = await app.db
-        .select({ id: schema.workflowTemplates.id })
+        .select({
+          id: schema.workflowTemplates.id,
+          lowerNodeId: schema.workflowTemplates.lowerNodeId,
+          shoeNodeId: schema.workflowTemplates.shoeNodeId,
+        })
         .from(schema.workflowTemplates)
         .where(eq(schema.workflowTemplates.id, body.workflowTemplateId));
       if (!wfCheck) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
+      const derivedShowsLower = wfCheck.lowerNodeId != null;
+      const derivedShowsShoes = wfCheck.shoeNodeId != null;
 
       const row = await app.db.transaction(async (tx) => {
         let resolvedFaceId = body.faceId ?? '';
@@ -505,8 +511,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             workflowTemplateId: body.workflowTemplateId,
             promptFacePhase: body.promptFacePhase,
             promptGarmentPhase: body.promptGarmentPhase,
-            showsLower: body.showsLower,
-            showsShoes: body.showsShoes,
+            showsLower: derivedShowsLower,
+            showsShoes: derivedShowsShoes,
             isTemplate: body.isTemplate,
             sortOrder: body.sortOrder,
           })
@@ -563,13 +569,19 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         [key: string]: unknown;
       };
 
-      // Validate workflowTemplateId if provided
+      // Validate workflowTemplateId if provided, and derive showsLower/showsShoes from it
       if (body.workflowTemplateId) {
         const [wfCheck] = await app.db
-          .select({ id: schema.workflowTemplates.id })
+          .select({
+            id: schema.workflowTemplates.id,
+            lowerNodeId: schema.workflowTemplates.lowerNodeId,
+            shoeNodeId: schema.workflowTemplates.shoeNodeId,
+          })
           .from(schema.workflowTemplates)
           .where(eq(schema.workflowTemplates.id, body.workflowTemplateId));
         if (!wfCheck) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
+        (body as Record<string, unknown>)['showsLower'] = wfCheck.lowerNodeId != null;
+        (body as Record<string, unknown>)['showsShoes'] = wfCheck.shoeNodeId != null;
       }
 
       const { lowerItemIds, shoeItemIds, ...poseFields } = body as any;

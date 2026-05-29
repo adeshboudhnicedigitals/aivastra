@@ -17,7 +17,7 @@ interface DetectedMappings {
   upperNodeIds: string[];
   lowerNodeId?: string;
   shoeNodeId?: string;
-  sizeNodeId?: string;
+  sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
 }
@@ -129,7 +129,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [upperNodeIds, setUpperNodeIds] = useState<string[]>(['']);
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
-  const [sizeNodeId, setSizeNodeId] = useState('');
+  const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
   const [negativePromptNode, setNegativePromptNode] = useState('');
 
@@ -179,7 +179,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       setUpperNodeIds(d.upperNodeIds.length > 0 ? d.upperNodeIds : ['']);
       setLowerNodeId(d.lowerNodeId ?? '');
       setShoeNodeId(d.shoeNodeId ?? '');
-      setSizeNodeId(d.sizeNodeId ?? '');
+      setSizeNodeIds(d.sizeNodeIds ?? []);
       setPositivePromptNode(d.positivePromptNode ?? '');
       setNegativePromptNode(d.negativePromptNode ?? '');
     } catch (e) {
@@ -225,7 +225,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           upperNodeIds: validUpperIds,
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
-          sizeNodeId: sizeNodeId || undefined,
+          sizeNodeIds: sizeNodeIds.filter(Boolean),
           // positive → garmentPhasePromptNode (DB field name)
           // negative → facePhasePromptNode    (DB field name)
           facePhasePromptNode: negativePromptNode,
@@ -553,36 +553,55 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 />
               </div>
 
-              {/* Size node (EmptyLatentImage) */}
+              {/* Size nodes — multi-select: all nodes controlling output dimensions */}
               {nodes.latent.length > 0 && (
                 <div className="field" style={{ margin: 0 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                    Size node (optional)
+                    Size nodes (optional)
                   </label>
                   <span
                     style={{
                       fontSize: 11,
                       color: 'var(--muted)',
                       display: 'block',
-                      marginBottom: 4,
+                      marginBottom: 6,
                     }}
                   >
-                    EmptyLatentImage node for dynamic aspect ratio. Title convention: "size"
+                    All nodes that control output dimensions (EmptyLatentImage,
+                    ResizeImageMaskNode…). All checked nodes will be patched per aspect ratio.
                   </span>
-                  <select
-                    className="select"
-                    value={sizeNodeId}
-                    onChange={(e) => setSizeNodeId(e.target.value)}
-                    disabled={saving}
-                    style={{ fontSize: 13 }}
-                  >
-                    <option value="">— not used —</option>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     {nodes.latent.map((n) => (
-                      <option key={n.id} value={n.id}>
-                        [{n.id}] {n.title} ({n.class_type})
-                      </option>
+                      <label
+                        key={n.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          fontSize: 12,
+                          cursor: saving ? 'default' : 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={saving}
+                          checked={sizeNodeIds.includes(n.id)}
+                          onChange={(e) =>
+                            setSizeNodeIds((prev) =>
+                              e.target.checked ? [...prev, n.id] : prev.filter((id) => id !== n.id),
+                            )
+                          }
+                        />
+                        <span className="mono" style={{ fontSize: 11, color: 'var(--accent)' }}>
+                          [{n.id}]
+                        </span>
+                        <span>{n.title}</span>
+                        <span style={{ color: 'var(--muted)', fontSize: 11 }}>
+                          ({n.class_type})
+                        </span>
+                      </label>
                     ))}
-                  </select>
+                  </div>
                 </div>
               )}
 

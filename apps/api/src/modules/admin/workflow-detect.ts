@@ -23,15 +23,24 @@ export interface DetectedMappings {
   upperNodeIds: string[];
   lowerNodeId?: string;
   shoeNodeId?: string;
-  sizeNodeId?: string;
+  sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
 }
 
+// Node class_types that control output dimensions (EmptyLatentImage + resize nodes)
+const SIZE_CLASS_TYPES = new Set([
+  'EmptyLatentImage',
+  'ResizeImageMaskNode',
+  'ResizeAndPadImage',
+  'ImageResizeKJ',
+  'LatentUpscaleBy',
+]);
+
 export function classifyNode(classType: string): NodeCategory {
   if (classType === 'LoadImage') return 'image';
   if (classType.includes('TextEncode')) return 'prompt';
-  if (classType === 'EmptyLatentImage') return 'latent';
+  if (SIZE_CLASS_TYPES.has(classType)) return 'latent';
   return 'other';
 }
 
@@ -48,7 +57,7 @@ export function detectMappings(json: Record<string, unknown>): {
   allPromptNodes: ParsedNode[];
   allLatentNodes: ParsedNode[];
 } {
-  const detected: DetectedMappings = { upperNodeIds: [] };
+  const detected: DetectedMappings = { upperNodeIds: [], sizeNodeIds: [] };
   const allImageNodes: ParsedNode[] = [];
   const allPromptNodes: ParsedNode[] = [];
   const allLatentNodes: ParsedNode[] = [];
@@ -84,8 +93,9 @@ export function detectMappings(json: Record<string, unknown>): {
       }
     } else if (category === 'latent') {
       allLatentNodes.push({ id: nodeId, class_type: classType, title, category });
-      if (norm === 'size') {
-        detected.sizeNodeId = nodeId;
+      // Collect any node titled "size" or "empty_latent_image" as a dimension control node
+      if (norm === 'size' || norm === 'empty_latent_image') {
+        detected.sizeNodeIds.push(nodeId);
       }
     }
   }
@@ -93,6 +103,12 @@ export function detectMappings(json: Record<string, unknown>): {
   allImageNodes.sort((a, b) => a.title.localeCompare(b.title));
   allPromptNodes.sort((a, b) => a.title.localeCompare(b.title));
   allLatentNodes.sort((a, b) => a.title.localeCompare(b.title));
+
+  // If no size nodes were detected by title, auto-assign all latent nodes.
+  // ComfyUI exports default titles like "Empty Latent Image" or "ResizeAndPadImage".
+  if (detected.sizeNodeIds.length === 0 && allLatentNodes.length > 0) {
+    detected.sizeNodeIds = allLatentNodes.map((n) => n.id);
+  }
 
   return { detected, allImageNodes, allPromptNodes, allLatentNodes };
 }

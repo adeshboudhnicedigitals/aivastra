@@ -109,7 +109,7 @@ describe('canonical workflow — all nodes correctly titled', () => {
   it('detects positive_prompt node', () =>
     expect(detectMappings(makeCanonicalWorkflow()).detected.positivePromptNode).toBe('1345:111'));
   it('detects size node', () =>
-    expect(detectMappings(makeCanonicalWorkflow()).detected.sizeNodeId).toBe('1345:874'));
+    expect(detectMappings(makeCanonicalWorkflow()).detected.sizeNodeIds).toContain('1345:874'));
 
   it('non-input nodes (KSampler, FaceSegment, DWPose, etc.) do not appear in any detection list', () => {
     const { allImageNodes, allPromptNodes, allLatentNodes } = detectMappings(
@@ -233,7 +233,7 @@ describe('edge cases', () => {
     expect(detected.shoeNodeId).toBeUndefined();
     expect(detected.positivePromptNode).toBeUndefined();
     expect(detected.negativePromptNode).toBeUndefined();
-    expect(detected.sizeNodeId).toBeUndefined();
+    expect(detected.sizeNodeIds).toEqual([]);
   });
 
   it('a node with no _meta title falls back to the node ID (not detected as any role)', () => {

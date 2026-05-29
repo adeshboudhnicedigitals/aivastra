@@ -32,6 +32,96 @@ interface JobDetail extends Job {
   events?: JobEvent[];
 }
 
+function EventRow({ ev }: { ev: JobEvent }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hasPayload = ev.payload != null && Object.keys(ev.payload as object).length > 0;
+  const isLarge = ev.eventType === 'COMFY_DISPATCH';
+
+  const handleCopy = () => {
+    void navigator.clipboard.writeText(JSON.stringify(ev.payload, null, 2)).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div
+      style={{
+        borderBottom: '1px solid var(--border)',
+        fontSize: 12,
+      }}
+    >
+      <div
+        style={{
+          padding: '8px 18px',
+          display: 'flex',
+          gap: 12,
+          alignItems: 'center',
+        }}
+      >
+        <span className="mono" style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+          {new Date(ev.createdAt).toLocaleTimeString()}
+        </span>
+        <span className="semi">{ev.eventType}</span>
+        {hasPayload && !isLarge && (
+          <span
+            className="mono"
+            style={{
+              color: 'var(--muted)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {JSON.stringify(ev.payload as Record<string, unknown>)}
+          </span>
+        )}
+        {hasPayload && isLarge && (
+          <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+            <button
+              className="btn sm ghost"
+              style={{ fontSize: 11, padding: '2px 8px' }}
+              onClick={handleCopy}
+            >
+              {copied ? '✓ Copied' : 'Copy'}
+            </button>
+            <button
+              className="btn sm ghost"
+              style={{ fontSize: 11, padding: '2px 8px' }}
+              onClick={() => setOpen((v) => !v)}
+            >
+              {open ? 'Hide' : 'View'}
+            </button>
+          </div>
+        )}
+      </div>
+      {isLarge && open && (
+        <div style={{ padding: '0 18px 12px' }}>
+          <pre
+            style={{
+              margin: 0,
+              fontSize: 11,
+              fontFamily: 'monospace',
+              background: 'var(--bg-2)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '10px 12px',
+              maxHeight: 480,
+              overflowY: 'auto',
+              overflowX: 'auto',
+              whiteSpace: 'pre',
+              color: 'var(--text)',
+            }}
+          >
+            {JSON.stringify(ev.payload, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -269,38 +359,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                 </div>
                 <div className="card-body" style={{ padding: 0 }}>
                   {j.events.map((ev) => (
-                    <div
-                      key={ev.id}
-                      style={{
-                        padding: '8px 18px',
-                        borderBottom: '1px solid var(--border)',
-                        display: 'flex',
-                        gap: 12,
-                        alignItems: 'center',
-                        fontSize: 12,
-                      }}
-                    >
-                      <span
-                        className="mono"
-                        style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}
-                      >
-                        {fmtTs(ev.createdAt)}
-                      </span>
-                      <span className="semi">{ev.eventType}</span>
-                      {ev.payload != null && (
-                        <span
-                          className="mono"
-                          style={{
-                            color: 'var(--muted)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {JSON.stringify(ev.payload as Record<string, unknown>)}
-                        </span>
-                      )}
-                    </div>
+                    <EventRow key={ev.id} ev={ev} />
                   ))}
                 </div>
               </div>

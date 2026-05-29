@@ -57,7 +57,8 @@ function makeTemplate(overrides: Partial<WorkflowTemplate> = {}): WorkflowTempla
     upperNodeIds: ['1340'],
     lowerNodeId: '1331',
     shoeNodeId: '1352',
-    sizeNodeId: '1345:874',
+    sizeNodeId: '1345:874', // legacy field kept in schema
+    sizeNodeIds: ['1345:874'],
     facePhasePromptNode: '1345:110', // negative prompt — DB column named "facePhase" historically
     garmentPhasePromptNode: '1345:111', // positive prompt — dynamic per pose
     defaultFacePhasePrompt: 'hardcoded negative — must never change',
@@ -310,9 +311,9 @@ describe('aspect ratio', () => {
     expect(wf['1345:874']!.inputs['height']).toBe(1536);
   });
 
-  it('does not patch size node when sizeNodeId is null, even if aspectRatio is provided', () => {
+  it('does not patch size node when sizeNodeIds is empty, even if aspectRatio is provided', () => {
     const wf = makeWorkflow();
-    applyWorkflowPatch(wf, makeTemplate({ sizeNodeId: null }), {
+    applyWorkflowPatch(wf, makeTemplate({ sizeNodeIds: [] }), {
       ...BASE_INPUTS,
       aspectRatio: '4:5',
     });

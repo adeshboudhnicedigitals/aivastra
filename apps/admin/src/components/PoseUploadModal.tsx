@@ -129,7 +129,7 @@ function UploadZone({
               whiteSpace: 'nowrap',
             }}
           >
-            {file.name.length > 22 ? file.name.slice(0, 20) + '\u2026' : file.name}
+            {file.name.length > 22 ? `${file.name.slice(0, 20)}\u2026` : file.name}
           </span>
           <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>
             {(file.size / 1024).toFixed(0)} KB
@@ -424,6 +424,19 @@ export function PoseUploadModal({
   const [promptGarmentPhase, setPromptGarmentPhase] = useState('');
   const [promptsOpen, setPromptsOpen] = useState(false);
 
+  const [step, setStep] = useState<1 | 2>(1);
+
+  const selectedWorkflow = workflows.find((w) => w.id === workflowTemplateId);
+  const hasLower = selectedWorkflow?.lowerNodeId != null;
+  const hasShoes = selectedWorkflow?.shoeNodeId != null;
+
+  const handleWorkflowSelect = (wf: WorkflowOption) => {
+    setWorkflowTemplateId(wf.id);
+    setPromptFacePhase(wf.defaultFacePhasePrompt);
+    setPromptGarmentPhase(wf.defaultGarmentPhasePrompt);
+    setStep(2);
+  };
+
   const [faceMode, setFaceMode] = useState<'existing' | 'new'>('existing');
   const [faceId, setFaceId] = useState(filteredFaces[0]?.id ?? '');
   const [newFaceFile, setNewFaceFile] = useState<File | null>(null);
@@ -437,8 +450,6 @@ export function PoseUploadModal({
   const [bgComfyFile, setBgComfyFile] = useState<File | null>(null);
 
   const [label, setLabel] = useState('');
-  const [showsLower, setShowsLower] = useState(false);
-  const [showsShoes, setShowsShoes] = useState(false);
   const [lowerItemIds, setLowerItemIds] = useState<string[]>([]);
   const [shoeItemIds, setShoeItemIds] = useState<string[]>([]);
 
@@ -468,9 +479,9 @@ export function PoseUploadModal({
       })
       .catch(() => toast({ kind: 'error', title: 'Failed to load workflow options' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [toast]);
 
-  const handleWorkflowChange = (id: string) => {
+  const _handleWorkflowChange = (id: string) => {
     setWorkflowTemplateId(id);
     const wf = workflows.find((w) => w.id === id);
     if (wf) {
@@ -527,10 +538,10 @@ export function PoseUploadModal({
         faceSideContentType: faceSideFile.type,
         bgComfyContentType: bgComfyFile.type,
       };
-      if (faceMode === 'existing') presignBody['faceId'] = faceId;
-      else presignBody['newFaceContentType'] = newFaceFile!.type;
-      if (bgMode === 'existing') presignBody['backgroundId'] = bgId;
-      else presignBody['newBgContentType'] = newBgFile!.type;
+      if (faceMode === 'existing') presignBody.faceId = faceId;
+      else presignBody.newFaceContentType = newFaceFile?.type;
+      if (bgMode === 'existing') presignBody.backgroundId = bgId;
+      else presignBody.newBgContentType = newBgFile?.type;
 
       const presign = await apiFetch<PresignResult>('/admin/assets/poses/presign', {
         method: 'POST',
@@ -567,29 +578,27 @@ export function PoseUploadModal({
         workflowTemplateId,
         promptFacePhase: promptFacePhase.trim(),
         promptGarmentPhase: promptGarmentPhase.trim(),
-        showsLower,
-        showsShoes,
-        lowerItemIds: showsLower ? lowerItemIds : [],
-        shoeItemIds: showsShoes ? shoeItemIds : [],
+        lowerItemIds: hasLower ? lowerItemIds : [],
+        shoeItemIds: hasShoes ? shoeItemIds : [],
         isTemplate,
         sortOrder,
       };
       if (faceMode === 'existing') {
-        confirmBody['faceId'] = faceId;
+        confirmBody.faceId = faceId;
       } else {
-        confirmBody['newFace'] = {
+        confirmBody.newFace = {
           r2Key: presign.newFaceR2Key,
           thumbnailKey: presign.newFaceThumbnailKey,
-          filename: newFaceFile!.name,
+          filename: newFaceFile?.name,
         };
       }
       if (bgMode === 'existing') {
-        confirmBody['backgroundId'] = bgId;
+        confirmBody.backgroundId = bgId;
       } else {
-        confirmBody['newBackground'] = {
+        confirmBody.newBackground = {
           r2Key: presign.newBgR2Key,
           thumbnailKey: presign.newBgThumbnailKey,
-          filename: newBgFile!.name,
+          filename: newBgFile?.name,
         };
       }
 
@@ -637,11 +646,27 @@ export function PoseUploadModal({
       >
         {/* Header */}
         <div className="modal-head" style={{ padding: '14px 20px' }}>
-          <div>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>Upload pose</h3>
-            <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
-              Fill all required fields then click Upload pose.
-            </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {step === 2 && (
+              <button
+                className="btn sm ghost"
+                onClick={() => setStep(1)}
+                disabled={uploading}
+                style={{ padding: '4px 8px', fontSize: 12 }}
+              >
+                ← Back
+              </button>
+            )}
+            <div>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 500 }}>
+                {step === 1 ? 'Choose pose type' : 'Upload pose'}
+              </h3>
+              <p style={{ margin: 0, fontSize: 11.5, color: 'var(--muted)', marginTop: 1 }}>
+                {step === 1
+                  ? 'Select the workflow that matches the pose you are uploading.'
+                  : `Step 2 of 2 — ${selectedWorkflow?.label ?? ''}`}
+              </p>
+            </div>
           </div>
           <button
             className="btn sm ghost"
@@ -665,503 +690,557 @@ export function PoseUploadModal({
             padding: '20px 22px',
           }}
         >
-          {/* ── Section 1: Required images ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <SectionHead>Required images</SectionHead>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <UploadZone
-                id="poseFile"
-                label="Pose image"
-                file={poseFile}
-                disabled={uploading}
-                onChange={(f) => {
-                  setPoseFile(f);
-                  if (f && !label) setLabel(f.name.replace(/\.[^.]+$/, ''));
-                }}
-              />
-              <UploadZone
-                id="faceSideFile"
-                label="Side / tilt face"
-                badge={{ text: 'ComfyUI face node', color: 'warn' }}
-                file={faceSideFile}
-                disabled={uploading}
-                onChange={setFaceSideFile}
-              />
-              <UploadZone
-                id="bgComfyFile"
-                label="Background"
-                badge={{ text: 'ComfyUI bg node', color: 'info' }}
-                file={bgComfyFile}
-                disabled={uploading}
-                onChange={setBgComfyFile}
-              />
-            </div>
-          </div>
-
-          {/* ── Section 2: Model face & Background (display/filter) ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <SectionHead>Display &amp; filter</SectionHead>
-
-            {/* Model face */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 7,
-                padding: '12px 14px',
-                background: 'var(--surface-2)',
-                borderRadius: 'var(--r-lg)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              <div
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-              >
-                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-2)' }}>
-                  Model face
-                </span>
-                <Seg
-                  options={faceOpts}
-                  value={faceMode}
-                  onChange={(v) => setFaceMode(v as 'existing' | 'new')}
-                  disabled={uploading}
-                />
-              </div>
-              {faceMode === 'existing' ? (
-                <CardPicker
-                  items={filteredFaces}
-                  value={faceId}
-                  onChange={setFaceId}
-                  disabled={uploading}
-                  storageBase={storagePublicUrl}
-                />
+          {/* ── Step 1: Workflow card selection ── */}
+          {step === 1 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {workflows.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: 'center',
+                    color: 'var(--muted)',
+                    fontSize: 13,
+                    padding: '40px 0',
+                  }}
+                >
+                  Loading workflows…
+                </div>
               ) : (
-                <UploadZone
-                  id="newFaceFile"
-                  label="Face image"
-                  hint="Will be saved as a new model face"
-                  file={newFaceFile}
-                  disabled={uploading}
-                  onChange={setNewFaceFile}
-                />
-              )}
-            </div>
-
-            {/* Background */}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 7,
-                padding: '12px 14px',
-                background: 'var(--surface-2)',
-                borderRadius: 'var(--r-lg)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              <div
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-              >
-                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-2)' }}>
-                  Background
-                </span>
-                <Seg
-                  options={bgOpts}
-                  value={bgMode}
-                  onChange={(v) => setBgMode(v as 'existing' | 'new')}
-                  disabled={uploading}
-                />
-              </div>
-              {bgMode === 'existing' ? (
-                <CardPicker
-                  items={backgrounds}
-                  value={bgId}
-                  onChange={setBgId}
-                  disabled={uploading}
-                  storageBase={storagePublicUrl}
-                />
-              ) : (
-                <UploadZone
-                  id="newBgFile"
-                  label="Background image"
-                  hint="Will be saved as a new background"
-                  file={newBgFile}
-                  disabled={uploading}
-                  onChange={setNewBgFile}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* ── Section 3: Workflow ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <SectionHead>Workflow</SectionHead>
-
-            <div className="field">
-              <label>Template</label>
-              <select
-                className="select"
-                value={workflowTemplateId}
-                disabled={uploading || workflows.length === 0}
-                onChange={(e) => handleWorkflowChange(e.target.value)}
-              >
-                {workflows.length === 0 ? (
-                  <option value="">Loading…</option>
-                ) : (
-                  workflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.label}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-
-            {/* Collapsible prompts */}
-            <div
-              style={{
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--r-lg)',
-                overflow: 'hidden',
-              }}
-            >
-              <button
-                type="button"
-                disabled={uploading}
-                onClick={() => setPromptsOpen((v) => !v)}
-                style={{
-                  width: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '10px 14px',
-                  background: 'var(--surface-2)',
-                  border: 'none',
-                  cursor: 'pointer',
-                  gap: 10,
-                }}
-              >
-                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-2)' }}>
-                  Prompts
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {!promptsOpen && promptFacePhase && (
-                    <span
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                    gap: 12,
+                  }}
+                >
+                  {workflows.map((wf) => (
+                    <button
+                      key={wf.id}
+                      type="button"
+                      onClick={() => handleWorkflowSelect(wf)}
                       style={{
-                        fontSize: 11,
-                        color: 'var(--muted)',
-                        maxWidth: 240,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 10,
+                        padding: '16px',
+                        background:
+                          workflowTemplateId === wf.id ? 'var(--accent-soft)' : 'var(--surface-2)',
+                        border: `1.5px solid ${workflowTemplateId === wf.id ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: 'var(--r-lg)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'border-color 120ms, background 120ms',
                       }}
                     >
-                      {promptFacePhase.slice(0, 60)}
-                      {promptFacePhase.length > 60 ? '…' : ''}
-                    </span>
-                  )}
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 14 14"
-                    fill="none"
+                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink-1)' }}>
+                        {wf.label}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>✓ Upper garment</span>
+                        {wf.lowerNodeId && (
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                            ✓ Lower garment
+                          </span>
+                        )}
+                        {wf.shoeNodeId && (
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>✓ Shoes</span>
+                        )}
+                        {wf.sizeNodeId && (
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                            ✓ Aspect ratio
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 2: Upload form ── */}
+          {step === 2 && (
+            <>
+              {/* ── Section 1: Required images ── */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <SectionHead>Required images</SectionHead>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                  <UploadZone
+                    id="poseFile"
+                    label="Pose image"
+                    file={poseFile}
+                    disabled={uploading}
+                    onChange={(f) => {
+                      setPoseFile(f);
+                      if (f && !label) setLabel(f.name.replace(/\.[^.]+$/, ''));
+                    }}
+                  />
+                  <UploadZone
+                    id="faceSideFile"
+                    label="Side / tilt face"
+                    badge={{ text: 'ComfyUI face node', color: 'warn' }}
+                    file={faceSideFile}
+                    disabled={uploading}
+                    onChange={setFaceSideFile}
+                  />
+                  <UploadZone
+                    id="bgComfyFile"
+                    label="Background"
+                    badge={{ text: 'ComfyUI bg node', color: 'info' }}
+                    file={bgComfyFile}
+                    disabled={uploading}
+                    onChange={setBgComfyFile}
+                  />
+                </div>
+              </div>
+
+              {/* ── Section 2: Model face & Background (display/filter) ── */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <SectionHead>Display &amp; filter</SectionHead>
+
+                {/* Model face */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 7,
+                    padding: '12px 14px',
+                    background: 'var(--surface-2)',
+                    borderRadius: 'var(--r-lg)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <div
                     style={{
-                      color: 'var(--muted)',
-                      transform: promptsOpen ? 'rotate(180deg)' : 'none',
-                      transition: 'transform 150ms',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                     }}
                   >
+                    <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-2)' }}>
+                      Model face
+                    </span>
+                    <Seg
+                      options={faceOpts}
+                      value={faceMode}
+                      onChange={(v) => setFaceMode(v as 'existing' | 'new')}
+                      disabled={uploading}
+                    />
+                  </div>
+                  {faceMode === 'existing' ? (
+                    <CardPicker
+                      items={filteredFaces}
+                      value={faceId}
+                      onChange={setFaceId}
+                      disabled={uploading}
+                      storageBase={storagePublicUrl}
+                    />
+                  ) : (
+                    <UploadZone
+                      id="newFaceFile"
+                      label="Face image"
+                      hint="Will be saved as a new model face"
+                      file={newFaceFile}
+                      disabled={uploading}
+                      onChange={setNewFaceFile}
+                    />
+                  )}
+                </div>
+
+                {/* Background */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 7,
+                    padding: '12px 14px',
+                    background: 'var(--surface-2)',
+                    borderRadius: 'var(--r-lg)',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-2)' }}>
+                      Background
+                    </span>
+                    <Seg
+                      options={bgOpts}
+                      value={bgMode}
+                      onChange={(v) => setBgMode(v as 'existing' | 'new')}
+                      disabled={uploading}
+                    />
+                  </div>
+                  {bgMode === 'existing' ? (
+                    <CardPicker
+                      items={backgrounds}
+                      value={bgId}
+                      onChange={setBgId}
+                      disabled={uploading}
+                      storageBase={storagePublicUrl}
+                    />
+                  ) : (
+                    <UploadZone
+                      id="newBgFile"
+                      label="Background image"
+                      hint="Will be saved as a new background"
+                      file={newBgFile}
+                      disabled={uploading}
+                      onChange={setNewBgFile}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* ── Section 3: Workflow ── */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <SectionHead>Workflow</SectionHead>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    background: 'var(--surface-2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--r-lg)',
+                    fontSize: 13,
+                  }}
+                >
+                  <span style={{ fontWeight: 500, color: 'var(--ink-1)' }}>
+                    {selectedWorkflow?.label ?? '—'}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn sm ghost"
+                    style={{ fontSize: 11, padding: '2px 8px' }}
+                    disabled={uploading}
+                    onClick={() => setStep(1)}
+                  >
+                    Change
+                  </button>
+                </div>
+
+                {/* Collapsible prompts */}
+                <div
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--r-lg)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <button
+                    type="button"
+                    disabled={uploading}
+                    onClick={() => setPromptsOpen((v) => !v)}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      background: 'var(--surface-2)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      gap: 10,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink-2)' }}>
+                      Prompts
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {!promptsOpen && promptFacePhase && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: 'var(--muted)',
+                            maxWidth: 240,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {promptFacePhase.slice(0, 60)}
+                          {promptFacePhase.length > 60 ? '…' : ''}
+                        </span>
+                      )}
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 14 14"
+                        fill="none"
+                        style={{
+                          color: 'var(--muted)',
+                          transform: promptsOpen ? 'rotate(180deg)' : 'none',
+                          transition: 'transform 150ms',
+                        }}
+                      >
+                        <path
+                          d="M3 5l4 4 4-4"
+                          stroke="currentColor"
+                          strokeWidth="1.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </div>
+                  </button>
+                  {promptsOpen && (
+                    <div
+                      style={{
+                        padding: '12px 14px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 12,
+                        borderTop: '1px solid var(--border)',
+                      }}
+                    >
+                      <div className="field">
+                        <label>Face phase prompt</label>
+                        <textarea
+                          className="input"
+                          value={promptFacePhase}
+                          disabled={uploading}
+                          rows={4}
+                          onChange={(e) => setPromptFacePhase(e.target.value)}
+                          style={{ fontSize: 12, fontFamily: 'var(--mono)', resize: 'vertical' }}
+                        />
+                      </div>
+                      <div className="field">
+                        <label>Garment phase prompt</label>
+                        <textarea
+                          className="input"
+                          value={promptGarmentPhase}
+                          disabled={uploading}
+                          rows={4}
+                          onChange={(e) => setPromptGarmentPhase(e.target.value)}
+                          style={{ fontSize: 12, fontFamily: 'var(--mono)', resize: 'vertical' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Section 4: Details ── */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <SectionHead>Details</SectionHead>
+
+                <div className="field">
+                  <label>
+                    Pose label <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={label}
+                    disabled={uploading}
+                    placeholder="e.g. Front view, Standing pose…"
+                    onChange={(e) => setLabel(e.target.value)}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {hasLower && (
+                    <>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-1)' }}>
+                        Lower garment allowlist
+                      </div>
+                      <div
+                        style={{
+                          padding: '8px 12px',
+                          background: 'var(--surface-2)',
+                          borderRadius: 'var(--r-lg)',
+                          border: '1px solid var(--border)',
+                          maxHeight: 160,
+                          overflowY: 'auto',
+                        }}
+                      >
+                        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
+                          Select allowed lower garments ({lowerItemIds.length} selected)
+                        </div>
+                        {lowerItems.length === 0 ? (
+                          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                            No lower garment items uploaded yet.
+                          </div>
+                        ) : (
+                          lowerItems.map((item) => (
+                            <label
+                              key={item.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '4px 0',
+                                cursor: uploading ? 'default' : 'pointer',
+                                fontSize: 12.5,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={lowerItemIds.includes(item.id)}
+                                disabled={uploading}
+                                onChange={(e) =>
+                                  setLowerItemIds((prev) =>
+                                    e.target.checked
+                                      ? [...prev, item.id]
+                                      : prev.filter((id) => id !== item.id),
+                                  )
+                                }
+                              />
+                              <span style={{ color: 'var(--ink-1)' }}>{item.label}</span>
+                              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                                {item.genderSlug ?? 'all'}
+                              </span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                  {hasShoes && (
+                    <>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-1)' }}>
+                        Shoes allowlist
+                      </div>
+                      <div
+                        style={{
+                          padding: '8px 12px',
+                          background: 'var(--surface-2)',
+                          borderRadius: 'var(--r-lg)',
+                          border: '1px solid var(--border)',
+                          maxHeight: 160,
+                          overflowY: 'auto',
+                        }}
+                      >
+                        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
+                          Select allowed shoes ({shoeItemIds.length} selected)
+                        </div>
+                        {shoeItems.length === 0 ? (
+                          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                            No shoe items uploaded yet.
+                          </div>
+                        ) : (
+                          shoeItems.map((item) => (
+                            <label
+                              key={item.id}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                padding: '4px 0',
+                                cursor: uploading ? 'default' : 'pointer',
+                                fontSize: 12.5,
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={shoeItemIds.includes(item.id)}
+                                disabled={uploading}
+                                onChange={(e) =>
+                                  setShoeItemIds((prev) =>
+                                    e.target.checked
+                                      ? [...prev, item.id]
+                                      : prev.filter((id) => id !== item.id),
+                                  )
+                                }
+                              />
+                              <span style={{ color: 'var(--ink-1)' }}>{item.label}</span>
+                              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                                {item.genderSlug ?? 'all'}
+                              </span>
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 10 }}>
+                  <div className="field">
+                    <label>Sort order</label>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      value={sortOrder}
+                      disabled={uploading}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        setSortOrder(Number.isNaN(n) ? 0 : n);
+                      }}
+                    />
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '10px 14px',
+                      background: 'var(--surface-2)',
+                      borderRadius: 'var(--r-lg)',
+                      border: '1px solid var(--border)',
+                      marginTop: 'auto',
+                    }}
+                  >
+                    <Switch
+                      checked={isTemplate}
+                      onChange={() => {
+                        if (!uploading) setIsTemplate((v) => !v);
+                      }}
+                    />
+                    <span style={{ fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 450 }}>
+                      Set as template for this cell
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Error */}
+              {error && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 14px',
+                    background: 'var(--danger-soft)',
+                    border: '1px solid var(--danger-border)',
+                    borderRadius: 'var(--r-lg)',
+                    color: 'var(--danger-ink)',
+                    fontSize: 13,
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    style={{ flexShrink: 0 }}
+                  >
+                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.4" />
                     <path
-                      d="M3 5l4 4 4-4"
+                      d="M8 5v4M8 10.5v.5"
                       stroke="currentColor"
                       strokeWidth="1.4"
                       strokeLinecap="round"
-                      strokeLinejoin="round"
                     />
                   </svg>
-                </div>
-              </button>
-              {promptsOpen && (
-                <div
-                  style={{
-                    padding: '12px 14px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 12,
-                    borderTop: '1px solid var(--border)',
-                  }}
-                >
-                  <div className="field">
-                    <label>Face phase prompt</label>
-                    <textarea
-                      className="input"
-                      value={promptFacePhase}
-                      disabled={uploading}
-                      rows={4}
-                      onChange={(e) => setPromptFacePhase(e.target.value)}
-                      style={{ fontSize: 12, fontFamily: 'var(--mono)', resize: 'vertical' }}
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Garment phase prompt</label>
-                    <textarea
-                      className="input"
-                      value={promptGarmentPhase}
-                      disabled={uploading}
-                      rows={4}
-                      onChange={(e) => setPromptGarmentPhase(e.target.value)}
-                      style={{ fontSize: 12, fontFamily: 'var(--mono)', resize: 'vertical' }}
-                    />
-                  </div>
+                  {error}
                 </div>
               )}
-            </div>
-          </div>
-
-          {/* ── Section 4: Details ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <SectionHead>Details</SectionHead>
-
-            <div className="field">
-              <label>
-                Pose label <span style={{ color: 'var(--danger)' }}>*</span>
-              </label>
-              <input
-                className="input"
-                value={label}
-                disabled={uploading}
-                placeholder="e.g. Front view, Standing pose…"
-                onChange={(e) => setLabel(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '10px 14px',
-                  background: 'var(--surface-2)',
-                  borderRadius: 'var(--r-lg)',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <Switch
-                  checked={showsLower}
-                  onChange={() => {
-                    if (!uploading) {
-                      setShowsLower((v) => !v);
-                      if (showsLower) setLowerItemIds([]);
-                    }
-                  }}
-                />
-                <span style={{ fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 450 }}>
-                  Shows lower garment
-                </span>
-              </div>
-              {showsLower && (
-                <div
-                  style={{
-                    padding: '8px 12px',
-                    background: 'var(--surface-2)',
-                    borderRadius: 'var(--r-lg)',
-                    border: '1px solid var(--border)',
-                    maxHeight: 160,
-                    overflowY: 'auto',
-                  }}
-                >
-                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
-                    Select allowed lower garments ({lowerItemIds.length} selected)
-                  </div>
-                  {lowerItems.length === 0 ? (
-                    <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                      No lower garment items uploaded yet.
-                    </div>
-                  ) : (
-                    lowerItems.map((item) => (
-                      <label
-                        key={item.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '4px 0',
-                          cursor: uploading ? 'default' : 'pointer',
-                          fontSize: 12.5,
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={lowerItemIds.includes(item.id)}
-                          disabled={uploading}
-                          onChange={(e) =>
-                            setLowerItemIds((prev) =>
-                              e.target.checked
-                                ? [...prev, item.id]
-                                : prev.filter((id) => id !== item.id),
-                            )
-                          }
-                        />
-                        <span style={{ color: 'var(--ink-1)' }}>{item.label}</span>
-                        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                          {item.genderSlug ?? 'all'}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-              )}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '10px 14px',
-                  background: 'var(--surface-2)',
-                  borderRadius: 'var(--r-lg)',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <Switch
-                  checked={showsShoes}
-                  onChange={() => {
-                    if (!uploading) {
-                      setShowsShoes((v) => !v);
-                      if (showsShoes) setShoeItemIds([]);
-                    }
-                  }}
-                />
-                <span style={{ fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 450 }}>
-                  Shows shoes
-                </span>
-              </div>
-              {showsShoes && (
-                <div
-                  style={{
-                    padding: '8px 12px',
-                    background: 'var(--surface-2)',
-                    borderRadius: 'var(--r-lg)',
-                    border: '1px solid var(--border)',
-                    maxHeight: 160,
-                    overflowY: 'auto',
-                  }}
-                >
-                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
-                    Select allowed shoes ({shoeItemIds.length} selected)
-                  </div>
-                  {shoeItems.length === 0 ? (
-                    <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                      No shoe items uploaded yet.
-                    </div>
-                  ) : (
-                    shoeItems.map((item) => (
-                      <label
-                        key={item.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '4px 0',
-                          cursor: uploading ? 'default' : 'pointer',
-                          fontSize: 12.5,
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={shoeItemIds.includes(item.id)}
-                          disabled={uploading}
-                          onChange={(e) =>
-                            setShoeItemIds((prev) =>
-                              e.target.checked
-                                ? [...prev, item.id]
-                                : prev.filter((id) => id !== item.id),
-                            )
-                          }
-                        />
-                        <span style={{ color: 'var(--ink-1)' }}>{item.label}</span>
-                        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                          {item.genderSlug ?? 'all'}
-                        </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 10 }}>
-              <div className="field">
-                <label>Sort order</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  value={sortOrder}
-                  disabled={uploading}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    setSortOrder(Number.isNaN(n) ? 0 : n);
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '10px 14px',
-                  background: 'var(--surface-2)',
-                  borderRadius: 'var(--r-lg)',
-                  border: '1px solid var(--border)',
-                  marginTop: 'auto',
-                }}
-              >
-                <Switch
-                  checked={isTemplate}
-                  onChange={() => {
-                    if (!uploading) setIsTemplate((v) => !v);
-                  }}
-                />
-                <span style={{ fontSize: 12.5, color: 'var(--ink-2)', fontWeight: 450 }}>
-                  Set as template for this cell
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '10px 14px',
-                background: 'var(--danger-soft)',
-                border: '1px solid var(--danger-border)',
-                borderRadius: 'var(--r-lg)',
-                color: 'var(--danger-ink)',
-                fontSize: 13,
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
-                <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.4" />
-                <path
-                  d="M8 5v4M8 10.5v.5"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                />
-              </svg>
-              {error}
-            </div>
+            </>
           )}
         </div>
 
         {/* Footer */}
         <div className="modal-foot" style={{ position: 'relative', overflow: 'hidden' }}>
-          {uploading && (
+          {step === 2 && uploading && (
             <div
               style={{
                 position: 'absolute',
@@ -1187,10 +1266,12 @@ export function PoseUploadModal({
           <button className="btn ghost" onClick={onClose} disabled={uploading}>
             Cancel
           </button>
-          <button className="btn primary" onClick={handleUpload} disabled={!canSubmit}>
-            <Icon.Upload />
-            {uploading ? 'Uploading…' : 'Upload pose'}
-          </button>
+          {step === 2 && (
+            <button className="btn primary" onClick={handleUpload} disabled={!canSubmit}>
+              <Icon.Upload />
+              {uploading ? 'Uploading…' : 'Upload pose'}
+            </button>
+          )}
         </div>
       </div>
     </div>

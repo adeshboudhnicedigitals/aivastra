@@ -64,7 +64,8 @@ export const workflowTemplates = pgTable('workflow_templates', {
   upperNodeIds: text('upper_node_ids').array().notNull(),
   lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
   shoeNodeId: text('shoe_node_id'), // nullable — some workflows have no shoe garment
-  sizeNodeId: text('size_node_id'), // nullable — EmptyLatentImage node for dynamic aspect ratio
+  sizeNodeId: text('size_node_id'), // kept for backward compat — use sizeNodeIds
+  sizeNodeIds: text('size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`), // all nodes controlling output dimensions
 
   // Prompt node IDs
   facePhasePromptNode: text('face_phase_prompt_node').notNull(),

@@ -93,6 +93,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       poseCount: countMap[r.id] ?? 0,
       defaultFacePhasePrompt: r.defaultFacePhasePrompt,
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,
+      lowerNodeId: r.lowerNodeId,
+      shoeNodeId: r.shoeNodeId,
+      sizeNodeIds: r.sizeNodeIds,
       createdAt: r.createdAt,
     }));
   });
@@ -138,7 +141,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         upperNodeIds: string[];
         lowerNodeId?: string;
         shoeNodeId?: string;
-        sizeNodeId?: string;
+        sizeNodeIds?: string[];
         facePhasePromptNode: string;
         garmentPhasePromptNode: string;
       };
@@ -192,7 +195,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           upperNodeIds: body.upperNodeIds,
           lowerNodeId: body.lowerNodeId ?? null,
           shoeNodeId: body.shoeNodeId ?? null,
-          sizeNodeId: body.sizeNodeId ?? null,
+          sizeNodeIds: body.sizeNodeIds ?? [],
           facePhasePromptNode: body.facePhasePromptNode,
           garmentPhasePromptNode: body.garmentPhasePromptNode,
           defaultFacePhasePrompt,
@@ -255,7 +258,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         upperNodeIds?: string[];
         lowerNodeId?: string | null;
         shoeNodeId?: string | null;
-        sizeNodeId?: string | null;
+        sizeNodeIds?: string[];
         facePhasePromptNode?: string;
         garmentPhasePromptNode?: string;
       };
@@ -327,7 +330,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (body.upperNodeIds !== undefined) updateValues['upperNodeIds'] = body.upperNodeIds;
       if ('lowerNodeId' in body) updateValues['lowerNodeId'] = body.lowerNodeId ?? null;
       if ('shoeNodeId' in body) updateValues['shoeNodeId'] = body.shoeNodeId ?? null;
-      if ('sizeNodeId' in body) updateValues['sizeNodeId'] = body.sizeNodeId ?? null;
+      if ('sizeNodeIds' in body) updateValues['sizeNodeIds'] = body.sizeNodeIds ?? [];
       if (body.facePhasePromptNode !== undefined)
         updateValues['facePhasePromptNode'] = body.facePhasePromptNode;
       if (body.garmentPhasePromptNode !== undefined)

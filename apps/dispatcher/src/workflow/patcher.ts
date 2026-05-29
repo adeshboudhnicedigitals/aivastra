@@ -147,14 +147,27 @@ export function applyWorkflowPatch(
   }
   // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
 
-  // Aspect ratio — patch EmptyLatentImage dimensions if a size node is configured
-  if (tmpl.sizeNodeId && inputs.aspectRatio) {
+  // Aspect ratio — patch all size-controlling nodes based on their class_type
+  if (inputs.aspectRatio && tmpl.sizeNodeIds.length > 0) {
     const dims = ASPECT_DIMENSIONS[inputs.aspectRatio];
-    if (dims && workflow[tmpl.sizeNodeId]) {
-      workflow[tmpl.sizeNodeId]!.inputs['width'] = dims.width;
-      workflow[tmpl.sizeNodeId]!.inputs['height'] = dims.height;
-    } else if (!dims) {
+    if (!dims) {
       log?.warn(`patchWorkflow: unknown aspectRatio "${inputs.aspectRatio}" — skipping size patch`);
+    } else {
+      for (const nodeId of tmpl.sizeNodeIds) {
+        const node = workflow[nodeId];
+        if (!node) continue;
+        if (node.class_type === 'ResizeImageMaskNode') {
+          node.inputs['resize_type.width'] = dims.width;
+          node.inputs['resize_type.height'] = dims.height;
+        } else if (node.class_type === 'ResizeAndPadImage') {
+          node.inputs['target_width'] = dims.width;
+          node.inputs['target_height'] = dims.height;
+        } else {
+          // EmptyLatentImage and generic fallback
+          node.inputs['width'] = dims.width;
+          node.inputs['height'] = dims.height;
+        }
+      }
     }
   }
 
