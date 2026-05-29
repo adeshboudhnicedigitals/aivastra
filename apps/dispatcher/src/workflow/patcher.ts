@@ -107,14 +107,15 @@ export function applyWorkflowPatch(
   // Lower garment — fall back to upper garment when not provided so ComfyUI
   // never receives a stale/empty filename from the original workflow design.
   if (tmpl.lowerNodeId) {
-    if (workflow[tmpl.lowerNodeId]) {
+    const lowerNode = workflow[tmpl.lowerNodeId];
+    if (lowerNode) {
       const lowerFile = inputs.lowerGarmentFile ?? inputs.upperGarmentFile;
       if (!inputs.lowerGarmentFile) {
         log?.warn(
           `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
         );
       }
-      workflow[tmpl.lowerNodeId].inputs.image = lowerFile;
+      lowerNode.inputs.image = lowerFile;
     }
   } else if (inputs.lowerGarmentFile) {
     log?.warn(
@@ -124,14 +125,15 @@ export function applyWorkflowPatch(
 
   // Shoe — same fallback pattern as lower garment
   if (tmpl.shoeNodeId) {
-    if (workflow[tmpl.shoeNodeId]) {
+    const shoeNode = workflow[tmpl.shoeNodeId];
+    if (shoeNode) {
       const shoeFile = inputs.shoeGarmentFile ?? inputs.upperGarmentFile;
       if (!inputs.shoeGarmentFile) {
         log?.warn(
           `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
         );
       }
-      workflow[tmpl.shoeNodeId].inputs.image = shoeFile;
+      shoeNode.inputs.image = shoeFile;
     }
   } else if (inputs.shoeGarmentFile) {
     log?.warn(
