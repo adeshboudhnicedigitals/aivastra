@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   CheckIcon,
   ChevronRight,
+  ImagePlusIcon,
+  LightbulbIcon,
   SearchIcon,
   SparkleIcon,
   SpinnerIcon,
