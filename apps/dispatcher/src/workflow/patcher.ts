@@ -142,8 +142,9 @@ export function applyWorkflowPatch(
   // Positive prompt — only override when pose provides a non-empty, non-whitespace string.
   // Empty or whitespace-only strings are skipped so the workflow's hardcoded default is preserved.
   // Whitespace-only prompts would cause ComfyUI to reject the submission (same as empty string).
-  if (inputs.promptGarmentPhase?.trim() && workflow[tmpl.garmentPhasePromptNode]) {
-    workflow[tmpl.garmentPhasePromptNode]!.inputs.prompt = inputs.promptGarmentPhase;
+  const promptNode = workflow[tmpl.garmentPhasePromptNode];
+  if (inputs.promptGarmentPhase?.trim() && promptNode) {
+    promptNode.inputs.prompt = inputs.promptGarmentPhase;
   }
   // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
 
