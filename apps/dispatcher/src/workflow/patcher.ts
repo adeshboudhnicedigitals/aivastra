@@ -100,9 +100,8 @@ export function applyWorkflowPatch(
 
   // Upper garment — patch all mapped nodes
   for (const uid of tmpl.upperNodeIds) {
-    if (workflow[uid]) {
-      workflow[uid]?.inputs.image = inputs.upperGarmentFile;
-    }
+    const upperNode = workflow[uid];
+    if (upperNode) upperNode.inputs.image = inputs.upperGarmentFile;
   }
 
   // Lower garment — fall back to upper garment when not provided so ComfyUI
@@ -115,7 +114,7 @@ export function applyWorkflowPatch(
           `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
         );
       }
-      workflow[tmpl.lowerNodeId]?.inputs.image = lowerFile;
+      workflow[tmpl.lowerNodeId].inputs.image = lowerFile;
     }
   } else if (inputs.lowerGarmentFile) {
     log?.warn(
@@ -132,7 +131,7 @@ export function applyWorkflowPatch(
           `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
         );
       }
-      workflow[tmpl.shoeNodeId]?.inputs.image = shoeFile;
+      workflow[tmpl.shoeNodeId].inputs.image = shoeFile;
     }
   } else if (inputs.shoeGarmentFile) {
     log?.warn(
@@ -144,7 +143,7 @@ export function applyWorkflowPatch(
   // Empty or whitespace-only strings are skipped so the workflow's hardcoded default is preserved.
   // Whitespace-only prompts would cause ComfyUI to reject the submission (same as empty string).
   if (inputs.promptGarmentPhase?.trim() && workflow[tmpl.garmentPhasePromptNode]) {
-    workflow[tmpl.garmentPhasePromptNode]?.inputs.prompt = inputs.promptGarmentPhase;
+    workflow[tmpl.garmentPhasePromptNode]!.inputs.prompt = inputs.promptGarmentPhase;
   }
   // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
 

@@ -317,7 +317,7 @@ export default function StudioPage(): React.ReactElement {
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
   const [platform, setPlatform] = useState('Amazon');
-  const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default);
+  const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
 
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
 
