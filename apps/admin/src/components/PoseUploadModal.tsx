@@ -481,15 +481,6 @@ export function PoseUploadModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast]);
 
-  const _handleWorkflowChange = (id: string) => {
-    setWorkflowTemplateId(id);
-    const wf = workflows.find((w) => w.id === id);
-    if (wf) {
-      setPromptFacePhase(wf.defaultFacePhasePrompt);
-      setPromptGarmentPhase(wf.defaultGarmentPhasePrompt);
-    }
-  };
-
   const handleUpload = async () => {
     if (!poseFile) {
       setError('Pose image is required');
@@ -744,7 +735,7 @@ export function PoseUploadModal({
                         {wf.shoeNodeId && (
                           <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>✓ Shoes</span>
                         )}
-                        {wf.sizeNodeId && (
+                        {wf.sizeNodeIds.length > 0 && (
                           <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
                             ✓ Aspect ratio
                           </span>
