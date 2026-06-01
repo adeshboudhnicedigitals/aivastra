@@ -5,7 +5,7 @@ import {
   ReassignWorkflowBody,
   UpdateWorkflowBody,
 } from '@aivastra/types';
-import { count, eq } from 'drizzle-orm';
+import { and, count, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -58,8 +58,8 @@ function extractDefaultPrompts(
   const negNode = json[negativePromptNode] as WorkflowNode | undefined;
   const posNode = json[positivePromptNode] as WorkflowNode | undefined;
   return {
-    defaultFacePhasePrompt: (negNode?.inputs?.['prompt'] as string | undefined) ?? '',
-    defaultGarmentPhasePrompt: (posNode?.inputs?.['prompt'] as string | undefined) ?? '',
+    defaultFacePhasePrompt: (negNode?.inputs?.prompt as string | undefined) ?? '',
+    defaultGarmentPhasePrompt: (posNode?.inputs?.prompt as string | undefined) ?? '',
   };
 }
 
@@ -204,14 +204,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         .returning();
 
       return {
-        id: row!.id,
-        slug: row!.slug,
-        label: row!.label,
-        isActive: row!.isActive,
+        id: row?.id,
+        slug: row?.slug,
+        label: row?.label,
+        isActive: row?.isActive,
         poseCount: 0,
-        defaultFacePhasePrompt: row!.defaultFacePhasePrompt,
-        defaultGarmentPhasePrompt: row!.defaultGarmentPhasePrompt,
-        createdAt: row!.createdAt,
+        defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
+        defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
+        createdAt: row?.createdAt,
       };
     },
   );
@@ -251,6 +251,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const body = req.body as {
         label?: string;
+        slug?: string;
         isActive?: boolean;
         faceNodeId?: string;
         poseNodeId?: string;
@@ -322,19 +323,29 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         defaultFacePhasePrompt,
         defaultGarmentPhasePrompt,
       };
-      if (body.label !== undefined) updateValues['label'] = body.label;
-      if (body.isActive !== undefined) updateValues['isActive'] = body.isActive;
-      if (body.faceNodeId !== undefined) updateValues['faceNodeId'] = body.faceNodeId;
-      if (body.poseNodeId !== undefined) updateValues['poseNodeId'] = body.poseNodeId;
-      if (body.bgNodeId !== undefined) updateValues['bgNodeId'] = body.bgNodeId;
-      if (body.upperNodeIds !== undefined) updateValues['upperNodeIds'] = body.upperNodeIds;
-      if ('lowerNodeId' in body) updateValues['lowerNodeId'] = body.lowerNodeId ?? null;
-      if ('shoeNodeId' in body) updateValues['shoeNodeId'] = body.shoeNodeId ?? null;
-      if ('sizeNodeIds' in body) updateValues['sizeNodeIds'] = body.sizeNodeIds ?? [];
+      if (body.label !== undefined) updateValues.label = body.label;
+      if (body.slug !== undefined) {
+        const [conflict] = await app.db
+          .select({ id: schema.workflowTemplates.id })
+          .from(schema.workflowTemplates)
+          .where(
+            and(eq(schema.workflowTemplates.slug, body.slug), ne(schema.workflowTemplates.id, id)),
+          );
+        if (conflict) throw new AppError('CONFLICT', 409, `Slug "${body.slug}" already taken`);
+        updateValues.slug = body.slug;
+      }
+      if (body.isActive !== undefined) updateValues.isActive = body.isActive;
+      if (body.faceNodeId !== undefined) updateValues.faceNodeId = body.faceNodeId;
+      if (body.poseNodeId !== undefined) updateValues.poseNodeId = body.poseNodeId;
+      if (body.bgNodeId !== undefined) updateValues.bgNodeId = body.bgNodeId;
+      if (body.upperNodeIds !== undefined) updateValues.upperNodeIds = body.upperNodeIds;
+      if ('lowerNodeId' in body) updateValues.lowerNodeId = body.lowerNodeId ?? null;
+      if ('shoeNodeId' in body) updateValues.shoeNodeId = body.shoeNodeId ?? null;
+      if ('sizeNodeIds' in body) updateValues.sizeNodeIds = body.sizeNodeIds ?? [];
       if (body.facePhasePromptNode !== undefined)
-        updateValues['facePhasePromptNode'] = body.facePhasePromptNode;
+        updateValues.facePhasePromptNode = body.facePhasePromptNode;
       if (body.garmentPhasePromptNode !== undefined)
-        updateValues['garmentPhasePromptNode'] = body.garmentPhasePromptNode;
+        updateValues.garmentPhasePromptNode = body.garmentPhasePromptNode;
 
       await app.db
         .update(schema.workflowTemplates)

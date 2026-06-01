@@ -13,7 +13,7 @@ import {
   PresignModelFaceBody,
   PresignModelPoseBody,
 } from '@aivastra/types';
-import { and, count, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, getTableColumns, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -260,7 +260,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (backgroundId) conditions.push(eq(schema.modelPoses.backgroundId, backgroundId));
       const rows = await app.db
         .select({
-          ...schema.modelPoses,
+          ...getTableColumns(schema.modelPoses),
           workflowLabel: schema.workflowTemplates.label,
         })
         .from(schema.modelPoses)
