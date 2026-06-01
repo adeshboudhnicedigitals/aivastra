@@ -27,15 +27,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   app.get('/admin/assets/faces', { preHandler: W }, async () => {
     const rows = await app.db.select().from(schema.modelFaces);
-    const tmplCounts = await app.db
-      .select({ faceId: schema.modelPoses.faceId, cnt: count() })
-      .from(schema.modelPoses)
-      .where(eq(schema.modelPoses.isTemplate, true))
-      .groupBy(schema.modelPoses.faceId);
-    const countMap = Object.fromEntries(tmplCounts.map((r) => [r.faceId, Number(r.cnt)]));
-    return {
-      items: rows.map((r) => ({ ...r, templateCount: countMap[r.id] ?? 0 })),
-    };
+    return { items: rows };
   });
 
   app.post(
@@ -267,8 +259,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (faceId) conditions.push(eq(schema.modelPoses.faceId, faceId));
       if (backgroundId) conditions.push(eq(schema.modelPoses.backgroundId, backgroundId));
       const rows = await app.db
-        .select()
+        .select({
+          ...schema.modelPoses,
+          workflowLabel: schema.workflowTemplates.label,
+        })
         .from(schema.modelPoses)
+        .leftJoin(
+          schema.workflowTemplates,
+          eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
+        )
         .where(and(...conditions));
       return { items: rows };
     },
@@ -449,20 +448,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           resolvedBgId = newBgRow!.id;
         }
 
-        if (body.isTemplate) {
-          await tx
-            .update(schema.modelPoses)
-            .set({ isTemplate: false, updatedAt: new Date() })
-            .where(
-              and(
-                eq(schema.modelPoses.subcategoryId, body.garmentTypeId),
-                eq(schema.modelPoses.faceId, resolvedFaceId),
-                eq(schema.modelPoses.backgroundId, resolvedBgId),
-                eq(schema.modelPoses.isTemplate, true),
-              ),
-            );
-        }
-
         const [inserted] = await tx
           .insert(schema.modelPoses)
           .values({
@@ -479,7 +464,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             promptGarmentPhase: body.promptGarmentPhase,
             showsLower: derivedShowsLower,
             showsShoes: derivedShowsShoes,
-            isTemplate: body.isTemplate,
             sortOrder: body.sortOrder,
           })
           .returning();
@@ -566,7 +550,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as {
-        isTemplate?: boolean;
         workflowTemplateId?: string;
         [key: string]: unknown;
       };
@@ -589,24 +572,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const poseFields = body as Record<string, unknown>;
 
       await app.db.transaction(async (tx) => {
-        if (poseFields.isTemplate === true) {
-          const [pose] = await tx
-            .select()
-            .from(schema.modelPoses)
-            .where(eq(schema.modelPoses.id, id));
-          if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
-          await tx
-            .update(schema.modelPoses)
-            .set({ isTemplate: false, updatedAt: new Date() })
-            .where(
-              and(
-                eq(schema.modelPoses.subcategoryId, pose.subcategoryId),
-                eq(schema.modelPoses.faceId, pose.faceId),
-                eq(schema.modelPoses.backgroundId, pose.backgroundId),
-                eq(schema.modelPoses.isTemplate, true),
-              ),
-            );
-        }
         if (Object.keys(poseFields).length > 0) {
           const [updated] = await tx
             .update(schema.modelPoses)
