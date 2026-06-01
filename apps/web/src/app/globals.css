@@ -103,3 +103,17 @@ a {
     transform: none;
   }
 }
+
+@keyframes av-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.av-shimmer {
+  background: linear-gradient(90deg, #f2f2f2 0%, #e6e6e6 50%, #f2f2f2 100%);
+  background-size: 200% 100%;
+  animation: av-shimmer 1.4s linear infinite;
+}

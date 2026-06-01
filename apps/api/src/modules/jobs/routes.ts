@@ -74,7 +74,19 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
         .orderBy(schema.jobs.createdAt);
       if (jobs.length === 0) throw new AppError('NOT_FOUND', 404, 'catalogue not found');
-      return { catalogueId: id, jobs };
+
+      // All jobs in a catalogue share the same aspectRatio (set once at creation).
+      // Pull it from any one job's inputs so the preview can size its image slot.
+      const [anyInput] = await app.db
+        .select({ params: schema.jobInputs.params })
+        .from(schema.jobInputs)
+        .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
+        .limit(1);
+      const aspectRatio =
+        (anyInput?.params as { aspectRatio?: string } | null)?.aspectRatio ?? null;
+
+      return { catalogueId: id, jobs, aspectRatio };
     },
   );
 
