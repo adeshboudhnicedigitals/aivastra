@@ -10,7 +10,6 @@ export interface ModelFace {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
-  templateCount?: number;
 }
 
 // Global — no faceId
@@ -37,7 +36,6 @@ export interface GarmentType {
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
-  templateCount?: number;
 }
 
 export interface WorkflowOption {
@@ -55,7 +53,6 @@ export interface WorkflowOption {
 }
 
 // Poses are per (garment type × face × background) combo
-// isTemplate: exactly one pose per face×background cell is the thumbnail shown to users
 export interface ModelPose {
   id: string;
   garmentTypeId: string;
@@ -71,7 +68,7 @@ export interface ModelPose {
   promptGarmentPhase: string | null;
   showsLower: boolean;
   showsShoes: boolean;
-  isTemplate: boolean;
+  workflowLabel: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;

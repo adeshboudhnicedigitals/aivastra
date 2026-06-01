@@ -120,6 +120,12 @@ export const ParseWorkflowBody = z.object({
 
 export const UpdateWorkflowBody = z.object({
   label: z.string().min(1).max(120).optional(),
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens')
+    .optional(),
   isActive: z.boolean().optional(),
   // Allow updating node mappings (not the JSON itself)
   faceNodeId: z.string().min(1).optional(),
@@ -199,7 +205,6 @@ export const ConfirmModelPoseBody = z
     // Optional — if absent or empty the workflow template's own prompt text is used
     promptFacePhase: z.string().optional(),
     promptGarmentPhase: z.string().optional(),
-    isTemplate: z.boolean().default(false),
     sortOrder: z.number().int().default(0),
   })
   .refine((d) => Boolean(d.faceId) !== Boolean(d.newFace), {
@@ -216,7 +221,6 @@ export const PatchModelPoseBody = z.object({
   faceId: z.string().uuid().optional(),
   backgroundId: z.string().uuid().optional(),
   isActive: z.boolean().optional(),
-  isTemplate: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   showsLower: z.boolean().optional(),
   showsShoes: z.boolean().optional(),

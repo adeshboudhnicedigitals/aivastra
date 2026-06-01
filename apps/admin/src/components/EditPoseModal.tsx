@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
-import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
+import type { ModelBackground, ModelFace, ModelPose } from '../types';
 import { Icon } from './Icons';
-import { Switch } from './Switch';
 
 function ImagePicker({
   id,
@@ -189,36 +188,10 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
     promptGarmentPhase: pose.promptGarmentPhase ?? '',
   });
 
-  const [showsLower, setShowsLower] = useState(pose.showsLower);
-  const [showsShoes, setShowsShoes] = useState(pose.showsShoes);
-
-  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [faceSideFile, setFaceSideFile] = useState<File | null>(null);
   const [poseFile, setPoseFile] = useState<File | null>(null);
   const [bgComfyFile, setBgComfyFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
-
-  const selectedWorkflow = workflows.find((w) => w.id === form.workflowTemplateId);
-  const hasLower = selectedWorkflow?.lowerNodeId != null;
-  const hasShoes = selectedWorkflow?.shoeNodeId != null;
-
-  // When workflow changes and no longer supports lower/shoe, reset the toggle
-  useEffect(() => {
-    if (!hasLower) setShowsLower(false);
-    if (!hasShoes) setShowsShoes(false);
-  }, [hasLower, hasShoes]);
-
-  // Fetch workflows from DB on mount
-  useEffect(() => {
-    apiFetch<WorkflowOption[]>('/admin/workflows')
-      .then((wfs) => setWorkflows(wfs.filter((w) => w.isActive)))
-      .catch(() => toast({ kind: 'error', title: 'Failed to load workflow options' }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast]);
-
-  const handleWorkflowChange = (id: string) => {
-    setForm((f) => ({ ...f, workflowTemplateId: id }));
-  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -264,10 +237,9 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
         newBgComfyR2Key = presign.r2Key;
       }
 
+      const { workflowTemplateId: _wf, ...formWithoutWorkflow } = form;
       const patch: Record<string, unknown> = {
-        ...form,
-        showsLower,
-        showsShoes,
+        ...formWithoutWorkflow,
         promptGarmentPhase: form.promptGarmentPhase.trim() || undefined,
       };
       if (faceSideR2Key) patch.faceSideR2Key = faceSideR2Key;
@@ -283,8 +255,6 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
       onSaved({
         ...pose,
         ...form,
-        showsLower,
-        showsShoes,
         promptGarmentPhase: form.promptGarmentPhase.trim() || pose.promptGarmentPhase,
         ...(faceSideR2Key ? { faceSideR2Key } : {}),
         ...(newR2Key ? { r2Key: newR2Key } : {}),
@@ -462,24 +432,6 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '2px 0' }} />
 
-          {/* Workflow */}
-          <div className="field">
-            <label>Workflow template</label>
-            <select
-              className="select"
-              value={form.workflowTemplateId}
-              disabled={saving || workflows.length === 0}
-              onChange={(e) => handleWorkflowChange(e.target.value)}
-            >
-              {workflows.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.label}
-                </option>
-              ))}
-              {workflows.length === 0 && <option value={form.workflowTemplateId}>Loading…</option>}
-            </select>
-          </div>
-
           <div className="field">
             <label>Positive prompt</label>
             <textarea
@@ -491,57 +443,6 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
               style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
             />
           </div>
-
-          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '2px 0' }} />
-
-          {(hasLower || hasShoes) && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {hasLower && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 14px',
-                    background: 'var(--subtle)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                  }}
-                >
-                  <span style={{ fontSize: 13, color: 'var(--text)' }}>
-                    Show lower garment section
-                  </span>
-                  <Switch
-                    checked={showsLower}
-                    onChange={() => {
-                      if (!saving) setShowsLower((v) => !v);
-                    }}
-                  />
-                </div>
-              )}
-              {hasShoes && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '10px 14px',
-                    background: 'var(--subtle)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                  }}
-                >
-                  <span style={{ fontSize: 13, color: 'var(--text)' }}>Show shoes section</span>
-                  <Switch
-                    checked={showsShoes}
-                    onChange={() => {
-                      if (!saving) setShowsShoes((v) => !v);
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
 
           <div className="field">
             <label>Sort order</label>
