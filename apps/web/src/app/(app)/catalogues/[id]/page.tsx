@@ -255,8 +255,8 @@ export default function CataloguePage({
         }
         right={
           <div style={{ display: 'flex', gap: 12 }}>
-            <button
-              type="button"
+            <Link
+              href={`/catalogues/${id}/preview`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -275,10 +275,11 @@ export default function CataloguePage({
                 lineHeight: '20px',
                 cursor: 'pointer',
                 boxSizing: 'border-box',
+                textDecoration: 'none',
               }}
             >
               <MonitorPlayIcon size={20} /> Preview
-            </button>
+            </Link>
             <button
               type="button"
               style={{
