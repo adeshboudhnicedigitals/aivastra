@@ -48,7 +48,16 @@ function Cover({ jobs }: { jobs: JobSummary[] }) {
   if (completed && result?.url) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
-      <img src={result.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <img
+        src={result.url}
+        alt=""
+        style={{
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+          objectPosition: 'center',
+        }}
+      />
     );
   }
   return (
