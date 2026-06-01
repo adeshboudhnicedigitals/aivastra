@@ -1,11 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-// ─── shared content + helpers ──────────────────────────────────────────────────
+// ─── template content ─────────────────────────────────────────────────────────
+// Hardcoded for v1. Future: accept user-supplied product metadata.
 
-// Single source for all marketplace copy. Hardcoded for v1; later this can accept
-// real product metadata (title, price, SKU) supplied by the user.
-const TEMPLATE_CONTENT = {
+const TC = {
   store: 'FURBO',
   title: 'Women Solid Puff Sleeve Peplum Top - Stylish Ruched Square Neck Casual Top for Women',
   rating: 3.9,
@@ -17,27 +16,37 @@ const TEMPLATE_CONTENT = {
   defaultSize: 'M',
 };
 
-interface TemplateProps {
-  images: Array<string | undefined>;
-  activeIndex: number;
-  onActiveChange: (i: number) => void;
-  ratio: string; // CSS aspect-ratio value, e.g. "3 / 4"
-}
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
-// Convert pipeline ratio strings ("3:4") to a CSS aspect-ratio value ("3 / 4").
+// Convert pipeline ratio string ("3:4") → CSS aspect-ratio ("3 / 4").
 export function aspectToCss(ratio: string | null | undefined): string {
   if (!ratio) return '1 / 1';
   const [w, h] = ratio.split(':');
   return w && h ? `${w} / ${h}` : '1 / 1';
 }
 
-// Product image slot: reserves space via aspect-ratio (no CLS), shimmer skeleton
-// until the image loads, then fades in. contain-on-white mirrors marketplace cropping.
-function ProductImage({ src, ratio }: { src?: string; ratio: string }) {
+interface TemplateProps {
+  images: Array<string | undefined>;
+  activeIndex: number;
+  onActiveChange: (i: number) => void;
+  ratio: string;
+}
+
+// ─── product image ─────────────────────────────────────────────────────────────
+// Reserves space via aspect-ratio (no CLS). Warm #f7f7f7 background mirrors
+// marketplace image zones. Shimmer skeleton fades to image on load.
+
+function ProductImage({
+  src,
+  ratio,
+  zoom = false,
+}: {
+  src?: string;
+  ratio: string;
+  zoom?: boolean;
+}) {
   const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    setLoaded(false);
-  }, []);
+  const [hovered, setHovered] = useState(false);
 
   return (
     <div
@@ -45,9 +54,12 @@ function ProductImage({ src, ratio }: { src?: string; ratio: string }) {
         position: 'relative',
         width: '100%',
         aspectRatio: ratio,
-        background: '#fff',
+        background: '#f7f7f7',
         overflow: 'hidden',
+        cursor: zoom && src && hovered ? 'zoom-in' : 'default',
       }}
+      onMouseEnter={() => zoom && setHovered(true)}
+      onMouseLeave={() => zoom && setHovered(false)}
     >
       {(!src || !loaded) && (
         <div className="av-shimmer" style={{ position: 'absolute', inset: 0 }} aria-hidden="true" />
@@ -59,13 +71,13 @@ function ProductImage({ src, ratio }: { src?: string; ratio: string }) {
           alt="Generated catalogue preview"
           onLoad={() => setLoaded(true)}
           style={{
-            position: 'relative',
             width: '100%',
             height: '100%',
             objectFit: 'contain',
             objectPosition: 'center',
             opacity: loaded ? 1 : 0,
-            transition: 'opacity 240ms ease',
+            transform: zoom && hovered ? 'scale(1.7)' : 'scale(1)',
+            transition: 'opacity 240ms ease, transform 220ms ease',
           }}
         />
       )}
@@ -73,7 +85,8 @@ function ProductImage({ src, ratio }: { src?: string; ratio: string }) {
   );
 }
 
-// Partial-fill star rating — two stacked layers clipped by percentage.
+// ─── star rating ──────────────────────────────────────────────────────────────
+
 function Stars({ rating, size = 14 }: { rating: number; size?: number }) {
   const pct = (rating / 5) * 100;
   return (
@@ -102,9 +115,77 @@ function Stars({ rating, size = 14 }: { rating: number; size?: number }) {
   );
 }
 
-// ─── decorative glyphs (marketplace chrome — aria-hidden) ──────────────────────
+// ─── offer / coupon block ──────────────────────────────────────────────────────
+// The single highest-recognition Amazon fidelity signal.
 
-const glyphProps = {
+function OfferBlock({ compact = false }: { compact?: boolean }) {
+  const offers = [
+    {
+      label: 'Bank Offer',
+      text: compact
+        ? 'Upto ₹3,000 off on HDFC Credit Cards'
+        : 'Upto ₹3,000 instant discount on HDFC Bank Credit/Debit Cards',
+      count: '3 offers',
+    },
+    {
+      label: 'No Cost EMI',
+      text: compact ? 'from ₹167/month' : 'No Cost EMI available on select cards from ₹167/month',
+      count: '2 offers',
+    },
+    {
+      label: 'Cashback',
+      text: compact ? 'Get ₹10 on Amazon Pay' : 'Get ₹10 cashback when you pay via Amazon Pay',
+      count: '1 offer',
+    },
+  ];
+  return (
+    <div
+      style={{
+        border: '1px solid #e4e4e4',
+        borderRadius: 4,
+        overflow: 'hidden',
+        marginTop: compact ? 10 : 14,
+      }}
+    >
+      <div
+        style={{
+          background: '#f4f6f8',
+          padding: compact ? '5px 10px' : '6px 12px',
+          borderBottom: '1px solid #e4e4e4',
+          fontSize: 11,
+          fontWeight: 700,
+          color: '#0f1111',
+        }}
+      >
+        Applicable Offers
+      </div>
+      {offers.map((o, i) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: static offer list — index is stable
+          key={i}
+          style={{
+            padding: compact ? '7px 10px' : '8px 12px',
+            borderBottom: i < offers.length - 1 ? '1px solid #f0f0f0' : 'none',
+            fontSize: 11,
+            lineHeight: 1.4,
+            display: 'flex',
+            gap: 6,
+          }}
+        >
+          <b style={{ color: '#cc0c39', flexShrink: 0 }}>{o.label}</b>
+          <span style={{ color: '#565959' }}>
+            {o.text}
+            {!compact && <span style={{ color: '#007185', marginLeft: 4 }}>· {o.count}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── decorative glyphs (marketplace chrome, all aria-hidden) ─────────────────
+
+const gp = {
   fill: 'none',
   stroke: 'currentColor',
   strokeWidth: 2,
@@ -113,32 +194,26 @@ const glyphProps = {
   'aria-hidden': true,
 };
 
-const MenuGlyph = ({ color = '#fff' }: { color?: string }) => (
-  <svg width="20" height="20" viewBox="0 0 24 24" style={{ color }} {...glyphProps}>
+const MenuG = ({ color = '#fff' }: { color?: string }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" style={{ color }} {...gp}>
     <path d="M3 6h18M3 12h18M3 18h18" />
   </svg>
 );
-const CartGlyph = ({ color = '#fff', size = 22 }: { color?: string; size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" style={{ color }} {...glyphProps}>
+const CartG = ({ color = '#fff', size = 22 }: { color?: string; size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" style={{ color }} {...gp}>
     <circle cx="9" cy="21" r="1" />
     <circle cx="20" cy="21" r="1" />
     <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
   </svg>
 );
-const SearchGlyph = ({ color = '#0f1111' }: { color?: string }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" style={{ color }} {...glyphProps}>
+const SearchG = ({ color = '#0f1111' }: { color?: string }) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" style={{ color }} {...gp}>
     <circle cx="11" cy="11" r="8" />
     <path d="m21 21-4.34-4.34" />
   </svg>
 );
-const PinGlyph = ({ color = '#fff' }: { color?: string }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" style={{ color }} {...glyphProps}>
-    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-    <circle cx="12" cy="10" r="3" />
-  </svg>
-);
-const LockGlyph = () => (
-  <svg width="11" height="11" viewBox="0 0 24 24" style={{ color: '#5f6368' }} {...glyphProps}>
+const LockG = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" style={{ color: '#5f6368' }} {...gp}>
     <rect width="18" height="11" x="3" y="11" rx="2" />
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
   </svg>
@@ -146,7 +221,8 @@ const LockGlyph = () => (
 
 // ─── device shells ─────────────────────────────────────────────────────────────
 
-// Generic premium Android-style phone. Chrome is decorative; screen content is real.
+// Generic premium Android phone — no OEM branding, no status bar clutter.
+// Punch-hole camera + slim bezels is recognisable as modern flagship without trademark.
 export function PhoneShell({
   children,
   scrollRef,
@@ -162,12 +238,11 @@ export function PhoneShell({
         background: '#0d0d0f',
         borderRadius: 46,
         padding: 12,
-        boxShadow: '0 30px 60px rgba(0,0,0,0.26), 0 8px 20px rgba(0,0,0,0.12)',
+        boxShadow: '0 30px 60px rgba(0,0,0,0.28), 0 8px 20px rgba(0,0,0,0.14)',
         position: 'relative',
         flexShrink: 0,
       }}
     >
-      {/* punch-hole camera */}
       <div
         aria-hidden="true"
         style={{
@@ -200,7 +275,7 @@ export function PhoneShell({
   );
 }
 
-// Generic browser window — traffic lights + domain-only URL. No OEM hardware.
+// Generic browser window — domain-only URL, no Apple hardware.
 export function BrowserShell({
   children,
   scrollRef,
@@ -211,57 +286,81 @@ export function BrowserShell({
   return (
     <div
       style={{
-        width: 980,
+        width: 1020,
         maxWidth: '100%',
         background: '#fff',
-        borderRadius: 12,
+        borderRadius: 10,
         overflow: 'hidden',
-        border: '1px solid #e6e6e6',
-        boxShadow: '0 30px 60px rgba(0,0,0,0.16), 0 8px 20px rgba(0,0,0,0.06)',
+        border: '1px solid #ddd',
+        boxShadow: '0 30px 70px rgba(0,0,0,0.18), 0 8px 24px rgba(0,0,0,0.07)',
       }}
     >
-      {/* browser top chrome */}
+      {/* chrome bar */}
       <div
         style={{
-          height: 44,
+          height: 40,
           background: '#f1f1f2',
-          borderBottom: '1px solid #e2e2e2',
+          borderBottom: '1px solid #dadada',
           display: 'flex',
           alignItems: 'center',
-          padding: '0 14px',
-          gap: 14,
+          padding: '0 12px',
+          gap: 12,
         }}
       >
-        <div style={{ display: 'flex', gap: 7 }} aria-hidden="true">
-          <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#ff5f57' }} />
-          <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#febc2e' }} />
-          <span style={{ width: 12, height: 12, borderRadius: '50%', background: '#28c840' }} />
+        <div style={{ display: 'flex', gap: 6 }} aria-hidden="true">
+          <span
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              background: '#ff5f57',
+              display: 'block',
+            }}
+          />
+          <span
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              background: '#febc2e',
+              display: 'block',
+            }}
+          />
+          <span
+            style={{
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              background: '#28c840',
+              display: 'block',
+            }}
+          />
         </div>
         <div
           style={{
             flex: 1,
-            maxWidth: 440,
+            maxWidth: 460,
             margin: '0 auto',
-            height: 28,
+            height: 26,
             background: '#fff',
-            borderRadius: 14,
-            border: '1px solid #e2e2e2',
+            borderRadius: 13,
+            border: '1px solid #dadada',
             display: 'flex',
             alignItems: 'center',
-            gap: 8,
-            padding: '0 14px',
-            fontSize: 12.5,
+            gap: 7,
+            padding: '0 12px',
+            fontSize: 12,
             color: '#5f6368',
           }}
         >
-          <LockGlyph />
+          <LockG />
           amazon.in
         </div>
-        <div style={{ width: 52 }} aria-hidden="true" />
+        <div style={{ width: 48 }} aria-hidden="true" />
       </div>
       <div
         ref={scrollRef}
-        style={{ height: 620, maxHeight: '66vh', overflow: 'auto', background: '#fff' }}
+        style={{ height: 640, maxHeight: '68vh', overflow: 'auto', background: '#fff' }}
       >
         {children}
       </div>
@@ -269,7 +368,7 @@ export function BrowserShell({
   );
 }
 
-// ─── Amazon templates (static, inspired — not pixel clones) ────────────────────
+// ─── Amazon mobile template ───────────────────────────────────────────────────
 
 export function AmazonMobileTemplate({
   images,
@@ -277,23 +376,23 @@ export function AmazonMobileTemplate({
   onActiveChange,
   ratio,
 }: TemplateProps) {
-  const [size, setSize] = useState(TEMPLATE_CONTENT.defaultSize);
+  const [size, setSize] = useState(TC.defaultSize);
   const active = images[activeIndex];
 
   return (
     <div style={{ fontFamily: 'Arial, Helvetica, sans-serif', fontSize: 13, color: '#0f1111' }}>
-      {/* header */}
+      {/* header — slim */}
       <div
         style={{
           background: '#131921',
-          padding: '9px 10px',
+          padding: '8px 10px',
           display: 'flex',
           alignItems: 'center',
           gap: 8,
         }}
       >
-        <MenuGlyph />
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: 16 }}>
+        <MenuG />
+        <span style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>
           amazon<span style={{ color: '#ff9900' }}>.in</span>
         </span>
         <div
@@ -301,16 +400,17 @@ export function AmazonMobileTemplate({
             marginLeft: 'auto',
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
+            gap: 10,
             color: '#fff',
           }}
         >
           <span style={{ fontSize: 11 }}>Sign in ›</span>
-          <CartGlyph size={20} />
+          <CartG size={19} />
         </div>
       </div>
+
       {/* search */}
-      <div style={{ background: '#232f3e', padding: 8, display: 'flex' }}>
+      <div style={{ background: '#232f3e', padding: '6px 8px', display: 'flex' }}>
         <div
           style={{
             flex: 1,
@@ -321,146 +421,125 @@ export function AmazonMobileTemplate({
             padding: '0 10px',
             fontSize: 12,
             color: '#888',
-            height: 34,
+            height: 30,
           }}
         >
           Search Amazon.in
         </div>
         <div
           style={{
-            width: 42,
+            width: 38,
             background: '#febd69',
             borderRadius: '0 4px 4px 0',
             display: 'grid',
             placeItems: 'center',
           }}
         >
-          <SearchGlyph />
+          <SearchG />
         </div>
       </div>
-      {/* delivery */}
-      <div
-        style={{
-          background: '#37475a',
-          color: '#fff',
-          fontSize: 11,
-          padding: '6px 10px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-        }}
-      >
-        <PinGlyph /> Delivering to Hyderabad 500032 · Update location
-      </div>
-      {/* category nav */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 16,
-          padding: '8px 10px',
-          overflowX: 'auto',
-          borderBottom: '1px solid #eee',
-          fontSize: 11,
-        }}
-      >
-        {['Prime', 'Mobiles', 'Fashion', 'Home', 'Electronics', 'miniTV'].map((c) => (
-          <span key={c} style={{ whiteSpace: 'nowrap', color: '#0f1111' }}>
-            {c}
-          </span>
-        ))}
+
+      {/* delivery strip — compressed */}
+      <div style={{ background: '#37475a', color: '#fff', fontSize: 10.5, padding: '4px 10px' }}>
+        Delivering to Hyderabad 500032 · <span style={{ color: '#febd69' }}>Update location</span>
       </div>
 
-      {/* main image + carousel dots */}
-      <div style={{ padding: '6px 0 0' }}>
-        <ProductImage src={active} ratio={ratio} />
-        {images.length > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, padding: '10px 0 6px' }}>
-            {images.map((_, i) => (
-              <button
-                // biome-ignore lint/suspicious/noArrayIndexKey: gallery slots are positional and stable
-                key={i}
-                type="button"
-                onClick={() => onActiveChange(i)}
-                aria-label={`Show image ${i + 1}`}
-                style={{
-                  width: i === activeIndex ? 8 : 7,
-                  height: i === activeIndex ? 8 : 7,
-                  borderRadius: '50%',
-                  border: 'none',
-                  padding: 0,
-                  cursor: 'pointer',
-                  background: i === activeIndex ? '#007185' : '#c7cdd1',
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      {/* product image — appears immediately with no nav clutter above */}
+      <ProductImage src={active} ratio={ratio} />
+
+      {/* carousel dots */}
+      {images.length > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, padding: '8px 0 4px' }}>
+          {images.map((_, i) => (
+            <button
+              // biome-ignore lint/suspicious/noArrayIndexKey: gallery index is stable
+              key={i}
+              type="button"
+              onClick={() => onActiveChange(i)}
+              aria-label={`Show image ${i + 1}`}
+              style={{
+                width: i === activeIndex ? 9 : 7,
+                height: i === activeIndex ? 9 : 7,
+                borderRadius: '50%',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                background: i === activeIndex ? '#007185' : '#c7cdd1',
+              }}
+            />
+          ))}
+        </div>
+      )}
 
       {/* details */}
-      <div style={{ padding: '8px 14px 24px' }}>
-        <div style={{ color: '#007185', fontSize: 12, marginBottom: 4 }}>
-          Visit the {TEMPLATE_CONTENT.store} Store
+      <div style={{ padding: '10px 12px 28px' }}>
+        <div style={{ color: '#007185', fontSize: 11, marginBottom: 3 }}>
+          Visit the {TC.store} Store
         </div>
-        <div style={{ fontSize: 15, lineHeight: 1.35, marginBottom: 6 }}>
-          {TEMPLATE_CONTENT.title}
+        <div style={{ fontSize: 14, lineHeight: 1.25, marginBottom: 6 }}>{TC.title}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+          <span style={{ fontSize: 12 }}>{TC.rating}</span>
+          <Stars rating={TC.rating} />
+          <span style={{ color: '#007185', fontSize: 11 }}>({TC.ratingCount})</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-          <span style={{ fontSize: 13 }}>{TEMPLATE_CONTENT.rating}</span>
-          <Stars rating={TEMPLATE_CONTENT.rating} />
-          <span style={{ color: '#007185', fontSize: 12 }}>({TEMPLATE_CONTENT.ratingCount})</span>
-        </div>
+
+        {/* price */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          <span style={{ color: '#cc0c39', fontSize: 18 }}>-{TEMPLATE_CONTENT.discount}</span>
-          <span style={{ fontSize: 12, marginTop: 2 }}>
-            ₹<span style={{ fontSize: 22, fontWeight: 500 }}>{TEMPLATE_CONTENT.price}</span>
+          <span style={{ color: '#cc0c39', fontSize: 16 }}>-{TC.discount}</span>
+          <span style={{ fontSize: 11, marginTop: 1 }}>
+            ₹<span style={{ fontSize: 22, fontWeight: 500 }}>{TC.price}</span>
             <sup>00</sup>
           </span>
         </div>
         <div style={{ fontSize: 11, color: '#565959', marginBottom: 2 }}>
-          M.R.P.: <span style={{ textDecoration: 'line-through' }}>₹{TEMPLATE_CONTENT.mrp}</span>
+          M.R.P.: <span style={{ textDecoration: 'line-through' }}>₹{TC.mrp}</span>
         </div>
-        <div style={{ fontSize: 11, color: '#565959', marginBottom: 10 }}>
+        <div style={{ fontSize: 10.5, color: '#565959', marginBottom: 8 }}>
           Inclusive of all taxes
         </div>
+
+        {/* delivery */}
         <div
           style={{
             border: '1px solid #eee',
-            borderRadius: 8,
-            padding: 10,
+            borderRadius: 6,
+            padding: '8px 10px',
             fontSize: 11,
             marginBottom: 10,
-            lineHeight: 1.5,
+            lineHeight: 1.45,
           }}
         >
           <div>
-            <b>FREE delivery</b> Saturday, 31 May. <span style={{ color: '#007185' }}>Details</span>
-          </div>
-          <div>
-            Or fastest delivery <b>Thursday, 29 May</b>.{' '}
+            <b>FREE delivery</b> Saturday, 31 May ·{' '}
             <span style={{ color: '#007185' }}>Details</span>
           </div>
+          <div>
+            Or fastest delivery <b>Thursday, 29 May</b>
+          </div>
         </div>
-        <div style={{ color: '#007600', fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
+
+        <div style={{ color: '#007600', fontWeight: 700, fontSize: 14, marginBottom: 8 }}>
           In stock
         </div>
-        <div style={{ fontSize: 12, marginBottom: 6 }}>
+
+        {/* size */}
+        <div style={{ fontSize: 11.5, marginBottom: 5 }}>
           Size: <b>{size}</b>
         </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-          {TEMPLATE_CONTENT.sizes.map((s) => (
+        <div style={{ display: 'flex', gap: 7, marginBottom: 14, flexWrap: 'wrap' }}>
+          {TC.sizes.map((s) => (
             <button
               key={s}
               type="button"
               onClick={() => setSize(s)}
               style={{
-                width: 42,
-                height: 34,
-                borderRadius: 6,
+                width: 40,
+                height: 32,
+                borderRadius: 5,
                 border: `1px solid ${s === size ? '#007185' : '#d5d9d9'}`,
                 boxShadow: s === size ? '0 0 0 1px #007185' : 'none',
                 background: '#fff',
-                fontSize: 13,
+                fontSize: 12,
                 cursor: 'pointer',
                 color: '#0f1111',
               }}
@@ -469,17 +548,18 @@ export function AmazonMobileTemplate({
             </button>
           ))}
         </div>
+
         <button
           type="button"
           style={{
             width: '100%',
-            height: 38,
-            borderRadius: 20,
+            height: 36,
+            borderRadius: 18,
             border: 'none',
             background: '#ffd814',
             fontWeight: 500,
             fontSize: 13,
-            marginBottom: 8,
+            marginBottom: 7,
             cursor: 'pointer',
           }}
         >
@@ -489,8 +569,8 @@ export function AmazonMobileTemplate({
           type="button"
           style={{
             width: '100%',
-            height: 38,
-            borderRadius: 20,
+            height: 36,
+            borderRadius: 18,
             border: 'none',
             background: '#ffa41c',
             fontWeight: 500,
@@ -500,10 +580,34 @@ export function AmazonMobileTemplate({
         >
           Buy Now
         </button>
+
+        {/* offers — highest-recognition commerce signal */}
+        <OfferBlock compact />
+
+        {/* sold by */}
+        <div
+          style={{
+            marginTop: 12,
+            fontSize: 11,
+            display: 'grid',
+            gridTemplateColumns: '70px 1fr',
+            rowGap: 3,
+            color: '#565959',
+          }}
+        >
+          <span>Sold by</span>
+          <span style={{ color: '#007185' }}>Furbo Fashion</span>
+          <span>Ships from</span>
+          <span>Amazon</span>
+          <span>Payment</span>
+          <span>Secure transaction</span>
+        </div>
       </div>
     </div>
   );
 }
+
+// ─── Amazon desktop template ──────────────────────────────────────────────────
 
 export function AmazonDesktopTemplate({
   images,
@@ -511,7 +615,7 @@ export function AmazonDesktopTemplate({
   onActiveChange,
   ratio,
 }: TemplateProps) {
-  const [size, setSize] = useState(TEMPLATE_CONTENT.defaultSize);
+  const [size, setSize] = useState(TC.defaultSize);
   const active = images[activeIndex];
 
   return (
@@ -522,27 +626,27 @@ export function AmazonDesktopTemplate({
           background: '#131921',
           display: 'flex',
           alignItems: 'center',
-          gap: 16,
-          padding: '8px 14px',
+          gap: 14,
+          padding: '7px 14px',
         }}
       >
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>
+        <span style={{ color: '#fff', fontWeight: 700, fontSize: 18, flexShrink: 0 }}>
           amazon<span style={{ color: '#ff9900' }}>.in</span>
         </span>
-        <span style={{ color: '#fff', fontSize: 11, lineHeight: 1.25 }}>
+        <span style={{ color: '#fff', fontSize: 10.5, lineHeight: 1.2, flexShrink: 0 }}>
           <span style={{ color: '#ccc' }}>Deliver to</span>
           <br />
           <b>Hyderabad 500032</b>
         </span>
-        <div style={{ flex: 1, display: 'flex', height: 34 }}>
+        <div style={{ flex: 1, display: 'flex', height: 32 }}>
           <div
             style={{
-              width: 48,
+              width: 44,
               background: '#e6e6e6',
               borderRadius: '4px 0 0 4px',
               display: 'grid',
               placeItems: 'center',
-              fontSize: 11,
+              fontSize: 10.5,
               color: '#555',
             }}
           >
@@ -551,42 +655,43 @@ export function AmazonDesktopTemplate({
           <div style={{ flex: 1, background: '#fff' }} />
           <div
             style={{
-              width: 44,
+              width: 42,
               background: '#febd69',
               borderRadius: '0 4px 4px 0',
               display: 'grid',
               placeItems: 'center',
             }}
           >
-            <SearchGlyph />
+            <SearchG />
           </div>
         </div>
-        <span style={{ color: '#fff', fontSize: 11, lineHeight: 1.25 }}>
+        <span style={{ color: '#fff', fontSize: 10.5, lineHeight: 1.2, flexShrink: 0 }}>
           Hello, sign in
           <br />
           <b>Account & Lists</b>
         </span>
-        <span style={{ color: '#fff', fontSize: 11, lineHeight: 1.25 }}>
+        <span style={{ color: '#fff', fontSize: 10.5, lineHeight: 1.2, flexShrink: 0 }}>
           Returns
           <br />
           <b>& Orders</b>
         </span>
-        <CartGlyph />
+        <CartG size={20} />
       </div>
+
       {/* subnav */}
       <div
         style={{
           background: '#232f3e',
           color: '#fff',
-          fontSize: 12,
-          padding: '7px 14px',
+          fontSize: 11.5,
+          padding: '6px 14px',
           display: 'flex',
-          gap: 16,
+          gap: 14,
           overflow: 'hidden',
         }}
       >
         {[
-          'All',
+          '☰ All',
           'Fresh',
           'Sell',
           'Bestsellers',
@@ -603,33 +708,39 @@ export function AmazonDesktopTemplate({
           </span>
         ))}
       </div>
+
       {/* breadcrumb */}
-      <div style={{ fontSize: 11, color: '#565959', padding: '10px 18px 4px' }}>
+      <div style={{ fontSize: 11, color: '#565959', padding: '8px 18px 2px' }}>
         Home &amp; Kitchen › Fashion › Women › Tops, T-Shirts &amp; Shirts › Tops &amp; Tunics
       </div>
 
-      {/* main 3-column */}
-      <div style={{ display: 'flex', gap: 22, padding: '8px 18px 28px' }}>
-        {/* left: thumb rail + main image */}
-        <div style={{ display: 'flex', gap: 10, width: 430, flexShrink: 0 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: 42 }}>
-            {images.slice(0, 6).map((url, i) => (
+      {/* 3-column: 42% image | flex details | 190px buy box */}
+      <div
+        style={{ display: 'flex', gap: 18, padding: '10px 18px 32px', alignItems: 'flex-start' }}
+      >
+        {/* col 1: thumbnail rail + zoomable main image */}
+        <div style={{ flex: '0 0 42%', display: 'flex', gap: 10, minWidth: 0 }}>
+          {/* thumbnail rail — hover swaps main image */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, flexShrink: 0 }}>
+            {images.slice(0, 7).map((url, i) => (
               <button
-                // biome-ignore lint/suspicious/noArrayIndexKey: gallery slots are positional and stable
+                // biome-ignore lint/suspicious/noArrayIndexKey: gallery index is stable
                 key={i}
                 type="button"
                 onClick={() => onActiveChange(i)}
+                onMouseEnter={() => onActiveChange(i)}
                 aria-label={`Show image ${i + 1}`}
                 style={{
-                  width: 42,
-                  height: 52,
-                  borderRadius: 6,
+                  width: 52,
+                  height: 64,
+                  borderRadius: 5,
                   border: `1px solid ${i === activeIndex ? '#e77600' : '#d5d9d9'}`,
-                  boxShadow: i === activeIndex ? '0 0 0 1px #e77600' : 'none',
+                  boxShadow: i === activeIndex ? '0 0 0 2px #e77600' : 'none',
                   overflow: 'hidden',
                   padding: 0,
                   cursor: 'pointer',
-                  background: '#fff',
+                  background: '#f7f7f7',
+                  flexShrink: 0,
                 }}
               >
                 {url ? (
@@ -638,7 +749,7 @@ export function AmazonDesktopTemplate({
                     src={url}
                     alt=""
                     aria-hidden="true"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   />
                 ) : (
                   <div
@@ -649,49 +760,88 @@ export function AmazonDesktopTemplate({
                 )}
               </button>
             ))}
+            {images.length > 7 && (
+              <div
+                style={{
+                  width: 52,
+                  height: 24,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 11,
+                  color: '#007185',
+                  cursor: 'pointer',
+                }}
+              >
+                {images.length - 7}+ more
+              </div>
+            )}
           </div>
-          <div style={{ flex: 1 }}>
-            <ProductImage src={active} ratio={ratio} />
-            <div style={{ textAlign: 'center', fontSize: 11, color: '#565959', marginTop: 8 }}>
+
+          {/* main image with hover zoom */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <ProductImage src={active} ratio={ratio} zoom />
+            <div style={{ textAlign: 'center', fontSize: 10.5, color: '#565959', marginTop: 6 }}>
               Roll over image to zoom in
             </div>
           </div>
         </div>
 
-        {/* middle: details */}
+        {/* col 2: product details */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 20, lineHeight: 1.3 }}>{TEMPLATE_CONTENT.title}</div>
-          <div style={{ color: '#007185', fontSize: 12, margin: '5px 0' }}>
-            Visit the {TEMPLATE_CONTENT.store} Store
+          <div style={{ fontSize: 18, lineHeight: 1.25, color: '#0f1111', marginBottom: 4 }}>
+            {TC.title}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span>{TEMPLATE_CONTENT.rating}</span>
-            <Stars rating={TEMPLATE_CONTENT.rating} />
-            <span style={{ color: '#007185', fontSize: 12 }}>
-              ({TEMPLATE_CONTENT.ratingCount} ratings)
-            </span>
+          <div style={{ color: '#007185', fontSize: 11.5, marginBottom: 5 }}>
+            Visit the {TC.store} Store
           </div>
-          <div style={{ height: 1, background: '#e7e7e7', margin: '12px 0' }} />
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <span style={{ color: '#cc0c39', fontSize: 18 }}>-{TEMPLATE_CONTENT.discount}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+            <span style={{ fontSize: 12.5 }}>{TC.rating}</span>
+            <Stars rating={TC.rating} size={13} />
+            <span style={{ color: '#007185', fontSize: 11.5 }}>({TC.ratingCount} ratings)</span>
+          </div>
+          <div style={{ fontSize: 11, color: '#565959', marginBottom: 8 }}>
+            1,204 bought in past month
+          </div>
+
+          <div style={{ height: 1, background: '#e7e7e7', marginBottom: 10 }} />
+
+          {/* price */}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 3 }}>
+            <span style={{ color: '#cc0c39', fontSize: 16 }}>-{TC.discount}</span>
             <span>
-              ₹<span style={{ fontSize: 24, fontWeight: 500 }}>{TEMPLATE_CONTENT.price}</span>
+              ₹<span style={{ fontSize: 24, fontWeight: 500 }}>{TC.price}</span>
+              <sup>00</sup>
             </span>
           </div>
-          <div style={{ fontSize: 11, color: '#565959' }}>
-            M.R.P.: <span style={{ textDecoration: 'line-through' }}>₹{TEMPLATE_CONTENT.mrp}</span>
+          <div style={{ fontSize: 11, color: '#565959', marginBottom: 10 }}>
+            M.R.P.: <span style={{ textDecoration: 'line-through' }}>₹{TC.mrp}</span> · Inclusive of
+            all taxes
           </div>
-          <div style={{ fontSize: 12, marginTop: 12 }}>
+
+          {/* EMI teaser */}
+          <div style={{ fontSize: 11, color: '#565959', marginBottom: 10 }}>
+            EMI starts at <b style={{ color: '#0f1111' }}>₹167</b>. No Cost EMI available ·{' '}
+            <span style={{ color: '#007185' }}>EMI options</span>
+          </div>
+
+          {/* offers block */}
+          <OfferBlock />
+
+          <div style={{ height: 1, background: '#e7e7e7', margin: '14px 0 10px' }} />
+
+          {/* size */}
+          <div style={{ fontSize: 12, marginBottom: 7 }}>
             Size: <b>{size}</b>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-            {TEMPLATE_CONTENT.sizes.map((s) => (
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 14 }}>
+            {TC.sizes.map((s) => (
               <button
                 key={s}
                 type="button"
                 onClick={() => setSize(s)}
                 style={{
-                  minWidth: 42,
+                  minWidth: 44,
                   height: 34,
                   borderRadius: 6,
                   border: `1px solid ${s === size ? '#007185' : '#d5d9d9'}`,
@@ -706,39 +856,71 @@ export function AmazonDesktopTemplate({
               </button>
             ))}
           </div>
+
+          {/* returns + delivery note */}
+          <div style={{ fontSize: 11, color: '#565959', lineHeight: 1.5 }}>
+            <div>✓ 30-day return window · Ships from Amazon</div>
+            <div>✓ Packaging shows brand, not product details</div>
+          </div>
         </div>
 
-        {/* right: buy box */}
+        {/* col 3: buy box — 190px */}
         <div
           style={{
-            width: 230,
-            flexShrink: 0,
+            flex: '0 0 190px',
             border: '1px solid #d5d9d9',
             borderRadius: 8,
-            padding: 14,
+            padding: '14px 12px',
             fontSize: 12,
-            height: 'fit-content',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
           }}
         >
-          <div style={{ marginBottom: 6 }}>
-            ₹<span style={{ fontSize: 22, fontWeight: 500 }}>{TEMPLATE_CONTENT.price}</span>
+          <div style={{ marginBottom: 4 }}>
+            ₹<span style={{ fontSize: 22, fontWeight: 500 }}>{TC.price}</span>
           </div>
-          <div style={{ fontSize: 11, marginBottom: 8 }}>
+          <div style={{ fontSize: 11, marginBottom: 4 }}>
             <span style={{ color: '#007185' }}>FREE delivery</span> Saturday, 31 May
           </div>
-          <div style={{ color: '#007600', fontSize: 15, fontWeight: 700, marginBottom: 12 }}>
+          <div style={{ fontSize: 11, marginBottom: 10, color: '#565959' }}>
+            Or fastest delivery <b style={{ color: '#0f1111' }}>Thu, 29 May</b>
+          </div>
+          <div style={{ color: '#007600', fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
             In stock
+          </div>
+          <div style={{ fontSize: 11, marginBottom: 8 }}>
+            <label
+              htmlFor="qty-select"
+              style={{ display: 'block', marginBottom: 3, color: '#565959' }}
+            >
+              Quantity
+            </label>
+            <select
+              id="qty-select"
+              style={{
+                width: '100%',
+                padding: '4px 6px',
+                borderRadius: 4,
+                border: '1px solid #d5d9d9',
+                fontSize: 12,
+              }}
+            >
+              {[1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
           </div>
           <button
             type="button"
             style={{
               width: '100%',
-              height: 32,
-              borderRadius: 18,
+              height: 30,
+              borderRadius: 16,
               border: 'none',
               background: '#ffd814',
               cursor: 'pointer',
-              marginBottom: 8,
+              marginBottom: 7,
               fontSize: 12,
             }}
           >
@@ -748,8 +930,8 @@ export function AmazonDesktopTemplate({
             type="button"
             style={{
               width: '100%',
-              height: 32,
-              borderRadius: 18,
+              height: 30,
+              borderRadius: 16,
               border: 'none',
               background: '#ffa41c',
               cursor: 'pointer',
@@ -758,7 +940,41 @@ export function AmazonDesktopTemplate({
           >
             Buy Now
           </button>
-          <div style={{ fontSize: 11, color: '#007185', marginTop: 12 }}>Secure transaction</div>
+          <div
+            style={{
+              marginTop: 12,
+              fontSize: 11,
+              display: 'grid',
+              gridTemplateColumns: '62px 1fr',
+              rowGap: 3,
+              color: '#565959',
+            }}
+          >
+            <span>Sold by</span>
+            <span style={{ color: '#007185' }}>Furbo Fashion</span>
+            <span>Ships from</span>
+            <span>Amazon</span>
+            <span>Payment</span>
+            <span style={{ color: '#007185' }}>Secure transaction</span>
+          </div>
+          <div
+            style={{
+              marginTop: 12,
+              border: '1px solid #eee',
+              borderRadius: 6,
+              padding: '7px 9px',
+              fontSize: 11,
+              color: '#565959',
+            }}
+          >
+            <div style={{ fontWeight: 600, color: '#0f1111', marginBottom: 3 }}>
+              Add a Protection Plan:
+            </div>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input type="checkbox" style={{ marginTop: 2 }} />
+              1-Year Fashion Protection Plan — ₹99
+            </label>
+          </div>
         </div>
       </div>
     </div>
