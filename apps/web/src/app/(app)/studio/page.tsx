@@ -316,7 +316,7 @@ export default function StudioPage(): React.ReactElement {
 
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
-  const [showAllGarments, setShowAllGarments] = useState(false);
+  const [garmentModalOpen, setGarmentModalOpen] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
 
@@ -484,7 +484,7 @@ export default function StudioPage(): React.ReactElement {
   function reset() {
     setGender('');
     setGarmentTypeId('');
-    setShowAllGarments(false);
+    setGarmentModalOpen(false);
     setFaceId('');
     setBackgroundId('');
     setPoseIds([]);
@@ -532,7 +532,7 @@ export default function StudioPage(): React.ReactElement {
                     onClick={() => {
                       setGender(g.value);
                       setGarmentTypeId('');
-                      setShowAllGarments(false);
+                      setGarmentModalOpen(false);
                     }}
                     imgStyle={{ transform: 'scale(2.5)', transformOrigin: 'top center' }}
                   />
@@ -558,28 +558,44 @@ export default function StudioPage(): React.ReactElement {
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {(showAllGarments ? garmentTypes.items : garmentTypes.items.slice(0, 6)).map(
-                    (s) => {
-                      // Use DB thumbnail if available, fall back to static OUTFIT_IMG map
-                      const fallbackKey = Object.keys(OUTFIT_IMG).find(
-                        (k) =>
-                          s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
-                      );
-                      const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
-                      return (
-                        <VisualCard
-                          key={s.id}
-                          img={img}
-                          label={s.label}
-                          selected={garmentTypeId === s.id}
-                          onClick={() => setGarmentTypeId(garmentTypeId === s.id ? '' : s.id)}
-                        />
-                      );
-                    },
-                  )}
+                  {garmentTypes.items.slice(0, 6).map((s) => {
+                    const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                      (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                    );
+                    const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
+                    return (
+                      <VisualCard
+                        key={s.id}
+                        img={img}
+                        label={s.label}
+                        selected={garmentTypeId === s.id}
+                        onClick={() => setGarmentTypeId(garmentTypeId === s.id ? '' : s.id)}
+                      />
+                    );
+                  })}
+                  {garmentTypeId &&
+                    !garmentTypes.items.slice(0, 6).some((s) => s.id === garmentTypeId) && (
+                      <VisualCard
+                        img={(() => {
+                          const selected = garmentTypes.items.find((s) => s.id === garmentTypeId);
+                          if (!selected) return null;
+                          const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                            (k) =>
+                              selected.slug.toLowerCase().includes(k) ||
+                              selected.label.toLowerCase().includes(k),
+                          );
+                          return (
+                            selected.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null)
+                          );
+                        })()}
+                        label={garmentTypes.items.find((s) => s.id === garmentTypeId)?.label ?? ''}
+                        selected={true}
+                        onClick={() => setGarmentTypeId('')}
+                      />
+                    )}
                   {garmentTypes.items.length > 6 && (
                     <button
-                      onClick={() => setShowAllGarments(!showAllGarments)}
+                      onClick={() => setGarmentModalOpen(true)}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -596,9 +612,7 @@ export default function StudioPage(): React.ReactElement {
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {showAllGarments
-                        ? 'View less'
-                        : `View more (${garmentTypes.items.length - 6}+)`}
+                      View more ({garmentTypes.items.length - 6})
                     </button>
                   )}
                 </div>
@@ -1198,6 +1212,165 @@ export default function StudioPage(): React.ReactElement {
           </div>
         )}
       </div>
+
+      {/* Garment Type Modal */}
+      {garmentModalOpen && garmentTypes && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setGarmentModalOpen(false)}
+        >
+          <div
+            style={{
+              background: C.white,
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 600,
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 20,
+              }}
+            >
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                Choose Garment Type
+              </h2>
+              <button
+                onClick={() => setGarmentModalOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: C.mid,
+                }}
+              >
+                <XIcon size={20} />
+              </button>
+            </div>
+            <div
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 100px)', gap: 16 }}
+            >
+              {garmentTypes.items.map((s) => {
+                const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                  (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                );
+                const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
+                return (
+                  <div
+                    key={s.id}
+                    onClick={() => {
+                      setGarmentTypeId(s.id);
+                      setGarmentModalOpen(false);
+                    }}
+                    style={{
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 100,
+                        height: 109,
+                        borderRadius: 8,
+                        overflow: 'hidden',
+                        position: 'relative',
+                        border:
+                          garmentTypeId === s.id
+                            ? '2px solid transparent'
+                            : `2px solid ${C.border}`,
+                        backgroundImage:
+                          garmentTypeId === s.id
+                            ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)'
+                            : 'none',
+                        padding: garmentTypeId === s.id ? 2 : 0,
+                        boxSizing: 'border-box',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          background: C.lighter,
+                        }}
+                      >
+                        {img ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={img}
+                            alt={s.label}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                              objectPosition: 'top center',
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              background: C.field,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: C.light,
+                              fontSize: 11,
+                            }}
+                          >
+                            {s.label}
+                          </div>
+                        )}
+                      </div>
+                      {garmentTypeId === s.id && (
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: 6,
+                            right: 6,
+                            width: 20,
+                            height: 20,
+                            borderRadius: '50%',
+                            background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <CheckIcon color={C.white} size={11} />
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>
+                      {s.label}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div
