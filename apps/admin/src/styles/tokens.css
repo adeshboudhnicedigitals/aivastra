@@ -342,21 +342,21 @@ svg {
   padding: 0;
 }
 .brand--collapsed .brand-mark--logo {
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
 }
 .collapsed-logo-icon {
   position: relative;
   display: block;
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
 }
 .collapsed-logo-icon img {
   position: absolute;
   inset: 0;
-  width: 40px;
-  height: 40px;
-  border-radius: 9px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   object-fit: contain;
   transition: opacity 0.2s;
 }

@@ -120,6 +120,12 @@ export const ParseWorkflowBody = z.object({
 
 export const UpdateWorkflowBody = z.object({
   label: z.string().min(1).max(120).optional(),
+  slug: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens')
+    .optional(),
   isActive: z.boolean().optional(),
   // Allow updating node mappings (not the JSON itself)
   faceNodeId: z.string().min(1).optional(),
