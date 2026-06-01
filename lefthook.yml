@@ -7,6 +7,9 @@ pre-commit:
 
 pre-push:
   jobs:
+    - name: migrations-sync
+      run: bash scripts/check-migrations-sync.sh
+
     - name: lint
       run: pnpm biome check .
 
