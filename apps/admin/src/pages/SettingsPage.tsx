@@ -13,10 +13,9 @@ interface Props {
 const PAGE_SIZES = [15, 25, 50, 100] as const;
 
 const CREDIT_PLANS = [
-  { name: 'Starter', jobs: 100, price: 10, popular: false },
-  { name: 'Growth', jobs: 500, price: 40, popular: true },
-  { name: 'Scale', jobs: 2500, price: 150, popular: false },
-  { name: 'Enterprise', jobs: -1, price: -1, popular: false },
+  { name: 'Starter Pack', credits: 2500, price: '₹2,500', popular: false },
+  { name: 'Growth Pack', credits: 5000, price: '₹5,000', popular: true },
+  { name: 'Pro Pack', credits: 10000, price: '₹10,000', popular: false },
 ];
 
 export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleTheme }: Props) {
@@ -190,9 +189,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
           <table>
             <thead>
               <tr>
-                <th>Plan</th>
-                <th>Jobs included</th>
-                <th>Price</th>
+                <th>Pack</th>
+                <th>Credits</th>
+                <th>Price (one-time)</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -208,8 +207,8 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
                       </span>
                     )}
                   </td>
-                  <td>{p.jobs === -1 ? 'Custom' : p.jobs.toLocaleString()}</td>
-                  <td>{p.price === -1 ? 'Custom' : `$${p.price}/mo`}</td>
+                  <td>{p.credits.toLocaleString()}</td>
+                  <td>{p.price}</td>
                   <td>
                     <span className="badge dot success">Active</span>
                   </td>
