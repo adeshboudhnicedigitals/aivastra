@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
@@ -28,13 +29,13 @@ async function putFile(url: string, file: File): Promise<void> {
 }
 
 export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toast }: Props) {
+  const { storagePublicUrl } = useAuth();
   const [form, setForm] = useState({
     label: pose.label,
     faceId: pose.faceId,
     backgroundId: pose.backgroundId,
     sortOrder: pose.sortOrder,
     workflowTemplateId: pose.workflowTemplateId,
-    promptFacePhase: pose.promptFacePhase ?? '',
     promptGarmentPhase: pose.promptGarmentPhase ?? '',
   });
 
@@ -87,7 +88,6 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
         ...form,
         showsLower,
         showsShoes,
-        promptFacePhase: form.promptFacePhase.trim() || undefined,
         promptGarmentPhase: form.promptGarmentPhase.trim() || undefined,
       };
       if (faceSideR2Key) patch.faceSideR2Key = faceSideR2Key;
@@ -102,7 +102,6 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
         ...form,
         showsLower,
         showsShoes,
-        promptFacePhase: form.promptFacePhase.trim() || pose.promptFacePhase,
         promptGarmentPhase: form.promptGarmentPhase.trim() || pose.promptGarmentPhase,
         ...(faceSideR2Key ? { faceSideR2Key } : {}),
       });
@@ -158,6 +157,26 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div className="field">
               <label>Model face (display &amp; filter)</label>
+              {(() => {
+                const sel = faces.find((f) => f.id === form.faceId);
+                return sel && storagePublicUrl && sel.thumbnailKey ? (
+                  <img
+                    src={`${storagePublicUrl}/${sel.thumbnailKey}`}
+                    alt={sel.label}
+                    style={{
+                      width: 56,
+                      height: 72,
+                      objectFit: 'cover',
+                      borderRadius: 6,
+                      marginBottom: 6,
+                      display: 'block',
+                    }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                ) : null;
+              })()}
               <select
                 className="select"
                 value={form.faceId}
@@ -173,6 +192,26 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
             </div>
             <div className="field">
               <label>Background</label>
+              {(() => {
+                const sel = backgrounds.find((b) => b.id === form.backgroundId);
+                return sel && storagePublicUrl && sel.thumbnailKey ? (
+                  <img
+                    src={`${storagePublicUrl}/${sel.thumbnailKey}`}
+                    alt={sel.label}
+                    style={{
+                      width: 56,
+                      height: 72,
+                      objectFit: 'cover',
+                      borderRadius: 6,
+                      marginBottom: 6,
+                      display: 'block',
+                    }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                ) : null;
+              })()}
               <select
                 className="select"
                 value={form.backgroundId}
@@ -198,12 +237,22 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
                 (backend only — sent to ComfyUI face node)
               </span>
             </label>
-            {pose.faceSideR2Key && !faceSideFile && (
-              <span
-                style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6, display: 'block' }}
-              >
-                Current: <code style={{ fontSize: 11 }}>{pose.faceSideR2Key}</code>
-              </span>
+            {pose.faceSideR2Key && !faceSideFile && storagePublicUrl && (
+              <img
+                src={`${storagePublicUrl}/${pose.faceSideR2Key}`}
+                alt="Current side face"
+                style={{
+                  width: 56,
+                  height: 72,
+                  objectFit: 'cover',
+                  borderRadius: 6,
+                  marginBottom: 6,
+                  display: 'block',
+                }}
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                }}
+              />
             )}
             <input
               ref={faceSideRef}
@@ -261,18 +310,7 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
           </div>
 
           <div className="field">
-            <label>Face phase prompt (positive)</label>
-            <textarea
-              className="input"
-              value={form.promptFacePhase}
-              disabled={saving}
-              rows={4}
-              onChange={(e) => setForm((f) => ({ ...f, promptFacePhase: e.target.value }))}
-              style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
-            />
-          </div>
-          <div className="field">
-            <label>Garment phase prompt (positive)</label>
+            <label>Positive prompt</label>
             <textarea
               className="input"
               value={form.promptGarmentPhase}
