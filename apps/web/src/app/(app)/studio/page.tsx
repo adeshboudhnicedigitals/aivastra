@@ -612,7 +612,7 @@ export default function StudioPage(): React.ReactElement {
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      View more ({garmentTypes.items.length - 6})
+                      View more
                     </button>
                   )}
                 </div>
@@ -1232,7 +1232,7 @@ export default function StudioPage(): React.ReactElement {
               background: C.white,
               borderRadius: 12,
               padding: 24,
-              maxWidth: 600,
+              maxWidth: 750,
               maxHeight: '80vh',
               overflow: 'auto',
               boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
@@ -1250,20 +1250,38 @@ export default function StudioPage(): React.ReactElement {
               <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
                 Choose Garment Type
               </h2>
-              <button
-                onClick={() => setGarmentModalOpen(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: C.mid,
-                }}
-              >
-                <XIcon size={20} />
-              </button>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                <button
+                  onClick={() => setGarmentModalOpen(false)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    border: `1px solid ${C.border2}`,
+                    background: C.white,
+                    fontFamily: 'inherit',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: C.mid,
+                    cursor: 'pointer',
+                  }}
+                >
+                  View less
+                </button>
+                <button
+                  onClick={() => setGarmentModalOpen(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: C.mid,
+                  }}
+                >
+                  <XIcon size={20} />
+                </button>
+              </div>
             </div>
             <div
               style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 100px)', gap: 16 }}
