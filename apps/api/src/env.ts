@@ -8,7 +8,7 @@ const Env = z.object({
   REDIS_URL: z.string().url(),
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRY: z.string().default('15m'),
-  REFRESH_TOKEN_EXPIRY: z.string().default('7d'),
+  REFRESH_TOKEN_EXPIRY: z.string().default('1h'),
   R2_ENDPOINT: z.string().url(),
   R2_ACCESS_KEY_ID: z.string(),
   R2_SECRET_ACCESS_KEY: z.string(),
