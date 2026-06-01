@@ -5,6 +5,21 @@ import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
 import { ApiError, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
 
+interface WorkflowDetail extends WorkflowOption {
+  faceNodeId: string;
+  poseNodeId: string;
+  bgNodeId: string;
+  upperNodeIds: string[];
+  lowerNodeId: string | null;
+  shoeNodeId: string | null;
+  sizeNodeId: string | null;
+  facePhasePromptNode: string;
+  garmentPhasePromptNode: string;
+  defaultFacePhasePrompt: string;
+  defaultGarmentPhasePrompt: string;
+  jsonContent: Record<string, unknown>;
+}
+
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
@@ -14,11 +29,14 @@ export default function WorkflowsPage({ toast }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
-  const [deleting, setDeleting] = useState<string | null>(null); // workflow id being confirmed
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [reassigning, setReassigning] = useState<WorkflowOption | null>(null);
   const [reassignTargetId, setReassignTargetId] = useState('');
   const [reassignSaving, setReassignSaving] = useState(false);
+  const [viewingDetail, setViewingDetail] = useState<WorkflowDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [jsonCopied, setJsonCopied] = useState(false);
 
   const loadWorkflows = useCallback(async () => {
     setLoading(true);
@@ -105,6 +123,19 @@ export default function WorkflowsPage({ toast }: Props) {
       toast({ kind: 'error', title: msg });
     } finally {
       setReassignSaving(false);
+    }
+  };
+
+  const handleViewDetail = async (id: string) => {
+    setDetailLoading(true);
+    setViewingDetail(null);
+    try {
+      const detail = await apiFetch<WorkflowDetail>(`/admin/workflows/${id}`);
+      setViewingDetail(detail);
+    } catch {
+      toast({ kind: 'error', title: 'Failed to load workflow detail' });
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -218,6 +249,14 @@ export default function WorkflowsPage({ toast }: Props) {
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                       <button
                         className="btn sm ghost"
+                        disabled={detailLoading}
+                        onClick={() => handleViewDetail(wf.id)}
+                        title="View parsed data"
+                      >
+                        <Icon.Eye /> View
+                      </button>
+                      <button
+                        className="btn sm ghost"
                         disabled={togglingId === wf.id}
                         onClick={() => handleToggleActive(wf)}
                         title={wf.isActive ? 'Deactivate' : 'Activate'}
@@ -261,6 +300,249 @@ export default function WorkflowsPage({ toast }: Props) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Detail modal */}
+      {(viewingDetail || detailLoading) && (
+        <div
+          className="modal-overlay"
+          onClick={detailLoading ? undefined : () => setViewingDetail(null)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(760px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>{viewingDetail ? viewingDetail.label : 'Loading…'}</h3>
+              <button
+                className="btn sm ghost"
+                onClick={() => setViewingDetail(null)}
+                disabled={detailLoading}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icon.Close />
+              </button>
+            </div>
+            {detailLoading ? (
+              <div
+                className="modal-body"
+                style={{ textAlign: 'center', color: 'var(--muted)', padding: '32px 0' }}
+              >
+                Loading…
+              </div>
+            ) : viewingDetail ? (
+              <div
+                className="modal-body"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 20,
+                  maxHeight: '75vh',
+                  overflowY: 'auto',
+                }}
+              >
+                {/* Node mappings */}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: '0.1em',
+                      textTransform: 'uppercase',
+                      color: 'var(--muted)',
+                      marginBottom: 10,
+                    }}
+                  >
+                    Node mappings
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '180px 1fr',
+                      gap: '6px 12px',
+                      fontSize: 13,
+                    }}
+                  >
+                    {(
+                      [
+                        ['Face node', viewingDetail.faceNodeId],
+                        ['Pose node', viewingDetail.poseNodeId],
+                        ['Background node', viewingDetail.bgNodeId],
+                        ['Upper nodes', viewingDetail.upperNodeIds.join(', ')],
+                        ['Lower node', viewingDetail.lowerNodeId ?? '—'],
+                        ['Shoe node', viewingDetail.shoeNodeId ?? '—'],
+                        ['Size node (legacy)', viewingDetail.sizeNodeId ?? '—'],
+                        [
+                          'Size nodes',
+                          viewingDetail.sizeNodeIds.length > 0
+                            ? viewingDetail.sizeNodeIds.join(', ')
+                            : '—',
+                        ],
+                        ['Negative prompt node', viewingDetail.facePhasePromptNode],
+                        ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
+                      ] as [string, string][]
+                    ).map(([k, v]) => (
+                      <>
+                        <span key={`k-${k}`} style={{ color: 'var(--muted)', fontWeight: 500 }}>
+                          {k}
+                        </span>
+                        <code
+                          key={`v-${k}`}
+                          style={{
+                            fontSize: 12,
+                            background: 'var(--subtle)',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            wordBreak: 'break-all',
+                          }}
+                        >
+                          {v}
+                        </code>
+                      </>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Default prompts */}
+                {(viewingDetail.defaultFacePhasePrompt ||
+                  viewingDetail.defaultGarmentPhasePrompt) && (
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        color: 'var(--muted)',
+                        marginBottom: 10,
+                      }}
+                    >
+                      Default prompts
+                    </div>
+                    {viewingDetail.defaultFacePhasePrompt && (
+                      <div style={{ marginBottom: 10 }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: 'var(--ink-2)',
+                            marginBottom: 4,
+                          }}
+                        >
+                          Negative prompt
+                        </div>
+                        <pre
+                          style={{
+                            margin: 0,
+                            fontSize: 11.5,
+                            background: 'var(--subtle)',
+                            padding: '10px 12px',
+                            borderRadius: 6,
+                            border: '1px solid var(--border)',
+                            overflowX: 'auto',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {viewingDetail.defaultFacePhasePrompt}
+                        </pre>
+                      </div>
+                    )}
+                    {viewingDetail.defaultGarmentPhasePrompt && (
+                      <div>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: 'var(--ink-2)',
+                            marginBottom: 4,
+                          }}
+                        >
+                          Positive prompt
+                        </div>
+                        <pre
+                          style={{
+                            margin: 0,
+                            fontSize: 11.5,
+                            background: 'var(--subtle)',
+                            padding: '10px 12px',
+                            borderRadius: 6,
+                            border: '1px solid var(--border)',
+                            overflowX: 'auto',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {viewingDetail.defaultGarmentPhasePrompt}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Raw JSON */}
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        color: 'var(--muted)',
+                      }}
+                    >
+                      Workflow JSON ({Object.keys(viewingDetail.jsonContent).length} nodes)
+                    </div>
+                    <button
+                      className="btn sm ghost"
+                      style={{ fontSize: 11 }}
+                      onClick={() => {
+                        void navigator.clipboard.writeText(
+                          JSON.stringify(viewingDetail.jsonContent, null, 2),
+                        );
+                        setJsonCopied(true);
+                        setTimeout(() => setJsonCopied(false), 1500);
+                      }}
+                    >
+                      {jsonCopied ? '✓ Copied' : 'Copy JSON'}
+                    </button>
+                  </div>
+                  <pre
+                    style={{
+                      margin: 0,
+                      fontSize: 11,
+                      background: 'var(--subtle)',
+                      padding: '12px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border)',
+                      maxHeight: 300,
+                      overflowY: 'auto',
+                      overflowX: 'auto',
+                      whiteSpace: 'pre',
+                      fontFamily: 'var(--mono, monospace)',
+                    }}
+                  >
+                    {JSON.stringify(viewingDetail.jsonContent, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            ) : null}
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setViewingDetail(null)}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
