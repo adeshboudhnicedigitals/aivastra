@@ -12,7 +12,7 @@ import {
   TrashIcon,
   XIcon,
 } from '@/components/icons';
-import { BG_TINTS, C } from '@/components/tokens';
+import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { api } from '@/lib/api';
 
@@ -42,7 +42,6 @@ function ImageCard({
 }) {
   const isCompleted = job.status === 'COMPLETED';
   const isFailed = job.status === 'FAILED';
-  const isActive = !TERMINAL.includes(job.status);
   const [deleting, setDeleting] = useState(false);
   const qc = useQueryClient();
 
@@ -70,7 +69,9 @@ function ImageCard({
 
   return (
     <div style={{ width: '100%', height: 316, display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <div
+      <button
+        type="button"
+        disabled={!(isCompleted && result?.url)}
         style={{
           flex: 1,
           background: tint,
@@ -81,6 +82,8 @@ function ImageCard({
           borderRadius: 8,
           overflow: 'hidden',
           cursor: isCompleted && result?.url ? 'pointer' : 'default',
+          border: 'none',
+          padding: 0,
         }}
         onClick={() => {
           if (isCompleted && result?.url) onZoom(result.url);
@@ -91,7 +94,12 @@ function ImageCard({
           <img
             src={result.url}
             alt={`#${job.id.slice(0, 8)}`}
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              objectPosition: 'center',
+            }}
           />
         ) : isFailed ? (
           <span style={{ color: C.mid, fontSize: 13 }}>Failed</span>
@@ -109,7 +117,7 @@ function ImageCard({
             <span style={{ fontSize: 13 }}>{job.status.toLowerCase().replace('_', ' ')}</span>
           </div>
         )}
-      </div>
+      </button>
       <div
         style={{
           height: 28,
@@ -123,6 +131,7 @@ function ImageCard({
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {TERMINAL.includes(job.status) && (
             <button
+              type="button"
               onClick={handleDelete}
               disabled={deleting}
               style={{
@@ -142,6 +151,7 @@ function ImageCard({
           {isCompleted && result?.url && (
             <>
               <button
+                type="button"
                 onClick={() => onZoom(result.url)}
                 style={{
                   width: 28,
@@ -246,6 +256,7 @@ export default function CataloguePage({
         right={
           <div style={{ display: 'flex', gap: 12 }}>
             <button
+              type="button"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -269,6 +280,7 @@ export default function CataloguePage({
               <MonitorPlayIcon size={20} /> Preview
             </button>
             <button
+              type="button"
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -311,14 +323,8 @@ export default function CataloguePage({
               width: '100%',
             }}
           >
-            {data.jobs.map((job, i) => (
-              <ImageCard
-                key={job.id}
-                job={job}
-                catalogueId={id}
-                tint={BG_TINTS[i % BG_TINTS.length]!}
-                onZoom={setZoom}
-              />
+            {data.jobs.map((job) => (
+              <ImageCard key={job.id} job={job} catalogueId={id} tint="#f5f5f5" onZoom={setZoom} />
             ))}
           </div>
         )}
@@ -339,6 +345,7 @@ export default function CataloguePage({
           }}
         >
           <button
+            type="button"
             onClick={() => setZoom(null)}
             style={{
               position: 'absolute',

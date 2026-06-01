@@ -1,28 +1,19 @@
 'use client';
-import Link from 'next/link';
-import { useState } from 'react';
-import { FilterIcon, SearchIcon, SortIcon, UploadIcon } from '@/components/icons';
-import { BG_TINTS, C } from '@/components/tokens';
+import { useEffect, useState } from 'react';
+import { FilterIcon, ImagesIcon, SearchIcon, SortIcon, XIcon } from '@/components/icons';
+import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
-import { GradBtn } from '@/components/ui/grad-btn';
+import { api } from '@/lib/api';
 
-// TODO(wire): no assets endpoint yet — mock data, design shell only.
-const MOCK_ASSETS = [
-  { id: '1', name: 'blue_kurta_flatlay.jpg', size: '2.4 MB', date: 'May 25, 2026', type: 'Top' },
-  { id: '2', name: 'floral_saree_clean.png', size: '3.1 MB', date: 'May 25, 2026', type: 'Saree' },
-  { id: '3', name: 'mens_white_shirt.jpg', size: '1.8 MB', date: 'May 24, 2026', type: 'Shirt' },
-  {
-    id: '4',
-    name: 'black_trousers_flat.jpg',
-    size: '2.0 MB',
-    date: 'May 24, 2026',
-    type: 'Trouser',
-  },
-  { id: '5', name: 'red_top_plain.png', size: '1.5 MB', date: 'May 23, 2026', type: 'Top' },
-  { id: '6', name: 'denim_jeans_blue.jpg', size: '2.8 MB', date: 'May 23, 2026', type: 'Jeans' },
-  { id: '7', name: 'green_kurta_set.jpg', size: '3.4 MB', date: 'May 22, 2026', type: 'Kurta' },
-  { id: '8', name: 'pink_skirt_cotton.png', size: '1.9 MB', date: 'May 22, 2026', type: 'Skirt' },
-];
+interface Asset {
+  r2Key: string;
+  uploadedAt: string;
+  jobsCount: number;
+}
+
+interface AssetWithThumbnail extends Asset {
+  thumbnailUrl?: string;
+}
 
 const ctlBtn: React.CSSProperties = {
   display: 'flex',
@@ -34,24 +25,67 @@ const ctlBtn: React.CSSProperties = {
   background: C.white,
   fontFamily: 'inherit',
   fontSize: 13,
-  cursor: 'pointer',
-  color: C.text,
+  cursor: 'not-allowed',
+  color: C.mid,
+  opacity: 0.5,
 };
 
 export default function AssetsPage(): React.ReactElement {
   const [search, setSearch] = useState('');
-  const assets = MOCK_ASSETS.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()));
+  const [assets, setAssets] = useState<AssetWithThumbnail[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<string | null>(null);
+  const [zoomVisible, setZoomVisible] = useState(false);
+
+  useEffect(() => {
+    if (zoom) {
+      requestAnimationFrame(() => setZoomVisible(true));
+    } else {
+      setZoomVisible(false);
+    }
+  }, [zoom]);
+
+  useEffect(() => {
+    async function loadAssets() {
+      try {
+        setLoading(true);
+        const rawAssets = await api.get<Asset[]>('/v1/assets');
+
+        // Fetch thumbnail URLs for all assets
+        const withThumbnails = await Promise.all(
+          rawAssets.map(async (asset) => {
+            try {
+              const { thumbnailUrl } = await api.get<{ thumbnailUrl: string; expiresIn: number }>(
+                `/v1/uploads/thumbnail?key=${encodeURIComponent(asset.r2Key)}`,
+              );
+              return { ...asset, thumbnailUrl };
+            } catch {
+              return asset;
+            }
+          }),
+        );
+
+        setAssets(withThumbnails);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load assets');
+        setAssets([]);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadAssets();
+  }, []);
+
+  const filtered = assets.filter((a) => a.r2Key.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <>
       <TopBar
         title="Your Assets"
         subtitle="Manage your uploaded garment images used for catalogue generation."
-        right={
-          <GradBtn style={{ gap: 8 }}>
-            <UploadIcon /> Upload Asset
-          </GradBtn>
-        }
       />
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20 }}>
@@ -71,6 +105,7 @@ export default function AssetsPage(): React.ReactElement {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search assets..."
+              disabled={loading}
               style={{
                 width: '100%',
                 paddingLeft: 34,
@@ -81,89 +116,215 @@ export default function AssetsPage(): React.ReactElement {
                 fontSize: 13,
                 outline: 'none',
                 background: C.white,
+                opacity: loading ? 0.6 : 1,
               }}
             />
           </div>
-          <button style={ctlBtn}>
+          <button type="button" style={ctlBtn} disabled>
             <FilterIcon /> Filter
           </button>
-          <button style={ctlBtn}>
+          <button type="button" style={ctlBtn} disabled>
             <SortIcon /> Sort
           </button>
         </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-            gap: 16,
-          }}
-        >
-          {assets.map((asset, i) => (
-            <Link key={asset.id} href={`/assets/${asset.id}`} style={{ textDecoration: 'none' }}>
+
+        {error && (
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 8,
+              background: 'rgba(245,92,122,0.1)',
+              color: C.pink,
+              fontSize: 13,
+              marginBottom: 16,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {loading && (
+          <div style={{ padding: '40px', textAlign: 'center', color: C.light, fontSize: 14 }}>
+            Loading your assets...
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && !error && (
+          <div style={{ padding: '40px', textAlign: 'center', color: C.light, fontSize: 14 }}>
+            {search
+              ? 'No assets match your search'
+              : 'No assets yet. Upload a garment to get started.'}
+          </div>
+        )}
+
+        {!loading && filtered.length > 0 && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, 370px)',
+              gap: 16,
+            }}
+          >
+            {filtered.map((asset) => (
               <div
+                key={asset.r2Key}
                 style={{
-                  background: C.white,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 12,
-                  overflow: 'hidden',
-                  cursor: 'pointer',
-                  transition: 'box-shadow .15s',
-                }}
-                onMouseOver={(e) => {
-                  e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.08)';
-                }}
-                onMouseOut={(e) => {
-                  e.currentTarget.style.boxShadow = 'none';
+                  width: 370,
+                  height: 376,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
                 }}
               >
-                <div
+                <button
+                  type="button"
+                  disabled={!asset.thumbnailUrl}
                   style={{
-                    height: 180,
-                    background: BG_TINTS[i % BG_TINTS.length],
+                    flex: 1,
+                    background: asset.thumbnailUrl ? 'transparent' : '#f5f5f5',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    borderRadius: 8,
+                    cursor: asset.thumbnailUrl ? 'pointer' : 'default',
+                    border: 'none',
+                    padding: 0,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
+                  onClick={() => {
+                    if (asset.thumbnailUrl) setZoom(asset.thumbnailUrl);
+                  }}
+                  onMouseOver={(e) => {
+                    if (!asset.thumbnailUrl) return;
+                    e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.12)';
+                    const child = e.currentTarget.querySelector('div');
+                    if (child) child.style.transform = 'scale(1.05)';
+                  }}
+                  onMouseOut={(e) => {
+                    if (!asset.thumbnailUrl) return;
+                    e.currentTarget.style.boxShadow = 'none';
+                    const child = e.currentTarget.querySelector('div');
+                    if (child) child.style.transform = 'scale(1)';
+                  }}
                 >
-                  <span style={{ fontSize: 40, opacity: 0.4 }}>👗</span>
-                </div>
-                <div style={{ padding: '10px 14px' }}>
-                  <div
+                  <div style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
+                    {asset.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+                      <img
+                        src={asset.thumbnailUrl}
+                        alt=""
+                        aria-hidden="true"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                          objectPosition: 'center',
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <span style={{ fontSize: 40, opacity: 0.4 }}>👗</span>
+                      </div>
+                    )}
+                  </div>
+                </button>
+                <div
+                  style={{
+                    height: 16,
+                    padding: '0 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ color: C.mid, display: 'flex' }}>
+                    <ImagesIcon size={16} />
+                  </span>
+                  <span style={{ fontSize: 13, color: C.mid }}>{asset.jobsCount}</span>
+                  <span
                     style={{
-                      fontSize: 12,
-                      fontWeight: 600,
+                      fontSize: 13,
+                      fontWeight: 500,
                       color: C.text,
-                      marginBottom: 2,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {asset.name}
-                  </div>
-                  <div style={{ fontSize: 11, color: C.light }}>
-                    {asset.size} · {asset.date}
-                  </div>
-                  <div
-                    style={{
-                      display: 'inline-block',
-                      marginTop: 6,
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      background: 'rgba(245,92,122,0.1)',
-                      color: C.pink,
-                      fontSize: 11,
-                      fontWeight: 500,
-                    }}
-                  >
-                    {asset.type}
-                  </div>
+                    {asset.r2Key.split('/').pop() || 'garment.jpg'}
+                  </span>
                 </div>
               </div>
-            </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {zoom && (
+        <div
+          role="dialog"
+          onClick={() => setZoom(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setZoom(null);
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.85)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 40,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setZoom(null)}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.15)',
+              border: 'none',
+              color: C.white,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <XIcon size={20} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+          <img
+            src={zoom}
+            alt=""
+            aria-hidden="true"
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              objectFit: 'contain',
+              borderRadius: 8,
+              transform: zoomVisible ? 'translateX(0)' : 'translateX(100%)',
+              transition: 'transform 300ms ease-out',
+              pointerEvents: 'none',
+            }}
+          />
+        </div>
+      )}
     </>
   );
 }
