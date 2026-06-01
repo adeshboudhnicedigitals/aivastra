@@ -36,17 +36,8 @@ interface TemplateProps {
 // Reserves space via aspect-ratio (no CLS). Warm #f7f7f7 background mirrors
 // marketplace image zones. Shimmer skeleton fades to image on load.
 
-function ProductImage({
-  src,
-  ratio,
-  zoom = false,
-}: {
-  src?: string;
-  ratio: string;
-  zoom?: boolean;
-}) {
+function ProductImage({ src, ratio }: { src?: string; ratio: string }) {
   const [loaded, setLoaded] = useState(false);
-  const [hovered, setHovered] = useState(false);
 
   return (
     <div
@@ -56,10 +47,7 @@ function ProductImage({
         aspectRatio: ratio,
         background: '#f7f7f7',
         overflow: 'hidden',
-        cursor: zoom && src && hovered ? 'zoom-in' : 'default',
       }}
-      onMouseEnter={() => zoom && setHovered(true)}
-      onMouseLeave={() => zoom && setHovered(false)}
     >
       {(!src || !loaded) && (
         <div className="av-shimmer" style={{ position: 'absolute', inset: 0 }} aria-hidden="true" />
@@ -76,8 +64,7 @@ function ProductImage({
             objectFit: 'contain',
             objectPosition: 'center',
             opacity: loaded ? 1 : 0,
-            transform: zoom && hovered ? 'scale(1.7)' : 'scale(1)',
-            transition: 'opacity 240ms ease, transform 220ms ease',
+            transition: 'opacity 240ms ease',
           }}
         />
       )}
@@ -260,13 +247,14 @@ export function PhoneShell({
       />
       <div
         ref={scrollRef}
+        className="preview-phone-scroll"
         style={{
           height: 720,
           maxHeight: '72vh',
           background: '#fff',
           borderRadius: 36,
-          overflow: 'auto',
           position: 'relative',
+          paddingRight: 2,
         }}
       >
         {children}
@@ -298,65 +286,50 @@ export function BrowserShell({
       {/* chrome bar */}
       <div
         style={{
-          height: 40,
+          height: 34,
           background: '#f1f1f2',
           borderBottom: '1px solid #dadada',
           display: 'flex',
           alignItems: 'center',
-          padding: '0 12px',
-          gap: 12,
+          padding: '0 10px',
+          gap: 10,
         }}
       >
-        <div style={{ display: 'flex', gap: 6 }} aria-hidden="true">
-          <span
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              background: '#ff5f57',
-              display: 'block',
-            }}
-          />
-          <span
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              background: '#febc2e',
-              display: 'block',
-            }}
-          />
-          <span
-            style={{
-              width: 12,
-              height: 12,
-              borderRadius: '50%',
-              background: '#28c840',
-              display: 'block',
-            }}
-          />
+        <div style={{ display: 'flex', gap: 5 }} aria-hidden="true">
+          {['#ff5f57', '#febc2e', '#28c840'].map((bg) => (
+            <span
+              key={bg}
+              style={{
+                width: 11,
+                height: 11,
+                borderRadius: '50%',
+                background: bg,
+                display: 'block',
+              }}
+            />
+          ))}
         </div>
         <div
           style={{
             flex: 1,
             maxWidth: 460,
             margin: '0 auto',
-            height: 26,
+            height: 22,
             background: '#fff',
-            borderRadius: 13,
+            borderRadius: 11,
             border: '1px solid #dadada',
             display: 'flex',
             alignItems: 'center',
-            gap: 7,
-            padding: '0 12px',
-            fontSize: 12,
+            gap: 6,
+            padding: '0 10px',
+            fontSize: 11.5,
             color: '#5f6368',
           }}
         >
           <LockG />
           amazon.in
         </div>
-        <div style={{ width: 48 }} aria-hidden="true" />
+        <div style={{ width: 40 }} aria-hidden="true" />
       </div>
       <div
         ref={scrollRef}
@@ -447,36 +420,55 @@ export function AmazonMobileTemplate({
       {/* product image — appears immediately with no nav clutter above */}
       <ProductImage src={active} ratio={ratio} />
 
-      {/* carousel dots */}
-      {images.length > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, padding: '8px 0 4px' }}>
-          {images.map((_, i) => (
-            <button
-              // biome-ignore lint/suspicious/noArrayIndexKey: gallery index is stable
-              key={i}
-              type="button"
-              onClick={() => onActiveChange(i)}
-              aria-label={`Show image ${i + 1}`}
-              style={{
-                width: i === activeIndex ? 9 : 7,
-                height: i === activeIndex ? 9 : 7,
-                borderRadius: '50%',
-                border: 'none',
-                padding: 0,
-                cursor: 'pointer',
-                background: i === activeIndex ? '#007185' : '#c7cdd1',
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {/* carousel dots — only show for resolved image slots */}
+      {(() => {
+        const resolved = images.map((url, i) => ({ url, i })).filter(({ url }) => Boolean(url));
+        if (resolved.length <= 1) return null;
+        return (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 4, padding: '7px 0 3px' }}>
+            {resolved.map(({ i }) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onActiveChange(i)}
+                aria-label={`Show image ${i + 1}`}
+                style={{
+                  width: i === activeIndex ? 9 : 7,
+                  height: i === activeIndex ? 9 : 7,
+                  borderRadius: '50%',
+                  border: 'none',
+                  padding: 0,
+                  cursor: 'pointer',
+                  background: i === activeIndex ? '#007185' : '#c7cdd1',
+                }}
+              />
+            ))}
+          </div>
+        );
+      })()}
 
       {/* details */}
       <div style={{ padding: '10px 12px 28px' }}>
+        {/* Amazon's Choice — mobile sizing */}
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            background: '#232f3e',
+            borderRadius: 3,
+            padding: '2px 6px',
+            marginBottom: 4,
+          }}
+        >
+          <span style={{ color: '#fff', fontSize: 9, fontWeight: 700 }}>Amazon's</span>
+          <span style={{ color: '#ff9900', fontSize: 9, fontWeight: 700 }}>Choice</span>
+          <span style={{ color: '#ccc', fontSize: 8.5, marginLeft: 1 }}>in Women's Tops</span>
+        </div>
         <div style={{ color: '#007185', fontSize: 11, marginBottom: 3 }}>
           Visit the {TC.store} Store
         </div>
-        <div style={{ fontSize: 14, lineHeight: 1.25, marginBottom: 6 }}>{TC.title}</div>
+        <div style={{ fontSize: 14, lineHeight: 1.2, marginBottom: 6 }}>{TC.title}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
           <span style={{ fontSize: 12 }}>{TC.rating}</span>
           <Stars rating={TC.rating} />
@@ -553,13 +545,13 @@ export function AmazonMobileTemplate({
           type="button"
           style={{
             width: '100%',
-            height: 36,
+            height: 34,
             borderRadius: 18,
             border: 'none',
             background: '#ffd814',
             fontWeight: 500,
             fontSize: 13,
-            marginBottom: 7,
+            marginBottom: 6,
             cursor: 'pointer',
           }}
         >
@@ -569,7 +561,7 @@ export function AmazonMobileTemplate({
           type="button"
           style={{
             width: '100%',
-            height: 36,
+            height: 34,
             borderRadius: 18,
             border: 'none',
             background: '#ffa41c',
@@ -584,14 +576,19 @@ export function AmazonMobileTemplate({
         {/* offers — highest-recognition commerce signal */}
         <OfferBlock compact />
 
+        {/* returns trust signal */}
+        <div style={{ marginTop: 6, fontSize: 10.5, color: '#565959' }}>
+          ✓ <b style={{ color: '#0f1111' }}>10 days</b> returnable · Secure transaction
+        </div>
+
         {/* sold by */}
         <div
           style={{
-            marginTop: 12,
+            marginTop: 8,
             fontSize: 11,
             display: 'grid',
             gridTemplateColumns: '70px 1fr',
-            rowGap: 3,
+            rowGap: 2,
             color: '#565959',
           }}
         >
@@ -731,9 +728,9 @@ export function AmazonDesktopTemplate({
                 onMouseEnter={() => onActiveChange(i)}
                 aria-label={`Show image ${i + 1}`}
                 style={{
-                  width: 52,
-                  height: 64,
-                  borderRadius: 5,
+                  width: 44,
+                  height: 56,
+                  borderRadius: 4,
                   border: `1px solid ${i === activeIndex ? '#e77600' : '#d5d9d9'}`,
                   boxShadow: i === activeIndex ? '0 0 0 2px #e77600' : 'none',
                   overflow: 'hidden',
@@ -763,8 +760,8 @@ export function AmazonDesktopTemplate({
             {images.length > 7 && (
               <div
                 style={{
-                  width: 52,
-                  height: 24,
+                  width: 44,
+                  height: 20,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -778,9 +775,8 @@ export function AmazonDesktopTemplate({
             )}
           </div>
 
-          {/* main image with hover zoom */}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <ProductImage src={active} ratio={ratio} zoom />
+            <ProductImage src={active} ratio={ratio} />
             <div style={{ textAlign: 'center', fontSize: 10.5, color: '#565959', marginTop: 6 }}>
               Roll over image to zoom in
             </div>
@@ -789,6 +785,26 @@ export function AmazonDesktopTemplate({
 
         {/* col 2: product details */}
         <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Amazon's Choice badge — high-recognition trust signal */}
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              background: '#232f3e',
+              borderRadius: 3,
+              padding: '3px 8px',
+              marginBottom: 6,
+            }}
+          >
+            <span style={{ color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>
+              Amazon's
+            </span>
+            <span style={{ color: '#ff9900', fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}>
+              Choice
+            </span>
+            <span style={{ color: '#ccc', fontSize: 9.5, marginLeft: 2 }}>in Women's Tops</span>
+          </div>
           <div style={{ fontSize: 18, lineHeight: 1.25, color: '#0f1111', marginBottom: 4 }}>
             {TC.title}
           </div>
@@ -857,10 +873,12 @@ export function AmazonDesktopTemplate({
             ))}
           </div>
 
-          {/* returns + delivery note */}
-          <div style={{ fontSize: 11, color: '#565959', lineHeight: 1.5 }}>
-            <div>✓ 30-day return window · Ships from Amazon</div>
-            <div>✓ Packaging shows brand, not product details</div>
+          {/* returns + trust metadata */}
+          <div style={{ fontSize: 11, color: '#565959', lineHeight: 1.6 }}>
+            <div>
+              ✓ <b style={{ color: '#0f1111' }}>10 days</b> returnable · Ships from Amazon
+            </div>
+            <div>✓ Secure transaction · Packaging doesn't reveal contents</div>
           </div>
         </div>
 
@@ -942,11 +960,11 @@ export function AmazonDesktopTemplate({
           </button>
           <div
             style={{
-              marginTop: 12,
+              marginTop: 8,
               fontSize: 11,
               display: 'grid',
               gridTemplateColumns: '62px 1fr',
-              rowGap: 3,
+              rowGap: 2,
               color: '#565959',
             }}
           >

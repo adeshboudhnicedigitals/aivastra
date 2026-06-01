@@ -104,6 +104,17 @@ a {
   }
 }
 
+/* Phone preview — hides native scrollbar so the device illusion holds */
+.preview-phone-scroll {
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.preview-phone-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 @keyframes av-shimmer {
   0% {
     background-position: 200% 0;
