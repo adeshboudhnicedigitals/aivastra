@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
-import type { CatalogItem, ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
+import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
 
@@ -29,7 +29,6 @@ interface Props {
   garmentTypeGenderSlug: string;
   faces: ModelFace[];
   backgrounds: ModelBackground[];
-  catalogItems: CatalogItem[];
   onDone: (added: ModelPose) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -411,7 +410,6 @@ export function PoseUploadModal({
   garmentTypeGenderSlug,
   faces,
   backgrounds,
-  catalogItems,
   onDone,
   onClose,
   toast,
@@ -450,15 +448,6 @@ export function PoseUploadModal({
   const [bgComfyFile, setBgComfyFile] = useState<File | null>(null);
 
   const [label, setLabel] = useState('');
-  const [lowerItemIds, setLowerItemIds] = useState<string[]>([]);
-  const [shoeItemIds, setShoeItemIds] = useState<string[]>([]);
-
-  const lowerItems = catalogItems.filter(
-    (c) => c.type === 'lower' && c.genderSlug === garmentTypeGenderSlug,
-  );
-  const shoeItems = catalogItems.filter(
-    (c) => c.type === 'shoe' && c.genderSlug === garmentTypeGenderSlug,
-  );
   const [sortOrder, setSortOrder] = useState(0);
   const [isTemplate, setIsTemplate] = useState(false);
 
@@ -569,8 +558,6 @@ export function PoseUploadModal({
         workflowTemplateId,
         promptFacePhase: promptFacePhase.trim(),
         promptGarmentPhase: promptGarmentPhase.trim(),
-        lowerItemIds: hasLower ? lowerItemIds : [],
-        shoeItemIds: hasShoes ? shoeItemIds : [],
         isTemplate,
         sortOrder,
       };
@@ -1033,123 +1020,6 @@ export function PoseUploadModal({
                     placeholder="e.g. Front view, Standing pose…"
                     onChange={(e) => setLabel(e.target.value)}
                   />
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {hasLower && (
-                    <>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-1)' }}>
-                        Lower garment allowlist
-                      </div>
-                      <div
-                        style={{
-                          padding: '8px 12px',
-                          background: 'var(--surface-2)',
-                          borderRadius: 'var(--r-lg)',
-                          border: '1px solid var(--border)',
-                          maxHeight: 160,
-                          overflowY: 'auto',
-                        }}
-                      >
-                        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
-                          Select allowed lower garments ({lowerItemIds.length} selected)
-                        </div>
-                        {lowerItems.length === 0 ? (
-                          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                            No lower garment items uploaded yet.
-                          </div>
-                        ) : (
-                          lowerItems.map((item) => (
-                            <label
-                              key={item.id}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '4px 0',
-                                cursor: uploading ? 'default' : 'pointer',
-                                fontSize: 12.5,
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={lowerItemIds.includes(item.id)}
-                                disabled={uploading}
-                                onChange={(e) =>
-                                  setLowerItemIds((prev) =>
-                                    e.target.checked
-                                      ? [...prev, item.id]
-                                      : prev.filter((id) => id !== item.id),
-                                  )
-                                }
-                              />
-                              <span style={{ color: 'var(--ink-1)' }}>{item.label}</span>
-                              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                                {item.genderSlug ?? 'all'}
-                              </span>
-                            </label>
-                          ))
-                        )}
-                      </div>
-                    </>
-                  )}
-                  {hasShoes && (
-                    <>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-1)' }}>
-                        Shoes allowlist
-                      </div>
-                      <div
-                        style={{
-                          padding: '8px 12px',
-                          background: 'var(--surface-2)',
-                          borderRadius: 'var(--r-lg)',
-                          border: '1px solid var(--border)',
-                          maxHeight: 160,
-                          overflowY: 'auto',
-                        }}
-                      >
-                        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
-                          Select allowed shoes ({shoeItemIds.length} selected)
-                        </div>
-                        {shoeItems.length === 0 ? (
-                          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                            No shoe items uploaded yet.
-                          </div>
-                        ) : (
-                          shoeItems.map((item) => (
-                            <label
-                              key={item.id}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '4px 0',
-                                cursor: uploading ? 'default' : 'pointer',
-                                fontSize: 12.5,
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={shoeItemIds.includes(item.id)}
-                                disabled={uploading}
-                                onChange={(e) =>
-                                  setShoeItemIds((prev) =>
-                                    e.target.checked
-                                      ? [...prev, item.id]
-                                      : prev.filter((id) => id !== item.id),
-                                  )
-                                }
-                              />
-                              <span style={{ color: 'var(--ink-1)' }}>{item.label}</span>
-                              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                                {item.genderSlug ?? 'all'}
-                              </span>
-                            </label>
-                          ))
-                        )}
-                      </div>
-                    </>
-                  )}
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 10 }}>

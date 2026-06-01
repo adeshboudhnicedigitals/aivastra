@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
-import type { CatalogItem } from '../types';
+import type { CatalogItem, GarmentType } from '../types';
 import { Icon } from './Icons';
 
 interface PresignResult {
@@ -22,6 +22,7 @@ interface FileEntry {
 
 interface Props {
   typeSlug: 'lower' | 'shoe';
+  garmentTypes: GarmentType[];
   onDone: (added: CatalogItem[]) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -42,17 +43,21 @@ async function uploadFile(url: string, file: File): Promise<void> {
 
 export function BatchCatalogUploadModal({
   typeSlug,
+  garmentTypes,
   onDone,
   onClose,
   toast,
   defaultGenderSlug = 'men',
 }: Props) {
   const [genderSlug, setGenderSlug] = useState(defaultGenderSlug || 'men');
+  const [subcategoryIds, setSubcategoryIds] = useState<string[]>([]);
   const [sortStart, setSortStart] = useState(0);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [running, setRunning] = useState(false);
   const [doneCount, setDoneCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const matchingSubcats = garmentTypes.filter((g) => g.genderSlug === genderSlug);
 
   const busy = running;
 
@@ -112,6 +117,7 @@ export function BatchCatalogUploadModal({
             thumbnailKey: presign.thumbnailKey,
             sortOrder: sortStart + i,
             genderSlug,
+            subcategoryIds,
           }),
         });
         added.push(row);
@@ -167,7 +173,10 @@ export function BatchCatalogUploadModal({
                 className="select"
                 value={genderSlug}
                 disabled={busy}
-                onChange={(e) => setGenderSlug(e.target.value)}
+                onChange={(e) => {
+                  setGenderSlug(e.target.value);
+                  setSubcategoryIds([]);
+                }}
               >
                 <option value="men">Men</option>
                 <option value="women">Women</option>
@@ -187,6 +196,62 @@ export function BatchCatalogUploadModal({
                 style={{ width: '100%' }}
               />
             </div>
+          </div>
+
+          {/* Subcategory checklist */}
+          <div className="field">
+            <label>
+              Garment types (subcategories) — which types will show this item
+              <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>
+                ({subcategoryIds.length} selected)
+              </span>
+            </label>
+            {matchingSubcats.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                No garment types for {genderSlug} yet.
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  background: 'var(--subtle)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  maxHeight: 160,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                }}
+              >
+                {matchingSubcats.map((gt) => (
+                  <label
+                    key={gt.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '4px 0',
+                      cursor: busy ? 'default' : 'pointer',
+                      fontSize: 12.5,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={subcategoryIds.includes(gt.id)}
+                      disabled={busy}
+                      onChange={(e) =>
+                        setSubcategoryIds((prev) =>
+                          e.target.checked ? [...prev, gt.id] : prev.filter((id) => id !== gt.id),
+                        )
+                      }
+                    />
+                    <span>{gt.label}</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>{gt.slug}</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* File picker */}

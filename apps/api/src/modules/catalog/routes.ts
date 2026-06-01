@@ -24,12 +24,23 @@ export async function catalogRoutes(app: FastifyInstance) {
 
       const poseIds = poseIdsParam ? poseIdsParam.split(',').filter(Boolean) : [];
 
-      // If poseIds provided, return only items allowed for those poses
+      // If poseIds provided, return items targeting those poses' subcategories
+      // where the pose has the relevant showsLower / showsShoes flag enabled
       if (poseIds.length > 0) {
+        const showsField =
+          type === 'lower' ? schema.modelPoses.showsLower : schema.modelPoses.showsShoes;
+        const poses = await app.db
+          .select({ subcategoryId: schema.modelPoses.subcategoryId })
+          .from(schema.modelPoses)
+          .where(and(inArray(schema.modelPoses.id, poseIds), eq(showsField, true)));
+
+        const subcategoryIds = [...new Set(poses.map((p) => p.subcategoryId))];
+        if (subcategoryIds.length === 0) return { type, tree: [] };
+
         const links = await app.db
-          .select({ catalogItemId: schema.poseCatalogItems.catalogItemId })
-          .from(schema.poseCatalogItems)
-          .where(inArray(schema.poseCatalogItems.poseId, poseIds));
+          .select({ catalogItemId: schema.catalogItemSubcategories.catalogItemId })
+          .from(schema.catalogItemSubcategories)
+          .where(inArray(schema.catalogItemSubcategories.subcategoryId, subcategoryIds));
 
         const allowedIds = [...new Set(links.map((l) => l.catalogItemId))];
         if (allowedIds.length === 0) return { type, tree: [] };
@@ -49,7 +60,6 @@ export async function catalogRoutes(app: FastifyInstance) {
           ...i,
           thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
         }));
-        // Return as flat tree (single node with all items)
         return { type, tree: [{ id: 0, slug: type, label: type, children: [], items: enriched }] };
       }
 

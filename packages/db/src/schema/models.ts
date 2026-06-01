@@ -125,16 +125,16 @@ export const modelPoses = pgTable(
   }),
 );
 
-// Many-to-many: which catalog items are allowed for a given pose
-export const poseCatalogItems = pgTable(
-  'pose_catalog_items',
+// Many-to-many: which garment subcategories a lower/shoe catalog item targets
+export const catalogItemSubcategories = pgTable(
+  'catalog_item_subcategories',
   {
-    poseId: uuid('pose_id')
-      .notNull()
-      .references(() => modelPoses.id, { onDelete: 'cascade' }),
     catalogItemId: uuid('catalog_item_id').notNull(),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.poseId, table.catalogItemId] }),
+    pk: primaryKey({ columns: [table.catalogItemId, table.subcategoryId] }),
   }),
 );

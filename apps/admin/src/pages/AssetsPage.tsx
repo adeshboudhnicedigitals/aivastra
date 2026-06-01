@@ -169,6 +169,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [showCatalogUpload, setShowCatalogUpload] = useState(false);
   const [editingCatalogItem, setEditingCatalogItem] = useState<CatalogItem | null>(null);
   const [editCatalogGender, setEditCatalogGender] = useState<string>('men');
+  const [editCatalogSubcatIds, setEditCatalogSubcatIds] = useState<string[]>([]);
   const [editCatalogSaving, setEditCatalogSaving] = useState(false);
 
   const loadBackgrounds = useCallback(
@@ -275,6 +276,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       .catch(() => {});
     apiFetch<CatalogItem[]>('/admin/catalog/items')
       .then((items) => setCatalogItems(items))
+      .catch(() => {});
+    apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types')
+      .then((r) => setGarmentTypes(r.items))
       .catch(() => {});
   }, []);
 
@@ -1208,6 +1212,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                             onClick={() => {
                               setEditingCatalogItem(c);
                               setEditCatalogGender(c.genderSlug ?? 'men');
+                              setEditCatalogSubcatIds(c.subcategoryIds ?? []);
                             }}
                           >
                             <Icon.Edit />
@@ -1305,7 +1310,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           garmentTypeGenderSlug={subView.sub.genderSlug}
           faces={faces}
           backgrounds={allBackgrounds}
-          catalogItems={catalogItems}
           onDone={(added) => {
             setShowPoseUpload(false);
             setPoses((prev) => [...prev, added]);
@@ -1325,7 +1329,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           pose={editingPose}
           faces={faces}
           backgrounds={allBackgrounds}
-          catalogItems={catalogItems}
           onSaved={(updated) => {
             setPoses((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
             setEditingPose(null);
@@ -1731,10 +1734,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(360px, calc(100vw - 40px))' }}
+            style={{ width: 'min(440px, calc(100vw - 40px))' }}
           >
             <div className="modal-head">
-              <h3>Edit gender</h3>
+              <h3>Edit catalog item</h3>
               <button
                 className="btn sm ghost"
                 onClick={() => setEditingCatalogItem(null)}
@@ -1744,10 +1747,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 <Icon.Close />
               </button>
             </div>
-            <div className="modal-body">
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
-                {editingCatalogItem.label}
-              </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{editingCatalogItem.label}</div>
               <div className="field">
                 <label>Gender</label>
                 <select
@@ -1762,6 +1766,68 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   <option value="girls">Girls</option>
                 </select>
               </div>
+              {/* Subcategory checklist */}
+              {(() => {
+                const matchingSubs = garmentTypes.filter((g) => g.genderSlug === editCatalogGender);
+                return (
+                  <div className="field">
+                    <label>
+                      Garment types this item applies to
+                      <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>
+                        ({editCatalogSubcatIds.length} selected)
+                      </span>
+                    </label>
+                    {matchingSubs.length === 0 ? (
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        No garment types for {editCatalogGender}.
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          padding: '8px 12px',
+                          background: 'var(--subtle)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          maxHeight: 160,
+                          overflowY: 'auto',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 2,
+                        }}
+                      >
+                        {matchingSubs.map((gt) => (
+                          <label
+                            key={gt.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '4px 0',
+                              cursor: editCatalogSaving ? 'default' : 'pointer',
+                              fontSize: 12.5,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={editCatalogSubcatIds.includes(gt.id)}
+                              disabled={editCatalogSaving}
+                              onChange={(e) =>
+                                setEditCatalogSubcatIds((prev) =>
+                                  e.target.checked
+                                    ? [...prev, gt.id]
+                                    : prev.filter((id) => id !== gt.id),
+                                )
+                              }
+                            />
+                            <span>{gt.label}</span>
+                            <span style={{ fontSize: 11, color: 'var(--muted)' }}>{gt.slug}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
             <div className="modal-foot">
               <button
@@ -1779,12 +1845,19 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   try {
                     await apiFetch(`/admin/catalog/items/${editingCatalogItem.id}`, {
                       method: 'PATCH',
-                      body: JSON.stringify({ genderSlug: editCatalogGender }),
+                      body: JSON.stringify({
+                        genderSlug: editCatalogGender,
+                        subcategoryIds: editCatalogSubcatIds,
+                      }),
                     });
                     setCatalogItems((prev) =>
                       prev.map((x) =>
                         x.id === editingCatalogItem.id
-                          ? { ...x, genderSlug: editCatalogGender }
+                          ? {
+                              ...x,
+                              genderSlug: editCatalogGender,
+                              subcategoryIds: editCatalogSubcatIds,
+                            }
                           : x,
                       ),
                     );
@@ -1847,6 +1920,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       {showCatalogUpload && (
         <BatchCatalogUploadModal
           typeSlug={activeTab === 'shoe' ? 'shoe' : 'lower'}
+          garmentTypes={garmentTypes}
           defaultGenderSlug={genderFilter === 'all' ? '' : genderFilter}
           onDone={(added) => {
             setShowCatalogUpload(false);
