@@ -1,6 +1,8 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
+import { setAuthCookies } from '@/lib/auth-cookies';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || '';
 const PUBLIC_PATHS = [
   '/login',
@@ -11,7 +13,7 @@ const PUBLIC_PATHS = [
   '/reset-password',
 ];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Next.js strips basePath before middleware receives pathname.
@@ -41,13 +43,36 @@ export function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get('access_token')?.value;
-  if (!token) {
-    // Use absolute URL to avoid Next.js basePath double-prefix issues
-    const loginUrl = new URL(`${BASE_PATH}/login`, request.url);
-    loginUrl.searchParams.set('next', path); // path without basePath; router.push handles it
-    return NextResponse.redirect(loginUrl);
+  if (token) return NextResponse.next();
+
+  // Access token expired/missing. Before bouncing to login, try a silent
+  // refresh using the (httpOnly, 7-day) refresh cookie. This is what stops the
+  // "logged out on reload/navigation after 15 min" problem — middleware runs on
+  // server navigations where the client-side 401→refresh path never fires.
+  const refresh = request.cookies.get('refresh')?.value;
+  if (refresh) {
+    try {
+      const res = await fetch(`${API_URL}/v1/auth/refresh`, {
+        method: 'POST',
+        headers: { Cookie: `refresh=${refresh}` },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { accessToken?: string };
+        if (data.accessToken) {
+          const response = NextResponse.next();
+          setAuthCookies(response, data.accessToken, res.headers.get('set-cookie'));
+          return response;
+        }
+      }
+    } catch {
+      // fall through to login redirect
+    }
   }
-  return NextResponse.next();
+
+  // Use absolute URL to avoid Next.js basePath double-prefix issues
+  const loginUrl = new URL(`${BASE_PATH}/login`, request.url);
+  loginUrl.searchParams.set('next', path); // path without basePath; router.push handles it
+  return NextResponse.redirect(loginUrl);
 }
 
 export const config = {

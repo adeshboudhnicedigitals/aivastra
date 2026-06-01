@@ -19,7 +19,9 @@ export function setAuthCookies(
       response.cookies.set('refresh', refreshMatch[1]!, {
         httpOnly: true,
         sameSite: 'lax',
-        path: '/api/auth',
+        // Path '/' (not '/api/auth') so the browser sends it on protected-page
+        // navigations too — lets middleware silently refresh before redirecting.
+        path: '/',
         maxAge: 7 * 24 * 60 * 60,
         secure: process.env.NODE_ENV === 'production',
       });
@@ -29,5 +31,7 @@ export function setAuthCookies(
 
 export function clearAuthCookies(response: NextResponse): void {
   response.cookies.set('access_token', '', { maxAge: 0, path: '/' });
+  response.cookies.set('refresh', '', { maxAge: 0, path: '/' });
+  // Also clear the legacy '/api/auth'-scoped refresh cookie from older sessions.
   response.cookies.set('refresh', '', { maxAge: 0, path: '/api/auth' });
 }

@@ -7,15 +7,28 @@ function getToken(): string | null {
   return match ? decodeURIComponent(match[1]!) : null;
 }
 
-async function tryRefresh(): Promise<string | null> {
-  try {
-    const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { accessToken: string };
-    return data.accessToken;
-  } catch {
-    return null;
+// Single-flight: coalesce concurrent refreshes into one request. Without this,
+// a page firing several requests at once all 401 together and each calls
+// /refresh with the same (single-use) refresh token — the first rotates it,
+// the rest hit a revoked token and force a logout. Dedup avoids that race.
+let refreshInFlight: Promise<string | null> | null = null;
+
+function tryRefresh(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
+        if (!res.ok) return null;
+        const data = (await res.json()) as { accessToken: string };
+        return data.accessToken;
+      } catch {
+        return null;
+      }
+    })().finally(() => {
+      refreshInFlight = null;
+    });
   }
+  return refreshInFlight;
 }
 
 async function extractError(res: Response): Promise<Error> {
