@@ -425,8 +425,6 @@ export function PoseUploadModal({
   const [step, setStep] = useState<1 | 2>(1);
 
   const selectedWorkflow = workflows.find((w) => w.id === workflowTemplateId);
-  const hasLower = selectedWorkflow?.lowerNodeId != null;
-  const hasShoes = selectedWorkflow?.shoeNodeId != null;
 
   const handleWorkflowSelect = (wf: WorkflowOption) => {
     setWorkflowTemplateId(wf.id);
@@ -932,7 +930,7 @@ export function PoseUploadModal({
                       Prompts
                     </span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {!promptsOpen && promptFacePhase && (
+                      {!promptsOpen && promptGarmentPhase && (
                         <span
                           style={{
                             fontSize: 11,
@@ -943,8 +941,8 @@ export function PoseUploadModal({
                             whiteSpace: 'nowrap',
                           }}
                         >
-                          {promptFacePhase.slice(0, 60)}
-                          {promptFacePhase.length > 60 ? '…' : ''}
+                          {promptGarmentPhase.slice(0, 60)}
+                          {promptGarmentPhase.length > 60 ? '…' : ''}
                         </span>
                       )}
                       <svg
@@ -979,18 +977,7 @@ export function PoseUploadModal({
                       }}
                     >
                       <div className="field">
-                        <label>Face phase prompt</label>
-                        <textarea
-                          className="input"
-                          value={promptFacePhase}
-                          disabled={uploading}
-                          rows={4}
-                          onChange={(e) => setPromptFacePhase(e.target.value)}
-                          style={{ fontSize: 12, fontFamily: 'var(--mono)', resize: 'vertical' }}
-                        />
-                      </div>
-                      <div className="field">
-                        <label>Garment phase prompt</label>
+                        <label>Positive prompt</label>
                         <textarea
                           className="input"
                           value={promptGarmentPhase}
