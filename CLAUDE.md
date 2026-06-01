@@ -4,91 +4,149 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Status
 
-Greenfield. Only `docs/virtual-tryon-system-design.md` exists. All app code, infra, and tooling not yet scaffolded. Treat the design doc as the source of truth — read it before changing architecture.
+- [x] Phase 0 — Foundations (monorepo, DB schema, docker infra)
+- [x] Phase 1 — Backend API (auth, credits, catalog, admin, jobs)
+- [x] Phase 2 — Dispatcher (Redis consumer, worker routing, ComfyUI pipeline)
+- [ ] Phase 3 — Next.js frontend (`apps/web` — partially scaffolded)
+- [ ] Phase 4 — E2E integration + real ComfyUI workflow template
 
-## Stack & Tooling Decisions
+Read `docs/virtual-tryon-system-design.md` before changing architecture. See `docs/PHASES.md` for phase detail.
 
-- **Package manager:** pnpm (workspaces). Use `pnpm-workspace.yaml`; do not introduce npm/yarn lockfiles.
-- **Logger:** pino across all services (api, dispatcher, web server actions). No `console.log` in committed code. Use child loggers per request with `jobId`/`userId` bindings.
-- **Containerization:** Docker Compose for local infra (Postgres, Redis, MinIO-as-R2-stub if needed, api, dispatcher, web). Compose file lives at `infra/docker-compose.yml`.
-- **Runtime:** Node.js + TypeScript everywhere. Fastify (api), Next.js 15 (web), plain Node service (dispatcher).
-- **DB:** PostgreSQL via Drizzle ORM. Migrations in `packages/db`.
-- **Cache/queue:** Redis Streams (`jobs:priority`, `jobs:normal`), hashes for worker registry.
-- **Object storage:** Cloudflare R2 via S3-compatible SDK behind a `StorageProvider` interface in `packages/storage`.
+## Stack & Tooling
 
-## Target Monorepo Layout
+- **Package manager:** pnpm workspaces. Never introduce npm/yarn lockfiles.
+- **Runtime:** Node 20+, TypeScript 5.6, ESM only (`"type": "module"` everywhere).
+- **API:** Fastify 5 + `fastify-type-provider-zod`. All routes wired in `apps/api/src/server.ts`.
+- **DB:** PostgreSQL 16 via Drizzle ORM. Schema in `packages/db/src/schema/`. Migrations in `packages/db/src/migrations/`.
+- **Cache/Queue:** Redis 7 Streams (`jobs:priority`, `jobs:normal`). Consumer group: `dispatcher-cg`.
+- **Storage:** S3-compatible (Cloudflare R2 in prod, MinIO locally). `StorageProvider` interface in `packages/storage`.
+- **Logger:** pino via `@aivastra/logger` (`createLogger(service)`). No `console.log` in committed code. Use child loggers with `jobId`/`userId` bindings.
+- **Tests:** Vitest. No testcontainers — see Testing section below.
+
+## Monorepo Layout
 
 ```
-apps/web          Next.js 15 — user UI + admin panel
-apps/api          Fastify — /v1/* and /admin/*
-apps/dispatcher   Redis Stream consumer, ComfyUI bridge, worker health monitor
-packages/types    Shared TS types + Zod schemas (single source of truth for request shapes)
-packages/db       Drizzle schema + migrations
-packages/storage  StorageProvider interface + R2 impl
-packages/catalog  Category tree builder + catalog query helpers
-infra/            docker-compose.yml, cloudflared configs, comfyui setup
+apps/api          Fastify 5 REST API — auth, credits, catalog, jobs, admin
+apps/dispatcher   Redis Stream consumer — routes jobs to GPU workers
+apps/web          Next.js 15 — user-facing UI (auth, studio, catalogues, pricing)
+apps/admin        Vite + React SPA — internal admin panel (separate from apps/web)
+packages/db       Drizzle schema + migrations + createDb() factory
+packages/types    Zod schemas only — single source of truth for request/response shapes
+packages/storage  StorageProvider interface + R2/MinIO impl + R2 key builders
+packages/logger   pino wrapper — createLogger(service)
+packages/catalog  (planned) category tree builder
+infra/            docker-compose.yml, cloudflared configs
 templates/        ComfyUI workflow JSON (versioned)
 scripts/          seed-catalog.ts and other ops scripts
+docs/             Design doc, phase plans, progress log
 ```
+
+## Commands
+
+```bash
+# First-time setup
+cp .env.example .env          # fill in secrets
+pnpm install
+pnpm docker:up                # postgres + redis + minio on 127.0.0.1
+pnpm db:generate              # generate Drizzle migration SQL
+pnpm db:migrate               # apply migrations to DATABASE_URL
+```
+
+| Command | What |
+|---------|------|
+| `pnpm dev` | Run all services in parallel (turbo) |
+| `pnpm --filter @aivastra/api dev` | API only |
+| `pnpm --filter @aivastra/dispatcher dev` | Dispatcher only |
+| `pnpm --filter @aivastra/web dev` | Next.js web only |
+| `pnpm --filter @aivastra/admin dev` | Admin SPA only |
+| `pnpm build` | Typecheck + build all |
+| `pnpm typecheck` | Type-check all |
+| `pnpm lint` | Lint all |
+| `pnpm --filter @aivastra/api test` | Full API integration suite |
+| `pnpm --filter @aivastra/api test -- <pattern>` | Single test by name (Vitest `-t`) |
+| `pnpm --filter @aivastra/<pkg> test` | Single package tests |
+| `pnpm docker:up` / `pnpm docker:down` | Start/stop infra |
+| `pnpm docker:reset` | Compose down + delete volumes |
+| `pnpm db:generate` | `drizzle-kit generate` (needs `DATABASE_URL`) |
+| `pnpm db:migrate` | Run `packages/db/src/migrate.ts` |
+| `pnpm seed:catalog` | Run `scripts/seed-catalog.ts` |
+
+Makefile shortcuts mirror these (e.g. `make test-api`, `make docker-up`).
 
 ## Architecture — Big Picture
 
 Three-service split with a hard boundary at the Redis Stream:
 
-1. **api** owns auth, credits, catalog reads, job creation. Validates catalog IDs are active → atomic credit deduct (`UPDATE WHERE balance > 0`) → writes `jobs` row → `XADD` to stream. Never talks to ComfyUI.
-2. **dispatcher** is the only service that talks to GPU workers. Consumes stream via `XREADGROUP`, picks a healthy IDLE worker from Redis `worker:registry` hash (atomic claim → BUSY), patches the versioned workflow template with R2 inputs, posts to ComfyUI `/prompt` over a Cloudflare Tunnel, listens on ComfyUI websocket for progress, uploads result to R2, updates Postgres, publishes SSE events, `XACK`s. Refunds credits in the same Postgres transaction on terminal failure (max 2 attempts).
-3. **web** uploads garments **direct to R2 via presigned URL** (bypasses api to save bandwidth), then POSTs job metadata. Opens SSE for live progress.
+1. **api** — auth, credits, catalog reads, job creation. Validates catalog IDs → atomic credit deduct (`UPDATE WHERE balance > 0`) → writes `jobs` row → `XADD` to Redis stream. Never talks to ComfyUI.
+2. **dispatcher** — only process that talks to GPU workers. Consumes stream via `XREADGROUP`, selects healthy IDLE worker, clones + patches the versioned workflow template with R2 input keys, posts to ComfyUI `/prompt` over Cloudflare Tunnel, listens on ComfyUI websocket for progress, uploads result to R2, updates Postgres + publishes SSE, `XACK`s. Refunds credits in the same Postgres transaction on terminal failure (max 2 attempts).
+3. **web** — uploads garments **direct to R2 via presigned URL** (bypasses api), then POSTs job metadata. Opens SSE for live progress. Auth via httpOnly cookie (`access_token`). Token refresh handled automatically in `apps/web/src/lib/api.ts`.
+4. **admin** — separate Vite+React SPA (`apps/admin`). Talks directly to `apps/api` `/admin/*` routes.
 
-Worker connectivity: each ComfyUI VPS runs `cloudflared`; no inbound ports. Dispatcher authenticates with `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers. Health monitor probes `/system_stats` every 15s and sets `worker:health:{id}` with 30s TTL — expired key = unhealthy = no routing.
+Worker connectivity: each ComfyUI VPS runs `cloudflared`; no inbound ports. Health monitor probes `/system_stats` every 15s and sets `worker:health:{id}` with 30s TTL — expired = unhealthy = no routing.
 
-Input model: 1 user-uploaded garment + 4 admin-curated catalog selections (model, pose, background, lower). All 4 catalog IDs must resolve to `catalog_items` rows with `is_active=true` before credits deduct.
+Input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId` (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. All IDs must resolve to active catalog/asset rows before credits deduct.
+
+## Testing Architecture (Critical)
+
+**No testcontainers.** Integration tests reuse the docker-compose Postgres/Redis/MinIO running on localhost. `pnpm docker:up` must be running before any `pnpm test`.
+
+Each test file (harness in `apps/api/test/helpers/containers.ts`):
+1. Creates a **fresh Postgres database** via `CREATE DATABASE` with a random name
+2. Runs Drizzle migrations against it
+3. Creates a **fresh MinIO bucket** with a random name
+4. Drops both in `afterAll`
+
+API test harness (`apps/api/test/helpers/api.ts`): `buildTestApp()` calls `app.listen({ port: 0 })` → ephemeral port from `app.server.address()`. Use raw `node:http` for SSE tests — Fastify `inject()` hangs on streaming responses.
+
+**Gotchas:**
+- `testcontainers` package is installed but unused (abandoned due to MinIO startup issues on Windows). Do not reintroduce it.
+- Catalog integration tests seed `catalog_types` with `slug: 'models'` — use unique slugs if tests share the same Postgres process.
 
 ## Invariants (do not break)
 
-- Credit deduct and job enqueue must be in one Postgres transaction. Refund on terminal failure also transactional.
-- Catalog ID → R2 key resolution happens in api (before enqueue), not dispatcher. Dispatcher trusts the resolved keys on the job row.
+- Credit deduct + job insert must be one Postgres transaction. Refund on terminal failure is also transactional.
+- Catalog ID → R2 key resolution happens in api before enqueue. Dispatcher trusts the resolved keys on the `job_inputs` row.
 - ComfyUI workflow template is versioned in `templates/`; never inline-mutate, always clone-and-patch.
-- Postgres and Redis bind to `127.0.0.1` only. Worker URLs reach the dispatcher only via env / Redis registry, never hardcoded.
+- Postgres and Redis bind to `127.0.0.1` only.
 - All `/admin/*` routes double-check admin role: JWT claim AND `admin_users` row lookup.
-- User hint field (300 char max) goes through sanitization before reaching the workflow prompt — protects the locked system prompt.
+- User hint field (300 char max) goes through sanitization before reaching the workflow prompt.
+- `@aivastra/db` exports `* as schema` from `packages/db/src/index.ts` — do not add a duplicate `schema` re-export.
 
-## Commands
+## Environment Variables
 
-Not yet wired. When scaffolding, expose these at the root via pnpm:
+Key vars (see `.env.production.example` for full list):
 
-- `pnpm dev` — turbo-run dev across web/api/dispatcher
-- `pnpm build` — typecheck + build all packages
-- `pnpm db:migrate` / `pnpm db:generate` — Drizzle
-- `pnpm seed:catalog` — runs `scripts/seed-catalog.ts`
-- `pnpm docker:up` / `pnpm docker:down` — wrap `docker compose -f infra/docker-compose.yml`
-- `pnpm test --filter <pkg>` — single-package test run
-- `pnpm test --filter api -- <pattern>` — single test by name (Vitest `-t`)
+| Var | Used by |
+|-----|---------|
+| `DATABASE_URL` | api, dispatcher, db package |
+| `REDIS_URL` | api, dispatcher |
+| `JWT_SECRET` / `COOKIE_SECRET` | api |
+| `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_URL` | api, dispatcher |
+| `R2_PUBLIC_PRESIGN_BASE` | api (browser-side presigned URL base) |
+| `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | api (seeds first admin) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | api (optional OAuth) |
+| `RESEND_API_KEY` / `EMAIL_FROM` | api (transactional email) |
+| `WORKER_IDS` | dispatcher (comma-separated worker IDs) |
+| `WORKER_API_KEY` | dispatcher |
+
+In dev, `R2_*` vars point to MinIO at `http://127.0.0.1:9000`.
 
 ## Git Commit & Push Policy
 
-**Only commit and push when a meaningful unit of work is complete.** Do NOT commit after every minor UI tweak, typo fix, or single-line change.
+**Only commit and push when a meaningful unit of work is complete.**
 
-Commit when:
-- A full feature is working end-to-end (e.g., new wizard step, new admin page)
-- A bug is fixed and verified
-- A migration + its corresponding API/UI changes are all done together
-- A refactor that touches multiple files is complete
+Commit when: a full feature works end-to-end, a bug is fixed and verified, a migration + its API/UI changes are done together, or a multi-file refactor is complete.
 
-Do NOT commit for:
-- Single CSS property changes
-- Label/copy tweaks
-- One-liner fixes that are part of a larger in-progress task
-
-Batch related small changes into one commit with the larger task they belong to.
+Do NOT commit for: single CSS changes, label/copy tweaks, one-liners that are part of a larger in-progress task.
 
 ## Progress Tracking
 
-After every plan execution (`superpowers/plan`, `workflow-execute-plans`, or any implementation plan), update `docs/progress.md` with:
-- **Done** — what was completed
-- **Failed / Not Done** — what was skipped, blocked, or broken
-- **Open Questions / Decisions** — unresolved choices that affect next steps
+After every plan execution, update `docs/progress.md`:
+- **Done** — completed work
+- **Failed / Not Done** — skipped, blocked, or broken
+- **Open Questions / Decisions** — unresolved choices affecting next steps
 
-Add a new dated entry at the top of the log. Keep entries factual and brief.
+Add a new dated entry at the top of the log.
 
 ## Reference
 

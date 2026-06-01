@@ -21,6 +21,7 @@ if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
         email: env.ADMIN_BOOTSTRAP_EMAIL,
         passwordHash,
         displayName: 'Admin',
+        emailVerified: true,
       })
       .returning();
     await app.db.insert(schema.adminUsers).values({ userId: user.id, role: 'SUPER_ADMIN' });

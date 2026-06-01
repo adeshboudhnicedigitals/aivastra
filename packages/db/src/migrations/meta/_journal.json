@@ -24,6 +24,10 @@
     { "idx": 19, "version": "7", "when": 1779926400013, "tag": "0019_gender_slug_bg_catalog", "breakpoints": true },
     { "idx": 20, "version": "7", "when": 1779926400014, "tag": "0020_category_gender_slug", "breakpoints": true },
     { "idx": 21, "version": "7", "when": 1779926400015, "tag": "0021_catalog_item_direct_type", "breakpoints": true },
-    { "idx": 22, "version": "7", "when": 1779926400016, "tag": "0022_pose_catalog_items", "breakpoints": true }
+    { "idx": 22, "version": "7", "when": 1779926400016, "tag": "0022_pose_catalog_items", "breakpoints": true },
+    { "idx": 23, "version": "7", "when": 1779926400017, "tag": "0023_size_node_ids", "breakpoints": true },
+    { "idx": 24, "version": "7", "when": 1779926400018, "tag": "0024_email_verified", "breakpoints": true },
+    { "idx": 25, "version": "7", "when": 1779926400019, "tag": "0025_drop_is_template", "breakpoints": true },
+    { "idx": 26, "version": "7", "when": 1779926400020, "tag": "0026_catalog_item_subcategories", "breakpoints": true }
   ]
 }
