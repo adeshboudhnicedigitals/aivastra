@@ -56,9 +56,17 @@ export default function RegisterPage(): React.ReactElement {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
+    const body = (await res.json()) as {
+      requiresEmailVerification?: boolean;
+      error?: { message?: string };
+    };
     if (!res.ok) {
-      const body = (await res.json()) as { error?: { message?: string } };
       setError(body.error?.message ?? 'Registration failed');
+      return;
+    }
+    if (body.requiresEmailVerification) {
+      sessionStorage.setItem('pending_verify_email', data.email);
+      router.push('/verify-email');
       return;
     }
     router.push('/studio');

@@ -45,7 +45,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
   // ── Callback ──────────────────────────────────────────────────────────────
   app.get('/v1/auth/google/callback', async (req, reply) => {
     const { code, state } = req.query as { code?: string; state?: string };
-    const storedState = req.cookies['google_state'];
+    const storedState = req.cookies.google_state;
 
     if (!code || !state || !storedState || state !== storedState) {
       throw new AppError('INVALID_STATE', 400, 'invalid OAuth state');
@@ -110,6 +110,11 @@ export async function googleAuthRoutes(app: FastifyInstance) {
           .from(schema.users)
           .where(eq(schema.users.id, existing.userId));
         if (user?.isBanned) throw new AppError('BANNED', 403, 'account banned');
+        // Ensure emailVerified on every Google login (handles pre-existing unverified accounts)
+        await tx
+          .update(schema.users)
+          .set({ emailVerified: true })
+          .where(eq(schema.users.id, existing.userId));
         return existing.userId;
       }
 
@@ -123,17 +128,20 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       if (byEmail) {
         if (byEmail.isBanned) throw new AppError('BANNED', 403, 'account banned');
         uid = byEmail.id;
+        // Mark email as verified — Google confirmed ownership
+        await tx.update(schema.users).set({ emailVerified: true }).where(eq(schema.users.id, uid));
       } else {
-        // 3. Create new user
+        // 3. Create new user — Google accounts are pre-verified
         const [newUser] = await tx
           .insert(schema.users)
           .values({
             email: googleUser.email,
             passwordHash: null,
             displayName: googleUser.name ?? null,
+            emailVerified: true,
           })
           .returning({ id: schema.users.id });
-        uid = newUser!.id;
+        uid = newUser?.id;
         await tx.insert(schema.userCredits).values({ userId: uid, balance: 0 });
       }
 
@@ -162,7 +170,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
           ),
         );
 
-      return linked!.userId;
+      return linked?.userId;
     });
 
     // Issue one-time OTP for web handoff
