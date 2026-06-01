@@ -96,7 +96,7 @@ export async function modelsRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const { faceId, garmentTypeId } = req.query as { faceId?: string; garmentTypeId?: string };
+      const { faceId } = req.query as { faceId?: string; garmentTypeId?: string };
 
       if (faceId) {
         // Backgrounds that have ≥1 active pose for this face
@@ -117,32 +117,12 @@ export async function modelsRoutes(app: FastifyInstance) {
           )
           .where(eq(schema.modelBackgrounds.isActive, true));
 
-        // When garmentTypeId is known, fetch template pose thumbs for face × bg × garment type
-        // so the card shows the composite model preview instead of the raw background
-        let templateMap = new Map<string, string>(); // backgroundId → thumbnailKey
-        if (garmentTypeId) {
-          const templates = await app.db
-            .select({
-              backgroundId: schema.modelPoses.backgroundId,
-              thumbnailKey: schema.modelPoses.thumbnailKey,
-            })
-            .from(schema.modelPoses)
-            .where(
-              and(
-                eq(schema.modelPoses.subcategoryId, garmentTypeId),
-                eq(schema.modelPoses.faceId, faceId),
-                eq(schema.modelPoses.isTemplate, true),
-              ),
-            );
-          templateMap = new Map(templates.map((t) => [t.backgroundId, t.thumbnailKey]));
-        }
-
         return {
           items: backs.map((b) => ({
             id: b.id,
             label: b.label,
             thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
-            previewUrl: app.storage.publicUrl(templateMap.get(b.id) ?? b.thumbnailKey),
+            previewUrl: app.storage.publicUrl(b.thumbnailKey),
           })),
         };
       }

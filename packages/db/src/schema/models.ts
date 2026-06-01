@@ -8,7 +8,6 @@ import {
   primaryKey,
   text,
   timestamp,
-  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -100,7 +99,6 @@ export const modelPoses = pgTable(
     thumbnailKey: text('thumbnail_key').notNull(),
     showsLower: boolean('shows_lower').notNull().default(false),
     showsShoes: boolean('shows_shoes').notNull().default(false),
-    isTemplate: boolean('is_template').notNull().default(false),
     isActive: boolean('is_active').notNull().default(true),
     sortOrder: integer('sort_order').notNull().default(0),
     workflowTemplateId: uuid('workflow_template_id')
@@ -119,9 +117,6 @@ export const modelPoses = pgTable(
     backgroundIdx: index('model_poses_background_id_idx').on(table.backgroundId),
     workflowIdx: index('model_poses_workflow_template_id_idx').on(table.workflowTemplateId),
     // Only one pose per cell can be the template
-    templateIdx: uniqueIndex('model_poses_template_idx')
-      .on(table.subcategoryId, table.faceId, table.backgroundId)
-      .where(sql`is_template = true`),
   }),
 );
 

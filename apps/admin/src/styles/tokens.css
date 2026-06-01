@@ -136,7 +136,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--sans);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -258,10 +258,10 @@ svg {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px 8px 16px;
+  padding: 9px 10px 9px 16px;
   border-radius: var(--r);
   color: var(--sidebar-text);
-  font-size: 13.5px;
+  font-size: 14px;
   background: transparent;
   border: 0;
   text-align: left;
@@ -278,8 +278,8 @@ svg {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .nav-item svg {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   opacity: 0.85;
 }
 .nav-item .count {
@@ -569,8 +569,8 @@ svg {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 13px;
-  padding: 7px 13px;
+  font-size: 14px;
+  padding: 8px 14px;
   border-radius: var(--r);
   border: 1px solid var(--border);
   background: var(--surface);
@@ -587,8 +587,8 @@ svg {
   border-color: var(--border-strong);
 }
 .btn svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 .btn.primary {
   background: var(--ink);
@@ -622,8 +622,8 @@ svg {
   border-color: var(--danger-border);
 }
 .btn.sm {
-  padding: 5px 9px;
-  font-size: 12px;
+  padding: 6px 10px;
+  font-size: 13px;
 }
 .btn[disabled] {
   opacity: 0.5;
@@ -670,9 +670,9 @@ svg {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: 12.5px;
   font-weight: 500;
-  padding: 2px 8px;
+  padding: 3px 9px;
   border-radius: 99px;
   background: var(--surface-2);
   color: var(--ink-2);
@@ -849,9 +849,9 @@ svg {
 .input {
   border: 1px solid var(--border);
   border-radius: var(--r);
-  padding: 6px 10px;
+  padding: 7px 11px;
   background: var(--surface);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink);
   outline: 0;
 }
@@ -1716,7 +1716,7 @@ p {
   color: var(--ink);
 }
 .lede {
-  color: var(--muted) !important;
+  color: var(--muted);
   font-size: 13.5px;
 }
 .mono {
@@ -1777,16 +1777,16 @@ p {
 .table-wrap table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 14px;
 }
 .table-wrap th {
   text-align: left;
   font-weight: 500;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 10px 16px;
+  padding: 11px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
   position: sticky;
@@ -1801,7 +1801,7 @@ p {
   color: var(--ink);
 }
 .table-wrap td {
-  padding: 12px 16px;
+  padding: 13px 16px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
   color: var(--ink);

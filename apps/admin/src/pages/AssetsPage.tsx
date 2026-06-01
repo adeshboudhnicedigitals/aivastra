@@ -335,46 +335,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
-  const setAsTemplate = async (id: string) => {
-    const pose = poses.find((p) => p.id === id);
-    if (!pose || pose.isTemplate) return;
-    // Optimistically update: unset old template in same cell, set new one
-    setPoses((prev) =>
-      prev.map((p) => {
-        if (
-          p.faceId === pose.faceId &&
-          p.backgroundId === pose.backgroundId &&
-          p.garmentTypeId === pose.garmentTypeId
-        ) {
-          return { ...p, isTemplate: p.id === id };
-        }
-        return p;
-      }),
-    );
-    try {
-      await apiFetch(`/admin/assets/poses/${id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isTemplate: true }),
-      });
-      toast({ title: `${pose.label} set as template` });
-    } catch {
-      // Revert
-      setPoses((prev) =>
-        prev.map((p) => {
-          if (
-            p.faceId === pose.faceId &&
-            p.backgroundId === pose.backgroundId &&
-            p.garmentTypeId === pose.garmentTypeId
-          ) {
-            return { ...p, isTemplate: p.id !== id && p.isTemplate };
-          }
-          return p;
-        }),
-      );
-      toast({ kind: 'error', title: 'Failed to set template' });
-    }
-  };
-
   const doDelete = async () => {
     if (!confirmDelete) return;
     const { type, id, label } = confirmDelete;
@@ -437,8 +397,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   // Filtered poses for grid
   const visiblePoses = posesInCell.filter((p) => !filterPose || p.id === filterPose);
-  const templateCount = poses.filter((p) => p.isTemplate).length;
-
   return (
     <>
       <div className="page-head">
@@ -638,7 +596,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
               gap: 14,
               marginTop: 14,
             }}
@@ -655,9 +613,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     <span className="semi">{face.label}</span>
                     <div style={{ marginTop: 4 }}>
                       <span className="badge dot accent">{face.gender}</span>
-                    </div>
-                    <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
-                      {face.templateCount ?? 0} template{face.templateCount !== 1 ? 's' : ''}
                     </div>
                   </div>
                 </div>
@@ -724,7 +679,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   <th>Garment Type</th>
                   <th>Gender</th>
                   <th>Poses</th>
-                  <th>Templates</th>
                   <th>Active</th>
                   <th></th>
                 </tr>
@@ -763,9 +717,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     </td>
                     <td>
                       <span className="mono">{sub.poseCount ?? 0}</span>
-                    </td>
-                    <td>
-                      <span className="mono">{sub.templateCount ?? 0} templates</span>
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <Switch
@@ -848,7 +799,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             }}
           >
             <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-              {poses.length} poses · {templateCount} templates set
+              {poses.length} poses
             </span>
             <select
               className="select"
@@ -917,13 +868,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
               gap: 14,
             }}
           >
             {visiblePoses.map((pose) => {
               const faceName = faces.find((f) => f.id === pose.faceId)?.label ?? '?';
-              const bgName = backgrounds.find((b) => b.id === pose.backgroundId)?.label ?? '?';
+              const bgName = allBackgrounds.find((b) => b.id === pose.backgroundId)?.label ?? '?';
               return (
                 <div
                   key={pose.id}
@@ -931,11 +882,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   style={{
                     opacity: pose.isActive ? 1 : 0.6,
                     padding: 14,
-                    outline: pose.isTemplate ? '2px solid var(--accent, #2563eb)' : undefined,
                   }}
                 >
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    {T(pose, 48, 64)}
+                    {T(pose, 64, 88)}
                     <div style={{ marginTop: 4, minWidth: 0 }}>
                       <span className="semi" style={{ fontSize: 13 }}>
                         {pose.label}
@@ -943,13 +893,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
                         <span className="badge dot">{faceName}</span>
                         <span className="badge dot">{bgName}</span>
-                        {pose.isTemplate && <span className="badge dot accent">Template</span>}
-                        {pose.showsLower ? (
-                          <span className="badge dot accent">Lower</span>
-                        ) : pose.showsShoes ? (
-                          <span className="badge dot warn">Shoes</span>
-                        ) : (
-                          <span className="badge dot">Upper</span>
+                        {pose.workflowLabel && (
+                          <span className="badge dot accent">{pose.workflowLabel}</span>
                         )}
                       </div>
                     </div>
@@ -957,15 +902,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   <div
                     style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}
                   >
-                    {!pose.isTemplate && (
-                      <button
-                        className="btn sm ghost"
-                        style={{ width: '100%', marginBottom: 8, fontSize: 12 }}
-                        onClick={() => setAsTemplate(pose.id)}
-                      >
-                        Set as template
-                      </button>
-                    )}
                     <div
                       style={{
                         display: 'flex',

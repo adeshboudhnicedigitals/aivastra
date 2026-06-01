@@ -7,6 +7,15 @@
 
 ## Log
 
+### 2026-06-01 — Fix admin Docker build TS errors
+
+**Done**
+- `apps/admin/src/lib/data.ts`: added `subcategoryIds: []` to all 7 `MOCK_CATALOG` items — `CatalogItem` type requires this field (added in 2026-06-01 refactor but mocks not updated)
+- `apps/admin/src/pages/CatalogPage.tsx`: added `GarmentType` import + `garmentTypes` state, fetched from `/admin/assets/garment-types` alongside existing Promise.all, passed `garmentTypes` prop to `BatchCatalogUploadModal` (prop was required but missing — caused TS2741)
+- Docker admin build passes; pushed to master
+
+---
+
 ### 2026-06-01 — Reverse catalog item linking: subcategory-driven instead of pose-driven
 
 **Done**
