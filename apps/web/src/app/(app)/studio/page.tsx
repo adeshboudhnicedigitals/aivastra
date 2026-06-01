@@ -316,6 +316,7 @@ export default function StudioPage(): React.ReactElement {
 
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
+  const [showAllGarments, setShowAllGarments] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
 
@@ -483,6 +484,7 @@ export default function StudioPage(): React.ReactElement {
   function reset() {
     setGender('');
     setGarmentTypeId('');
+    setShowAllGarments(false);
     setFaceId('');
     setBackgroundId('');
     setPoseIds([]);
@@ -530,6 +532,7 @@ export default function StudioPage(): React.ReactElement {
                     onClick={() => {
                       setGender(g.value);
                       setGarmentTypeId('');
+                      setShowAllGarments(false);
                     }}
                     imgStyle={{ transform: 'scale(2.5)', transformOrigin: 'top center' }}
                   />
@@ -554,23 +557,50 @@ export default function StudioPage(): React.ReactElement {
                   <SpinnerIcon size={16} /> Loading…
                 </div>
               ) : (
-                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                  {garmentTypes.items.map((s) => {
-                    // Use DB thumbnail if available, fall back to static OUTFIT_IMG map
-                    const fallbackKey = Object.keys(OUTFIT_IMG).find(
-                      (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
-                    );
-                    const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
-                    return (
-                      <VisualCard
-                        key={s.id}
-                        img={img}
-                        label={s.label}
-                        selected={garmentTypeId === s.id}
-                        onClick={() => setGarmentTypeId(garmentTypeId === s.id ? '' : s.id)}
-                      />
-                    );
-                  })}
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {(showAllGarments ? garmentTypes.items : garmentTypes.items.slice(0, 6)).map(
+                    (s) => {
+                      // Use DB thumbnail if available, fall back to static OUTFIT_IMG map
+                      const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                        (k) =>
+                          s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                      );
+                      const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
+                      return (
+                        <VisualCard
+                          key={s.id}
+                          img={img}
+                          label={s.label}
+                          selected={garmentTypeId === s.id}
+                          onClick={() => setGarmentTypeId(garmentTypeId === s.id ? '' : s.id)}
+                        />
+                      );
+                    },
+                  )}
+                  {garmentTypes.items.length > 6 && (
+                    <button
+                      onClick={() => setShowAllGarments(!showAllGarments)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '7px 14px',
+                        borderRadius: 8,
+                        border: `1px solid ${C.border2}`,
+                        background: C.white,
+                        fontFamily: 'inherit',
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: C.mid,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {showAllGarments
+                        ? 'View less'
+                        : `View more (${garmentTypes.items.length - 6}+)`}
+                    </button>
+                  )}
                 </div>
               )}
             </section>
@@ -593,11 +623,21 @@ export default function StudioPage(): React.ReactElement {
               <section style={{ flex: 1, minWidth: 200 }}>
                 <SectionHead title="Aspect Ratio" />
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {brandAspects.map((r) => (
-                    <button key={r} onClick={() => setAspect(r)} style={pill(aspect === r)}>
-                      {r}
-                    </button>
-                  ))}
+                  {ALL_ASPECTS.map((r) => {
+                    const supported = brandAspects.includes(r);
+                    return (
+                      <button
+                        key={r}
+                        onClick={supported ? () => setAspect(r) : undefined}
+                        style={{
+                          ...pill(aspect === r),
+                          ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                        }}
+                      >
+                        {r}
+                      </button>
+                    );
+                  })}
                 </div>
                 <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
                   {ASPECT_DIMS[aspect]}
