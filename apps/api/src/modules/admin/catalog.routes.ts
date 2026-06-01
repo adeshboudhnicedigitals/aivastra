@@ -6,7 +6,7 @@ import {
   CreateCategoryBody,
   PresignCatalogItemBody,
 } from '@aivastra/types';
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -43,7 +43,19 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         })
         .from(schema.catalogItems)
         .where(conditions.length > 0 ? and(...conditions) : undefined);
-      return rows;
+
+      if (rows.length === 0) return rows;
+      const itemIds = rows.map((r) => r.id);
+      const links = await app.db
+        .select()
+        .from(schema.catalogItemSubcategories)
+        .where(inArray(schema.catalogItemSubcategories.catalogItemId, itemIds));
+      const subMap = new Map<string, string[]>();
+      for (const l of links) {
+        if (!subMap.has(l.catalogItemId)) subMap.set(l.catalogItemId, []);
+        subMap.get(l.catalogItemId)!.push(l.subcategoryId);
+      }
+      return rows.map((r) => ({ ...r, subcategoryIds: subMap.get(r.id) ?? [] }));
     },
   );
 
@@ -84,18 +96,30 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     '/admin/catalog/items/confirm',
     { preHandler: W, schema: { body: ConfirmCatalogItemBody } },
     async (req) => {
-      const { typeSlug, genderSlug, label, r2Key, thumbnailKey, sortOrder } = req.body as any;
-      const [row] = await app.db
-        .insert(schema.catalogItems)
-        .values({
-          type: typeSlug,
-          genderSlug: genderSlug ?? null,
-          label,
-          r2Key,
-          thumbnailKey,
-          sortOrder,
-        })
-        .returning();
+      const { typeSlug, genderSlug, label, r2Key, thumbnailKey, sortOrder, subcategoryIds } =
+        req.body as any;
+      const row = await app.db.transaction(async (tx) => {
+        const [inserted] = await tx
+          .insert(schema.catalogItems)
+          .values({
+            type: typeSlug,
+            genderSlug: genderSlug ?? null,
+            label,
+            r2Key,
+            thumbnailKey,
+            sortOrder,
+          })
+          .returning();
+        if (subcategoryIds && subcategoryIds.length > 0) {
+          await tx.insert(schema.catalogItemSubcategories).values(
+            subcategoryIds.map((sid: string) => ({
+              catalogItemId: inserted!.id,
+              subcategoryId: sid,
+            })),
+          );
+        }
+        return { ...inserted!, subcategoryIds: subcategoryIds ?? [] };
+      });
       return row;
     },
   );
@@ -111,15 +135,33 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
           isActive: z.boolean().optional(),
           sortOrder: z.number().int().optional(),
           genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
+          subcategoryIds: z.array(z.string().uuid()).optional(),
         }),
       },
     },
     async (req) => {
       const { id } = req.params as any;
-      await app.db
-        .update(schema.catalogItems)
-        .set({ ...(req.body as any), updatedAt: new Date() })
-        .where(eq(schema.catalogItems.id, id));
+      const { subcategoryIds, ...itemFields } = req.body as any;
+      await app.db.transaction(async (tx) => {
+        if (Object.keys(itemFields).length > 0) {
+          await tx
+            .update(schema.catalogItems)
+            .set({ ...itemFields, updatedAt: new Date() })
+            .where(eq(schema.catalogItems.id, id));
+        }
+        if (subcategoryIds !== undefined) {
+          await tx
+            .delete(schema.catalogItemSubcategories)
+            .where(eq(schema.catalogItemSubcategories.catalogItemId, id));
+          if (subcategoryIds.length > 0) {
+            await tx
+              .insert(schema.catalogItemSubcategories)
+              .values(
+                subcategoryIds.map((sid: string) => ({ catalogItemId: id, subcategoryId: sid })),
+              );
+          }
+        }
+      });
       return { ok: true };
     },
   );

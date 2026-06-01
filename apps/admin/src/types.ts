@@ -70,8 +70,6 @@ export interface ModelPose {
   promptGarmentPhase: string | null;
   showsLower: boolean;
   showsShoes: boolean;
-  lowerItemIds: string[];
-  shoeItemIds: string[];
   isTemplate: boolean;
   isActive: boolean;
   sortOrder: number;
@@ -87,6 +85,7 @@ export interface CatalogItem {
   thumbnailKey: string;
   isActive: boolean;
   sortOrder: number;
+  subcategoryIds: string[];
   createdAt: string;
   updatedAt: string;
 }

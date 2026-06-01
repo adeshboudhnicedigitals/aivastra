@@ -7,6 +7,23 @@
 
 ## Log
 
+### 2026-06-01 — Reverse catalog item linking: subcategory-driven instead of pose-driven
+
+**Done**
+- Replaced `pose_catalog_items` table with `catalog_item_subcategories` (migration 0025)
+- Lower/shoe catalog items now declare which garment subcategories they apply to
+- Removed lower/shoe item allowlists from PoseUploadModal and EditPoseModal
+- Added `showsLower`/`showsShoes` toggle switches to EditPoseModal (per-pose override)
+- BatchCatalogUploadModal: added subcategory checklist (shared for all items in batch)
+- AssetsPage catalog item edit modal: added subcategory checklist
+- Public catalog query updated: given poseIds where showsLower/showsShoes=true, resolves subcategoryIds and returns catalog items linked to those subcategories
+- All typechecks pass (DB, types, api, admin)
+
+**Open Questions / Decisions**
+- CatalogPage (standalone catalog management page) edit modal still only has gender field — does not have subcategory selection. Can add if needed.
+
+---
+
 ### 2026-05-28 — Catalog gender filtering, per-pose allowlist, code quality tooling
 
 #### Done
