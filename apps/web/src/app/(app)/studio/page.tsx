@@ -1257,7 +1257,7 @@ export default function StudioPage(): React.ReactElement {
               background: C.white,
               borderRadius: 12,
               padding: 24,
-              width: 640,
+              width: 680,
               maxWidth: '90vw',
               maxHeight: '80vh',
               overflow: 'auto',

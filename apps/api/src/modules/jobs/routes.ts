@@ -21,30 +21,40 @@ export async function jobsRoutes(app: FastifyInstance) {
 
   // List catalogues — grouped by catalogue_id, ordered newest first
   app.get('/v1/catalogues', { preHandler: app.requireUser }, async (req) => {
-    const jobs = await app.db
+    const rows = await app.db
       .select({
         id: schema.jobs.id,
         catalogueId: schema.jobs.catalogueId,
         status: schema.jobs.status,
         createdAt: schema.jobs.createdAt,
         creditsCharged: schema.jobs.creditsCharged,
+        genderSlug: schema.garmentSubcategories.genderSlug,
       })
       .from(schema.jobs)
+      .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
+      .leftJoin(
+        schema.garmentSubcategories,
+        eq(schema.garmentSubcategories.id, schema.modelPoses.subcategoryId),
+      )
       .where(eq(schema.jobs.userId, req.userId))
       .orderBy(desc(schema.jobs.createdAt))
       .limit(200);
 
     // Group by catalogueId; jobs without catalogueId use their own id
-    const map = new Map<string, typeof jobs>();
-    for (const job of jobs) {
-      const key = job.catalogueId ?? job.id;
+    type Row = (typeof rows)[number];
+    const map = new Map<string, Row[]>();
+    for (const row of rows) {
+      const key = row.catalogueId ?? row.id;
       if (!map.has(key)) map.set(key, []);
-      map.get(key)?.push(job);
+      map.get(key)?.push(row);
     }
 
     return Array.from(map.entries()).map(([catalogueId, cJobs]) => ({
       catalogueId,
-      jobs: cJobs,
+      // genderSlug comes from the first job that has one (all jobs in a catalogue share the same gender)
+      genderSlug: cJobs.find((j) => j.genderSlug)?.genderSlug ?? null,
+      jobs: cJobs.map(({ genderSlug: _g, ...j }) => j),
       createdAt: cJobs[cJobs.length - 1].createdAt,
     }));
   });
