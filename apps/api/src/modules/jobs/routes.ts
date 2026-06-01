@@ -1,7 +1,7 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import { CreateTryOnJobRequest } from '@aivastra/types';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -39,7 +39,7 @@ export async function jobsRoutes(app: FastifyInstance) {
     for (const job of jobs) {
       const key = job.catalogueId ?? job.id;
       if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(job);
+      map.get(key)?.push(job);
     }
 
     return Array.from(map.entries()).map(([catalogueId, cJobs]) => ({
@@ -67,6 +67,27 @@ export async function jobsRoutes(app: FastifyInstance) {
       return { catalogueId: id, jobs };
     },
   );
+
+  // List user's unique uploaded garments — deduplicated by R2 key
+  app.get('/v1/assets', { preHandler: app.requireUser }, async (req) => {
+    const result = await app.db
+      .select({
+        r2Key: schema.jobInputs.upperGarmentKey,
+        uploadedAt: sql<Date>`MAX(${schema.jobs.createdAt})`.as('uploadedAt'),
+        jobCount: sql<number>`COUNT(${schema.jobs.id})`.as('jobCount'),
+      })
+      .from(schema.jobInputs)
+      .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .where(eq(schema.jobs.userId, req.userId))
+      .groupBy(schema.jobInputs.upperGarmentKey)
+      .orderBy(desc(sql`MAX(${schema.jobs.createdAt})`));
+
+    return result.map((asset) => ({
+      r2Key: asset.r2Key,
+      uploadedAt: asset.uploadedAt,
+      jobsCount: asset.jobCount,
+    }));
+  });
 
   app.get('/v1/jobs', { preHandler: app.requireUser }, async (req) => {
     return app.db
