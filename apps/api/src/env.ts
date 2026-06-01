@@ -25,6 +25,8 @@ const Env = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_CALLBACK_URL: z.string().url().optional(),
   WEB_URL: z.string().url().default('http://localhost:3000'),
+  RESEND_API_KEY: z.string().min(1),
+  EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {

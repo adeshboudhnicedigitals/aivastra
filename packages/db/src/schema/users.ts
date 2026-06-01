@@ -6,6 +6,7 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'), // nullable — Google-only users have no password
   displayName: text('display_name'),
   tier: text('tier').notNull().default('FREE'),
+  emailVerified: boolean('email_verified').notNull().default(false),
   isBanned: boolean('is_banned').notNull().default(false),
   banReason: text('ban_reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

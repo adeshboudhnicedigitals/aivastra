@@ -1,3 +1,5 @@
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import fp from 'fastify-plugin';
 import { AppError } from '../lib/errors.js';
 import { verifyAccess } from '../modules/auth/service.js';
@@ -17,11 +19,19 @@ export const authPlugin = fp(async (app) => {
     const queryToken = (req.query as Record<string, string | undefined>).token;
     const token = h?.startsWith('Bearer ') ? h.slice(7) : queryToken;
     if (!token) throw new AppError('UNAUTH', 401, 'missing bearer');
+    let userId: string;
     try {
       const payload = await verifyAccess(secret, token);
-      req.userId = String(payload.sub);
+      userId = String(payload.sub);
     } catch {
       throw new AppError('UNAUTH', 401, 'invalid token');
     }
+    const [user] = await app.db
+      .select({ emailVerified: schema.users.emailVerified })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId));
+    if (!user) throw new AppError('UNAUTH', 401, 'user not found');
+    if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+    req.userId = userId;
   });
 });

@@ -85,6 +85,7 @@ function LoginFormInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get('next') ?? '/studio';
+  const resetSuccess = searchParams.get('reset') === '1';
   const [error, setError] = useState('');
 
   const {
@@ -103,7 +104,12 @@ function LoginFormInner() {
       body: JSON.stringify(data),
     });
     if (!res.ok) {
-      const body = (await res.json()) as { error?: { message?: string } };
+      const body = (await res.json()) as { error?: { code?: string; message?: string } };
+      if (body.error?.code === 'EMAIL_NOT_VERIFIED') {
+        sessionStorage.setItem('pending_verify_email', data.email);
+        router.push('/verify-email');
+        return;
+      }
       setError(body.error?.message ?? 'Login failed');
       return;
     }
@@ -125,6 +131,20 @@ function LoginFormInner() {
         }}
       >
         <LogoAuth />
+        {resetSuccess && (
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: 8,
+              background: 'rgba(0,180,100,0.08)',
+              border: '1px solid rgba(0,180,100,0.3)',
+              fontSize: 13,
+              color: '#00a860',
+            }}
+          >
+            Password reset successfully. Please log in.
+          </div>
+        )}
         <div>
           <h1 style={{ fontWeight: 700, fontSize: 22, color: C.text, marginBottom: 4 }}>
             Welcome Back
@@ -169,6 +189,7 @@ function LoginFormInner() {
               </label>
               <button
                 type="button"
+                onClick={() => router.push('/forgot-password')}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -178,7 +199,7 @@ function LoginFormInner() {
                   fontWeight: 500,
                 }}
               >
-                Reset Password
+                Forgot Password?
               </button>
             </div>
             <div style={fieldWrap}>

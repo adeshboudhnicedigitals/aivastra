@@ -2,7 +2,14 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || '';
-const PUBLIC_PATHS = ['/login', '/register', '/home'];
+const PUBLIC_PATHS = [
+  '/login',
+  '/register',
+  '/home',
+  '/verify-email',
+  '/forgot-password',
+  '/reset-password',
+];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
