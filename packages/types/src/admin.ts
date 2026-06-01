@@ -225,6 +225,11 @@ export const PatchModelPoseBody = z.object({
   promptGarmentPhase: z.string().optional(),
   /** Updated after re-uploading the side/tilt face via presign-faceside */
   faceSideR2Key: z.string().min(1).optional(),
+  /** Updated after re-uploading the pose image via presign-pose */
+  r2Key: z.string().min(1).optional(),
+  thumbnailKey: z.string().min(1).optional(),
+  /** Updated after re-uploading the ComfyUI background via presign-bgcomfy */
+  bgComfyR2Key: z.string().min(1).optional(),
 });
 
 // Garment types (formerly subcategories)

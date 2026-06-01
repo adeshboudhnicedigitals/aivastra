@@ -65,6 +65,7 @@ export interface ModelPose {
   thumbnailKey: string;
   r2Key: string;
   faceSideR2Key: string | null;
+  bgComfyR2Key: string | null;
   workflowTemplateId: string; // UUID FK to workflow_templates
   promptFacePhase: string | null;
   promptGarmentPhase: string | null;
