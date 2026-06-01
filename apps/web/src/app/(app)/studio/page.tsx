@@ -541,7 +541,62 @@ export default function StudioPage(): React.ReactElement {
             </section>
 
             <section>
-              <SectionHead title="Garment Type" />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 14,
+                }}
+              >
+                <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
+                  Garment Type
+                </h3>
+                {garmentTypes && garmentTypes.items.length > 6 && (
+                  <button
+                    onClick={() => setGarmentModalOpen(true)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      height: 16,
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                        fontWeight: 600,
+                        fontSize: 12,
+                        lineHeight: '16px',
+                        color: '#626262',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      View more
+                    </span>
+                    <svg
+                      width="8"
+                      height="5"
+                      viewBox="0 0 8 5"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      style={{ transform: 'rotate(-90deg)' }}
+                    >
+                      <path
+                        d="M1 1L4 4L7 1"
+                        stroke="#626262"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
               {!gender ? (
                 <p style={{ fontSize: 13, color: C.mid }}>Select a segment first.</p>
               ) : !garmentTypes ? (
@@ -558,63 +613,33 @@ export default function StudioPage(): React.ReactElement {
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {garmentTypes.items.slice(0, 6).map((s) => {
-                    const fallbackKey = Object.keys(OUTFIT_IMG).find(
-                      (k) => s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
-                    );
-                    const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
-                    return (
-                      <VisualCard
-                        key={s.id}
-                        img={img}
-                        label={s.label}
-                        selected={garmentTypeId === s.id}
-                        onClick={() => setGarmentTypeId(garmentTypeId === s.id ? '' : s.id)}
-                      />
-                    );
-                  })}
-                  {garmentTypeId &&
-                    !garmentTypes.items.slice(0, 6).some((s) => s.id === garmentTypeId) && (
-                      <VisualCard
-                        img={(() => {
-                          const selected = garmentTypes.items.find((s) => s.id === garmentTypeId);
-                          if (!selected) return null;
-                          const fallbackKey = Object.keys(OUTFIT_IMG).find(
-                            (k) =>
-                              selected.slug.toLowerCase().includes(k) ||
-                              selected.label.toLowerCase().includes(k),
-                          );
-                          return (
-                            selected.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null)
-                          );
-                        })()}
-                        label={garmentTypes.items.find((s) => s.id === garmentTypeId)?.label ?? ''}
-                        selected={true}
-                        onClick={() => setGarmentTypeId('')}
-                      />
-                    )}
-                  {garmentTypes.items.length > 6 && (
-                    <button
-                      onClick={() => setGarmentModalOpen(true)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '7px 14px',
-                        borderRadius: 8,
-                        border: `1px solid ${C.border2}`,
-                        background: C.white,
-                        fontFamily: 'inherit',
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: C.mid,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      View more
-                    </button>
-                  )}
+                  {(() => {
+                    const all = garmentTypes.items;
+                    const inFirst6 = all.slice(0, 6).some((s) => s.id === garmentTypeId);
+                    const visible =
+                      garmentTypeId && !inFirst6
+                        ? [
+                            all.find((s) => s.id === garmentTypeId)!,
+                            ...all.filter((s) => s.id !== garmentTypeId).slice(0, 5),
+                          ]
+                        : all.slice(0, 6);
+                    return visible.map((s) => {
+                      const fallbackKey = Object.keys(OUTFIT_IMG).find(
+                        (k) =>
+                          s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
+                      );
+                      const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
+                      return (
+                        <VisualCard
+                          key={s.id}
+                          img={img}
+                          label={s.label}
+                          selected={garmentTypeId === s.id}
+                          onClick={() => setGarmentTypeId(garmentTypeId === s.id ? '' : s.id)}
+                        />
+                      );
+                    });
+                  })()}
                 </div>
               )}
             </section>
@@ -1232,7 +1257,8 @@ export default function StudioPage(): React.ReactElement {
               background: C.white,
               borderRadius: 12,
               padding: 24,
-              maxWidth: 750,
+              width: 640,
+              maxWidth: '90vw',
               maxHeight: '80vh',
               overflow: 'auto',
               boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
@@ -1250,41 +1276,23 @@ export default function StudioPage(): React.ReactElement {
               <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
                 Choose Garment Type
               </h2>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                <button
-                  onClick={() => setGarmentModalOpen(false)}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: 6,
-                    border: `1px solid ${C.border2}`,
-                    background: C.white,
-                    fontFamily: 'inherit',
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: C.mid,
-                    cursor: 'pointer',
-                  }}
-                >
-                  View less
-                </button>
-                <button
-                  onClick={() => setGarmentModalOpen(false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: C.mid,
-                  }}
-                >
-                  <XIcon size={20} />
-                </button>
-              </div>
+              <button
+                onClick={() => setGarmentModalOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: C.mid,
+                }}
+              >
+                <XIcon size={20} />
+              </button>
             </div>
             <div
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 100px)', gap: 16 }}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 136px)', gap: 16 }}
             >
               {garmentTypes.items.map((s) => {
                 const fallbackKey = Object.keys(OUTFIT_IMG).find(
@@ -1305,8 +1313,8 @@ export default function StudioPage(): React.ReactElement {
                   >
                     <div
                       style={{
-                        width: 100,
-                        height: 109,
+                        width: 136,
+                        height: 148,
                         borderRadius: 8,
                         overflow: 'hidden',
                         position: 'relative',

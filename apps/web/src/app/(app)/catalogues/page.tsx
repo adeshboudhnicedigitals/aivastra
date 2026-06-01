@@ -14,7 +14,7 @@ import {
   SquareIcon,
   UserRoundIcon,
 } from '@/components/icons';
-import { BG_TINTS, C } from '@/components/tokens';
+import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { api } from '@/lib/api';
@@ -40,7 +40,7 @@ function Cover({ jobs }: { jobs: JobSummary[] }) {
 
   const { data: result } = useQuery<{ url: string }>({
     queryKey: ['job-result', completed?.id],
-    queryFn: () => api.get(`/v1/jobs/${completed!.id}/result`),
+    queryFn: () => api.get(`/v1/jobs/${completed?.id}/result`),
     enabled: !!completed,
     staleTime: 4 * 60 * 1000,
   });
@@ -92,7 +92,8 @@ function groupByDate(items: Catalogue[]): Record<string, Catalogue[]> {
       month: 'long',
       year: 'numeric',
     });
-    (acc[label] = acc[label] || []).push(cat);
+    if (!acc[label]) acc[label] = [];
+    acc[label].push(cat);
     return acc;
   }, {});
 }
@@ -498,7 +499,7 @@ export default function CataloguesPage(): React.ReactElement {
                 width: '100%',
               }}
             >
-              {items.map((cat, i) => {
+              {items.map((cat) => {
                 return (
                   <Link
                     key={cat.catalogueId}
@@ -517,7 +518,7 @@ export default function CataloguesPage(): React.ReactElement {
                       <div
                         style={{
                           flex: 1,
-                          background: BG_TINTS[i % BG_TINTS.length],
+                          background: C.lighter,
                           position: 'relative',
                           overflow: 'hidden',
                           borderRadius: 8,

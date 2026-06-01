@@ -84,7 +84,7 @@ export default function AssetsPage(): React.ReactElement {
   return (
     <>
       <TopBar
-        title="Your Assets"
+        title="Your Products"
         subtitle="Manage your uploaded garment images used for catalogue generation."
       />
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
@@ -181,7 +181,7 @@ export default function AssetsPage(): React.ReactElement {
                   disabled={!asset.thumbnailUrl}
                   style={{
                     flex: 1,
-                    background: asset.thumbnailUrl ? 'transparent' : '#f5f5f5',
+                    background: C.lighter,
                     position: 'relative',
                     overflow: 'hidden',
                     borderRadius: 8,
