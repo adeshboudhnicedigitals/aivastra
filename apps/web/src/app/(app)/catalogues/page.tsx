@@ -106,6 +106,8 @@ export default function CataloguesPage(): React.ReactElement {
   const [showPlatformDropdown, setShowPlatformDropdown] = useState(false);
   const [dateFilter, setDateFilter] = useState('Date');
   const [showDateDropdown, setShowDateDropdown] = useState(false);
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const genderRef = useRef<HTMLDivElement>(null);
   const platformRef = useRef<HTMLDivElement>(null);
   const dateRef = useRef<HTMLDivElement>(null);
@@ -138,9 +140,50 @@ export default function CataloguesPage(): React.ReactElement {
     },
   });
 
-  const filtered = (catalogues ?? []).filter((c) =>
-    c.catalogueId.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = (catalogues ?? []).filter((c) => {
+    if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
+
+    const created = new Date(c.createdAt);
+    const now = new Date();
+
+    if (dateFilter === 'Today') {
+      return (
+        created.getFullYear() === now.getFullYear() &&
+        created.getMonth() === now.getMonth() &&
+        created.getDate() === now.getDate()
+      );
+    }
+    if (dateFilter === 'Last 7 Days') {
+      const cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - 7);
+      return created >= cutoff;
+    }
+    if (dateFilter === 'Last 15 Days') {
+      const cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - 15);
+      return created >= cutoff;
+    }
+    if (dateFilter === 'Last 30 Days') {
+      const cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - 30);
+      return created >= cutoff;
+    }
+    if (dateFilter === 'Custom Range') {
+      if (customFrom) {
+        const from = new Date(customFrom);
+        from.setHours(0, 0, 0, 0);
+        if (created < from) return false;
+      }
+      if (customTo) {
+        const to = new Date(customTo);
+        to.setHours(23, 59, 59, 999);
+        if (created > to) return false;
+      }
+      return true;
+    }
+
+    return true;
+  });
   const groups = groupByDate(filtered);
 
   return (
@@ -389,6 +432,10 @@ export default function CataloguesPage(): React.ReactElement {
                         onClick={() => {
                           setDateFilter(d);
                           setShowDateDropdown(false);
+                          if (d !== 'Custom Range') {
+                            setCustomFrom('');
+                            setCustomTo('');
+                          }
                         }}
                         style={{
                           padding: '10px 12px',
@@ -452,6 +499,74 @@ export default function CataloguesPage(): React.ReactElement {
           </div>
         </div>
 
+        {dateFilter === 'Custom Range' && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              marginBottom: 16,
+              marginTop: -4,
+            }}
+          >
+            <span style={{ fontSize: 13, color: C.mid, whiteSpace: 'nowrap' }}>From</span>
+            <input
+              type="date"
+              value={customFrom}
+              max={customTo || undefined}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              style={{
+                height: 36,
+                padding: '0 10px',
+                borderRadius: 8,
+                border: '1px solid #EEEEEE',
+                fontFamily: 'inherit',
+                fontSize: 13,
+                color: C.text,
+                background: '#F9F9F9',
+                outline: 'none',
+              }}
+            />
+            <span style={{ fontSize: 13, color: C.mid, whiteSpace: 'nowrap' }}>To</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom || undefined}
+              onChange={(e) => setCustomTo(e.target.value)}
+              style={{
+                height: 36,
+                padding: '0 10px',
+                borderRadius: 8,
+                border: '1px solid #EEEEEE',
+                fontFamily: 'inherit',
+                fontSize: 13,
+                color: C.text,
+                background: '#F9F9F9',
+                outline: 'none',
+              }}
+            />
+            {(customFrom || customTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomFrom('');
+                  setCustomTo('');
+                }}
+                style={{
+                  fontSize: 12,
+                  color: C.mid,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
         {isLoading && (
           <div
             style={{ display: 'flex', justifyContent: 'center', padding: '64px 0', color: C.mid }}
@@ -462,15 +577,26 @@ export default function CataloguesPage(): React.ReactElement {
 
         {!isLoading && filtered.length === 0 && (
           <div style={{ textAlign: 'center', padding: '64px 24px', color: C.mid }}>
-            <p style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>
-              No catalogues yet
-            </p>
-            <p style={{ fontSize: 14, marginBottom: 24 }}>
-              Generate your first AI catalogue to get started.
-            </p>
-            <Link href="/studio" style={{ textDecoration: 'none', display: 'inline-block' }}>
-              <GradBtn>Get started</GradBtn>
-            </Link>
+            {dateFilter !== 'Date' || search ? (
+              <>
+                <p style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>
+                  No catalogues match your filters
+                </p>
+                <p style={{ fontSize: 14 }}>Try adjusting the date range or search term.</p>
+              </>
+            ) : (
+              <>
+                <p style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>
+                  No catalogues yet
+                </p>
+                <p style={{ fontSize: 14, marginBottom: 24 }}>
+                  Generate your first AI catalogue to get started.
+                </p>
+                <Link href="/studio" style={{ textDecoration: 'none', display: 'inline-block' }}>
+                  <GradBtn>Get started</GradBtn>
+                </Link>
+              </>
+            )}
           </div>
         )}
 
