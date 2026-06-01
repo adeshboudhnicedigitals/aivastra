@@ -12,7 +12,7 @@ export async function uploadsRoutes(app: FastifyInstance) {
       schema: { body: PresignUploadBody },
     },
     async (req) => {
-      const { contentType, contentLength } = req.body as PresignUploadBody;
+      const { contentType, contentLength } = req.body as z.infer<typeof PresignUploadBody>;
       const jobToken = randomUUID(); // pre-job upload identifier
       const r2Key = keys.inputGarment(jobToken);
       const { url, expiresIn } = await app.storage.presignPut(
