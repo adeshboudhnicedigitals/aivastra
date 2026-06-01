@@ -5,6 +5,156 @@ import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../t
 import { Icon } from './Icons';
 import { Switch } from './Switch';
 
+function ImagePicker({
+  id,
+  label,
+  hint,
+  currentUrl,
+  file,
+  disabled,
+  onChange,
+  onClear,
+}: {
+  id: string;
+  label: string;
+  hint?: string;
+  currentUrl?: string | null;
+  file: File | null;
+  disabled: boolean;
+  onChange: (f: File | null) => void;
+  onClear: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const previewUrl = file ? URL.createObjectURL(file) : null;
+  const displayUrl = file ? previewUrl : currentUrl;
+
+  return (
+    <div className="field">
+      <label htmlFor={id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span>{label}</span>
+        {hint && (
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>{hint}</span>
+        )}
+      </label>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '10px 12px',
+          border: `1.5px dashed ${file ? 'var(--success-border, #4caf50)' : 'var(--border-strong, var(--border))'}`,
+          borderRadius: 8,
+          background: file
+            ? 'var(--success-soft, rgba(76,175,80,0.06))'
+            : 'var(--surface-2, var(--subtle))',
+          transition: 'border-color 120ms',
+        }}
+      >
+        {/* Thumbnail */}
+        {displayUrl ? (
+          <img
+            src={displayUrl}
+            alt={label}
+            style={{
+              width: 48,
+              height: 60,
+              objectFit: 'cover',
+              borderRadius: 5,
+              flexShrink: 0,
+              border: '1px solid var(--border)',
+            }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 48,
+              height: 60,
+              borderRadius: 5,
+              background: 'var(--subtle)',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--muted)',
+              flexShrink: 0,
+            }}
+          >
+            <Icon.Image />
+          </div>
+        )}
+
+        {/* Info + actions */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {file ? (
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: 'var(--ink-1)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {file.name}
+            </div>
+          ) : currentUrl ? (
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Current image</div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>No image set</div>
+          )}
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+            {file
+              ? `${(file.size / 1024).toFixed(0)} KB · will replace on save`
+              : 'JPEG, PNG or WebP'}
+          </div>
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          {file && (
+            <button
+              type="button"
+              className="btn sm ghost"
+              disabled={disabled}
+              onClick={() => {
+                onClear();
+                if (inputRef.current) inputRef.current.value = '';
+              }}
+              style={{ fontSize: 11 }}
+            >
+              ✕ Clear
+            </button>
+          )}
+          <label
+            htmlFor={id}
+            className="btn sm ghost"
+            style={{
+              cursor: disabled ? 'not-allowed' : 'pointer',
+              fontSize: 12,
+              opacity: disabled ? 0.6 : 1,
+            }}
+          >
+            {file ? 'Change' : 'Choose'}
+          </label>
+        </div>
+        <input
+          ref={inputRef}
+          id={id}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          disabled={disabled}
+          style={{ display: 'none' }}
+          onChange={(e) => onChange(e.target.files?.[0] ?? null)}
+        />
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   pose: ModelPose;
   faces: ModelFace[];
@@ -44,7 +194,8 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
 
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [faceSideFile, setFaceSideFile] = useState<File | null>(null);
-  const faceSideRef = useRef<HTMLInputElement>(null);
+  const [poseFile, setPoseFile] = useState<File | null>(null);
+  const [bgComfyFile, setBgComfyFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
 
   const selectedWorkflow = workflows.find((w) => w.id === form.workflowTemplateId);
@@ -73,8 +224,10 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
     setSaving(true);
     try {
       let faceSideR2Key: string | undefined;
+      let newR2Key: string | undefined;
+      let newThumbnailKey: string | undefined;
+      let newBgComfyR2Key: string | undefined;
 
-      // If a new side face was selected, presign → upload → capture key
       if (faceSideFile) {
         const presign = await apiFetch<{ uploadUrl: string; r2Key: string }>(
           `/admin/assets/poses/${pose.id}/presign-faceside`,
@@ -84,6 +237,33 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
         faceSideR2Key = presign.r2Key;
       }
 
+      if (poseFile) {
+        const presign = await apiFetch<{
+          uploadUrl: string;
+          r2Key: string;
+          thumbnailUploadUrl: string;
+          thumbnailKey: string;
+        }>(`/admin/assets/poses/${pose.id}/presign-pose`, {
+          method: 'POST',
+          body: JSON.stringify({ contentType: poseFile.type }),
+        });
+        await Promise.all([
+          putFile(presign.uploadUrl, poseFile),
+          putFile(presign.thumbnailUploadUrl, poseFile),
+        ]);
+        newR2Key = presign.r2Key;
+        newThumbnailKey = presign.thumbnailKey;
+      }
+
+      if (bgComfyFile) {
+        const presign = await apiFetch<{ uploadUrl: string; r2Key: string }>(
+          `/admin/assets/poses/${pose.id}/presign-bgcomfy`,
+          { method: 'POST', body: JSON.stringify({ contentType: bgComfyFile.type }) },
+        );
+        await putFile(presign.uploadUrl, bgComfyFile);
+        newBgComfyR2Key = presign.r2Key;
+      }
+
       const patch: Record<string, unknown> = {
         ...form,
         showsLower,
@@ -91,6 +271,9 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
         promptGarmentPhase: form.promptGarmentPhase.trim() || undefined,
       };
       if (faceSideR2Key) patch.faceSideR2Key = faceSideR2Key;
+      if (newR2Key) patch.r2Key = newR2Key;
+      if (newThumbnailKey) patch.thumbnailKey = newThumbnailKey;
+      if (newBgComfyR2Key) patch.bgComfyR2Key = newBgComfyR2Key;
 
       await apiFetch(`/admin/assets/poses/${pose.id}`, {
         method: 'PATCH',
@@ -104,6 +287,9 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
         showsShoes,
         promptGarmentPhase: form.promptGarmentPhase.trim() || pose.promptGarmentPhase,
         ...(faceSideR2Key ? { faceSideR2Key } : {}),
+        ...(newR2Key ? { r2Key: newR2Key } : {}),
+        ...(newThumbnailKey ? { thumbnailKey: newThumbnailKey } : {}),
+        ...(newBgComfyR2Key ? { bgComfyR2Key: newBgComfyR2Key } : {}),
       });
       toast({ title: `${form.label} updated` });
       onClose();
@@ -119,7 +305,7 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(560px, calc(100vw - 40px))' }}
+        style={{ width: 'min(720px, calc(100vw - 40px))' }}
       >
         <div className="modal-head">
           <h3>Edit pose</h3>
@@ -229,64 +415,49 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '2px 0' }} />
 
-          {/* Side face replacement */}
-          <div className="field">
-            <label>
-              Side / tilt face
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
-                (backend only — sent to ComfyUI face node)
-              </span>
-            </label>
-            {pose.faceSideR2Key && !faceSideFile && storagePublicUrl && (
-              <img
-                src={`${storagePublicUrl}/${pose.faceSideR2Key}`}
-                alt="Current side face"
-                style={{
-                  width: 56,
-                  height: 72,
-                  objectFit: 'cover',
-                  borderRadius: 6,
-                  marginBottom: 6,
-                  display: 'block',
-                }}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            )}
-            <input
-              ref={faceSideRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            <ImagePicker
+              id="edit-pose-img"
+              label="Pose image"
+              hint="display + ComfyUI pose node"
+              currentUrl={
+                storagePublicUrl && pose.thumbnailKey
+                  ? `${storagePublicUrl}/${pose.thumbnailKey}`
+                  : null
+              }
+              file={poseFile}
               disabled={saving}
-              onChange={(e) => setFaceSideFile(e.target.files?.[0] ?? null)}
-              style={{ fontSize: 13 }}
+              onChange={setPoseFile}
+              onClear={() => setPoseFile(null)}
             />
-            {faceSideFile && (
-              <span
-                style={{
-                  fontSize: 12,
-                  color: 'var(--muted)',
-                  marginTop: 4,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <span style={{ color: 'var(--accent)' }}>↑</span>
-                {faceSideFile.name} — will replace on save
-                <button
-                  className="btn sm ghost"
-                  style={{ padding: '1px 6px', fontSize: 11 }}
-                  onClick={() => {
-                    setFaceSideFile(null);
-                    if (faceSideRef.current) faceSideRef.current.value = '';
-                  }}
-                >
-                  ✕
-                </button>
-              </span>
-            )}
+            <ImagePicker
+              id="edit-faceside-img"
+              label="Side / tilt face"
+              hint="ComfyUI face node"
+              currentUrl={
+                storagePublicUrl && pose.faceSideR2Key
+                  ? `${storagePublicUrl}/${pose.faceSideR2Key}`
+                  : null
+              }
+              file={faceSideFile}
+              disabled={saving}
+              onChange={setFaceSideFile}
+              onClear={() => setFaceSideFile(null)}
+            />
+            <ImagePicker
+              id="edit-bgcomfy-img"
+              label="Background (ComfyUI)"
+              hint="ComfyUI bg node"
+              currentUrl={
+                storagePublicUrl && pose.bgComfyR2Key
+                  ? `${storagePublicUrl}/${pose.bgComfyR2Key}`
+                  : null
+              }
+              file={bgComfyFile}
+              disabled={saving}
+              onChange={setBgComfyFile}
+              onClear={() => setBgComfyFile(null)}
+            />
           </div>
 
           <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '2px 0' }} />
