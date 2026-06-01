@@ -37,6 +37,9 @@ export default function WorkflowsPage({ toast }: Props) {
   const [viewingDetail, setViewingDetail] = useState<WorkflowDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [jsonCopied, setJsonCopied] = useState(false);
+  const [editingWf, setEditingWf] = useState<WorkflowOption | null>(null);
+  const [editForm, setEditForm] = useState({ label: '', slug: '' });
+  const [editSaving, setEditSaving] = useState(false);
 
   const loadWorkflows = useCallback(async () => {
     setLoading(true);
@@ -136,6 +139,34 @@ export default function WorkflowsPage({ toast }: Props) {
       toast({ kind: 'error', title: 'Failed to load workflow detail' });
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const handleEditSave = async () => {
+    if (!editingWf) return;
+    setEditSaving(true);
+    try {
+      await apiFetch(`/admin/workflows/${editingWf.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ label: editForm.label.trim(), slug: editForm.slug.trim() }),
+      });
+      setWorkflows((prev) =>
+        prev.map((w) =>
+          w.id === editingWf.id
+            ? { ...w, label: editForm.label.trim(), slug: editForm.slug.trim() }
+            : w,
+        ),
+      );
+      toast({ title: 'Workflow updated' });
+      setEditingWf(null);
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? ((e.body as { error?: { message?: string } })?.error?.message ?? 'Failed to update')
+          : 'Failed to update';
+      toast({ kind: 'error', title: msg });
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -247,6 +278,16 @@ export default function WorkflowsPage({ toast }: Props) {
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <button
+                        className="btn sm ghost"
+                        onClick={() => {
+                          setEditingWf(wf);
+                          setEditForm({ label: wf.label, slug: wf.slug });
+                        }}
+                        title="Edit label and slug"
+                      >
+                        <Icon.Edit /> Edit
+                      </button>
                       <button
                         className="btn sm ghost"
                         disabled={detailLoading}
@@ -540,6 +581,74 @@ export default function WorkflowsPage({ toast }: Props) {
             <div className="modal-foot">
               <button className="btn ghost" onClick={() => setViewingDetail(null)}>
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit label/slug modal */}
+      {editingWf && (
+        <div className="modal-overlay" onClick={editSaving ? undefined : () => setEditingWf(null)}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(420px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>Edit workflow</h3>
+              <button
+                className="btn sm ghost"
+                onClick={() => setEditingWf(null)}
+                disabled={editSaving}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icon.Close />
+              </button>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              <div className="field">
+                <label>Label</label>
+                <input
+                  className="input"
+                  value={editForm.label}
+                  disabled={editSaving}
+                  onChange={(e) => setEditForm((f) => ({ ...f, label: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label>Slug</label>
+                <input
+                  className="input"
+                  value={editForm.slug}
+                  disabled={editSaving}
+                  placeholder="lowercase-with-hyphens"
+                  onChange={(e) =>
+                    setEditForm((f) => ({
+                      ...f,
+                      slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setEditingWf(null)}
+                disabled={editSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                disabled={editSaving || !editForm.label.trim() || !editForm.slug.trim()}
+                onClick={handleEditSave}
+              >
+                {editSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
