@@ -440,6 +440,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             .insert(schema.modelBackgrounds)
             .values({
               label: autoLabel,
+              genderSlug: subCheck.genderSlug,
               r2Key: body.newBackground.r2Key,
               thumbnailKey: body.newBackground.thumbnailKey,
               sortOrder: 0,
