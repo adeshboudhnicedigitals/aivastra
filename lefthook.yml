@@ -10,6 +10,9 @@ pre-push:
     - name: migrations-sync
       run: bash scripts/check-migrations-sync.sh
 
+    - name: local-db-sync
+      run: bash scripts/check-local-db-sync.sh
+
     - name: lint
       run: pnpm biome check .
 
