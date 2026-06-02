@@ -154,6 +154,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       }
       if (body.lowerNodeId) validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment');
       if (body.shoeNodeId) validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoes');
+      for (const uid of body.sizeNodeIds ?? []) {
+        validateNodeExists(body.jsonContent, uid, 'size');
+      }
       validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');
       validateNodeExists(body.jsonContent, body.garmentPhasePromptNode, 'positive prompt');
 

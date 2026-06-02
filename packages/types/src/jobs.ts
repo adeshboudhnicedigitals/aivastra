@@ -20,7 +20,7 @@ export const CreateTryOnJobRequest = z.object({
     })
     .optional(),
   userHint: z.string().max(300).optional(),
-  aspectRatio: z.string().optional(),
+  aspectRatio: z.enum(['1:1', '3:4', '4:5', '3:2', '9:16', '16:9']),
 });
 
 export const PresignUploadBody = z.object({
