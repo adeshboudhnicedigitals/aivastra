@@ -406,6 +406,20 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   // Filtered poses for grid
   const visiblePoses = posesInCell.filter((p) => !filterPose || p.id === filterPose);
+
+  // Catalog coverage for the current garment-type subcategory
+  const currentSubcatId = subView.kind === 'garment-type' ? subView.sub.id : null;
+  const hasActiveLowerForSubcat =
+    currentSubcatId !== null &&
+    catalogItems.some(
+      (c) => c.type === 'lower' && c.isActive && c.subcategoryIds.includes(currentSubcatId),
+    );
+  const hasActiveShoeForSubcat =
+    currentSubcatId !== null &&
+    catalogItems.some(
+      (c) => c.type === 'shoe' && c.isActive && c.subcategoryIds.includes(currentSubcatId),
+    );
+
   return (
     <>
       <div className="page-head">
@@ -884,6 +898,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             {visiblePoses.map((pose) => {
               const faceName = faces.find((f) => f.id === pose.faceId)?.label ?? '?';
               const bgName = allBackgrounds.find((b) => b.id === pose.backgroundId)?.label ?? '?';
+              const wf = workflows.find((w) => w.id === pose.workflowTemplateId);
+              const hasLower = !!wf?.lowerNodeId;
+              const hasShoe = !!wf?.shoeNodeId;
+              const missingLower = hasLower && !hasActiveLowerForSubcat;
+              const missingShoe = hasShoe && !hasActiveShoeForSubcat;
+              const missingAddons = missingLower || missingShoe;
               return (
                 <div
                   key={pose.id}
@@ -891,6 +911,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   style={{
                     opacity: pose.isActive ? 1 : 0.6,
                     padding: 14,
+                    outline: missingAddons ? '2px solid #f59e0b' : undefined,
                   }}
                 >
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -904,6 +925,42 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                         <span className="badge dot">{bgName}</span>
                         {pose.workflowLabel && (
                           <span className="badge dot accent">{pose.workflowLabel}</span>
+                        )}
+                        {hasLower && !missingLower && (
+                          <span
+                            className="badge dot"
+                            style={{ background: '#d1fae5', color: '#065f46' }}
+                            title="Lower garment items assigned"
+                          >
+                            lower ✓
+                          </span>
+                        )}
+                        {hasShoe && !missingShoe && (
+                          <span
+                            className="badge dot"
+                            style={{ background: '#dbeafe', color: '#1e3a8a' }}
+                            title="Shoes items assigned"
+                          >
+                            shoes ✓
+                          </span>
+                        )}
+                        {missingLower && (
+                          <span
+                            className="badge dot"
+                            style={{ background: '#fef3c7', color: '#92400e' }}
+                            title="Workflow requires lower garment but no lower items assigned to this garment type"
+                          >
+                            ⚠ lower missing
+                          </span>
+                        )}
+                        {missingShoe && (
+                          <span
+                            className="badge dot"
+                            style={{ background: '#fef3c7', color: '#92400e' }}
+                            title="Workflow requires shoes but no shoe items assigned to this garment type"
+                          >
+                            ⚠ shoes missing
+                          </span>
                         )}
                       </div>
                     </div>
