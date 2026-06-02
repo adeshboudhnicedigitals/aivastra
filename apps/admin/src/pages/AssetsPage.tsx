@@ -21,6 +21,7 @@ import type {
   ModelBackground,
   ModelFace,
   ModelPose,
+  WorkflowOption,
 } from '../types';
 
 type AssetTab = 'garment-types' | 'faces' | 'backgrounds' | 'lower' | 'shoe';
@@ -132,6 +133,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [faces, setFaces] = useState<ModelFace[]>([]);
   const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>([]);
   const [poses, setPoses] = useState<ModelPose[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [filterFace, setFilterFace] = useState('');
   const [filterBg, setFilterBg] = useState('');
   const [filterPose, setFilterPose] = useState('');
@@ -221,10 +223,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     async (garmentTypeId: string) => {
       setLoading(true);
       try {
-        const posesRes = await apiFetch<{ items: ModelPose[] }>(
-          `/admin/assets/poses?garmentTypeId=${garmentTypeId}`,
-        );
+        const [posesRes, wfRes] = await Promise.all([
+          apiFetch<{ items: ModelPose[] }>(`/admin/assets/poses?garmentTypeId=${garmentTypeId}`),
+          apiFetch<WorkflowOption[]>('/admin/workflows'),
+        ]);
         setPoses(posesRes.items);
+        setWorkflows(wfRes);
       } catch {
         toast({ kind: 'error', title: 'Failed to load assets' });
       } finally {
@@ -1273,6 +1277,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           pose={editingPose}
           faces={faces}
           backgrounds={allBackgrounds}
+          workflows={workflows}
           onSaved={(updated) => {
             setPoses((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
             setEditingPose(null);
