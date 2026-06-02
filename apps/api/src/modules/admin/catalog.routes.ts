@@ -181,9 +181,20 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         .from(schema.catalogItems)
         .where(eq(schema.catalogItems.id, id));
       if (!item) throw new AppError('NOT_FOUND', 404, 'item not found');
+      await app.db.transaction(async (tx) => {
+        // Nullify FK references in job_inputs before deleting the catalog row.
+        await tx
+          .update(schema.jobInputs)
+          .set({ lowerCatalogId: null })
+          .where(eq(schema.jobInputs.lowerCatalogId, id));
+        await tx
+          .update(schema.jobInputs)
+          .set({ shoeCatalogId: null })
+          .where(eq(schema.jobInputs.shoeCatalogId, id));
+        await tx.delete(schema.catalogItems).where(eq(schema.catalogItems.id, id));
+      });
       await app.storage.deleteObject(item.r2Key);
       await app.storage.deleteObject(item.thumbnailKey);
-      await app.db.delete(schema.catalogItems).where(eq(schema.catalogItems.id, id));
       return { ok: true };
     },
   );

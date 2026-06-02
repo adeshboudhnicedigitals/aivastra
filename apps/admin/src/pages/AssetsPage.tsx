@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BackgroundUploadModal } from '../components/BackgroundUploadModal';
 import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import { EditBackgroundModal } from '../components/EditBackgroundModal';
@@ -170,7 +170,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [editingCatalogItem, setEditingCatalogItem] = useState<CatalogItem | null>(null);
   const [editCatalogGender, setEditCatalogGender] = useState<string>('men');
   const [editCatalogSubcatIds, setEditCatalogSubcatIds] = useState<string[]>([]);
+  const [editCatalogLabel, setEditCatalogLabel] = useState('');
   const [editCatalogSaving, setEditCatalogSaving] = useState(false);
+  const [catalogReplaceFile, setCatalogReplaceFile] = useState<File | null>(null);
+  const [catalogReplacePreview, setCatalogReplacePreview] = useState<string | null>(null);
+  const [catalogReplaceUploading, setCatalogReplaceUploading] = useState(false);
+  const catalogReplaceRef = useRef<HTMLInputElement>(null);
 
   const loadBackgrounds = useCallback(
     async (genderSlug?: string) => {
@@ -1147,8 +1152,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                             className="btn sm ghost"
                             onClick={() => {
                               setEditingCatalogItem(c);
+                              setEditCatalogLabel(c.label);
                               setEditCatalogGender(c.genderSlug ?? 'men');
                               setEditCatalogSubcatIds(c.subcategoryIds ?? []);
+                              setCatalogReplaceFile(null);
+                              setCatalogReplacePreview(null);
                             }}
                           >
                             <Icon.Edit />
@@ -1276,6 +1284,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       {editingBackground && (
         <EditBackgroundModal
           background={editingBackground}
+          storagePublicUrl={storagePublicUrl}
           onSaved={(updated) => {
             setBackgrounds((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
             setEditingBackground(null);
@@ -1287,6 +1296,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       {editingFace && (
         <EditFaceModal
           face={editingFace}
+          storagePublicUrl={storagePublicUrl}
           onSaved={(updated) => {
             setFaces((prev) => prev.map((f) => (f.id === updated.id ? updated : f)));
             setEditingFace(null);
@@ -1687,7 +1697,15 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               className="modal-body"
               style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
             >
-              <div style={{ fontSize: 13, fontWeight: 600 }}>{editingCatalogItem.label}</div>
+              <div className="field">
+                <label>Label</label>
+                <input
+                  className="input"
+                  value={editCatalogLabel}
+                  disabled={editCatalogSaving}
+                  onChange={(e) => setEditCatalogLabel(e.target.value)}
+                />
+              </div>
               <div className="field">
                 <label>Gender</label>
                 <select
@@ -1764,6 +1782,140 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   </div>
                 );
               })()}
+              <div className="field">
+                <label>Replace image</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {(catalogReplacePreview ??
+                    (storagePublicUrl && editingCatalogItem.thumbnailKey
+                      ? `${storagePublicUrl}/${editingCatalogItem.thumbnailKey}`
+                      : null)) && (
+                    <img
+                      src={
+                        catalogReplacePreview ??
+                        `${storagePublicUrl}/${editingCatalogItem.thumbnailKey}`
+                      }
+                      alt=""
+                      style={{
+                        width: 56,
+                        height: 56,
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                      }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <input
+                      ref={catalogReplaceRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setCatalogReplaceFile(file);
+                        setCatalogReplacePreview(URL.createObjectURL(file));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      disabled={editCatalogSaving || catalogReplaceUploading}
+                      onClick={() => catalogReplaceRef.current?.click()}
+                    >
+                      <Icon.Image />{' '}
+                      {catalogReplaceFile ? catalogReplaceFile.name : 'Pick new image'}
+                    </button>
+                    {catalogReplaceFile && (
+                      <button
+                        type="button"
+                        className="btn sm primary"
+                        disabled={catalogReplaceUploading}
+                        onClick={async () => {
+                          if (!editingCatalogItem || !catalogReplaceFile) return;
+                          setCatalogReplaceUploading(true);
+                          try {
+                            const presign = await apiFetch<{
+                              uploadUrl: string;
+                              r2Key: string;
+                              thumbnailUploadUrl: string;
+                              thumbnailKey: string;
+                            }>('/admin/catalog/items/presign', {
+                              method: 'POST',
+                              body: JSON.stringify({
+                                typeSlug: editingCatalogItem.type,
+                                contentType: catalogReplaceFile.type,
+                              }),
+                            });
+                            await Promise.all([
+                              new Promise<void>((res, rej) => {
+                                const xhr = new XMLHttpRequest();
+                                xhr.open('PUT', presign.uploadUrl);
+                                xhr.setRequestHeader('Content-Type', catalogReplaceFile.type);
+                                xhr.onload = () =>
+                                  xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`));
+                                xhr.onerror = () => rej(new Error('Network error'));
+                                xhr.send(catalogReplaceFile);
+                              }),
+                              new Promise<void>((res, rej) => {
+                                const xhr = new XMLHttpRequest();
+                                xhr.open('PUT', presign.thumbnailUploadUrl);
+                                xhr.setRequestHeader('Content-Type', catalogReplaceFile.type);
+                                xhr.onload = () =>
+                                  xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`));
+                                xhr.onerror = () => rej(new Error('Network error'));
+                                xhr.send(catalogReplaceFile);
+                              }),
+                            ]);
+                            await apiFetch(`/admin/catalog/items/${editingCatalogItem.id}`, {
+                              method: 'PATCH',
+                              body: JSON.stringify({
+                                r2Key: presign.r2Key,
+                                thumbnailKey: presign.thumbnailKey,
+                                isActive: true,
+                              }),
+                            });
+                            setCatalogItems((prev) =>
+                              prev.map((x) =>
+                                x.id === editingCatalogItem.id
+                                  ? {
+                                      ...x,
+                                      r2Key: presign.r2Key,
+                                      thumbnailKey: presign.thumbnailKey,
+                                      isActive: true,
+                                    }
+                                  : x,
+                              ),
+                            );
+                            setEditingCatalogItem((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    r2Key: presign.r2Key,
+                                    thumbnailKey: presign.thumbnailKey,
+                                    isActive: true,
+                                  }
+                                : prev,
+                            );
+                            setCatalogReplaceFile(null);
+                            setCatalogReplacePreview(null);
+                            toast({ title: 'Image replaced' });
+                          } catch {
+                            toast({ kind: 'error', title: 'Image replace failed' });
+                          } finally {
+                            setCatalogReplaceUploading(false);
+                          }
+                        }}
+                      >
+                        {catalogReplaceUploading ? 'Uploading…' : 'Upload & replace'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="modal-foot">
               <button
@@ -1782,6 +1934,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     await apiFetch(`/admin/catalog/items/${editingCatalogItem.id}`, {
                       method: 'PATCH',
                       body: JSON.stringify({
+                        label: editCatalogLabel.trim() || editingCatalogItem.label,
                         genderSlug: editCatalogGender,
                         subcategoryIds: editCatalogSubcatIds,
                       }),
@@ -1791,6 +1944,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                         x.id === editingCatalogItem.id
                           ? {
                               ...x,
+                              label: editCatalogLabel.trim() || x.label,
                               genderSlug: editCatalogGender,
                               subcategoryIds: editCatalogSubcatIds,
                             }

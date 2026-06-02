@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -24,15 +24,22 @@ export async function catalogRoutes(app: FastifyInstance) {
 
       const poseIds = poseIdsParam ? poseIdsParam.split(',').filter(Boolean) : [];
 
-      // If poseIds provided, return items targeting those poses' subcategories
-      // where the pose has the relevant showsLower / showsShoes flag enabled
+      // If poseIds provided, return items targeting those poses' subcategories.
+      // Lower/shoe availability is determined by the workflow template (lowerNodeId /
+      // shoeNodeId non-null), not by manual showsLower / showsShoes flags on the pose.
       if (poseIds.length > 0) {
-        const showsField =
-          type === 'lower' ? schema.modelPoses.showsLower : schema.modelPoses.showsShoes;
+        const nodeField =
+          type === 'lower'
+            ? schema.workflowTemplates.lowerNodeId
+            : schema.workflowTemplates.shoeNodeId;
         const poses = await app.db
           .select({ subcategoryId: schema.modelPoses.subcategoryId })
           .from(schema.modelPoses)
-          .where(and(inArray(schema.modelPoses.id, poseIds), eq(showsField, true)));
+          .innerJoin(
+            schema.workflowTemplates,
+            eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
+          )
+          .where(and(inArray(schema.modelPoses.id, poseIds), isNotNull(nodeField)));
 
         const subcategoryIds = [...new Set(poses.map((p) => p.subcategoryId))];
         if (subcategoryIds.length === 0) return { type, tree: [] };

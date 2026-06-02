@@ -1,22 +1,27 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
 import type { GenderSlug, ModelFace } from '../types';
 import { Icon } from './Icons';
 
 interface Props {
   face: ModelFace;
+  storagePublicUrl: string | null;
   onSaved: (updated: ModelFace) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-export function EditFaceModal({ face, onSaved, onClose, toast }: Props) {
+export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast }: Props) {
   const [form, setForm] = useState({
     label: face.label,
     gender: face.gender,
     sortOrder: face.sortOrder,
   });
   const [saving, setSaving] = useState(false);
+  const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [replacePreview, setReplacePreview] = useState<string | null>(null);
+  const [replaceUploading, setReplaceUploading] = useState(false);
+  const replaceRef = useRef<HTMLInputElement>(null);
 
   const handleSave = async () => {
     setSaving(true);
@@ -35,8 +40,49 @@ export function EditFaceModal({ face, onSaved, onClose, toast }: Props) {
     }
   };
 
+  const handleReplaceImage = async () => {
+    if (!replaceFile) return;
+    setReplaceUploading(true);
+    try {
+      const presign = await apiFetch<{
+        uploadUrl: string;
+        r2Key: string;
+        thumbnailUploadUrl: string;
+        thumbnailKey: string;
+      }>('/admin/assets/faces/presign', {
+        method: 'POST',
+        body: JSON.stringify({ contentType: replaceFile.type }),
+      });
+      await Promise.all(
+        [presign.uploadUrl, presign.thumbnailUploadUrl].map(
+          (url) =>
+            new Promise<void>((res, rej) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open('PUT', url);
+              xhr.setRequestHeader('Content-Type', replaceFile.type);
+              xhr.onload = () => (xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`)));
+              xhr.onerror = () => rej(new Error('Network error'));
+              xhr.send(replaceFile);
+            }),
+        ),
+      );
+      await apiFetch(`/admin/assets/faces/${face.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ r2Key: presign.r2Key, thumbnailKey: presign.thumbnailKey }),
+      });
+      onSaved({ ...face, ...form, r2Key: presign.r2Key, thumbnailKey: presign.thumbnailKey });
+      setReplaceFile(null);
+      setReplacePreview(null);
+      toast({ title: 'Image replaced' });
+    } catch {
+      toast({ kind: 'error', title: 'Image replace failed' });
+    } finally {
+      setReplaceUploading(false);
+    }
+  };
+
   return (
-    <div className="modal-overlay" onClick={saving ? undefined : onClose}>
+    <div className="modal-overlay" onClick={saving || replaceUploading ? undefined : onClose}>
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
@@ -47,7 +93,7 @@ export function EditFaceModal({ face, onSaved, onClose, toast }: Props) {
           <button
             className="btn sm ghost"
             onClick={onClose}
-            disabled={saving}
+            disabled={saving || replaceUploading}
             style={{ marginLeft: 'auto' }}
           >
             <Icon.Close />
@@ -91,16 +137,72 @@ export function EditFaceModal({ face, onSaved, onClose, toast }: Props) {
               onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
             />
           </div>
+          <div className="field">
+            <label>Replace image</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {(replacePreview ??
+                (storagePublicUrl && face.thumbnailKey
+                  ? `${storagePublicUrl}/${face.thumbnailKey}`
+                  : null)) && (
+                <img
+                  src={replacePreview ?? `${storagePublicUrl}/${face.thumbnailKey}`}
+                  alt=""
+                  style={{
+                    width: 56,
+                    height: 56,
+                    objectFit: 'cover',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                  }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <input
+                  ref={replaceRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setReplaceFile(file);
+                    setReplacePreview(URL.createObjectURL(file));
+                  }}
+                />
+                <button
+                  type="button"
+                  className="btn sm ghost"
+                  disabled={saving || replaceUploading}
+                  onClick={() => replaceRef.current?.click()}
+                >
+                  <Icon.Image /> {replaceFile ? replaceFile.name : 'Pick new image'}
+                </button>
+                {replaceFile && (
+                  <button
+                    type="button"
+                    className="btn sm primary"
+                    disabled={replaceUploading}
+                    onClick={handleReplaceImage}
+                  >
+                    {replaceUploading ? 'Uploading…' : 'Upload & replace'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="modal-foot">
-          <button className="btn ghost" onClick={onClose} disabled={saving}>
+          <button className="btn ghost" onClick={onClose} disabled={saving || replaceUploading}>
             Cancel
           </button>
           <button
             className="btn primary"
             onClick={handleSave}
-            disabled={saving || !form.label.trim()}
+            disabled={saving || replaceUploading || !form.label.trim()}
           >
             {saving ? 'Saving…' : 'Save changes'}
           </button>
