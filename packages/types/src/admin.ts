@@ -33,7 +33,7 @@ const CatalogTypeSlug = z.enum(['lower', 'shoe']);
 
 export const PresignCatalogItemBody = z.object({
   typeSlug: CatalogTypeSlug,
-  label: z.string().min(1).max(120),
+  label: z.string().min(1).max(120).optional(),
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   // Legacy — still accepted but ignored if typeSlug provided
   categoryId: CoercedPositiveInt.optional(),
@@ -74,6 +74,8 @@ export const PatchModelFaceBody = z.object({
   gender: GenderEnum.optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  r2Key: z.string().optional(),
+  thumbnailKey: z.string().optional(),
 });
 
 // Backgrounds are now global — no faceId
@@ -93,6 +95,8 @@ export const PatchModelBackgroundBody = z.object({
   genderSlug: GenderEnum.nullable().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
+  r2Key: z.string().optional(),
+  thumbnailKey: z.string().optional(),
 });
 
 // ── Workflow template schemas ─────────────────────────────────────────────
