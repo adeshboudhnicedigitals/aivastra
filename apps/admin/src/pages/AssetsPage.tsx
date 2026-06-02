@@ -404,8 +404,16 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     (p) => (!filterFace || p.faceId === filterFace) && (!filterBg || p.backgroundId === filterBg),
   );
 
-  // Filtered poses for grid
-  const visiblePoses = posesInCell.filter((p) => !filterPose || p.id === filterPose);
+  // Filtered poses for grid — sorted by label ascending
+  const visiblePoses = posesInCell
+    .filter((p) => !filterPose || p.id === filterPose)
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  // Only show faces/backgrounds actually used by poses in this garment type
+  const usedFaceIds = new Set(poses.map((p) => p.faceId));
+  const usedBgIds = new Set(poses.map((p) => p.backgroundId));
+  const poseFaces = faces.filter((f) => usedFaceIds.has(f.id));
+  const poseBgs = allBackgrounds.filter((b) => usedBgIds.has(b.id));
 
   // Catalog coverage for the current garment-type subcategory
   const currentSubcatId = subView.kind === 'garment-type' ? subView.sub.id : null;
@@ -834,7 +842,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               }}
             >
               <option value="">All faces</option>
-              {faces.map((f) => (
+              {poseFaces.map((f) => (
                 <option key={f.id} value={f.id}>
                   [{f.gender}] {f.label}
                 </option>
@@ -850,11 +858,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               }}
             >
               <option value="">All backgrounds</option>
-              {backgrounds.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.label}
-                </option>
-              ))}
+              {poseBgs
+                .slice()
+                .sort((a, b) => a.label.localeCompare(b.label))
+                .map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.label}
+                  </option>
+                ))}
             </select>
             <select
               className="select"
@@ -866,10 +877,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               <option value="">All poses ({posesInCell.length})</option>
               {posesInCell
                 .slice()
-                .sort((a, b) => a.sortOrder - b.sortOrder)
-                .map((p, i) => (
+                .sort((a, b) => a.label.localeCompare(b.label))
+                .map((p) => (
                   <option key={p.id} value={p.id}>
-                    #{i + 1} {p.label}
+                    {p.label}
                   </option>
                 ))}
             </select>
