@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
@@ -8,6 +8,18 @@ import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import type { CatalogItem, GarmentType } from '../types';
+
+async function uploadFile(url: string, file: File): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload ${xhr.status}`));
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(file);
+  });
+}
 
 const PAGE_SIZE = 25;
 
@@ -44,6 +56,10 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
   const [editSortOrder, setEditSortOrder] = useState(0);
   const [editCategoryId, setEditCategoryId] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const [editReplaceFile, setEditReplaceFile] = useState<File | null>(null);
+  const [editReplacePreview, setEditReplacePreview] = useState<string | null>(null);
+  const [editReplaceUploading, setEditReplaceUploading] = useState(false);
+  const replaceFileRef = useRef<HTMLInputElement>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [loading, setLoading] = useState(false);
   const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>([]);
@@ -119,10 +135,66 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
     setEditItem(item);
     setEditLabel(item.label);
     setEditSortOrder(item.sortOrder);
+    setEditReplaceFile(null);
+    setEditReplacePreview(null);
     const cat = categories.find(
       (c) => (item as any).categoryId === c.id || c.typeSlug === item.type,
     );
     setEditCategoryId(cat ? String(cat.id) : '');
+  };
+
+  const handleReplaceFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setEditReplaceFile(file);
+    setEditReplacePreview(URL.createObjectURL(file));
+  };
+
+  const doReplaceImage = async () => {
+    if (!editItem || !editReplaceFile) return;
+    setEditReplaceUploading(true);
+    try {
+      const presign = await apiFetch<{
+        uploadUrl: string;
+        r2Key: string;
+        thumbnailUploadUrl: string;
+        thumbnailKey: string;
+      }>('/admin/catalog/items/presign', {
+        method: 'POST',
+        body: JSON.stringify({ typeSlug: editItem.type, contentType: editReplaceFile.type }),
+      });
+      await Promise.all([
+        uploadFile(presign.uploadUrl, editReplaceFile),
+        uploadFile(presign.thumbnailUploadUrl, editReplaceFile),
+      ]);
+      await apiFetch(`/admin/catalog/items/${editItem.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          r2Key: presign.r2Key,
+          thumbnailKey: presign.thumbnailKey,
+          isActive: true,
+        }),
+      });
+      setItems((prev) =>
+        prev.map((c) =>
+          c.id === editItem.id
+            ? { ...c, r2Key: presign.r2Key, thumbnailKey: presign.thumbnailKey, isActive: true }
+            : c,
+        ),
+      );
+      setEditItem((prev) =>
+        prev
+          ? { ...prev, r2Key: presign.r2Key, thumbnailKey: presign.thumbnailKey, isActive: true }
+          : prev,
+      );
+      setEditReplaceFile(null);
+      setEditReplacePreview(null);
+      toast({ title: 'Image replaced' });
+    } catch {
+      toast({ kind: 'error', title: 'Image replace failed' });
+    } finally {
+      setEditReplaceUploading(false);
+    }
   };
 
   const saveEdit = async () => {
@@ -388,6 +460,57 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                   onChange={(e) => setEditSortOrder(Number(e.target.value))}
                   style={{ width: 100 }}
                 />
+              </div>
+              <div className="field">
+                <label>Replace image</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {(editReplacePreview ??
+                    (storagePublicUrl && editItem.thumbnailKey
+                      ? `${storagePublicUrl}/${editItem.thumbnailKey}`
+                      : null)) && (
+                    <img
+                      src={editReplacePreview ?? `${storagePublicUrl}/${editItem.thumbnailKey}`}
+                      alt=""
+                      style={{
+                        width: 56,
+                        height: 56,
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        border: '1px solid var(--border)',
+                      }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <input
+                      ref={replaceFileRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: 'none' }}
+                      onChange={handleReplaceFilePick}
+                    />
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      disabled={editSaving || editReplaceUploading}
+                      onClick={() => replaceFileRef.current?.click()}
+                    >
+                      <Icon.Image /> {editReplaceFile ? editReplaceFile.name : 'Pick new image'}
+                    </button>
+                    {editReplaceFile && (
+                      <button
+                        type="button"
+                        className="btn sm primary"
+                        disabled={editReplaceUploading}
+                        onClick={doReplaceImage}
+                      >
+                        {editReplaceUploading ? 'Uploading…' : 'Upload & replace'}
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
             <div className="modal-foot">

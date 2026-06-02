@@ -136,6 +136,8 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
           sortOrder: z.number().int().optional(),
           genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
           subcategoryIds: z.array(z.string().uuid()).optional(),
+          r2Key: z.string().optional(),
+          thumbnailKey: z.string().optional(),
         }),
       },
     },
