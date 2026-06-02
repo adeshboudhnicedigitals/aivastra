@@ -120,6 +120,11 @@ jobs:
                cd ${DEPLOY_PATH}
                git pull origin master
 
+               echo '→ applying DB migrations'
+               docker compose -f infra/docker-compose.prod.yml \
+                 --env-file .env.production \
+                 run --rm api pnpm db:migrate
+
                echo '→ building images'
                docker compose -f infra/docker-compose.prod.yml \
                  --env-file .env.production \
