@@ -468,7 +468,7 @@ export default function CataloguesPage(): React.ReactElement {
         });
       }
 
-      const zipBlob = await zip.generateAsync({ type: 'blob' }, (meta) => {
+      const zipBlob = await zip.generateAsync({ type: 'blob' }, (meta: { percent: number }) => {
         if (!abort.signal.aborted) {
           setZipProgress(70 + meta.percent * 0.3);
         }
