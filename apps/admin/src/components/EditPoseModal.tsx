@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
-import type { ModelBackground, ModelFace, ModelPose } from '../types';
+import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
 
 function ImagePicker({
@@ -158,6 +158,7 @@ interface Props {
   pose: ModelPose;
   faces: ModelFace[];
   backgrounds: ModelBackground[];
+  workflows: WorkflowOption[];
   onSaved: (updated: ModelPose) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -177,7 +178,15 @@ async function putFile(url: string, file: File): Promise<void> {
   });
 }
 
-export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toast }: Props) {
+export function EditPoseModal({
+  pose,
+  faces,
+  backgrounds,
+  workflows,
+  onSaved,
+  onClose,
+  toast,
+}: Props) {
   const { storagePublicUrl } = useAuth();
   const [form, setForm] = useState({
     label: pose.label,
@@ -237,9 +246,8 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
         newBgComfyR2Key = presign.r2Key;
       }
 
-      const { workflowTemplateId: _wf, ...formWithoutWorkflow } = form;
       const patch: Record<string, unknown> = {
-        ...formWithoutWorkflow,
+        ...form,
         promptGarmentPhase: form.promptGarmentPhase.trim() || undefined,
       };
       if (faceSideR2Key) patch.faceSideR2Key = faceSideR2Key;
@@ -308,6 +316,28 @@ export function EditPoseModal({ pose, faces, backgrounds, onSaved, onClose, toas
               placeholder="e.g. m1bg1p1"
               onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
             />
+          </div>
+
+          <div className="field">
+            <label>Workflow template</label>
+            <select
+              className="select"
+              value={form.workflowTemplateId}
+              disabled={saving}
+              onChange={(e) => setForm((f) => ({ ...f, workflowTemplateId: e.target.value }))}
+            >
+              {workflows.map((wf) => (
+                <option key={wf.id} value={wf.id}>
+                  {wf.label}
+                  {wf.lowerNodeId ? ' · lower' : ''}
+                  {wf.shoeNodeId ? ' · shoes' : ''}
+                  {!wf.isActive ? ' (inactive)' : ''}
+                </option>
+              ))}
+              {workflows.length === 0 && (
+                <option value={form.workflowTemplateId}>Current workflow</option>
+              )}
+            </select>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
