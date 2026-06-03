@@ -56,12 +56,9 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
 // ── Aspect ratio dimensions ───────────────────────────────────────────────
 
 export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
-  '1:1': { width: 1536, height: 1536 },
+  '1:1': { width: 2048, height: 2048 },
   '3:4': { width: 1331, height: 1774 },
   '4:5': { width: 1375, height: 1718 },
-  '3:2': { width: 2048, height: 1365 },
-  '9:16': { width: 1152, height: 2048 },
-  '16:9': { width: 2048, height: 1152 },
 };
 
 // ── Public interface ──────────────────────────────────────────────────────
