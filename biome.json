@@ -13,7 +13,8 @@
       "!**/meta/_journal.json",
       "!twopiece.json",
       "!templates",
-      "!pnpm-lock.yaml"
+      "!pnpm-lock.yaml",
+      "!docs/*.html"
     ]
   },
   "formatter": {
