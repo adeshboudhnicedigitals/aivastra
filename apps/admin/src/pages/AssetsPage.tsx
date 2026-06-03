@@ -1173,37 +1173,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       <tr key={c.id}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            {storagePublicUrl && c.thumbnailKey ? (
-                              <img
-                                src={`${storagePublicUrl}/${c.thumbnailKey}`}
-                                alt={c.label}
-                                style={{
-                                  width: 40,
-                                  height: 40,
-                                  objectFit: 'cover',
-                                  borderRadius: 6,
-                                  flexShrink: 0,
-                                }}
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).style.display = 'none';
-                                }}
-                              />
-                            ) : (
-                              <div
-                                style={{
-                                  width: 40,
-                                  height: 40,
-                                  borderRadius: 6,
-                                  background: 'var(--subtle)',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  flexShrink: 0,
-                                }}
-                              >
-                                <Icon.Image />
-                              </div>
-                            )}
+                            {T(c, 40, 40)}
                             <div>
                               <span className="semi">{c.label}</span>
                               <span className="sub mono" style={{ display: 'block' }}>
