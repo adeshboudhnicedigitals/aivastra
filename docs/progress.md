@@ -7,6 +7,59 @@
 
 ## Log
 
+### 2026-06-02 — Pose grid coverage warnings, workflow detection, image replace, deploy migrations
+
+**Done**
+
+*Garment-type pose grid (admin)*
+- Highlight pose tiles when workflow requires lower/shoe (`lowerNodeId`/`shoeNodeId` set) but no active catalog item of that type is assigned to the current garment subcategory — amber outline + `⚠ lower missing` / `⚠ shoes missing` badges; green/blue `✓` badges when covered (41a2519)
+- Filter face/background dropdowns to only items actually used by poses in that garment type; sort pose tiles + background/pose dropdowns alphabetically by label; removed `#N` prefix from pose dropdown options (e9f53dc)
+- Background created inline during pose upload now inherits the subcategory `genderSlug` instead of defaulting to null/"all" (a08337d)
+
+*Workflow + asset management (admin)*
+- Workflow selector added to pose edit modal (dbdb3db)
+- Smarter ComfyUI workflow detection (title + KSampler connection tracing); enforce required size/aspect fields on upload (a555ed6)
+- Replace-image action on faces, backgrounds, lower/shoe catalog items; fixed catalog visibility (6c93c5d, dc256a3)
+
+*Infra / DX*
+- Auto-migrate on deploy; pre-push hook hard-blocks push when local DB is behind unapplied migrations (fd70a00)
+- Untracked `templates/` folder from git; fixed `.gitignore` templates entry (0d41305, 53928dc)
+- `apps/web`: added `jszip` dep + type annotation on zip progress callback (42b0131)
+
+**Open Questions / Decisions**
+- `0026_catalog_item_subcategories.sql` changed to `CREATE TABLE IF NOT EXISTS` (idempotent re-apply) + docs edit — locally modified, not yet committed
+
+---
+
+### 2026-06-01 — Auth hardening, email verification, workflow tooling, studio/catalogue UX
+
+**Done**
+
+*Auth*
+- Email verification + password reset via Resend (token in Redis, `email_verified` column, verify/reset/forgot/resend routes, web pages) (741ba4f)
+- Stopped random user logouts: silent refresh + single-flight token refresh (c0f5419)
+- 1h idle session timeout (a5daccd)
+
+*Catalog / workflow (admin)*
+- Subcategory-driven lower/shoe linking replaces per-pose allowlists (`catalog_item_subcategories`) (4ea7703)
+- Removed `isTemplate` feature; improved pose tile UI (bd1776f); workflow label/slug edit + pose tile workflow badge fix (9477392)
+- Workflow detail modal: node mappings, prompts, raw JSON (1fe4833)
+- Pose / bgComfy re-upload; improved edit modal UI, prompt labels, thumbnails (f6665b9, 6913cee)
+- Assets list API: unique garments with thumbnail presigning + preview UI (a3b1a6e)
+
+*Studio / catalogues (web)*
+- Garment type selection redesigned with modal; aspect ratio selection (731ddc9, a94b89a)
+- Live platform preview (Amazon mobile + web view) with fidelity/density/zoom polish (88effda, 9ec9f4a, e7ca173)
+- Catalogues: date filter, filters, select-all, download-all (403eed6, 894bf81)
+- Studio UX improvements + catalogue/assets consistency (36e35f7)
+- Image display + garment modal UX refinements (ab02db8)
+
+*Credits / DB*
+- Synced admin credit plans with frontend pricing packs (7433a99)
+- Applied pending migrations 0023–0026; fixed local dev startup; warn on push when origin has unpulled migrations (af170d0, 4e03c18)
+
+---
+
 ### 2026-06-01 — Fix admin Docker build TS errors
 
 **Done**
