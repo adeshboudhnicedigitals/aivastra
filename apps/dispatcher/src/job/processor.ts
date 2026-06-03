@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import type { Logger } from '@aivastra/logger';
+import {
+  comfyRequestDuration,
+  jobAttemptsTotal,
+  jobProcessingDuration,
+  jobsProcessedTotal,
+} from '@aivastra/observability';
 import type { StorageProvider } from '@aivastra/storage';
 import { keys } from '@aivastra/storage';
 import type { S3Client } from '@aws-sdk/client-s3';
@@ -20,6 +26,14 @@ import { patchWorkflow } from '../workflow/patcher.js';
 import { transitionJob } from './state.js';
 
 const MAX_ATTEMPTS = 2;
+
+type JobOutcome = 'success' | 'failed' | 'retried';
+
+/** Record the terminal (or retry) outcome of a processing attempt with its duration. */
+function recordJobOutcome(outcome: JobOutcome, startedAt: number): void {
+  jobsProcessedTotal.inc({ outcome });
+  jobProcessingDuration.observe({ outcome }, (Date.now() - startedAt) / 1000);
+}
 
 export interface ProcessorConfig {
   db: DB;
@@ -41,6 +55,7 @@ export async function processJob(
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket, workerApiKey, log } = cfg;
   const jobLog = log.child({ jobId, userId });
+  const startedAt = Date.now();
 
   // 1. Load job + inputs
   const [job] = await db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
@@ -55,12 +70,15 @@ export async function processJob(
     return;
   }
 
+  // Past the skip checks — this is a real processing attempt.
+  jobAttemptsTotal.inc();
+
   const [inputs] = await db
     .select()
     .from(schema.jobInputs)
     .where(eq(schema.jobInputs.jobId, jobId));
   if (!inputs) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_INPUTS', jobLog);
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_INPUTS', jobLog, startedAt);
     return;
   }
 
@@ -82,7 +100,7 @@ export async function processJob(
     .where(eq(schema.modelPoses.id, inputs.poseId));
 
   if (!bgRow || !poseRow) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'CATALOG_NOT_FOUND', jobLog);
+    await markFailed(cfg, jobId, userId, stream, messageId, 'CATALOG_NOT_FOUND', jobLog, startedAt);
     return;
   }
 
@@ -90,7 +108,7 @@ export async function processJob(
   // The display face (faceRow.r2Key) is UI-only and must never be sent to ComfyUI.
   const faceSideKey = poseRow.faceSideR2Key;
   if (!faceSideKey) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog);
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
     return;
   }
 
@@ -140,6 +158,7 @@ export async function processJob(
     await new Promise((resolve) => setTimeout(resolve, 10_000));
     await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('retried', startedAt);
     return;
   }
   const w = worker;
@@ -221,6 +240,7 @@ export async function processJob(
     // 6. Submit to ComfyUI
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
+    const comfyStartedAt = Date.now();
     const { promptId } = await submitPrompt(w.url, workerApiKey, clientUuid, prompt, jobLog);
     jobLog.info({ promptId }, 'prompt submitted to ComfyUI');
 
@@ -259,6 +279,7 @@ export async function processJob(
       (update) => jobLog.debug(update, 'comfyui progress'),
       { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
     );
+    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
     // 8. Fetch output metadata + download image
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
@@ -282,12 +303,13 @@ export async function processJob(
     await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
+    recordJobOutcome('success', startedAt);
     jobLog.info('job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
-    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, errMsg);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   }
 }
 
@@ -298,6 +320,7 @@ async function handleFailure(
   stream: string,
   messageId: string,
   log: Logger,
+  startedAt: number,
   errorMessage?: string,
 ): Promise<void> {
   const { db, redis, pub } = cfg;
@@ -330,12 +353,14 @@ async function handleFailure(
     const errorCode = errorMessage ? errorMessage.slice(0, 1000) : 'MAX_RETRIES';
     await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
     await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('failed', startedAt);
     log.warn({ jobId, attempts: newAttempts }, 'job FAILED after max retries — credits refunded');
   } else {
     // Re-enqueue for retry
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
     await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('retried', startedAt);
     log.info(
       { jobId, attempts: newAttempts },
       `job re-enqueued for retry (attempt ${newAttempts})`,
@@ -351,8 +376,10 @@ async function markFailed(
   messageId: string,
   errorCode: string,
   log: Logger,
+  startedAt: number,
 ): Promise<void> {
   const { db, redis, pub } = cfg;
   await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
   await redis.xack(stream, 'dispatcher-cg', messageId);
+  recordJobOutcome('failed', startedAt);
 }

@@ -155,10 +155,38 @@ services:
     networks:
       - aivastra-net
 
+  # Observability agent: tails container logs → Grafana Cloud Loki and scrapes
+  # api/dispatcher /metrics → Grafana Cloud Prometheus. No public ports.
+  alloy:
+    image: grafana/alloy:latest
+    container_name: aivastra-prod-alloy
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      GRAFANA_CLOUD_LOKI_URL: ${GRAFANA_CLOUD_LOKI_URL}
+      GRAFANA_CLOUD_LOKI_USER: ${GRAFANA_CLOUD_LOKI_USER}
+      GRAFANA_CLOUD_PROM_URL: ${GRAFANA_CLOUD_PROM_URL}
+      GRAFANA_CLOUD_PROM_USER: ${GRAFANA_CLOUD_PROM_USER}
+      GRAFANA_CLOUD_API_KEY: ${GRAFANA_CLOUD_API_KEY}
+    volumes:
+      - ./observability/alloy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloydata:/var/lib/alloy/data
+    depends_on:
+      - api
+      - dispatcher
+    networks:
+      - aivastra-net
+
 volumes:
   pgdata:
   redisdata:
   miniodata:
+  alloydata:
 
 networks:
   aivastra-net:

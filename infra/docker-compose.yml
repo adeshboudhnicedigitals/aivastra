@@ -76,10 +76,97 @@ services:
     networks:
       - aivastra-net
 
+  # ── Containerized apps (profile: apps) ──────────────────────────────────────
+  # Run api + dispatcher as containers so Alloy's Docker log discovery captures
+  # their stdout (host-run `pnpm dev` processes are invisible to Alloy). They reuse
+  # the local infra above by service name, and read the dev root .env — the three
+  # host-only URLs are overridden here to container hostnames, and NODE_ENV=production
+  # forces JSON log output so Alloy can parse level/jobId/userId.
+  #
+  #   docker compose -f infra/docker-compose.yml --profile apps --profile observability up -d --build
+  #
+  # Stop `pnpm dev` first to avoid confusion (containers and host apps are separate).
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    container_name: aivastra-api
+    restart: unless-stopped
+    profiles: ["apps"]
+    volumes:
+      - ../.env:/app/.env:ro
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-tryon}:${POSTGRES_PASSWORD:-tryon_dev_pw}@postgres:5432/${POSTGRES_DB:-tryon_dev}
+      REDIS_URL: redis://redis:6379
+      R2_ENDPOINT: http://minio:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - aivastra-net
+
+  dispatcher:
+    build:
+      context: ..
+      dockerfile: apps/dispatcher/Dockerfile
+    container_name: aivastra-dispatcher
+    restart: unless-stopped
+    profiles: ["apps"]
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-tryon}:${POSTGRES_PASSWORD:-tryon_dev_pw}@postgres:5432/${POSTGRES_DB:-tryon_dev}
+      REDIS_URL: redis://redis:6379
+      R2_ENDPOINT: http://minio:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - aivastra-net
+
+  # Local observability agent (profile: observability) — tails container logs → Loki
+  # and scrapes api/dispatcher /metrics → Prometheus, both to Grafana Cloud. Requires
+  # GRAFANA_CLOUD_* vars in the root .env. Run together with the `apps` profile so the
+  # apps are containers Alloy can both scrape (api:4000) and log-discover.
+  alloy:
+    image: grafana/alloy:latest
+    container_name: aivastra-alloy
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      # Defaults (api:4000 / dispatcher:4100) match the containerized apps above.
+      GRAFANA_CLOUD_LOKI_URL: ${GRAFANA_CLOUD_LOKI_URL}
+      GRAFANA_CLOUD_LOKI_USER: ${GRAFANA_CLOUD_LOKI_USER}
+      GRAFANA_CLOUD_PROM_URL: ${GRAFANA_CLOUD_PROM_URL}
+      GRAFANA_CLOUD_PROM_USER: ${GRAFANA_CLOUD_PROM_USER}
+      GRAFANA_CLOUD_API_KEY: ${GRAFANA_CLOUD_API_KEY}
+    volumes:
+      - ./observability/alloy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloydata:/var/lib/alloy/data
+    networks:
+      - aivastra-net
+
 volumes:
   pgdata:
   redisdata:
   miniodata:
+  alloydata:
 
 networks:
   aivastra-net:

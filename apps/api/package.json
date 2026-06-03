@@ -15,6 +15,7 @@
   "dependencies": {
     "@aivastra/db": "workspace:*",
     "@aivastra/logger": "workspace:*",
+    "@aivastra/observability": "workspace:*",
     "@aivastra/storage": "workspace:*",
     "@aivastra/types": "workspace:*",
     "@fastify/cookie": "^11.0.1",

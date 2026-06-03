@@ -1,0 +1,111 @@
+// Grafana Alloy agent for Aivastra (hybrid observability).
+//
+// Ships to Grafana Cloud free tier:
+//   - container logs (pino JSON on stdout)  → Loki
+//   - app metrics (api + dispatcher /metrics) → Prometheus
+//
+// Secrets come from the container environment (see infra/docker-compose.prod.yml,
+// values in .env.production). Reachable backends only — Alloy itself exposes nothing
+// publicly. See docs/observability.md.
+
+// ── Logs: discover aivastra containers, tail stdout, ship to Loki ─────────────
+
+discovery.docker "aivastra" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// Keep only this stack's containers and derive a clean `service` label from the
+// container name. Matches both prod (aivastra-prod-api) and local (aivastra-api),
+// stripping the optional `prod-` segment so `service` is just `api`, `dispatcher`, …
+discovery.relabel "aivastra" {
+  targets = discovery.docker.aivastra.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(aivastra-.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/aivastra-(?:prod-)?(.*)"
+    target_label  = "service"
+  }
+
+  // Drop containers that are not part of this stack.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/aivastra-.*"
+    action        = "keep"
+  }
+}
+
+loki.source.docker "aivastra" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.aivastra.output
+  labels     = { job = "aivastra" }
+  forward_to = [loki.process.aivastra.receiver]
+}
+
+// Parse the pino JSON line so level/jobId/userId become queryable.
+loki.process "aivastra" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  stage.json {
+    expressions = {
+      level   = "level",
+      svc     = "service",
+      job_id  = "jobId",
+      user_id = "userId",
+    }
+  }
+
+  // Promote a small, low-cardinality set to labels. jobId/userId stay as parsed
+  // fields (structured metadata) to avoid label explosion.
+  stage.labels {
+    values = {
+      level = "level",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      jobId  = "job_id",
+      userId = "user_id",
+    }
+  }
+}
+
+loki.write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_LOKI_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_LOKI_USER")
+      password = sys.env("GRAFANA_CLOUD_API_KEY")
+    }
+  }
+}
+
+// ── Metrics: scrape app /metrics endpoints, remote_write to Prometheus ────────
+
+// Scrape targets default to the prod container service names. Override via env for
+// local testing where the apps run on the host (e.g. host.docker.internal:4000).
+prometheus.scrape "aivastra" {
+  targets = [
+    { __address__ = coalesce(sys.env("ALLOY_API_TARGET"), "api:4000"),               service = "api" },
+    { __address__ = coalesce(sys.env("ALLOY_DISPATCHER_TARGET"), "dispatcher:4100"), service = "dispatcher" },
+  ]
+  metrics_path    = "/metrics"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_PROM_URL")
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_PROM_USER")
+      password = sys.env("GRAFANA_CLOUD_API_KEY")
+    }
+  }
+}

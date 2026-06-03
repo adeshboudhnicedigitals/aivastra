@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
+import { jobsCreatedTotal } from '@aivastra/observability';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
@@ -119,6 +120,7 @@ export async function createJob(app: FastifyInstance, userId: string, body: any)
   for (const jobId of jobIds) {
     try {
       await app.redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
+      jobsCreatedTotal.inc({ priority: priority ? 'priority' : 'normal' });
     } catch {
       failedEnqueues.push(jobId);
     }
