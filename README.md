@@ -16,7 +16,8 @@ User → Next.js (web) → Fastify API → Redis Streams → Dispatcher → Comf
 |---------|------|-------------|
 | API | `apps/api` | Fastify 5 REST API — auth, credits, catalog, jobs |
 | Dispatcher | `apps/dispatcher` | Redis Stream consumer — routes jobs to GPU workers |
-| Web | `apps/web` | Next.js 15 frontend (not started) |
+| Web | `apps/web` | Next.js 15 user-facing frontend |
+| Admin | `apps/admin` | Vite + React internal admin panel |
 
 | Package | Path | Description |
 |---------|------|-------------|
@@ -57,10 +58,3 @@ pnpm db:migrate       # apply to local DB
 | `pnpm docker:reset` | Tear down + delete volumes |
 | `pnpm build` | Typecheck + build all |
 
-## Project Status
-
-- [x] Phase 0 — Foundations (monorepo, DB schema, docker infra)
-- [x] Phase 1 — Backend API (auth, credits, catalog, admin, jobs)
-- [x] Phase 2 — Dispatcher (Redis consumer, worker routing, ComfyUI pipeline)
-- [ ] Phase 3 — Next.js frontend (not started)
-- [ ] Phase 4 — E2E integration + real ComfyUI workflow template
