@@ -87,7 +87,8 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       const r2Key = keys.catalogItem(typeSlug, newId);
       const thumbKey = keys.catalogThumb(typeSlug, newId);
       const main = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
-      const thumb = await app.storage.presignPut(thumbKey, contentType, 1_000_000, 300);
+      // Thumbnails are downscaled to JPEG client-side; sign for image/jpeg.
+      const thumb = await app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300);
       return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey: thumbKey };
     },
   );

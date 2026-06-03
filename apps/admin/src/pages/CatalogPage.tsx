@@ -7,9 +7,10 @@ import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
+import { makeThumbnail } from '../lib/thumbnail';
 import type { CatalogItem, GarmentType } from '../types';
 
-async function uploadFile(url: string, file: File): Promise<void> {
+async function uploadFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -165,7 +166,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       });
       await Promise.all([
         uploadFile(presign.uploadUrl, editReplaceFile),
-        uploadFile(presign.thumbnailUploadUrl, editReplaceFile),
+        makeThumbnail(editReplaceFile).then((t) => uploadFile(presign.thumbnailUploadUrl, t)),
       ]);
       await apiFetch(`/admin/catalog/items/${editItem.id}`, {
         method: 'PATCH',

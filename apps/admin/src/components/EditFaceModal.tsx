@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
+import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelFace } from '../types';
 import { Icon } from './Icons';
 
@@ -53,16 +54,20 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
         method: 'POST',
         body: JSON.stringify({ contentType: replaceFile.type }),
       });
+      const thumb = await makeThumbnail(replaceFile);
       await Promise.all(
-        [presign.uploadUrl, presign.thumbnailUploadUrl].map(
-          (url) =>
+        [
+          [presign.uploadUrl, replaceFile as Blob],
+          [presign.thumbnailUploadUrl, thumb],
+        ].map(
+          ([url, body]) =>
             new Promise<void>((res, rej) => {
               const xhr = new XMLHttpRequest();
-              xhr.open('PUT', url);
-              xhr.setRequestHeader('Content-Type', replaceFile.type);
+              xhr.open('PUT', url as string);
+              xhr.setRequestHeader('Content-Type', (body as Blob).type);
               xhr.onload = () => (xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`)));
               xhr.onerror = () => rej(new Error('Network error'));
-              xhr.send(replaceFile);
+              xhr.send(body as Blob);
             }),
         ),
       );

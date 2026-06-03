@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
+import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
@@ -34,7 +35,7 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-async function putFile(url: string, file: File): Promise<void> {
+async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -528,7 +529,7 @@ export function PoseUploadModal({
 
       const uploads: Promise<void>[] = [
         putFile(presign.uploadUrl, poseFile),
-        putFile(presign.thumbnailUploadUrl, poseFile),
+        makeThumbnail(poseFile).then((t) => putFile(presign.thumbnailUploadUrl, t)),
         putFile(presign.faceSideUploadUrl, faceSideFile),
         putFile(presign.bgComfyUploadUrl, bgComfyFile),
       ];
@@ -536,13 +537,17 @@ export function PoseUploadModal({
         if (!presign.newFaceUploadUrl || !presign.newFaceThumbnailUploadUrl)
           throw new Error('Server did not return face upload URLs');
         uploads.push(putFile(presign.newFaceUploadUrl, newFaceFile!));
-        uploads.push(putFile(presign.newFaceThumbnailUploadUrl, newFaceFile!));
+        uploads.push(
+          makeThumbnail(newFaceFile!).then((t) => putFile(presign.newFaceThumbnailUploadUrl!, t)),
+        );
       }
       if (bgMode === 'new') {
         if (!presign.newBgUploadUrl || !presign.newBgThumbnailUploadUrl)
           throw new Error('Server did not return background upload URLs');
         uploads.push(putFile(presign.newBgUploadUrl, newBgFile!));
-        uploads.push(putFile(presign.newBgThumbnailUploadUrl, newBgFile!));
+        uploads.push(
+          makeThumbnail(newBgFile!).then((t) => putFile(presign.newBgThumbnailUploadUrl!, t)),
+        );
       }
       await Promise.all(uploads);
 

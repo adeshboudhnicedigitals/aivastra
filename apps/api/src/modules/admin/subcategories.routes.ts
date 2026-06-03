@@ -38,10 +38,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       schema: { body: PresignGarmentTypeBody },
     },
     async (req) => {
-      const { contentType } = req.body as { contentType: string };
       const newId = randomUUID();
       const thumbKey = keys.subcategoryThumb(newId);
-      const { url } = await app.storage.presignPut(thumbKey, contentType, 5_000_000, 300);
+      // contentType is still validated by the route schema, but the uploaded image is
+      // downscaled to JPEG client-side — sign for image/jpeg so the PUT header matches.
+      const { url } = await app.storage.presignPut(thumbKey, 'image/jpeg', 5_000_000, 300);
       return { uploadUrl: url, thumbnailKey: thumbKey };
     },
   );
