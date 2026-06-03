@@ -84,18 +84,14 @@ const BRAND_CONFIG: Record<string, BrandConfig> = {
   AJIO: { ratios: ['1:1', '3:4'], default: '3:4' },
   Meesho: { ratios: ['1:1'], default: '1:1' },
   'Nykaa Fashion': { ratios: ['3:4'], default: '3:4' },
-  Shopify: { ratios: ['1:1', '4:5', '16:9'], default: '1:1' },
-  Etsy: { ratios: ['1:1', '4:5', '3:2'], default: '1:1' },
+  Shopify: { ratios: ['1:1', '4:5'], default: '1:1' },
 };
 const PLATFORMS = Object.keys(BRAND_CONFIG);
-const ALL_ASPECTS = ['1:1', '3:4', '4:5', '3:2', '9:16', '16:9'];
+const ALL_ASPECTS = ['1:1', '3:4', '4:5'];
 const ASPECT_DIMS: Record<string, string> = {
-  '1:1': '1536 × 1536 px',
+  '1:1': '2048 × 2048 px',
   '3:4': '1331 × 1774 px',
   '4:5': '1375 × 1718 px',
-  '3:2': '2048 × 1365 px',
-  '9:16': '1152 × 2048 px',
-  '16:9': '2048 × 1152 px',
 };
 const OUTFIT_IMG: Record<string, string> = {
   kurta: `${BASE}/assets/outfit-kurta.png`,
