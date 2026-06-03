@@ -1,9 +1,11 @@
 import type { Logger } from '@aivastra/logger';
+import { queueDepth, workersHealthy } from '@aivastra/observability';
 import type { Redis } from 'ioredis';
 import { getWorkers, healthKey } from './registry.js';
 
 const PROBE_INTERVAL_MS = 15_000;
 const HEALTH_TTL_SEC = 30;
+const JOB_STREAMS = ['jobs:priority', 'jobs:normal'] as const;
 
 async function probeWorker(workerId: string, workerUrl: string, apiKey: string): Promise<boolean> {
   try {
@@ -22,14 +24,26 @@ export function startHealthMonitor(redis: Redis, apiKey: string, log: Logger): (
 
   async function tick() {
     const workers = await getWorkers(redis);
+    let healthyCount = 0;
     for (const [id, entry] of workers) {
       if (entry.status === 'DRAINING') continue;
       const healthy = await probeWorker(id, entry.url, apiKey);
       if (healthy) {
+        healthyCount++;
         await redis.setex(healthKey(id), HEALTH_TTL_SEC, '1');
         log.info({ workerId: id }, 'worker healthy');
       } else {
         log.warn({ workerId: id }, 'worker unhealthy — health key not renewed');
+      }
+    }
+    workersHealthy.set(healthyCount);
+
+    // Sample queue depth for each job stream
+    for (const stream of JOB_STREAMS) {
+      try {
+        queueDepth.set({ stream }, await redis.xlen(stream));
+      } catch (err) {
+        log.warn({ err, stream }, 'failed to sample queue depth');
       }
     }
   }

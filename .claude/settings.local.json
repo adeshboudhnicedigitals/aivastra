@@ -60,7 +60,8 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\({k:v for k,v in {**d.get\\('scripts',{}\\), **d.get\\('devDependencies',{}\\), **d.get\\('dependencies',{}\\)}.items\\(\\) if 'test' in k or 'vitest' in k or 'jest' in k}, indent=2\\)\\)\")",
       "PowerShell(git pull --rebase origin master)",
       "PowerShell(git stash)",
-      "PowerShell(git stash pop)"
+      "PowerShell(git stash pop)",
+      "Bash(awk -F'\"' '{print $2}')"
     ]
   }
 }

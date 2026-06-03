@@ -32,6 +32,7 @@ import { resultsRoutes } from './modules/results/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
 import { authPlugin } from './plugins/auth.js';
 import { dbPlugin } from './plugins/db.js';
+import { metricsPlugin } from './plugins/metrics.js';
 import { redisPlugin } from './plugins/redis.js';
 import { storagePlugin } from './plugins/storage.js';
 
@@ -53,6 +54,7 @@ export async function buildServer(env: Env) {
   await app.register(cookie, { secret: env.COOKIE_SECRET });
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
   await app.register(sensible);
+  await app.register(metricsPlugin);
 
   app.decorate('env', env);
   await app.register(dbPlugin);

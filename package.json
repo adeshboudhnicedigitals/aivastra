@@ -18,10 +18,12 @@
     "db:generate": "pnpm --filter @aivastra/db run generate",
     "db:migrate": "pnpm --filter @aivastra/db run migrate",
     "seed:catalog": "pnpm --filter @aivastra/scripts run seed:catalog",
-    "docker:up": "docker compose -f infra/docker-compose.yml up -d",
-    "docker:down": "docker compose -f infra/docker-compose.yml down",
-    "docker:logs": "docker compose -f infra/docker-compose.yml logs -f",
-    "docker:reset": "docker compose -f infra/docker-compose.yml down -v",
+    "docker:up": "docker compose -f infra/docker-compose.yml --env-file .env up -d",
+    "docker:down": "docker compose -f infra/docker-compose.yml --env-file .env down",
+    "docker:logs": "docker compose -f infra/docker-compose.yml --env-file .env logs -f",
+    "docker:reset": "docker compose -f infra/docker-compose.yml --env-file .env down -v",
+    "docker:obs:up": "docker compose -f infra/docker-compose.yml --env-file .env --profile apps --profile observability up -d --build",
+    "docker:obs:down": "docker compose -f infra/docker-compose.yml --env-file .env --profile apps --profile observability down",
     "backfill:thumbnails": "tsx --env-file=.env scripts/backfill-thumbnails.mts"
   },
   "devDependencies": {

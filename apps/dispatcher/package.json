@@ -15,6 +15,7 @@
   "dependencies": {
     "@aivastra/db": "workspace:*",
     "@aivastra/logger": "workspace:*",
+    "@aivastra/observability": "workspace:*",
     "@aivastra/storage": "workspace:*",
     "@aivastra/types": "workspace:*",
     "@aws-sdk/client-s3": "^3.600.0",
