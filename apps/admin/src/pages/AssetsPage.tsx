@@ -71,20 +71,25 @@ const FACE_FIELDS: FieldDef[] = [
 
 function AssetThumb({
   thumbnailKey,
+  r2Key,
   label,
   w = 64,
   h = 64,
   storageBase,
+  onPreview,
 }: {
   thumbnailKey?: string;
+  r2Key?: string;
   label: string;
   w?: number;
   h?: number;
   storageBase: string | null;
+  onPreview?: (url: string) => void;
 }) {
   const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
+  const fullUrl = r2Key && storageBase ? `${storageBase}/${r2Key}` : null;
   if (src) {
-    return (
+    const img = (
       <img
         src={src}
         alt={label}
@@ -95,11 +100,27 @@ function AssetThumb({
           borderRadius: 6,
           flexShrink: 0,
           display: 'block',
+          cursor: fullUrl ? 'zoom-in' : undefined,
         }}
         onError={(e) => {
           (e.target as HTMLImageElement).style.display = 'none';
         }}
       />
+    );
+    return fullUrl ? (
+      <a
+        href={fullUrl}
+        rel="noreferrer"
+        style={{ flexShrink: 0 }}
+        onClick={(e) => {
+          e.preventDefault();
+          onPreview?.(src);
+        }}
+      >
+        {img}
+      </a>
+    ) : (
+      img
     );
   }
   return (
@@ -125,6 +146,7 @@ function AssetThumb({
 
 export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const { storagePublicUrl } = useAuth();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AssetTab>('garment-types');
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
   const [subView, setSubView] = useState<SubView>({ kind: 'list' });
@@ -369,13 +391,19 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
-  const T = (item: { thumbnailKey: string; label: string }, w?: number, h?: number) => (
+  const T = (
+    item: { thumbnailKey: string; r2Key?: string; label: string },
+    w?: number,
+    h?: number,
+  ) => (
     <AssetThumb
       thumbnailKey={item.thumbnailKey}
+      r2Key={item.r2Key}
       label={item.label}
       w={w}
       h={h}
       storageBase={storagePublicUrl}
+      onPreview={setPreviewUrl}
     />
   );
 
@@ -2101,6 +2129,33 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           onClose={() => setShowCatalogUpload(false)}
           toast={toast}
         />
+      )}
+      {previewUrl && (
+        <div
+          onClick={() => setPreviewUrl(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.82)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+            cursor: 'zoom-out',
+          }}
+        >
+          <img
+            src={previewUrl}
+            alt="preview"
+            style={{
+              maxWidth: '90vw',
+              maxHeight: '90vh',
+              borderRadius: 8,
+              boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
     </>
   );
