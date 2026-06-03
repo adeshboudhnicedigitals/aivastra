@@ -491,7 +491,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(eq(schema.modelPoses.id, id));
       if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
       const r2Key = keys.modelPoseFaceSide(id);
-      const uploadUrl = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
+      const { url: uploadUrl } = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
       return { uploadUrl, r2Key };
     },
   );
@@ -537,7 +537,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(eq(schema.modelPoses.id, id));
       if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
       const r2Key = keys.modelPoseBgComfy(id);
-      const uploadUrl = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
+      const { url: uploadUrl } = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
       return { uploadUrl, r2Key };
     },
   );
