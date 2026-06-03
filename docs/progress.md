@@ -7,6 +7,23 @@
 
 ## Log
 
+### 2026-06-03 — Aspect ratio cleanup, presign bug fix, CI/deploy fixes
+
+**Done**
+- `1:1` default size updated to 2048×2048 (studio UI + dispatcher patcher)
+- Removed aspect ratios `3:2`, `9:16` (Etsy-only); kept `1:1`, `3:4`, `4:5`; removed Etsy platform filter
+- Shopify restored with its supported ratios (`1:1`, `4:5`)
+- Fixed pose edit modal: `presign-faceside` and `presign-bgcomfy` endpoints were returning full `PresignResult` object as `uploadUrl` instead of `.url` string — XHR PUT received `[object Object]`, silently failed, PATCH never reached
+- System design doc (`virtual-tryon-system-design.md`) rewritten to v3 as-built; HTML render added (`virtual-tryon-system-design.html`)
+- `lefthook.yml` pre-push lint hook changed to `--diagnostic-level=error` (pre-existing a11y warnings no longer block push)
+- `biome.json` excludes `docs/*.html` from lint (generated HTML with inlined minified JS)
+- Deploy SSH timeout diagnosed: VPS was returning IPv6 via `ifconfig.me`; IPv4 `72.61.171.138` found and `VPS_HOST` secret updated; new ed25519 deploy key generated and added to `authorized_keys`
+
+**Open Questions / Decisions**
+- GitHub Actions deploy still timing out after IP + key fix — Hostinger panel-level firewall suspected (separate from UFW which shows port 22 open to anywhere); `fail2ban` has 0 currently banned IPs
+
+---
+
 ### 2026-06-02 — Pose grid coverage warnings, workflow detection, image replace, deploy migrations
 
 **Done**

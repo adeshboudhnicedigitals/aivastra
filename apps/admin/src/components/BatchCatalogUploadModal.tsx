@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
+import { makeThumbnail } from '../lib/thumbnail';
 import type { CatalogItem, GarmentType } from '../types';
 import { Icon } from './Icons';
 
@@ -29,7 +30,7 @@ interface Props {
   defaultGenderSlug?: string;
 }
 
-async function uploadFile(url: string, file: File): Promise<void> {
+async function uploadFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -107,7 +108,7 @@ export function BatchCatalogUploadModal({
           }),
         });
         await uploadFile(presign.uploadUrl, entry.file);
-        await uploadFile(presign.thumbnailUploadUrl, entry.file);
+        await uploadFile(presign.thumbnailUploadUrl, await makeThumbnail(entry.file));
         const row = await apiFetch<CatalogItem>('/admin/catalog/items/confirm', {
           method: 'POST',
           body: JSON.stringify({

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/data';
+import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelBackground } from '../types';
 import { Icon } from './Icons';
 
@@ -17,7 +18,7 @@ interface Props {
   defaultGenderSlug?: string;
 }
 
-function uploadFile(url: string, file: File, onProgress: (p: number) => void): Promise<void> {
+function uploadFile(url: string, file: Blob, onProgress: (p: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -36,9 +37,7 @@ function uploadFile(url: string, file: File, onProgress: (p: number) => void): P
 
 export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlug = '' }: Props) {
   const [mainFile, setMainFile] = useState<File | null>(null);
-  const [thumbFile, setThumbFile] = useState<File | null>(null);
   const [mainPreview, setMainPreview] = useState<string | null>(null);
-  const [thumbPreview, setThumbPreview] = useState<string | null>(null);
   const [label, setLabel] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
   const [genderSlug, setGenderSlug] = useState(defaultGenderSlug);
@@ -49,9 +48,8 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
   useEffect(() => {
     return () => {
       if (mainPreview) URL.revokeObjectURL(mainPreview);
-      if (thumbPreview) URL.revokeObjectURL(thumbPreview);
     };
-  }, [mainPreview, thumbPreview]);
+  }, [mainPreview]);
 
   const busy = status !== 'idle';
 
@@ -63,20 +61,9 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
     if (f && !label) setLabel(f.name.replace(/\.[^.]+$/, ''));
   };
 
-  const handleThumbFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0] ?? null;
-    if (thumbPreview) URL.revokeObjectURL(thumbPreview);
-    setThumbFile(f);
-    setThumbPreview(f ? URL.createObjectURL(f) : null);
-  };
-
   const handleSubmit = async () => {
     if (!mainFile) {
       setError('Select a main background image');
-      return;
-    }
-    if (!thumbFile) {
-      setError('Select a thumbnail image');
       return;
     }
     if (!label.trim()) {
@@ -91,11 +78,12 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
     try {
       const presign = await apiFetch<PresignResult>('/admin/assets/backgrounds/presign', {
         method: 'POST',
-        body: JSON.stringify({ contentType: mainFile.type, thumbnailContentType: thumbFile.type }),
+        body: JSON.stringify({ contentType: mainFile.type, thumbnailContentType: 'image/jpeg' }),
       });
 
       await uploadFile(presign.uploadUrl, mainFile, (p) => setProgress(Math.round(p * 50)));
-      await uploadFile(presign.thumbnailUploadUrl, thumbFile, (p) =>
+      const thumb = await makeThumbnail(mainFile);
+      await uploadFile(presign.thumbnailUploadUrl, thumb, (p) =>
         setProgress(50 + Math.round(p * 40)),
       );
 
@@ -196,42 +184,6 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
 
           <div className="field">
             <label>
-              Thumbnail <span style={{ color: 'var(--danger)' }}>*</span>
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>
-                (shown in UI card)
-              </span>
-            </label>
-            {thumbPreview && (
-              <img
-                src={thumbPreview}
-                alt="thumbnail preview"
-                style={{
-                  width: 120,
-                  height: 80,
-                  objectFit: 'cover',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  marginBottom: 8,
-                  display: 'block',
-                }}
-              />
-            )}
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              disabled={busy}
-              onChange={handleThumbFile}
-              style={{ fontSize: 13 }}
-            />
-            {thumbFile && (
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {thumbFile.name} ({(thumbFile.size / 1024).toFixed(0)} KB)
-              </span>
-            )}
-          </div>
-
-          <div className="field">
-            <label>
               Label <span style={{ color: 'var(--danger)' }}>*</span>
             </label>
             <input
@@ -291,7 +243,7 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
           <button
             className="btn primary"
             onClick={handleSubmit}
-            disabled={busy || !mainFile || !thumbFile || !label.trim()}
+            disabled={busy || !mainFile || !label.trim()}
           >
             <Icon.Upload /> Upload
           </button>

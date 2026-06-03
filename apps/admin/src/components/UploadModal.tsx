@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/data';
+import { makeThumbnail } from '../lib/thumbnail';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
 
@@ -37,7 +38,7 @@ interface UploadModalProps {
 
 function uploadWithProgress(
   url: string,
-  file: File,
+  file: Blob,
   onProgress: (p: number) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -118,7 +119,8 @@ export function UploadModal({
         body: JSON.stringify({ contentType: file.type, ...values, ...presignExtra }),
       });
       await uploadWithProgress(presignRes.uploadUrl, file, (p) => setProgress(Math.round(p * 65)));
-      await uploadWithProgress(presignRes.thumbnailUploadUrl, file, (p) =>
+      const thumb = await makeThumbnail(file);
+      await uploadWithProgress(presignRes.thumbnailUploadUrl, thumb, (p) =>
         setProgress(65 + Math.round(p * 25)),
       );
       setStatus('confirming');

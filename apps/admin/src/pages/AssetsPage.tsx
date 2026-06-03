@@ -14,6 +14,7 @@ import type { FieldDef } from '../components/UploadModal';
 import { UploadModal } from '../components/UploadModal';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
+import { makeThumbnail } from '../lib/thumbnail';
 import type {
   CatalogItem,
   GarmentType,
@@ -1534,10 +1535,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                           body: JSON.stringify({ contentType: subcatImageFile.type }),
                         },
                       );
+                      const subcatThumb = await makeThumbnail(subcatImageFile);
                       await fetch(presign.uploadUrl, {
                         method: 'PUT',
-                        headers: { 'Content-Type': subcatImageFile.type },
-                        body: subcatImageFile,
+                        headers: { 'Content-Type': subcatThumb.type },
+                        body: subcatThumb,
                       });
                       thumbnailKey = presign.thumbnailKey;
                     }
@@ -1709,10 +1711,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                           body: JSON.stringify({ contentType: editSubcatImageFile.type }),
                         },
                       );
+                      const editSubcatThumb = await makeThumbnail(editSubcatImageFile);
                       await fetch(presign.uploadUrl, {
                         method: 'PUT',
-                        headers: { 'Content-Type': editSubcatImageFile.type },
-                        body: editSubcatImageFile,
+                        headers: { 'Content-Type': editSubcatThumb.type },
+                        body: editSubcatThumb,
                       });
                       patchBody.thumbnailKey = presign.thumbnailKey;
                     }
@@ -1923,6 +1926,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                                 contentType: catalogReplaceFile.type,
                               }),
                             });
+                            const catThumb = await makeThumbnail(catalogReplaceFile);
                             await Promise.all([
                               new Promise<void>((res, rej) => {
                                 const xhr = new XMLHttpRequest();
@@ -1936,11 +1940,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                               new Promise<void>((res, rej) => {
                                 const xhr = new XMLHttpRequest();
                                 xhr.open('PUT', presign.thumbnailUploadUrl);
-                                xhr.setRequestHeader('Content-Type', catalogReplaceFile.type);
+                                xhr.setRequestHeader('Content-Type', catThumb.type);
                                 xhr.onload = () =>
                                   xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`));
                                 xhr.onerror = () => rej(new Error('Network error'));
-                                xhr.send(catalogReplaceFile);
+                                xhr.send(catThumb);
                               }),
                             ]);
                             await apiFetch(`/admin/catalog/items/${editingCatalogItem.id}`, {

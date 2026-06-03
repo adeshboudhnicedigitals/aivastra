@@ -43,7 +43,9 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const thumbKey = keys.modelFaceThumb(newId);
       const [main, thumb] = await Promise.all([
         app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        app.storage.presignPut(thumbKey, contentType, 1_000_000, 300),
+        // Thumbnails are downscaled to JPEG client-side — sign the PUT for image/jpeg
+        // so the signed Content-Type header matches what the browser sends.
+        app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
       ]);
       return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey: thumbKey };
     },
@@ -154,7 +156,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const thumbKey = keys.modelBackgroundThumb(newId);
       const [main, thumb] = await Promise.all([
         app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        app.storage.presignPut(thumbKey, thumbnailContentType ?? contentType, 1_000_000, 300),
+        // Thumbnails are downscaled to JPEG client-side; sign for image/jpeg.
+        app.storage.presignPut(thumbKey, thumbnailContentType ?? 'image/jpeg', 1_000_000, 300),
       ]);
       return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey: thumbKey };
     },
@@ -313,7 +316,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
       const presignTasks: Promise<{ url: string }>[] = [
         app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        app.storage.presignPut(thumbKey, contentType, 1_000_000, 300),
+        // Thumbnails are downscaled to JPEG client-side; sign for image/jpeg.
+        app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
       ];
       if (faceSideKey && faceSideContentType)
         presignTasks.push(
@@ -329,9 +333,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         presignTasks.push(
           app.storage.presignPut(newFaceR2Key, body.newFaceContentType, 10_000_000, 300),
         );
-        presignTasks.push(
-          app.storage.presignPut(newFaceThumbKey, body.newFaceContentType, 1_000_000, 300),
-        );
+        presignTasks.push(app.storage.presignPut(newFaceThumbKey, 'image/jpeg', 1_000_000, 300));
       }
 
       const newBgId = body.newBgContentType ? randomUUID() : null;
@@ -341,9 +343,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         presignTasks.push(
           app.storage.presignPut(newBgR2Key, body.newBgContentType, 10_000_000, 300),
         );
-        presignTasks.push(
-          app.storage.presignPut(newBgThumbKey, body.newBgContentType, 1_000_000, 300),
-        );
+        presignTasks.push(app.storage.presignPut(newBgThumbKey, 'image/jpeg', 1_000_000, 300));
       }
 
       const results = await Promise.all(presignTasks);
@@ -515,7 +515,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const thumbnailKey = keys.modelPoseThumb(id);
       const [main, thumb] = await Promise.all([
         app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        app.storage.presignPut(thumbnailKey, contentType, 1_000_000, 300),
+        // Thumbnails are downscaled to JPEG client-side; sign for image/jpeg.
+        app.storage.presignPut(thumbnailKey, 'image/jpeg', 1_000_000, 300),
       ]);
       return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey };
     },

@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
+import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
 
@@ -164,7 +165,7 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-async function putFile(url: string, file: File): Promise<void> {
+async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -231,7 +232,7 @@ export function EditPoseModal({
         });
         await Promise.all([
           putFile(presign.uploadUrl, poseFile),
-          putFile(presign.thumbnailUploadUrl, poseFile),
+          makeThumbnail(poseFile).then((t) => putFile(presign.thumbnailUploadUrl, t)),
         ]);
         newR2Key = presign.r2Key;
         newThumbnailKey = presign.thumbnailKey;
