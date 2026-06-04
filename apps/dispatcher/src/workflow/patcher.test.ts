@@ -27,7 +27,7 @@ function makeWorkflow() {
       _meta: { title: 'positive_prompt' },
     },
     '1345:874': {
-      inputs: { width: 2048, height: 2048, batch_size: 1 },
+      inputs: { width: 1536, height: 1536, batch_size: 1 },
       class_type: 'EmptyLatentImage',
       _meta: { title: 'size' },
     },
@@ -307,8 +307,8 @@ describe('aspect ratio', () => {
   it('does not patch size node when aspectRatio is not provided', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(wf['1345:874']?.inputs.width).toBe(2048);
-    expect(wf['1345:874']?.inputs.height).toBe(2048);
+    expect(wf['1345:874']?.inputs.width).toBe(1536);
+    expect(wf['1345:874']?.inputs.height).toBe(1536);
   });
 
   it('does not patch size node when sizeNodeIds is empty, even if aspectRatio is provided', () => {
@@ -317,8 +317,8 @@ describe('aspect ratio', () => {
       ...BASE_INPUTS,
       aspectRatio: '4:5',
     });
-    expect(wf['1345:874']?.inputs.width).toBe(2048);
-    expect(wf['1345:874']?.inputs.height).toBe(2048);
+    expect(wf['1345:874']?.inputs.width).toBe(1536);
+    expect(wf['1345:874']?.inputs.height).toBe(1536);
   });
 
   it('warns and skips for an unknown aspect ratio string', () => {
@@ -327,8 +327,8 @@ describe('aspect ratio', () => {
     applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, aspectRatio: '7:3' }, { warn });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('7:3'));
     // Size node must remain unchanged
-    expect(wf['1345:874']?.inputs.width).toBe(2048);
-    expect(wf['1345:874']?.inputs.height).toBe(2048);
+    expect(wf['1345:874']?.inputs.width).toBe(1536);
+    expect(wf['1345:874']?.inputs.height).toBe(1536);
   });
 
   it('batch_size is never changed by aspect ratio patch', () => {
@@ -362,7 +362,7 @@ describe('aspect ratio', () => {
       aspectRatio: '1:1',
     });
     // EmptyLatentImage not in sizeNodeIds — must remain untouched
-    expect(wf['1345:874']?.inputs.width).toBe(2048);
-    expect(wf['1345:874']?.inputs.height).toBe(2048);
+    expect(wf['1345:874']?.inputs.width).toBe(1536);
+    expect(wf['1345:874']?.inputs.height).toBe(1536);
   });
 });
