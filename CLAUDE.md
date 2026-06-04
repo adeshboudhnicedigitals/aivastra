@@ -86,6 +86,55 @@ Worker connectivity: each ComfyUI VPS runs `cloudflared`; no inbound ports. Heal
 
 Input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId` (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. All IDs must resolve to active catalog/asset rows before credits deduct.
 
+## Web App Architecture (apps/web)
+
+### Auth Flow
+
+Next.js API routes in `apps/web/src/app/api/auth/` act as a **BFF (Backend For Frontend)** proxy. They receive auth requests from the browser, call the Fastify API, then set httpOnly cookies via `apps/web/src/lib/auth-cookies.ts`. This means:
+- Browser never directly calls the Fastify API for auth.
+- The `access_token` cookie is set by the Next.js server, not by the client.
+- `apps/web/src/lib/api.ts` reads the token from `document.cookie` for authenticated API calls and auto-refreshes on 401.
+
+### Route Groups
+
+- `(auth)` — login, register, forgot/reset password, verify email (unauthenticated)
+- `(app)` — studio, catalogues, pricing, settings, assets (protected)
+
+The middleware (`apps/web/src/middleware.ts`) guards all non-public routes by checking the `access_token` cookie. It also handles redirects for old route names (`/tryon` → `/studio`, `/dashboard` → `/catalogues`, `/jobs` → `/catalogues`).
+
+### Studio Wizard (4-step flow)
+
+`apps/web/src/app/(app)/studio/page.tsx` — the core user flow:
+- **Step 0** — gender, garment type (from `/v1/models/garment-types?gender=`), publishing platform + aspect ratio, garment upload (direct to R2 via presigned URL from `/v1/uploads/presign`)
+- **Step 1** — model/face selection from `/v1/models/faces?gender=&garmentTypeId=`
+- **Step 2** — background selection from `/v1/models/backgrounds?faceId=`
+- **Step 3** — pose selection from `/v1/models/poses?garmentTypeId=&faceId=&backgroundId=`; lower garment and shoes optional, shown only when selected poses have `hasLower`/`hasShoes` flags
+
+Submit POSTs to `/v1/jobs/tryon`, redirects to `/catalogues/{catalogueId}`.
+
+### Design Tokens
+
+All components use `C` from `apps/web/src/components/tokens.ts` — a typed map of CSS variables (e.g. `C.pink`, `C.text`, `C.border`). The gradient is `grad` (pink → amber). Never use raw hex or hardcoded colors; always use tokens.
+
+### `NEXT_PUBLIC_BASE_PATH`
+
+Supports subdirectory deployment (e.g. `/app`). All internal asset references and redirects must account for this. The middleware strips it before route matching.
+
+## Models Module vs Catalog Module
+
+These are two distinct concepts — do not conflate:
+
+| Module | What it is | DB tables |
+|--------|-----------|-----------|
+| **models** (`/v1/models/*`) | Admin-curated face/pose/background assets used as inputs to ComfyUI | `model_faces`, `model_backgrounds`, `model_poses`, `garment_subcategories`, `workflow_templates` |
+| **catalog** (`/v1/catalog/*`) | User-selectable lower garments and shoes from R2 catalog | `catalog_types`, `catalog_categories`, `catalog_items` |
+
+### Pose ↔ Workflow Template Relationship
+
+Each `model_pose` row has an optional `workflowTemplateId` FK into `workflow_templates`. The template row stores ComfyUI node IDs (`lowerNodeId`, `shoeNodeId`, `sizeNodeId`, etc.) that the dispatcher patches at runtime. Poses expose `hasLower` / `hasShoes` flags to the frontend based on whether these node IDs are non-null.
+
+When adding a new pose in admin, it must be linked to a workflow template. The template determines what inputs that pose supports.
+
 ## Testing Architecture (Critical)
 
 **No testcontainers.** Integration tests reuse the docker-compose Postgres/Redis/MinIO running on localhost. `pnpm docker:up` must be running before any `pnpm test`.
@@ -128,6 +177,8 @@ Key vars (see `.env.production.example` for full list):
 | `RESEND_API_KEY` / `EMAIL_FROM` | api (transactional email) |
 | `WORKER_IDS` | dispatcher (comma-separated worker IDs) |
 | `WORKER_API_KEY` | dispatcher |
+| `NEXT_PUBLIC_API_URL` | web (Fastify API base URL, default `http://localhost:4000`) |
+| `NEXT_PUBLIC_BASE_PATH` | web (subdirectory prefix, e.g. `/app`; empty in root deploy) |
 
 In dev, `R2_*` vars point to MinIO at `http://127.0.0.1:9000`.
 
