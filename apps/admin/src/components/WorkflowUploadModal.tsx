@@ -275,7 +275,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(700px, calc(100vw - 40px))' }}
+        style={{ width: 'min(960px, calc(100vw - 40px))' }}
       >
         <div className="modal-head">
           <h3>Upload workflow</h3>
@@ -339,22 +339,73 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
           {/* Step 1: JSON file */}
           <div className="field">
-            <label>
+            <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'block' }}>
               ComfyUI workflow JSON <span style={{ color: 'var(--danger)' }}>*</span>
             </label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".json,application/json"
-                disabled={saving}
-                onChange={handleFileChange}
-                style={{ fontSize: 13, flex: 1 }}
-              />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              <label
+                htmlFor="wf-json-upload"
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '10px 14px',
+                  border: '1px dashed var(--border)',
+                  borderRadius: 'var(--r)',
+                  cursor: saving ? 'default' : 'pointer',
+                  background: 'var(--surface-2)',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                }}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 22 22"
+                  fill="none"
+                  style={{ flexShrink: 0 }}
+                >
+                  <path
+                    d="M11 15V9M11 9L8 12M11 9l3 3"
+                    stroke="var(--muted-2)"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M4 16v1a2 2 0 002 2h10a2 2 0 002-2v-1"
+                    stroke="var(--muted-2)"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: jsonFile ? 'var(--ink)' : 'var(--muted)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {jsonFile ? jsonFile.name : 'Click to choose .json file'}
+                </span>
+                <input
+                  ref={fileRef}
+                  id="wf-json-upload"
+                  type="file"
+                  accept=".json,application/json"
+                  disabled={saving}
+                  onChange={handleFileChange}
+                  style={{ display: 'none' }}
+                />
+              </label>
               <button
                 className="btn sm primary"
                 onClick={handleParse}
                 disabled={!jsonFile || parsing || saving}
+                style={{ flexShrink: 0 }}
               >
                 {parsing ? 'Parsing…' : 'Parse'}
               </button>
@@ -532,7 +583,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 <strong>Prompt nodes</strong> — the positive prompt changes per pose; the negative
                 stays hardcoded in the workflow.
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <NodeSelect
                   label="Positive prompt node"
                   nodes={nodes.prompt}

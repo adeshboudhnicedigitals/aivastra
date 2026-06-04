@@ -56,7 +56,7 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
 // ── Aspect ratio dimensions ───────────────────────────────────────────────
 
 export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
-  '1:1': { width: 1536, height: 1536 },
+  '1:1': { width: 2048, height: 2048 },
   '3:4': { width: 1331, height: 1774 },
   '4:5': { width: 1375, height: 1718 },
 };
@@ -147,16 +147,19 @@ export function applyWorkflowPatch(
   }
   // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
 
-  // Aspect ratio — patch all size-controlling nodes based on their class_type
+  // Aspect ratio — patch all size-controlling nodes based on their class_type.
+  // PrimitiveInt nodes: sizeNodeIds[0] = width node, sizeNodeIds[1] = height node.
   if (inputs.aspectRatio && tmpl.sizeNodeIds.length > 0) {
     const dims = ASPECT_DIMENSIONS[inputs.aspectRatio];
     if (!dims) {
       log?.warn(`patchWorkflow: unknown aspectRatio "${inputs.aspectRatio}" — skipping size patch`);
     } else {
-      for (const nodeId of tmpl.sizeNodeIds) {
-        const node = workflow[nodeId];
+      for (let i = 0; i < tmpl.sizeNodeIds.length; i++) {
+        const node = workflow[tmpl.sizeNodeIds[i]!];
         if (!node) continue;
-        if (node.class_type === 'ResizeImageMaskNode') {
+        if (node.class_type === 'PrimitiveInt') {
+          node.inputs.value = i === 0 ? dims.width : dims.height;
+        } else if (node.class_type === 'ResizeImageMaskNode') {
           node.inputs['resize_type.width'] = dims.width;
           node.inputs['resize_type.height'] = dims.height;
         } else if (node.class_type === 'ResizeAndPadImage') {
