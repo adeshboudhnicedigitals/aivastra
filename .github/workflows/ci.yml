@@ -56,6 +56,7 @@ jobs:
           pnpm --filter @aivastra/types build
           pnpm --filter @aivastra/logger build
           pnpm --filter @aivastra/storage build
+          pnpm --filter @aivastra/observability build
 
       - name: Typecheck all packages
         run: pnpm typecheck
@@ -86,6 +87,7 @@ jobs:
           pnpm --filter @aivastra/types build
           pnpm --filter @aivastra/logger build
           pnpm --filter @aivastra/storage build
+          pnpm --filter @aivastra/observability build
 
       - name: Run dispatcher unit tests
         run: pnpm --filter @aivastra/dispatcher test:unit
