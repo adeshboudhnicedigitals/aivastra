@@ -27,7 +27,7 @@ function makeWorkflow() {
       _meta: { title: 'positive_prompt' },
     },
     '1345:874': {
-      inputs: { width: 1536, height: 1536, batch_size: 1 },
+      inputs: { width: 2048, height: 2048, batch_size: 1 },
       class_type: 'EmptyLatentImage',
       _meta: { title: 'size' },
     },
@@ -83,25 +83,25 @@ describe('required nodes', () => {
   it('patches face node with faceSideFile', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(wf['1332']!.inputs['image']).toBe('face_abc123.jpg');
+    expect(wf['1332']?.inputs.image).toBe('face_abc123.jpg');
   });
 
   it('patches pose node with poseFile', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(wf['1333']!.inputs['image']).toBe('pose_abc123.jpg');
+    expect(wf['1333']?.inputs.image).toBe('pose_abc123.jpg');
   });
 
   it('patches background node with backgroundFile', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(wf['1334']!.inputs['image']).toBe('bg_abc123.jpg');
+    expect(wf['1334']?.inputs.image).toBe('bg_abc123.jpg');
   });
 
   it('patches all upper garment nodes', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate({ upperNodeIds: ['1340'] }), BASE_INPUTS);
-    expect(wf['1340']!.inputs['image']).toBe('garment_abc123.jpg');
+    expect(wf['1340']?.inputs.image).toBe('garment_abc123.jpg');
   });
 
   it('patches multiple upper garment nodes with the same file', () => {
@@ -115,8 +115,8 @@ describe('required nodes', () => {
     };
     const tmpl = makeTemplate({ upperNodeIds: ['1340', '9001'] });
     applyWorkflowPatch(wf, tmpl, BASE_INPUTS);
-    expect(wf['1340']!.inputs['image']).toBe('garment_abc123.jpg');
-    expect(wf['9001']!.inputs['image']).toBe('garment_abc123.jpg');
+    expect(wf['1340']?.inputs.image).toBe('garment_abc123.jpg');
+    expect(wf['9001']?.inputs.image).toBe('garment_abc123.jpg');
   });
 
   it('throws with the missing node ID when a required node is absent from the workflow JSON', () => {
@@ -136,7 +136,7 @@ describe('required nodes', () => {
 
     const mappedNodeIds = ['1332', '1333', '1334', '1340', '1331', '1352'];
     for (const nodeId of mappedNodeIds) {
-      const img = wf[nodeId as keyof typeof wf]!.inputs['image'];
+      const img = wf[nodeId as keyof typeof wf]?.inputs.image;
       expect(img, `node ${nodeId} still has empty/stale image after patch`).toBeTruthy();
       expect(img, `node ${nodeId} still has empty/stale image after patch`).not.toBe('');
     }
@@ -152,14 +152,14 @@ describe('lower garment', () => {
       ...BASE_INPUTS,
       lowerGarmentFile: 'lower_abc123.jpg',
     });
-    expect(wf['1331']!.inputs['image']).toBe('lower_abc123.jpg');
+    expect(wf['1331']?.inputs.image).toBe('lower_abc123.jpg');
   });
 
   it('falls back to upperGarmentFile (exactly) when lowerNodeId is mapped but no lower garment provided', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
     // Must be the EXACT upperGarmentFile string, not just any truthy value
-    expect(wf['1331']!.inputs['image']).toBe(BASE_INPUTS.upperGarmentFile);
+    expect(wf['1331']?.inputs.image).toBe(BASE_INPUTS.upperGarmentFile);
   });
 
   it('logs a warning when falling back to upper garment', () => {
@@ -174,7 +174,7 @@ describe('lower garment', () => {
     const tmpl = makeTemplate({ lowerNodeId: null });
     applyWorkflowPatch(wf, tmpl, { ...BASE_INPUTS, lowerGarmentFile: 'lower_abc123.jpg' });
     // Node 1331 was not mapped — it keeps its original empty value
-    expect(wf['1331']!.inputs['image']).toBe('');
+    expect(wf['1331']?.inputs.image).toBe('');
   });
 
   it('warns when a lower garment file is provided but no lowerNodeId is mapped — it is silently skipped', () => {
@@ -197,20 +197,20 @@ describe('shoes', () => {
   it('patches shoe node with the provided shoeGarmentFile', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, shoeGarmentFile: 'shoe_abc123.jpg' });
-    expect(wf['1352']!.inputs['image']).toBe('shoe_abc123.jpg');
+    expect(wf['1352']?.inputs.image).toBe('shoe_abc123.jpg');
   });
 
   it('falls back to upperGarmentFile (exactly) when shoeNodeId is mapped but no shoe provided', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(wf['1352']!.inputs['image']).toBe(BASE_INPUTS.upperGarmentFile);
+    expect(wf['1352']?.inputs.image).toBe(BASE_INPUTS.upperGarmentFile);
   });
 
   it('leaves shoe node completely untouched when shoeNodeId is null', () => {
     const wf = makeWorkflow();
     const tmpl = makeTemplate({ shoeNodeId: null });
     applyWorkflowPatch(wf, tmpl, { ...BASE_INPUTS, shoeGarmentFile: 'shoe_abc123.jpg' });
-    expect(wf['1352']!.inputs['image']).toBe('');
+    expect(wf['1352']?.inputs.image).toBe('');
   });
 });
 
@@ -223,37 +223,37 @@ describe('prompts', () => {
       ...BASE_INPUTS,
       promptGarmentPhase: 'custom positive for sitting pose',
     });
-    expect(wf['1345:111']!.inputs['prompt']).toBe('custom positive for sitting pose');
+    expect(wf['1345:111']?.inputs.prompt).toBe('custom positive for sitting pose');
   });
 
   it('leaves positive prompt at template default when promptGarmentPhase is not provided', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(wf['1345:111']!.inputs['prompt']).toBe('default positive prompt from template');
+    expect(wf['1345:111']?.inputs.prompt).toBe('default positive prompt from template');
   });
 
   it('leaves positive prompt at template default when promptGarmentPhase is empty string — production bug: empty string caused ComfyUI 400', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, promptGarmentPhase: '' });
-    expect(wf['1345:111']!.inputs['prompt']).toBe('default positive prompt from template');
+    expect(wf['1345:111']?.inputs.prompt).toBe('default positive prompt from template');
   });
 
   it('leaves positive prompt at template default when promptGarmentPhase is whitespace only', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, promptGarmentPhase: '   ' });
-    expect(wf['1345:111']!.inputs['prompt']).toBe('default positive prompt from template');
+    expect(wf['1345:111']?.inputs.prompt).toBe('default positive prompt from template');
   });
 
   it('NEVER modifies the negative prompt node (facePhasePromptNode) under any circumstances', () => {
     const wf = makeWorkflow();
-    const originalNegative = wf['1345:110']!.inputs['prompt'];
+    const originalNegative = wf['1345:110']?.inputs.prompt;
 
     // Try with promptFacePhase provided — it must be completely ignored
     applyWorkflowPatch(wf, makeTemplate(), {
       ...BASE_INPUTS,
       promptFacePhase: 'trying to override negative',
     });
-    expect(wf['1345:110']!.inputs['prompt']).toBe(originalNegative);
+    expect(wf['1345:110']?.inputs.prompt).toBe(originalNegative);
   });
 
   it('promptFacePhase has no effect on ANY node in the workflow — it is completely ignored', () => {
@@ -270,7 +270,7 @@ describe('prompts', () => {
     });
 
     // Verify the negative prompt node is identical to before
-    expect(wf['1345:110']!.inputs['prompt']).toBe(JSON.parse(before)['1345:110'].prompt);
+    expect(wf['1345:110']?.inputs.prompt).toBe(JSON.parse(before)['1345:110'].prompt);
   });
 });
 
@@ -279,16 +279,16 @@ describe('prompts', () => {
 describe('non-input nodes', () => {
   it('does not modify ReActorFaceSwap node inputs', () => {
     const wf = makeWorkflow();
-    const before = JSON.stringify(wf['1319']!.inputs);
+    const before = JSON.stringify(wf['1319']?.inputs);
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(JSON.stringify(wf['1319']!.inputs)).toBe(before);
+    expect(JSON.stringify(wf['1319']?.inputs)).toBe(before);
   });
 
   it('does not modify DWPose node inputs', () => {
     const wf = makeWorkflow();
-    const before = JSON.stringify(wf['1342']!.inputs);
+    const before = JSON.stringify(wf['1342']?.inputs);
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(JSON.stringify(wf['1342']!.inputs)).toBe(before);
+    expect(JSON.stringify(wf['1342']?.inputs)).toBe(before);
   });
 });
 
@@ -300,15 +300,15 @@ describe('aspect ratio', () => {
   )('patches EmptyLatentImage width/height for ratio %s → %o', (ratio, dims) => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, aspectRatio: ratio });
-    expect(wf['1345:874']!.inputs['width']).toBe(dims.width);
-    expect(wf['1345:874']!.inputs['height']).toBe(dims.height);
+    expect(wf['1345:874']?.inputs.width).toBe(dims.width);
+    expect(wf['1345:874']?.inputs.height).toBe(dims.height);
   });
 
   it('does not patch size node when aspectRatio is not provided', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(wf['1345:874']!.inputs['width']).toBe(1536);
-    expect(wf['1345:874']!.inputs['height']).toBe(1536);
+    expect(wf['1345:874']?.inputs.width).toBe(2048);
+    expect(wf['1345:874']?.inputs.height).toBe(2048);
   });
 
   it('does not patch size node when sizeNodeIds is empty, even if aspectRatio is provided', () => {
@@ -317,8 +317,8 @@ describe('aspect ratio', () => {
       ...BASE_INPUTS,
       aspectRatio: '4:5',
     });
-    expect(wf['1345:874']!.inputs['width']).toBe(1536);
-    expect(wf['1345:874']!.inputs['height']).toBe(1536);
+    expect(wf['1345:874']?.inputs.width).toBe(2048);
+    expect(wf['1345:874']?.inputs.height).toBe(2048);
   });
 
   it('warns and skips for an unknown aspect ratio string', () => {
@@ -327,13 +327,42 @@ describe('aspect ratio', () => {
     applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, aspectRatio: '7:3' }, { warn });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('7:3'));
     // Size node must remain unchanged
-    expect(wf['1345:874']!.inputs['width']).toBe(1536);
-    expect(wf['1345:874']!.inputs['height']).toBe(1536);
+    expect(wf['1345:874']?.inputs.width).toBe(2048);
+    expect(wf['1345:874']?.inputs.height).toBe(2048);
   });
 
   it('batch_size is never changed by aspect ratio patch', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, aspectRatio: '9:16' });
-    expect(wf['1345:874']!.inputs['batch_size']).toBe(1);
+    expect(wf['1345:874']?.inputs.batch_size).toBe(1);
+  });
+
+  it('patches PrimitiveInt nodes — sizeNodeIds[0]=width, sizeNodeIds[1]=height', () => {
+    const wf = {
+      ...makeWorkflow(),
+      '1404': { inputs: { value: 2048 }, class_type: 'PrimitiveInt', _meta: { title: 'Int' } },
+      '1405': { inputs: { value: 2048 }, class_type: 'PrimitiveInt', _meta: { title: 'Int' } },
+    };
+    applyWorkflowPatch(wf, makeTemplate({ sizeNodeIds: ['1404', '1405'] }), {
+      ...BASE_INPUTS,
+      aspectRatio: '3:4',
+    });
+    expect(wf['1404']?.inputs.value).toBe(ASPECT_DIMENSIONS['3:4']?.width);
+    expect(wf['1405']?.inputs.value).toBe(ASPECT_DIMENSIONS['3:4']?.height);
+  });
+
+  it('does not touch EmptyLatentImage when template uses PrimitiveInt nodes', () => {
+    const wf = {
+      ...makeWorkflow(),
+      '1404': { inputs: { value: 2048 }, class_type: 'PrimitiveInt', _meta: { title: 'Int' } },
+      '1405': { inputs: { value: 2048 }, class_type: 'PrimitiveInt', _meta: { title: 'Int' } },
+    };
+    applyWorkflowPatch(wf, makeTemplate({ sizeNodeIds: ['1404', '1405'] }), {
+      ...BASE_INPUTS,
+      aspectRatio: '1:1',
+    });
+    // EmptyLatentImage not in sizeNodeIds — must remain untouched
+    expect(wf['1345:874']?.inputs.width).toBe(2048);
+    expect(wf['1345:874']?.inputs.height).toBe(2048);
   });
 });
