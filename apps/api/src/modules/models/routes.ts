@@ -116,9 +116,7 @@ export async function modelsRoutes(app: FastifyInstance) {
               eq(schema.modelPoses.backgroundId, schema.modelBackgrounds.id),
               eq(schema.modelPoses.faceId, faceId),
               eq(schema.modelPoses.isActive, true),
-              ...(garmentTypeId
-                ? [eq(schema.modelPoses.subcategoryId, garmentTypeId)]
-                : []),
+              ...(garmentTypeId ? [eq(schema.modelPoses.subcategoryId, garmentTypeId)] : []),
             ),
           )
           .where(eq(schema.modelBackgrounds.isActive, true));
