@@ -8,7 +8,8 @@ RUN pnpm install --no-frozen-lockfile
 RUN pnpm --filter @aivastra/db build && \
     pnpm --filter @aivastra/types build && \
     pnpm --filter @aivastra/logger build && \
-    pnpm --filter @aivastra/storage build
+    pnpm --filter @aivastra/storage build && \
+    pnpm --filter @aivastra/observability build
 RUN pnpm --filter @aivastra/api build
 
 FROM node:22-alpine AS runtime

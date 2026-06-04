@@ -9,6 +9,7 @@ RUN pnpm --filter @aivastra/db build && \
     pnpm --filter @aivastra/logger build && \
     pnpm --filter @aivastra/storage build && \
     pnpm --filter @aivastra/types build && \
+    pnpm --filter @aivastra/observability build && \
     pnpm --filter @aivastra/dispatcher build
 
 FROM node:22-alpine AS runtime
