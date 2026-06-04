@@ -119,6 +119,7 @@ jobs:
               "${VPS_USER}@${VPS_HOST}" \
               "set -e
                echo '→ pulling latest code'
+               git config --global --add safe.directory ${DEPLOY_PATH}
                cd ${DEPLOY_PATH}
                git pull origin master
 
