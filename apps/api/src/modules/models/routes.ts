@@ -96,10 +96,13 @@ export async function modelsRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const { faceId } = req.query as { faceId?: string; garmentTypeId?: string };
+      const { faceId, garmentTypeId } = req.query as {
+        faceId?: string;
+        garmentTypeId?: string;
+      };
 
       if (faceId) {
-        // Backgrounds that have ≥1 active pose for this face
+        // Backgrounds that have ≥1 active pose for this face (and garment type when provided)
         const backs = await app.db
           .selectDistinct({
             id: schema.modelBackgrounds.id,
@@ -113,6 +116,9 @@ export async function modelsRoutes(app: FastifyInstance) {
               eq(schema.modelPoses.backgroundId, schema.modelBackgrounds.id),
               eq(schema.modelPoses.faceId, faceId),
               eq(schema.modelPoses.isActive, true),
+              ...(garmentTypeId
+                ? [eq(schema.modelPoses.subcategoryId, garmentTypeId)]
+                : []),
             ),
           )
           .where(eq(schema.modelBackgrounds.isActive, true));
