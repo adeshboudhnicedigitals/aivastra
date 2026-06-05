@@ -19,6 +19,7 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: '*.r2.cloudflarestorage.com' },
       // MinIO via CloudPanel NGINX proxy
       { protocol: 'https', hostname: 'rankplex.cloud' },
+      { protocol: 'https', hostname: 'app.aivastra.com' },
     ],
   },
 };

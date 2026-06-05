@@ -2,10 +2,10 @@ name: aivastra-prod
 
 # Env file lives at repo root as .env.production (git-ignored, created manually on VPS)
 # CloudPanel NGINX reverse proxies:
-#   rankplex.cloud/webtool  → localhost:3000
-#   rankplex.cloud/v1/      → localhost:4000
-#   rankplex.cloud/minio/   → localhost:9000  (MinIO pass-through for presigned URLs)
-#   rankplex.cloud/admin/   → localhost:4000
+#   app.aivastra.com/       → localhost:3000  (Next.js web)
+#   app.aivastra.com/v1/    → localhost:4000  (Fastify API)
+#   app.aivastra.com/minio/ → localhost:9000  (MinIO pass-through for presigned URLs)
+#   app.aivastra.com/panel/ → localhost:3001  (Admin SPA)
 
 services:
   postgres:
@@ -137,7 +137,7 @@ services:
     container_name: aivastra-prod-web
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/webtool}
+      NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     ports:
       - "127.0.0.1:3000:3000"
