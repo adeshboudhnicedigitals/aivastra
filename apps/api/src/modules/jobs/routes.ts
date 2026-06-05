@@ -13,7 +13,11 @@ export async function jobsRoutes(app: FastifyInstance) {
     '/v1/jobs/tryon',
     { preHandler: app.requireUser, schema: { body: CreateTryOnJobRequest } },
     async (req, reply) => {
-      const result = await createJob(app, req.userId, req.body);
+      const result = await createJob(
+        app,
+        req.userId,
+        req.body as z.infer<typeof CreateTryOnJobRequest>,
+      );
       reply.code(201);
       return result;
     },
