@@ -1,5 +1,20 @@
-import { integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
+
+export const creditPlans = pgTable('credit_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  subtext: text('subtext').notNull().default(''),
+  credits: integer('credits').notNull(),
+  basePaise: integer('base_paise').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  isHighlighted: boolean('is_highlighted').notNull().default(false),
+  badge: text('badge'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const payments = pgTable('payments', {
   id: uuid('id').primaryKey().defaultRandom(),

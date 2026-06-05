@@ -14,6 +14,7 @@ import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
 import { adminConfigRoutes } from './modules/admin/config.routes.js';
+import { adminCreditPlansRoutes } from './modules/admin/creditPlans.routes.js';
 import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
@@ -85,6 +86,7 @@ export async function buildServer(env: Env) {
   await app.register(modelsRoutes);
   await app.register(adminUsersRoutes);
   await app.register(adminCreditsRoutes);
+  await app.register(adminCreditPlansRoutes);
   await app.register(adminCatalogRoutes);
   await app.register(adminJobsRoutes);
   await app.register(adminWorkersRoutes);

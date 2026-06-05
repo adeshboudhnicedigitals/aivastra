@@ -1,19 +1,11 @@
 import { createHmac } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 
 const GST_RATE = 0.18;
-
-const PLANS = {
-  starter: { credits: 2500, basePaise: 250_000, label: 'Starter Pack' },
-  growth: { credits: 5000, basePaise: 500_000, label: 'Growth Pack' },
-  pro: { credits: 10_000, basePaise: 1_000_000, label: 'Pro Pack' },
-} as const;
-
-type PlanId = keyof typeof PLANS;
 
 async function createRazorpayOrder(
   keyId: string,
@@ -38,13 +30,22 @@ async function createRazorpayOrder(
 }
 
 export async function paymentsRoutes(app: FastifyInstance) {
+  // GET /v1/payments/plans — public, no auth required
+  app.get('/v1/payments/plans', async () => {
+    return app.db
+      .select()
+      .from(schema.creditPlans)
+      .where(eq(schema.creditPlans.isActive, true))
+      .orderBy(asc(schema.creditPlans.sortOrder));
+  });
+
   // POST /v1/payments/orders — create a Razorpay order server-side
   app.post(
     '/v1/payments/orders',
     {
       preHandler: app.requireUser,
       schema: {
-        body: z.object({ planId: z.enum(['starter', 'growth', 'pro']) }),
+        body: z.object({ planId: z.string().min(1) }),
       },
     },
     async (req) => {
@@ -53,8 +54,13 @@ export async function paymentsRoutes(app: FastifyInstance) {
         throw new AppError('NOT_CONFIGURED', 503, 'payments not configured');
       }
 
-      const { planId } = req.body as { planId: PlanId };
-      const plan = PLANS[planId];
+      const { planId } = req.body as { planId: string };
+      const [plan] = await app.db
+        .select()
+        .from(schema.creditPlans)
+        .where(and(eq(schema.creditPlans.slug, planId), eq(schema.creditPlans.isActive, true)));
+      if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found or inactive');
+
       const gstPaise = Math.round(plan.basePaise * GST_RATE);
       const totalPaise = plan.basePaise + gstPaise;
 
@@ -67,7 +73,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
 
       await app.db.insert(schema.payments).values({
         userId: req.userId,
-        planId,
+        planId: plan.slug,
         razorpayOrderId: rzpOrder.id,
         basePaise: plan.basePaise,
         gstPaise,
@@ -82,7 +88,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
         currency: 'INR',
         keyId: RAZORPAY_KEY_ID,
         credits: plan.credits,
-        label: plan.label,
+        label: plan.name,
       };
     },
   );
