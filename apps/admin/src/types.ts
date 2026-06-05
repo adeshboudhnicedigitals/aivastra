@@ -189,6 +189,21 @@ export interface SystemConfig {
   };
 }
 
+export interface CreditPlan {
+  id: string;
+  slug: string;
+  name: string;
+  subtext: string;
+  credits: number;
+  basePaise: number;
+  isActive: boolean;
+  isHighlighted: boolean;
+  badge: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
 
 export interface ToastItem {

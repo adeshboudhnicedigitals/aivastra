@@ -1,4 +1,5 @@
 'use client';
+import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import {
@@ -15,6 +16,19 @@ import { C, grad } from '@/components/tokens';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
+interface CreditPlan {
+  id: string;
+  slug: string;
+  name: string;
+  subtext: string;
+  credits: number;
+  basePaise: number;
+  isActive: boolean;
+  isHighlighted: boolean;
+  badge: string | null;
+  sortOrder: number;
+}
+
 const FLAGS: Record<string, React.ReactElement> = {
   IN: <FlagIN size={16} />,
   US: <FlagUS size={16} />,
@@ -22,49 +36,11 @@ const FLAGS: Record<string, React.ReactElement> = {
   AE: <FlagAE size={16} />,
 };
 
-interface Plan {
-  id: 'starter' | 'growth' | 'pro';
-  name: string;
-  sub: string;
-  credits: string;
-  basePaise: number;
-  highlight: boolean;
-  badge?: string;
-}
-
 const GST_RATE = 0.18;
 
 function paise(p: number) {
   return `₹${(p / 100).toLocaleString('en-IN')}`;
 }
-
-const PLANS: Plan[] = [
-  {
-    id: 'starter',
-    name: 'Starter Pack',
-    sub: 'Individual sellers & small stores',
-    credits: '2,500',
-    basePaise: 250_000,
-    highlight: false,
-  },
-  {
-    id: 'growth',
-    name: 'Growth Pack',
-    sub: 'Brands & growing businesses',
-    credits: '5,000',
-    basePaise: 500_000,
-    highlight: true,
-    badge: 'Best Value',
-  },
-  {
-    id: 'pro',
-    name: 'Pro Pack',
-    sub: 'Large teams & agencies',
-    credits: '10,000',
-    basePaise: 1_000_000,
-    highlight: false,
-  },
-];
 
 const SECTIONS = [
   {
@@ -134,6 +110,12 @@ export default function PricingPage(): React.ReactElement {
   const [showCountry, setShowCountry] = useState(false);
   const countryRef = useRef<HTMLDivElement>(null);
 
+  const { data: plans = [], isLoading: plansLoading } = useQuery<CreditPlan[]>({
+    queryKey: ['credit-plans'],
+    queryFn: () => api.get<CreditPlan[]>('/v1/payments/plans'),
+    staleTime: 5 * 60 * 1000,
+  });
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (countryRef.current && !countryRef.current.contains(e.target as Node))
@@ -150,9 +132,9 @@ export default function PricingPage(): React.ReactElement {
     { code: 'AE', label: 'UAE (د.إ)', name: 'UAE' },
   ];
 
-  async function buy(plan: Plan) {
+  async function buy(plan: CreditPlan) {
     if (buying) return;
-    setBuying(plan.id);
+    setBuying(plan.slug);
     try {
       const ok = await loadRazorpay();
       if (!ok || !window.Razorpay) {
@@ -167,7 +149,7 @@ export default function PricingPage(): React.ReactElement {
         keyId: string;
         credits: number;
         label: string;
-      }>('/v1/payments/orders', { planId: plan.id });
+      }>('/v1/payments/orders', { planId: plan.slug });
 
       await new Promise<void>((resolve, reject) => {
         const RazorpayClass = window.Razorpay as NonNullable<typeof window.Razorpay>;
@@ -177,7 +159,7 @@ export default function PricingPage(): React.ReactElement {
           currency: order.currency,
           order_id: order.orderId,
           name: 'Ai Vastra',
-          description: `${order.label} — ${plan.credits} Credits`,
+          description: `${order.label} — ${plan.credits.toLocaleString('en-IN')} Credits`,
           handler: async (response: {
             razorpay_order_id: string;
             razorpay_payment_id: string;
@@ -200,7 +182,7 @@ export default function PricingPage(): React.ReactElement {
         rzp.open();
       });
 
-      setToast(`${plan.credits} credits added to your account!`);
+      setToast(`${plan.credits.toLocaleString('en-IN')} credits added to your account!`);
       setTimeout(() => router.push('/catalogues'), 1500);
     } catch (err) {
       if (err instanceof Error && err.message === 'dismissed') {
@@ -368,122 +350,139 @@ export default function PricingPage(): React.ReactElement {
               </span>
             </div>
           </div>
-          {PLANS.map((plan) => (
-            <div
-              key={plan.id}
-              style={{
-                width: 262,
-                height: 178,
-                background: plan.highlight
-                  ? 'linear-gradient(90deg, #D94D69 0%, #D49332 100%)'
-                  : '#FEEFF266',
-                border: '1px solid #EEEEEE',
-                borderRadius: 8,
-                padding: 12,
-                display: 'flex',
-                flexDirection: 'column',
-                boxSizing: 'border-box',
-                position: 'relative',
-              }}
-            >
-              {plan.badge && (
+          {plansLoading
+            ? [0, 1, 2].map((i) => (
                 <div
+                  key={i}
                   style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    padding: '3px 10px',
-                    borderRadius: 4,
-                    background: plan.highlight ? 'rgba(255,255,255,0.22)' : grad,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: C.onDark,
-                  }}
-                >
-                  ⭐ {plan.badge}
-                </div>
-              )}
-              <div
-                style={{
-                  fontWeight: 700,
-                  fontSize: 15,
-                  color: plan.highlight ? '#FFFFFF' : C.text,
-                  marginBottom: 4,
-                }}
-              >
-                {plan.name}
-              </div>
-              <div
-                style={{
-                  fontSize: 13,
-                  color: plan.highlight ? 'rgba(255,255,255,0.8)' : C.mid,
-                  marginBottom: 10,
-                }}
-              >
-                {plan.sub}
-              </div>
-              <div
-                style={{
-                  fontWeight: 700,
-                  fontSize: 22,
-                  color: plan.highlight ? '#FFFFFF' : C.text,
-                  marginBottom: 2,
-                }}
-              >
-                {plan.credits} Credits
-              </div>
-              <div style={{ marginBottom: 10 }}>
-                <div
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 700,
-                    color: plan.highlight ? '#FFFFFF' : C.text,
-                  }}
-                >
-                  {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}
-                </div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: plan.highlight ? 'rgba(255,255,255,0.65)' : C.light,
-                    marginTop: 1,
-                  }}
-                >
-                  {paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))} GST (18%)
-                </div>
-              </div>
-              <Tooltip
-                tip={buying && buying !== plan.id ? 'Another payment is in progress' : undefined}
-                position="bottom"
-              >
-                <button
-                  type="button"
-                  onClick={() => void buy(plan)}
-                  disabled={!!buying}
-                  style={{
-                    width: '100%',
-                    padding: '8px 20px',
-                    height: 36,
-                    borderRadius: 8,
+                    width: 262,
+                    height: 178,
+                    background: '#F3F4F6',
                     border: '1px solid #EEEEEE',
-                    cursor: buying ? 'not-allowed' : 'pointer',
-                    fontFamily: 'inherit',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    lineHeight: '20px',
-                    background: '#FEFEFE',
-                    color: '#626262',
+                    borderRadius: 8,
                     boxSizing: 'border-box',
-                    opacity: buying && buying !== plan.id ? 0.5 : 1,
+                  }}
+                />
+              ))
+            : plans.map((plan) => (
+                <div
+                  key={plan.slug}
+                  style={{
+                    width: 262,
+                    height: 178,
+                    background: plan.isHighlighted
+                      ? 'linear-gradient(90deg, #D94D69 0%, #D49332 100%)'
+                      : '#FEEFF266',
+                    border: '1px solid #EEEEEE',
+                    borderRadius: 8,
+                    padding: 12,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxSizing: 'border-box',
+                    position: 'relative',
                   }}
                 >
-                  {buying === plan.id
-                    ? 'Processing…'
-                    : `Buy — ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}`}
-                </button>
-              </Tooltip>
-            </div>
-          ))}
+                  {plan.badge && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        padding: '3px 10px',
+                        borderRadius: 4,
+                        background: plan.isHighlighted ? 'rgba(255,255,255,0.22)' : grad,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: C.onDark,
+                      }}
+                    >
+                      ⭐ {plan.badge}
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 15,
+                      color: plan.isHighlighted ? '#FFFFFF' : C.text,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {plan.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: plan.isHighlighted ? 'rgba(255,255,255,0.8)' : C.mid,
+                      marginBottom: 10,
+                    }}
+                  >
+                    {plan.subtext}
+                  </div>
+                  <div
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 22,
+                      color: plan.isHighlighted ? '#FFFFFF' : C.text,
+                      marginBottom: 2,
+                    }}
+                  >
+                    {plan.credits.toLocaleString('en-IN')} Credits
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <div
+                      style={{
+                        fontSize: 15,
+                        fontWeight: 700,
+                        color: plan.isHighlighted ? '#FFFFFF' : C.text,
+                      }}
+                    >
+                      {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: plan.isHighlighted ? 'rgba(255,255,255,0.65)' : C.light,
+                        marginTop: 1,
+                      }}
+                    >
+                      {paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))} GST
+                      (18%)
+                    </div>
+                  </div>
+                  <Tooltip
+                    tip={
+                      buying && buying !== plan.slug ? 'Another payment is in progress' : undefined
+                    }
+                    position="bottom"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void buy(plan)}
+                      disabled={!!buying}
+                      style={{
+                        width: '100%',
+                        padding: '8px 20px',
+                        height: 36,
+                        borderRadius: 8,
+                        border: '1px solid #EEEEEE',
+                        cursor: buying ? 'not-allowed' : 'pointer',
+                        fontFamily: 'inherit',
+                        fontWeight: 700,
+                        fontSize: 14,
+                        lineHeight: '20px',
+                        background: '#FEFEFE',
+                        color: '#626262',
+                        boxSizing: 'border-box',
+                        opacity: buying && buying !== plan.slug ? 0.5 : 1,
+                      }}
+                    >
+                      {buying === plan.slug
+                        ? 'Processing…'
+                        : `Buy — ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}`}
+                    </button>
+                  </Tooltip>
+                </div>
+              ))}
         </div>
 
         {SECTIONS.map((sec) => (
@@ -508,8 +507,8 @@ export default function PricingPage(): React.ReactElement {
               >
                 {sec.title}
               </div>
-              {PLANS.map((plan) => (
-                <div key={plan.id} style={{ width: 262 }} />
+              {plans.map((plan) => (
+                <div key={plan.slug} style={{ width: 262 }} />
               ))}
             </div>
             {sec.rows.map((row) => (
@@ -527,7 +526,7 @@ export default function PricingPage(): React.ReactElement {
                 </div>
                 {row.vals.map((v, vi) => (
                   <div
-                    key={PLANS[vi]?.id ?? vi}
+                    key={plans[vi]?.slug ?? vi}
                     style={{
                       width: 262,
                       textAlign: 'center',
