@@ -13,6 +13,7 @@ import {
 } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
 type Tab = 'Profile Details' | 'Billing' | 'Credit History' | 'Invoices';
@@ -50,11 +51,15 @@ function Field({
   const [internal, setInternal] = useState(value ?? '');
   const [show, setShow] = useState(false);
   const val = onChange ? (value ?? '') : internal;
+  const inputId = `field-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}>
-      <label style={{ fontWeight: 500, fontSize: 14, color: C.text }}>{label}</label>
+      <label htmlFor={inputId} style={{ fontWeight: 500, fontSize: 14, color: C.text }}>
+        {label}
+      </label>
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
         <input
+          id={inputId}
           type={type === 'password' && show ? 'text' : type}
           value={val}
           placeholder={placeholder}
@@ -163,6 +168,12 @@ export default function SettingsPage(): React.ReactElement {
   const [name, setName] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [curPwd, setCurPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const [pwdError, setPwdError] = useState('');
+  const [pwdSaved, setPwdSaved] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   useEffect(() => {
     setDarkMode(document.documentElement.classList.contains('dark'));
@@ -201,6 +212,31 @@ export default function SettingsPage(): React.ReactElement {
     }
   }
 
+  async function changePassword() {
+    setPwdError('');
+    if (newPwd.length < 8) {
+      setPwdError('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdError('Passwords do not match.');
+      return;
+    }
+    setPwdSaving(true);
+    try {
+      await api.patch('/v1/me/password', { currentPassword: curPwd, newPassword: newPwd });
+      setPwdSaved(true);
+      setCurPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+      setTimeout(() => setPwdSaved(false), 2500);
+    } catch (e) {
+      setPwdError((e as Error).message ?? 'Failed to update password.');
+    } finally {
+      setPwdSaving(false);
+    }
+  }
+
   async function handleSignOut() {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
@@ -224,6 +260,7 @@ export default function SettingsPage(): React.ReactElement {
         right={
           <div style={{ display: 'flex', gap: 8 }}>
             <button
+              type="button"
               onClick={toggleTheme}
               title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
               style={{
@@ -244,6 +281,7 @@ export default function SettingsPage(): React.ReactElement {
               {darkMode ? <SunIcon /> : <MoonIcon />}
             </button>
             <button
+              type="button"
               onClick={() => void handleSignOut()}
               style={{
                 display: 'flex',
@@ -315,27 +353,75 @@ export default function SettingsPage(): React.ReactElement {
                 <Field label="Default Platform" value="Amazon" dropdown disabled />
               </Row>
             </Section>
-            <Section title="Change Password" noBorder badge="Coming soon">
+            <Section title="Change Password" noBorder>
               <Row>
                 <Field
                   label="Current Password"
                   placeholder="Enter current password"
                   type="password"
-                  disabled
+                  value={curPwd}
+                  onChange={setCurPwd}
                 />
                 <Field
                   label="New Password"
-                  placeholder="Enter new password"
+                  placeholder="Enter new password (min 8 chars)"
                   type="password"
-                  disabled
+                  value={newPwd}
+                  onChange={setNewPwd}
                 />
                 <Field
                   label="Confirm New Password"
                   placeholder="Re-enter new password"
                   type="password"
-                  disabled
+                  value={confirmPwd}
+                  onChange={setConfirmPwd}
                 />
               </Row>
+              {pwdError && (
+                <div style={{ fontSize: 13, color: '#E53935', marginTop: -8 }}>{pwdError}</div>
+              )}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+              >
+                <Tooltip
+                  tip={
+                    !curPwd
+                      ? 'Enter your current password'
+                      : !newPwd
+                        ? 'Enter a new password'
+                        : !confirmPwd
+                          ? 'Confirm your new password'
+                          : undefined
+                  }
+                  position="top"
+                >
+                  <button
+                    onClick={() => void changePassword()}
+                    disabled={pwdSaving || !curPwd || !newPwd || !confirmPwd}
+                    style={{
+                      padding: '10px 24px',
+                      borderRadius: 8,
+                      border: 'none',
+                      cursor:
+                        pwdSaving || !curPwd || !newPwd || !confirmPwd ? 'not-allowed' : 'pointer',
+                      fontFamily: 'inherit',
+                      fontWeight: 600,
+                      fontSize: 14,
+                      color: C.white,
+                      background: pwdSaved ? C.mint : grad,
+                      opacity: pwdSaving || !curPwd || !newPwd || !confirmPwd ? 0.6 : 1,
+                      transition: 'background .3s',
+                    }}
+                  >
+                    {pwdSaved ? '✓ Password Updated!' : pwdSaving ? 'Updating…' : 'Update Password'}
+                  </button>
+                </Tooltip>
+              </div>
             </Section>
             <div
               style={{

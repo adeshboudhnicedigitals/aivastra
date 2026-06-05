@@ -12,6 +12,8 @@ import {
   XIcon,
 } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
+import { Tooltip } from '@/components/ui/tooltip';
+import { api } from '@/lib/api';
 
 const FLAGS: Record<string, React.ReactElement> = {
   IN: <FlagIN size={16} />,
@@ -20,42 +22,46 @@ const FLAGS: Record<string, React.ReactElement> = {
   AE: <FlagAE size={16} />,
 };
 
-const RAZORPAY_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY ?? '';
-
 interface Plan {
+  id: 'starter' | 'growth' | 'pro';
   name: string;
   sub: string;
   credits: string;
-  price: string;
-  amount: number;
+  basePaise: number;
   highlight: boolean;
   badge?: string;
 }
 
+const GST_RATE = 0.18;
+
+function paise(p: number) {
+  return `₹${(p / 100).toLocaleString('en-IN')}`;
+}
+
 const PLANS: Plan[] = [
   {
+    id: 'starter',
     name: 'Starter Pack',
     sub: 'Individual sellers & small stores',
     credits: '2,500',
-    price: '₹2,500',
-    amount: 250000,
+    basePaise: 250_000,
     highlight: false,
   },
   {
+    id: 'growth',
     name: 'Growth Pack',
     sub: 'Brands & growing businesses',
     credits: '5,000',
-    price: '₹5,000',
-    amount: 500000,
+    basePaise: 500_000,
     highlight: true,
     badge: 'Best Value',
   },
   {
+    id: 'pro',
     name: 'Pro Pack',
     sub: 'Large teams & agencies',
     credits: '10,000',
-    price: '₹10,000',
-    amount: 1000000,
+    basePaise: 1_000_000,
     highlight: false,
   },
 ];
@@ -98,10 +104,7 @@ const SECTIONS = [
   },
   {
     title: '5. CUSTOMER SUPPORT',
-    rows: [
-      { feature: 'Support', vals: ['Email', 'Email & Chat', 'Email, Chat & Priority'] },
-      { feature: 'Dedicated Account Manager', vals: ['No', 'No', 'Yes'] },
-    ],
+    rows: [{ feature: 'Support', vals: ['Email', 'Email & Chat', 'Email, Chat & Priority'] }],
   },
 ];
 
@@ -126,6 +129,7 @@ function loadRazorpay(): Promise<boolean> {
 export default function PricingPage(): React.ReactElement {
   const router = useRouter();
   const [toast, setToast] = useState('');
+  const [buying, setBuying] = useState<string | null>(null);
   const [country, setCountry] = useState('IN');
   const [showCountry, setShowCountry] = useState(false);
   const countryRef = useRef<HTMLDivElement>(null);
@@ -147,31 +151,66 @@ export default function PricingPage(): React.ReactElement {
   ];
 
   async function buy(plan: Plan) {
-    // TODO(wire): real order creation must come from backend; this is a test-mode stub.
-    if (!RAZORPAY_KEY) {
-      setToast('Payments not configured (set NEXT_PUBLIC_RAZORPAY_KEY).');
-      setTimeout(() => setToast(''), 2500);
-      return;
+    if (buying) return;
+    setBuying(plan.id);
+    try {
+      const ok = await loadRazorpay();
+      if (!ok || !window.Razorpay) {
+        setToast('Could not load payment gateway. Please try again.');
+        return;
+      }
+
+      const order = await api.post<{
+        orderId: string;
+        amount: number;
+        currency: string;
+        keyId: string;
+        credits: number;
+        label: string;
+      }>('/v1/payments/orders', { planId: plan.id });
+
+      await new Promise<void>((resolve, reject) => {
+        const RazorpayClass = window.Razorpay as NonNullable<typeof window.Razorpay>;
+        const rzp = new RazorpayClass({
+          key: order.keyId,
+          amount: order.amount,
+          currency: order.currency,
+          order_id: order.orderId,
+          name: 'Ai Vastra',
+          description: `${order.label} — ${plan.credits} Credits`,
+          handler: async (response: {
+            razorpay_order_id: string;
+            razorpay_payment_id: string;
+            razorpay_signature: string;
+          }) => {
+            try {
+              await api.post('/v1/payments/verify', {
+                razorpayOrderId: response.razorpay_order_id,
+                razorpayPaymentId: response.razorpay_payment_id,
+                razorpaySignature: response.razorpay_signature,
+              });
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          },
+          modal: { ondismiss: () => reject(new Error('dismissed')) },
+          theme: { color: C.pink },
+        });
+        rzp.open();
+      });
+
+      setToast(`${plan.credits} credits added to your account!`);
+      setTimeout(() => router.push('/catalogues'), 1500);
+    } catch (err) {
+      if (err instanceof Error && err.message === 'dismissed') {
+        // user closed modal — no toast
+      } else {
+        setToast((err as Error).message ?? 'Payment failed. Please try again.');
+      }
+    } finally {
+      setBuying(null);
     }
-    const ok = await loadRazorpay();
-    if (!ok || !window.Razorpay) {
-      setToast('Could not load payment gateway.');
-      setTimeout(() => setToast(''), 2500);
-      return;
-    }
-    const rzp = new window.Razorpay({
-      key: RAZORPAY_KEY,
-      amount: plan.amount,
-      currency: 'INR',
-      name: 'Ai Vastra',
-      description: `${plan.name} — ${plan.credits} Credits`,
-      handler: () => {
-        setToast('Payment successful!');
-        setTimeout(() => router.push('/settings'), 1200);
-      },
-      theme: { color: C.pink },
-    });
-    rzp.open();
   }
 
   return (
@@ -218,6 +257,7 @@ export default function PricingPage(): React.ReactElement {
         </div>
         <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
           <button
+            type="button"
             onClick={() => setShowCountry(!showCountry)}
             style={{
               display: 'flex',
@@ -262,8 +302,9 @@ export default function PricingPage(): React.ReactElement {
               }}
             >
               {COUNTRIES.map((c) => (
-                <div
+                <button
                   key={c.code}
+                  type="button"
                   onClick={() => {
                     setCountry(c.code);
                     setShowCountry(false);
@@ -278,10 +319,14 @@ export default function PricingPage(): React.ReactElement {
                     color: country === c.code ? C.pink : C.mid,
                     cursor: 'pointer',
                     background: country === c.code ? 'rgba(245,92,122,0.06)' : 'transparent',
+                    border: 'none',
+                    width: '100%',
+                    fontFamily: 'inherit',
+                    textAlign: 'left',
                   }}
                 >
                   {FLAGS[c.code]} {c.label}
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -323,9 +368,9 @@ export default function PricingPage(): React.ReactElement {
               </span>
             </div>
           </div>
-          {PLANS.map((plan, pi) => (
+          {PLANS.map((plan) => (
             <div
-              key={pi}
+              key={plan.id}
               style={{
                 width: 262,
                 height: 178,
@@ -382,37 +427,67 @@ export default function PricingPage(): React.ReactElement {
                   fontWeight: 700,
                   fontSize: 22,
                   color: plan.highlight ? '#FFFFFF' : C.text,
-                  marginBottom: 14,
+                  marginBottom: 2,
                 }}
               >
                 {plan.credits} Credits
               </div>
-              <button
-                onClick={() => void buy(plan)}
-                style={{
-                  width: '100%',
-                  padding: '8px 20px',
-                  height: 36,
-                  borderRadius: 8,
-                  border: '1px solid #EEEEEE',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  fontWeight: 700,
-                  fontSize: 14,
-                  lineHeight: '20px',
-                  background: '#FEFEFE',
-                  color: '#626262',
-                  boxSizing: 'border-box',
-                }}
+              <div style={{ marginBottom: 10 }}>
+                <div
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: plan.highlight ? '#FFFFFF' : C.text,
+                  }}
+                >
+                  {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: plan.highlight ? 'rgba(255,255,255,0.65)' : C.light,
+                    marginTop: 1,
+                  }}
+                >
+                  {paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))} GST (18%)
+                </div>
+              </div>
+              <Tooltip
+                tip={buying && buying !== plan.id ? 'Another payment is in progress' : undefined}
+                position="bottom"
               >
-                Buy @ {plan.price}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => void buy(plan)}
+                  disabled={!!buying}
+                  style={{
+                    width: '100%',
+                    padding: '8px 20px',
+                    height: 36,
+                    borderRadius: 8,
+                    border: '1px solid #EEEEEE',
+                    cursor: buying ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                    fontWeight: 700,
+                    fontSize: 14,
+                    lineHeight: '20px',
+                    background: '#FEFEFE',
+                    color: '#626262',
+                    boxSizing: 'border-box',
+                    opacity: buying && buying !== plan.id ? 0.5 : 1,
+                  }}
+                >
+                  {buying === plan.id
+                    ? 'Processing…'
+                    : `Buy — ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}`}
+                </button>
+              </Tooltip>
             </div>
           ))}
         </div>
 
-        {SECTIONS.map((sec, si) => (
-          <Fragment key={si}>
+        {SECTIONS.map((sec) => (
+          <Fragment key={sec.title}>
             <div
               style={{
                 display: 'flex',
@@ -433,13 +508,13 @@ export default function PricingPage(): React.ReactElement {
               >
                 {sec.title}
               </div>
-              {PLANS.map((_, pi) => (
-                <div key={pi} style={{ width: 262 }} />
+              {PLANS.map((plan) => (
+                <div key={plan.id} style={{ width: 262 }} />
               ))}
             </div>
-            {sec.rows.map((row, ri) => (
+            {sec.rows.map((row) => (
               <div
-                key={ri}
+                key={row.feature}
                 style={{
                   display: 'flex',
                   gap: 20,
@@ -452,7 +527,7 @@ export default function PricingPage(): React.ReactElement {
                 </div>
                 {row.vals.map((v, vi) => (
                   <div
-                    key={vi}
+                    key={PLANS[vi]?.id ?? vi}
                     style={{
                       width: 262,
                       textAlign: 'center',

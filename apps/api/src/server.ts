@@ -28,6 +28,7 @@ import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
+import { paymentsRoutes } from './modules/payments/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
 import { authPlugin } from './plugins/auth.js';
@@ -93,6 +94,7 @@ export async function buildServer(env: Env) {
   await app.register(adminGarmentTypesRoutes);
   await app.register(adminWorkflowsRoutes);
   await app.register(resultsRoutes);
+  await app.register(paymentsRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));
   return app as unknown as FastifyInstance;

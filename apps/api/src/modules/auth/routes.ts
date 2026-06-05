@@ -15,7 +15,7 @@ function makeToken(): string {
 
 export async function authRoutes(app: FastifyInstance) {
   app.post('/v1/auth/register', { schema: { body: RegisterBody } }, async (req, reply) => {
-    const { email, password, displayName } = req.body as any;
+    const { email, password, displayName } = req.body as z.infer<typeof RegisterBody>;
     const exists = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
     if (exists.length) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
     const passwordHash = await hashPassword(password);
@@ -51,7 +51,7 @@ export async function authRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (req, reply) => {
-      const { email, password } = req.body as any;
+      const { email, password } = req.body as z.infer<typeof LoginBody>;
       const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
       if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
       if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
@@ -179,6 +179,43 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   // ── Password reset ─────────────────────────────────────────────────────────
+
+  app.patch(
+    '/v1/me/password',
+    {
+      preHandler: app.requireUser,
+      schema: {
+        body: z.object({
+          currentPassword: z.string().min(1),
+          newPassword: z.string().min(8),
+        }),
+      },
+    },
+    async (req) => {
+      const { currentPassword, newPassword } = req.body as {
+        currentPassword: string;
+        newPassword: string;
+      };
+      const [user] = await app.db
+        .select({ passwordHash: schema.users.passwordHash })
+        .from(schema.users)
+        .where(eq(schema.users.id, req.userId));
+      if (!user?.passwordHash)
+        throw new AppError('INVALID', 400, 'no password set on this account');
+      if (!(await verifyPassword(user.passwordHash, currentPassword)))
+        throw new AppError('WRONG_PASSWORD', 400, 'current password is incorrect');
+      const passwordHash = await hashPassword(newPassword);
+      await app.db
+        .update(schema.users)
+        .set({ passwordHash })
+        .where(eq(schema.users.id, req.userId));
+      await app.db
+        .update(schema.refreshTokens)
+        .set({ revoked: true })
+        .where(eq(schema.refreshTokens.userId, req.userId));
+      return { ok: true };
+    },
+  );
 
   app.post(
     '/v1/auth/forgot-password',

@@ -18,6 +18,7 @@ import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { DarkBtn } from '@/components/ui/dark-btn';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -328,6 +329,20 @@ export default function StudioPage(): React.ReactElement {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [garmentVisibleCount, setGarmentVisibleCount] = useState(6);
+  const garmentRoRef = useRef<ResizeObserver | null>(null);
+  const garmentRowRef = useCallback((el: HTMLDivElement | null) => {
+    garmentRoRef.current?.disconnect();
+    garmentRoRef.current = null;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const w = entry?.contentRect.width;
+      const count = Math.max(1, Math.floor((w + 20) / (108.8 + 20)));
+      setGarmentVisibleCount(count);
+    });
+    ro.observe(el);
+    garmentRoRef.current = ro;
+  }, []);
 
   const [modelFilter, setModelFilter] = useState('All');
   const [faceId, setFaceId] = useState('');
@@ -335,6 +350,7 @@ export default function StudioPage(): React.ReactElement {
   const [poseIds, setPoseIds] = useState<string[]>([]);
   const [lowerCatalogId, setLowerCatalogId] = useState('');
   const [shoeCatalogId, setShoeCatalogId] = useState('');
+  const [resolution, setResolution] = useState<'HD' | '2K' | '4K' | ''>('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -440,8 +456,10 @@ export default function StudioPage(): React.ReactElement {
     setShoeCatalogId('');
   }
 
+  const RESOLUTION_COSTS = { HD: 25, '2K': 35, '4K': 40 } as const;
+
   async function handleSubmit() {
-    if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0) return;
+    if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0 || !resolution) return;
     setIsSubmitting(true);
     setSubmitError('');
     try {
@@ -455,6 +473,7 @@ export default function StudioPage(): React.ReactElement {
           shoeCatalogId: shoeCatalogId || undefined,
         },
         aspectRatio: aspect,
+        resolution,
       });
       router.push(`/catalogues/${catalogueId}`);
     } catch (e) {
@@ -469,7 +488,38 @@ export default function StudioPage(): React.ReactElement {
     if (step === 2) return !!backgroundId;
     return true;
   };
-  const canGenerate = poseIds.length > 0 && !!garmentKey && !isUploading && !isSubmitting;
+  const creditCost = resolution ? RESOLUTION_COSTS[resolution] * poseIds.length : 0;
+  const canGenerate =
+    poseIds.length > 0 && !!garmentKey && !!resolution && !isUploading && !isSubmitting;
+
+  const nextBlocker =
+    step === 0
+      ? !gender
+        ? 'Select a segment'
+        : !garmentTypeId
+          ? 'Select a garment type'
+          : !garmentFile && !garmentKey
+            ? 'Upload a garment image'
+            : ''
+      : step === 1
+        ? !faceId
+          ? 'Select a model to continue'
+          : ''
+        : step === 2
+          ? !backgroundId
+            ? 'Select a background to continue'
+            : ''
+          : '';
+
+  const generateBlocker = isUploading
+    ? 'Waiting for upload to finish…'
+    : !garmentKey
+      ? 'Upload a garment image first'
+      : poseIds.length === 0
+        ? 'Select at least one pose'
+        : !resolution
+          ? 'Select an output resolution'
+          : '';
 
   function goNext() {
     if (step < 3) setStep((s) => s + 1);
@@ -486,13 +536,13 @@ export default function StudioPage(): React.ReactElement {
     setPoseIds([]);
     setLowerCatalogId('');
     setShoeCatalogId('');
+    setResolution('');
     setGarmentFile(null);
     setGarmentKey('');
     setStep(0);
     showToast('Setup reset');
   }
 
-  const credits = poseIds.length;
   const visibleStep = step + 1; // 0..3 → 1..4
 
   return (
@@ -548,7 +598,7 @@ export default function StudioPage(): React.ReactElement {
                 <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
                   Garment Type
                 </h3>
-                {garmentTypes && garmentTypes.items.length > 6 && (
+                {garmentTypes && garmentTypes.items.length > garmentVisibleCount && (
                   <button
                     onClick={() => setGarmentModalOpen(true)}
                     style={{
@@ -608,17 +658,24 @@ export default function StudioPage(): React.ReactElement {
                   <SpinnerIcon size={16} /> Loading…
                 </div>
               ) : (
-                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div
+                  ref={garmentRowRef}
+                  style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'center' }}
+                >
                   {(() => {
                     const all = garmentTypes.items;
-                    const inFirst6 = all.slice(0, 6).some((s) => s.id === garmentTypeId);
+                    const inFirstN = all
+                      .slice(0, garmentVisibleCount)
+                      .some((s) => s.id === garmentTypeId);
                     const visible =
-                      garmentTypeId && !inFirst6
+                      garmentTypeId && !inFirstN
                         ? [
                             all.find((s) => s.id === garmentTypeId)!,
-                            ...all.filter((s) => s.id !== garmentTypeId).slice(0, 5),
+                            ...all
+                              .filter((s) => s.id !== garmentTypeId)
+                              .slice(0, garmentVisibleCount - 1),
                           ]
-                        : all.slice(0, 6);
+                        : all.slice(0, garmentVisibleCount);
                     return visible.map((s) => {
                       const fallbackKey = Object.keys(OUTFIT_IMG).find(
                         (k) =>
@@ -685,7 +742,8 @@ export default function StudioPage(): React.ReactElement {
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 <div
                   style={{
-                    width: 560,
+                    flex: 1,
+                    minWidth: 260,
                     height: 238,
                     display: 'flex',
                     alignItems: 'center',
@@ -895,7 +953,8 @@ export default function StudioPage(): React.ReactElement {
                 </div>
                 <div
                   style={{
-                    width: 560,
+                    flex: 1,
+                    minWidth: 260,
                     height: 238,
                     display: 'flex',
                     flexDirection: 'column',
@@ -914,7 +973,7 @@ export default function StudioPage(): React.ReactElement {
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: 4,
-                        width: 528,
+                        width: '100%',
                         height: 18,
                         marginBottom: 12,
                       }}
@@ -1218,6 +1277,63 @@ export default function StudioPage(): React.ReactElement {
           </>
         )}
 
+        {/* ── Resolution (Step 3 final section) ── */}
+        {step === 3 && (
+          <section>
+            <SectionHead title="Output Resolution" />
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {(
+                [
+                  { key: 'HD', label: 'HD', credits: 25 },
+                  { key: '2K', label: '2K', credits: 35 },
+                  { key: '4K', label: '4K', credits: 40 },
+                ] as const
+              ).map((r) => {
+                const active = resolution === r.key;
+                return (
+                  <div
+                    key={r.key}
+                    onClick={() => setResolution(r.key)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '8px 16px',
+                      borderRadius: 99,
+                      border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
+                      background: active ? 'rgba(245,92,122,0.04)' : C.white,
+                      cursor: 'pointer',
+                      boxSizing: 'border-box',
+                      userSelect: 'none',
+                    }}
+                  >
+                    {/* Radio circle */}
+                    <div
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: '50%',
+                        border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
+                        background: C.white,
+                        flexShrink: 0,
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                    <span
+                      style={{ fontSize: 14, fontWeight: 600, color: active ? C.pink : C.text }}
+                    >
+                      {r.label}
+                    </span>
+                    <span style={{ fontSize: 13, color: active ? C.pink : C.mid, fontWeight: 400 }}>
+                      ({r.credits} credits)
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {step === 3 && submitError && (
           <div
             style={{
@@ -1400,83 +1516,94 @@ export default function StudioPage(): React.ReactElement {
           borderTop: `1px solid ${C.border}`,
           padding: '16px 28px',
           display: 'flex',
-          justifyContent: 'flex-end',
+          justifyContent: 'space-between',
           alignItems: 'center',
-          gap: 12,
           background: C.white,
           flexShrink: 0,
         }}
       >
-        {step === 1 && (
-          <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>
-            {faceId ? '1 model selected' : 'No model selected'}
-          </span>
-        )}
-        {step === 2 && (
-          <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>
-            {backgroundId ? '1 background selected' : 'No background selected'}
-          </span>
-        )}
-        {step === 3 && (
-          <span style={{ fontSize: 13, color: C.mid, marginRight: 4 }}>
-            {poseIds.length} pose{poseIds.length !== 1 ? 's' : ''} selected
-          </span>
-        )}
-        <button
-          onClick={reset}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            width: 85,
-            height: 44,
-            borderRadius: 8,
-            border: `1px solid ${C.border}`,
-            background: C.field,
-            padding: '12px 20px',
-            fontFamily: 'var(--font-poppins), Poppins, sans-serif',
-            fontWeight: 600,
-            fontSize: 16,
-            lineHeight: '20px',
-            color: C.mid,
-            cursor: 'pointer',
-            textAlign: 'center',
-          }}
-        >
-          Reset
-        </button>
-        <button
-          onClick={goBack}
-          disabled={step === 0}
-          style={{ ...ghostBtn, opacity: step === 0 ? 0.3 : 1 }}
-        >
-          <ArrowLeft /> Back
-        </button>
-        {step < 3 ? (
-          <DarkBtn onClick={goNext} disabled={!canNext()} style={{ padding: '10px 24px', gap: 8 }}>
-            Next Step <ChevronRight />
-          </DarkBtn>
-        ) : (
-          <GradBtn
-            onClick={handleSubmit}
-            disabled={!canGenerate}
-            style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}
+        {/* Left: credit cost indicator */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {step === 3 && creditCost > 0 && (
+            <>
+              <span style={{ color: C.pink, display: 'flex' }}>
+                <SparkleIcon />
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
+                {creditCost} Credits Required to Generate
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Right: action buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {step > 0 && (
+            <button
+              onClick={reset}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                width: 85,
+                height: 44,
+                borderRadius: 8,
+                border: `1px solid ${C.border}`,
+                background: C.field,
+                padding: '12px 20px',
+                fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                fontWeight: 600,
+                fontSize: 16,
+                lineHeight: '20px',
+                color: C.mid,
+                cursor: 'pointer',
+                textAlign: 'center',
+              }}
+            >
+              Reset
+            </button>
+          )}
+          <button
+            onClick={goBack}
+            disabled={step === 0}
+            style={{ ...ghostBtn, opacity: step === 0 ? 0.3 : 1 }}
           >
-            {isSubmitting ? (
-              <>
-                <SpinnerIcon size={16} /> Generating…
-              </>
-            ) : isUploading ? (
-              <>
-                <SpinnerIcon size={16} /> Uploading…
-              </>
-            ) : (
-              <>
-                <SparkleIcon /> Generate Catalogue ({credits} credits)
-              </>
-            )}
-          </GradBtn>
-        )}
+            <ArrowLeft /> Back
+          </button>
+          {step < 3 ? (
+            <Tooltip tip={nextBlocker || undefined}>
+              <DarkBtn
+                onClick={goNext}
+                disabled={!canNext()}
+                style={{ padding: '10px 24px', gap: 8 }}
+              >
+                Next Step <ChevronRight />
+              </DarkBtn>
+            </Tooltip>
+          ) : (
+            <Tooltip tip={generateBlocker || undefined}>
+              <GradBtn
+                onClick={handleSubmit}
+                disabled={!canGenerate}
+                style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}
+              >
+                {isSubmitting ? (
+                  <>
+                    <SpinnerIcon size={16} /> Generating…
+                  </>
+                ) : isUploading ? (
+                  <>
+                    <SpinnerIcon size={16} /> Uploading…
+                  </>
+                ) : (
+                  <>
+                    <SparkleIcon /> Create Catalogue
+                  </>
+                )}
+              </GradBtn>
+            </Tooltip>
+          )}
+        </div>
       </div>
 
       {toast && (

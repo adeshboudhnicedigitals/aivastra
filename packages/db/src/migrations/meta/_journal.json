@@ -28,6 +28,7 @@
     { "idx": 23, "version": "7", "when": 1779926400017, "tag": "0023_size_node_ids", "breakpoints": true },
     { "idx": 24, "version": "7", "when": 1779926400018, "tag": "0024_email_verified", "breakpoints": true },
     { "idx": 25, "version": "7", "when": 1779926400019, "tag": "0025_drop_is_template", "breakpoints": true },
-    { "idx": 26, "version": "7", "when": 1779926400020, "tag": "0026_catalog_item_subcategories", "breakpoints": true }
+    { "idx": 26, "version": "7", "when": 1779926400020, "tag": "0026_catalog_item_subcategories", "breakpoints": true },
+    { "idx": 27, "version": "7", "when": 1779926400021, "tag": "0027_payments", "breakpoints": true }
   ]
 }
