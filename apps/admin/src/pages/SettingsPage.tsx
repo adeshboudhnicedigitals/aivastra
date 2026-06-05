@@ -1,10 +1,20 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import type { CreditPlan } from '../types';
+
+type SettingsSection = 'appearance' | 'notifications' | 'credit-plans' | 'session';
+
+const SETTING_SECTIONS: { k: SettingsSection; label: string }[] = [
+  { k: 'appearance', label: 'Appearance' },
+  { k: 'notifications', label: 'Notifications' },
+  { k: 'credit-plans', label: 'Credit Plans' },
+  { k: 'session', label: 'Session' },
+];
 
 interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
@@ -88,7 +98,7 @@ function PlanModal({
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(460px, calc(100vw - 40px))' }}
+        style={{ width: 'min(600px, calc(100vw - 40px))' }}
       >
         <div className="modal-head">
           <h3>{plan ? 'Edit plan' : 'Add plan'}</h3>
@@ -201,15 +211,37 @@ function PlanModal({
             />
           </div>
 
-          <div style={{ display: 'flex', gap: 24 }}>
-            <div className="setting-row" style={{ flex: 1, margin: 0, padding: 0 }}>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 12px',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r)',
+                background: 'var(--surface-2)',
+              }}
+            >
               <div>
                 <div className="setting-lbl">Active</div>
                 <div className="setting-desc">Visible and purchasable by users</div>
               </div>
               <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} />
             </div>
-            <div className="setting-row" style={{ flex: 1, margin: 0, padding: 0 }}>
+            <div
+              style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '10px 12px',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r)',
+                background: 'var(--surface-2)',
+              }}
+            >
               <div>
                 <div className="setting-lbl">Highlighted</div>
                 <div className="setting-desc">Pink gradient card on pricing page</div>
@@ -234,6 +266,8 @@ function PlanModal({
 
 export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleTheme }: Props) {
   const { logout } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const section = (searchParams.get('s') as SettingsSection | null) ?? 'appearance';
   const [pageSize, setPageSize] = useState<number>(25);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(30);
@@ -306,239 +340,279 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
         </div>
       </div>
 
+      <div className="tabs">
+        {SETTING_SECTIONS.map((s) => (
+          <button
+            key={s.k}
+            className={`tab ${section === s.k ? 'active' : ''}`}
+            onClick={() => setSearchParams({ s: s.k })}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
       {/* Appearance */}
-      <div className="card settings-card">
-        <div className="card-head">
-          <h3>
-            <Icon.Settings /> Appearance
-          </h3>
-        </div>
-        <div className="card-body">
-          <div className="setting-row">
-            <div>
-              <div className="setting-lbl">Theme</div>
-              <div className="setting-desc">Switch between light and dark mode.</div>
-            </div>
-            <button className="btn" onClick={onToggleTheme}>
-              {theme === 'dark' ? <Icon.Sun /> : <Icon.Moon />}
-              Switch to {theme === 'dark' ? 'light' : 'dark'} mode
-            </button>
+      {section === 'appearance' && (
+        <div className="card settings-card">
+          <div className="card-head">
+            <h3>
+              <Icon.Settings /> Appearance
+            </h3>
           </div>
-
-          <div className="setting-row">
-            <div>
-              <div className="setting-lbl">Default page size</div>
-              <div className="setting-desc">Items per page in tables.</div>
-            </div>
-            <select
-              className="select"
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-            >
-              {PAGE_SIZES.map((s) => (
-                <option key={s} value={s}>
-                  {s} items
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="setting-row">
-            <div>
-              <div className="setting-lbl">Auto-refresh</div>
-              <div className="setting-desc">Automatically refresh dashboard data.</div>
-            </div>
-            <Switch checked={autoRefresh} onChange={setAutoRefresh} />
-          </div>
-
-          {autoRefresh && (
+          <div className="card-body">
             <div className="setting-row">
               <div>
-                <div className="setting-lbl">Refresh interval</div>
-                <div className="setting-desc">How often to poll for updates.</div>
+                <div className="setting-lbl">Theme</div>
+                <div className="setting-desc">Switch between light and dark mode.</div>
+              </div>
+              <button className="btn" onClick={onToggleTheme}>
+                {theme === 'dark' ? <Icon.Sun /> : <Icon.Moon />}
+                Switch to {theme === 'dark' ? 'light' : 'dark'} mode
+              </button>
+            </div>
+
+            <div className="setting-row">
+              <div>
+                <div className="setting-lbl">Default page size</div>
+                <div className="setting-desc">Items per page in tables.</div>
               </div>
               <select
                 className="select"
-                value={refreshInterval}
-                onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
               >
-                <option value={15}>15 seconds</option>
-                <option value={30}>30 seconds</option>
-                <option value={60}>1 minute</option>
-                <option value={300}>5 minutes</option>
+                {PAGE_SIZES.map((s) => (
+                  <option key={s} value={s}>
+                    {s} items
+                  </option>
+                ))}
               </select>
             </div>
-          )}
 
-          <div className="setting-actions">
-            <button className="btn" onClick={() => save('Appearance')} disabled={saving !== null}>
-              {saving === 'Appearance' ? <>Saving…</> : <>Save appearance</>}
-            </button>
+            <div className="setting-row">
+              <div>
+                <div className="setting-lbl">Auto-refresh</div>
+                <div className="setting-desc">Automatically refresh dashboard data.</div>
+              </div>
+              <Switch checked={autoRefresh} onChange={setAutoRefresh} />
+            </div>
+
+            {autoRefresh && (
+              <div className="setting-row">
+                <div>
+                  <div className="setting-lbl">Refresh interval</div>
+                  <div className="setting-desc">How often to poll for updates.</div>
+                </div>
+                <select
+                  className="select"
+                  value={refreshInterval}
+                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                >
+                  <option value={15}>15 seconds</option>
+                  <option value={30}>30 seconds</option>
+                  <option value={60}>1 minute</option>
+                  <option value={300}>5 minutes</option>
+                </select>
+              </div>
+            )}
+
+            <div className="setting-actions">
+              <button className="btn" onClick={() => save('Appearance')} disabled={saving !== null}>
+                {saving === 'Appearance' ? <>Saving…</> : <>Save appearance</>}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Notifications */}
-      <div className="card settings-card">
-        <div className="card-head">
-          <h3>
-            <Icon.Bell /> Notifications
-          </h3>
+      {section === 'notifications' && (
+        <div className="card settings-card">
+          <div className="card-head">
+            <h3>
+              <Icon.Bell /> Notifications
+            </h3>
+          </div>
+          <div className="card-body">
+            <div className="setting-row">
+              <div>
+                <div className="setting-lbl">Sound alerts</div>
+                <div className="setting-desc">Play a sound on job failures and warnings.</div>
+              </div>
+              <Switch checked={soundEnabled} onChange={setSoundEnabled} />
+            </div>
+
+            <div className="setting-row">
+              <div>
+                <div className="setting-lbl">Email alerts</div>
+                <div className="setting-desc">Receive email notifications for critical events.</div>
+              </div>
+              <Switch checked={emailAlerts} onChange={setEmailAlerts} />
+            </div>
+
+            <div className="setting-row">
+              <div>
+                <div className="setting-lbl">Slack webhook</div>
+                <div className="setting-desc">Post job status updates to a Slack channel.</div>
+              </div>
+              <input
+                className="input"
+                style={{ width: 320 }}
+                placeholder="https://hooks.slack.com/services/…"
+                value={slackWebhook}
+                onChange={(e) => setSlackWebhook(e.target.value)}
+              />
+            </div>
+
+            <div className="setting-actions">
+              <button
+                className="btn"
+                onClick={() => save('Notifications')}
+                disabled={saving !== null}
+              >
+                {saving === 'Notifications' ? <>Saving…</> : <>Save notifications</>}
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="card-body">
-          <div className="setting-row">
-            <div>
-              <div className="setting-lbl">Sound alerts</div>
-              <div className="setting-desc">Play a sound on job failures and warnings.</div>
-            </div>
-            <Switch checked={soundEnabled} onChange={setSoundEnabled} />
-          </div>
-
-          <div className="setting-row">
-            <div>
-              <div className="setting-lbl">Email alerts</div>
-              <div className="setting-desc">Receive email notifications for critical events.</div>
-            </div>
-            <Switch checked={emailAlerts} onChange={setEmailAlerts} />
-          </div>
-
-          <div className="setting-row">
-            <div>
-              <div className="setting-lbl">Slack webhook</div>
-              <div className="setting-desc">Post job status updates to a Slack channel.</div>
-            </div>
-            <input
-              className="input"
-              style={{ width: 320 }}
-              placeholder="https://hooks.slack.com/services/…"
-              value={slackWebhook}
-              onChange={(e) => setSlackWebhook(e.target.value)}
-            />
-          </div>
-
-          <div className="setting-actions">
-            <button
-              className="btn"
-              onClick={() => save('Notifications')}
-              disabled={saving !== null}
-            >
-              {saving === 'Notifications' ? <>Saving…</> : <>Save notifications</>}
-            </button>
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* Credit Plans */}
-      <div className="card settings-card">
-        <div className="card-head">
-          <h3>
-            <Icon.Coin /> Credit plans
-          </h3>
-          <div className="tools">
-            <button className="btn sm" onClick={() => setPlanModal({ open: true, plan: null })}>
-              <Icon.Add /> Add plan
-            </button>
+      {section === 'credit-plans' && (
+        <div className="card settings-card">
+          <div className="card-head">
+            <h3>
+              <Icon.Coin /> Credit plans
+            </h3>
+            <div className="tools">
+              <button className="btn sm" onClick={() => setPlanModal({ open: true, plan: null })}>
+                <Icon.Add /> Add plan
+              </button>
+            </div>
+          </div>
+          <div className="card-body" style={{ padding: 0 }}>
+            {plansLoading ? (
+              <div style={{ padding: '20px 18px', color: 'var(--muted)', fontSize: 13 }}>
+                Loading…
+              </div>
+            ) : (
+              <div
+                className="table-wrap"
+                style={{ border: 'none', borderRadius: '0 0 var(--r-lg) var(--r-lg)' }}
+              >
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Plan</th>
+                      <th>Slug</th>
+                      <th>Credits</th>
+                      <th>Price (incl. 18% GST)</th>
+                      <th>Status</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plans.map((p) => (
+                      <tr key={p.id}>
+                        <td>
+                          <span className="semi">{p.name}</span>
+                          {p.badge && (
+                            <span className="badge warn" style={{ marginLeft: 8 }}>
+                              {p.badge}
+                            </span>
+                          )}
+                          {p.isHighlighted && !p.badge && (
+                            <span className="badge accent" style={{ marginLeft: 8 }}>
+                              Featured
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <span className="mono">{p.slug}</span>
+                        </td>
+                        <td>
+                          <span className="mono">{p.credits.toLocaleString()}</span>
+                        </td>
+                        <td>
+                          <span className="mono">
+                            ₹
+                            {((p.basePaise * 1.18) / 100).toLocaleString('en-IN', {
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                          <span
+                            className="sub"
+                            style={{ display: 'block', fontSize: 11, marginTop: 1 }}
+                          >
+                            ₹{(p.basePaise / 100).toLocaleString('en-IN')} + GST
+                          </span>
+                        </td>
+                        <td>
+                          {p.isActive ? (
+                            <span className="badge dot success">Active</span>
+                          ) : (
+                            <span className="badge dot">Inactive</span>
+                          )}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button
+                              className="btn sm ghost"
+                              onClick={() => setPlanModal({ open: true, plan: p })}
+                            >
+                              <Icon.Edit />
+                            </button>
+                            <button
+                              className="btn sm ghost"
+                              style={{ color: 'var(--danger)' }}
+                              onClick={() => setConfirmDelete(p)}
+                            >
+                              <Icon.Trash />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {plans.length === 0 && (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}
+                        >
+                          No plans yet — click "Add plan" to create one.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
-        <div className="card-body" style={{ padding: 0 }}>
-          {plansLoading ? (
-            <div style={{ padding: '24px 16px', color: 'var(--muted)', fontSize: 14 }}>
-              Loading…
-            </div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Pack</th>
-                  <th>Slug</th>
-                  <th>Credits</th>
-                  <th>Price (excl. GST)</th>
-                  <th>Total (incl. 18% GST)</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {plans.map((p) => (
-                  <tr key={p.id}>
-                    <td>
-                      <span className="semi">{p.name}</span>
-                      {p.badge && (
-                        <span className="badge warn" style={{ marginLeft: 8 }}>
-                          {p.badge}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <span className="mono">{p.slug}</span>
-                    </td>
-                    <td>{p.credits.toLocaleString()}</td>
-                    <td>₹{(p.basePaise / 100).toLocaleString('en-IN')}</td>
-                    <td>
-                      ₹
-                      {((p.basePaise * 1.18) / 100).toLocaleString('en-IN', {
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td>
-                      {p.isActive ? (
-                        <span className="badge dot success">Active</span>
-                      ) : (
-                        <span className="badge dot">Inactive</span>
-                      )}
-                    </td>
-                    <td style={{ display: 'flex', gap: 4 }}>
-                      <button
-                        className="btn sm ghost"
-                        onClick={() => setPlanModal({ open: true, plan: p })}
-                      >
-                        <Icon.Edit />
-                      </button>
-                      <button
-                        className="btn sm ghost"
-                        style={{ color: 'var(--danger)' }}
-                        onClick={() => setConfirmDelete(p)}
-                      >
-                        <Icon.Trash />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {plans.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}
-                    >
-                      No plans yet — click "Add plan" to create one.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Session */}
-      <div className="card settings-card">
-        <div className="card-head">
-          <h3>
-            <Icon.Logout /> Session
-          </h3>
-        </div>
-        <div className="card-body">
-          <div className="setting-row">
-            <div>
-              <div className="setting-lbl">Sign out</div>
-              <div className="setting-desc">End your current admin session.</div>
+      {section === 'session' && (
+        <div className="card settings-card">
+          <div className="card-head">
+            <h3>
+              <Icon.Logout /> Session
+            </h3>
+          </div>
+          <div className="card-body">
+            <div className="setting-row">
+              <div>
+                <div className="setting-lbl">Sign out</div>
+                <div className="setting-desc">End your current admin session.</div>
+              </div>
+              <button className="btn danger" onClick={() => logout()}>
+                <Icon.Logout /> Sign out
+              </button>
             </div>
-            <button className="btn danger" onClick={() => logout()}>
-              <Icon.Logout /> Sign out
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
       {planModal.open && (
         <PlanModal
