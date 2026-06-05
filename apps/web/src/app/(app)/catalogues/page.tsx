@@ -1,5 +1,5 @@
 'use client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -36,6 +36,7 @@ interface Catalogue {
   jobs: JobSummary[];
   createdAt: string;
   genderSlug: string | null;
+  coverUrl: string | null;
 }
 
 // ─── constants (outside component — stable references) ────────────────────────
@@ -76,23 +77,15 @@ async function concurrentPool<T>(
 
 // ─── catalogue cover ──────────────────────────────────────────────────────────
 
-function Cover({ jobs }: { jobs: JobSummary[] }) {
-  const completed = jobs.find((j) => j.status === 'COMPLETED');
+function Cover({ jobs, coverUrl }: { jobs: JobSummary[]; coverUrl: string | null }) {
   const hasActive = jobs.some((j) => !TERMINAL.includes(j.status));
   const allFailed = jobs.length > 0 && jobs.every((j) => j.status === 'FAILED');
 
-  const { data: result } = useQuery<{ url: string }>({
-    queryKey: ['job-result', completed?.id],
-    queryFn: () => api.get(`/v1/jobs/${completed?.id}/result`),
-    enabled: !!completed,
-    staleTime: 4 * 60 * 1000,
-  });
-
-  if (completed && result?.url) {
+  if (coverUrl) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
       <img
-        src={result.url}
+        src={coverUrl}
         alt=""
         style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center' }}
       />
@@ -187,6 +180,8 @@ export default function CataloguesPage(): React.ReactElement {
   const abortRef = useRef<AbortController | null>(null);
   const filteredRef = useRef<Catalogue[]>([]);
   const downloadingRef = useRef(false);
+
+  const qc = useQueryClient();
 
   // query
   const { data: catalogues, isLoading } = useQuery<Catalogue[]>({
@@ -1344,7 +1339,13 @@ export default function CataloguesPage(): React.ReactElement {
                           border: isSelected ? `2px solid ${C.pink}` : '2px solid transparent',
                           boxSizing: 'border-box',
                         }}
-                        onMouseEnter={() => setHoveredId(cat.catalogueId)}
+                        onMouseEnter={() => {
+                          setHoveredId(cat.catalogueId);
+                          qc.prefetchQuery({
+                            queryKey: ['catalogue', cat.catalogueId],
+                            queryFn: () => api.get(`/v1/catalogues/${cat.catalogueId}`),
+                          });
+                        }}
                         onMouseLeave={() => setHoveredId(null)}
                         onMouseOver={(e) => {
                           if (!isSelectionMode) {
@@ -1428,7 +1429,7 @@ export default function CataloguesPage(): React.ReactElement {
                           data-scale=""
                           style={{ width: '100%', height: '100%', transition: 'transform .3s' }}
                         >
-                          <Cover jobs={cat.jobs} />
+                          <Cover jobs={cat.jobs} coverUrl={cat.coverUrl} />
                         </div>
                       </div>
 

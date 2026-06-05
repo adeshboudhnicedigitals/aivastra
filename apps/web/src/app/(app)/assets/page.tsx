@@ -1,4 +1,5 @@
 'use client';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { FilterIcon, ImagesIcon, SearchIcon, SortIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
@@ -13,7 +14,7 @@ interface Asset {
 }
 
 interface AssetWithThumbnail extends Asset {
-  thumbnailUrl?: string;
+  thumbnailUrl?: string | null;
 }
 
 const ctlBtn: React.CSSProperties = {
@@ -33,11 +34,19 @@ const ctlBtn: React.CSSProperties = {
 
 export default function AssetsPage(): React.ReactElement {
   const [search, setSearch] = useState('');
-  const [assets, setAssets] = useState<AssetWithThumbnail[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState<string | null>(null);
   const [zoomVisible, setZoomVisible] = useState(false);
+
+  const {
+    data: assets = [],
+    isLoading: loading,
+    error: queryError,
+  } = useQuery<AssetWithThumbnail[]>({
+    queryKey: ['assets'],
+    // /v1/assets now returns presigned thumbnailUrl inline — one request, no N+1.
+    queryFn: () => api.get<AssetWithThumbnail[]>('/v1/assets'),
+  });
+  const error = queryError instanceof Error ? queryError.message : null;
 
   useEffect(() => {
     if (zoom) {
@@ -46,39 +55,6 @@ export default function AssetsPage(): React.ReactElement {
       setZoomVisible(false);
     }
   }, [zoom]);
-
-  useEffect(() => {
-    async function loadAssets() {
-      try {
-        setLoading(true);
-        const rawAssets = await api.get<Asset[]>('/v1/assets');
-
-        // Fetch thumbnail URLs for all assets
-        const withThumbnails = await Promise.all(
-          rawAssets.map(async (asset) => {
-            try {
-              const { thumbnailUrl } = await api.get<{ thumbnailUrl: string; expiresIn: number }>(
-                `/v1/uploads/thumbnail?key=${encodeURIComponent(asset.r2Key)}`,
-              );
-              return { ...asset, thumbnailUrl };
-            } catch {
-              return asset;
-            }
-          }),
-        );
-
-        setAssets(withThumbnails);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load assets');
-        setAssets([]);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadAssets();
-  }, []);
 
   const filtered = assets.filter((a) => a.r2Key.toLowerCase().includes(search.toLowerCase()));
 

@@ -2,17 +2,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import {
-  ChevronDown,
-  DownloadIcon,
-  Eye,
-  EyeOff,
-  LogOutIcon,
-  MoonIcon,
-  SunIcon,
-} from '@/components/icons';
+import { ChevronDown, Eye, EyeOff, LogOutIcon, MoonIcon, SunIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { ComingSoon } from '@/components/ui/coming-soon';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
@@ -457,27 +450,10 @@ export default function SettingsPage(): React.ReactElement {
         )}
 
         {tab === 'Billing' && (
-          <div style={cardWrap}>
-            <Section title="Billing Details" badge="Coming soon">
-              <Row>
-                <Field label="Full Name" placeholder="Enter your full name" disabled />
-                <Field label="Address" placeholder="Enter your address" disabled />
-                <Field label="City" placeholder="Enter your city name" disabled />
-              </Row>
-              <Row>
-                <Field label="State" placeholder="Enter your state" disabled />
-                <Field label="Country" placeholder="Enter your country name" disabled />
-                <Field label="Pincode" placeholder="Enter your pincode" disabled />
-              </Row>
-            </Section>
-            <Section title="Payment Method" noBorder>
-              <Row>
-                <Field label="Select Payment Mode" value="Debit Card" dropdown disabled />
-                <Field label="Card Number" placeholder="xxxx xxxx xxxx xxxx" disabled />
-                <Field label="Expires On" placeholder="MM/YY" disabled />
-              </Row>
-            </Section>
-          </div>
+          <ComingSoon
+            title="Billing & payment methods"
+            message="Saved billing details and payment methods are on the way. For now, purchases are completed securely at checkout on the Pricing page."
+          />
         )}
 
         {tab === 'Credit History' && (
@@ -592,69 +568,10 @@ export default function SettingsPage(): React.ReactElement {
         )}
 
         {tab === 'Invoices' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-              {[
-                { label: 'Total Spent', val: '—' },
-                { label: 'Total Invoices', val: '0' },
-                { label: 'Last Purchase', val: '—' },
-              ].map(({ label, val }) => (
-                <div
-                  key={label}
-                  style={{
-                    flex: 1,
-                    minWidth: 200,
-                    background: C.white,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 12,
-                    padding: '18px 20px',
-                  }}
-                >
-                  <div style={{ fontSize: 13, color: C.mid, marginBottom: 6 }}>{label}</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: C.text }}>{val}</div>
-                </div>
-              ))}
-            </div>
-            <div
-              style={{
-                background: C.white,
-                border: `1px solid ${C.border}`,
-                borderRadius: 12,
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1.4fr 1.2fr 2fr 1fr 1fr',
-                  background: C.field,
-                  borderBottom: `1px solid ${C.border}`,
-                  padding: '14px 20px',
-                }}
-              >
-                {['Invoice ID', 'Date', 'Purchase', 'Amount', 'Action'].map((c) => (
-                  <span key={c} style={{ fontSize: 13, fontWeight: 600, color: C.mid }}>
-                    {c}
-                  </span>
-                ))}
-              </div>
-              {/* TODO(wire): invoices endpoint not available yet */}
-              <div
-                style={{
-                  padding: '40px 24px',
-                  textAlign: 'center',
-                  color: C.mid,
-                  fontSize: 14,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                }}
-              >
-                <DownloadIcon /> No invoices yet.
-              </div>
-            </div>
-          </div>
+          <ComingSoon
+            title="Invoices"
+            message="Downloadable GST invoices for your credit purchases will appear here once billing is live."
+          />
         )}
       </div>
     </>
