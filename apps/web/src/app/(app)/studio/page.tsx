@@ -336,7 +336,7 @@ export default function StudioPage(): React.ReactElement {
     garmentRoRef.current = null;
     if (!el) return;
     const ro = new ResizeObserver(([entry]) => {
-      const w = entry?.contentRect.width;
+      const w = entry?.contentRect.width ?? 0;
       const count = Math.max(1, Math.floor((w + 20) / (108.8 + 20)));
       setGarmentVisibleCount(count);
     });
