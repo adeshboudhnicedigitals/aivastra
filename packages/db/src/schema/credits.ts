@@ -1,6 +1,24 @@
 import { integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
+export const payments = pgTable('payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  planId: text('plan_id').notNull(),
+  razorpayOrderId: text('razorpay_order_id').notNull().unique(),
+  razorpayPaymentId: text('razorpay_payment_id'),
+  razorpaySignature: text('razorpay_signature'),
+  basePaise: integer('base_paise').notNull(),
+  gstPaise: integer('gst_paise').notNull(),
+  totalPaise: integer('total_paise').notNull(),
+  credits: integer('credits').notNull(),
+  status: text('status').notNull().default('created'), // created | paid | failed
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  paidAt: timestamp('paid_at', { withTimezone: true }),
+});
+
 export const userCredits = pgTable('user_credits', {
   userId: uuid('user_id')
     .primaryKey()

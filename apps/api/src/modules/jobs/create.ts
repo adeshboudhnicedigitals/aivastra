@@ -1,18 +1,24 @@
 import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
+import { type CreateTryOnJobRequest, RESOLUTION_COSTS, type Resolution } from '@aivastra/types';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { promptGuard } from './sanitize.js';
 
-const COST = 1;
-
-export async function createJob(app: FastifyInstance, userId: string, body: any) {
+export async function createJob(
+  app: FastifyInstance,
+  userId: string,
+  body: z.infer<typeof CreateTryOnJobRequest>,
+) {
   const { faceId, backgroundId, poseIds, upperGarmentKey, lowerCatalogId, shoeCatalogId } =
     body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
+  const resolution: Resolution = body.resolution;
+  const COST = RESOLUTION_COSTS[resolution];
 
   const [face, background, poses] = await Promise.all([
     app.db
@@ -108,6 +114,7 @@ export async function createJob(app: FastifyInstance, userId: string, body: any)
         params: {
           ...(body.params ?? {}),
           ...(effectiveAspectRatio ? { aspectRatio: effectiveAspectRatio } : {}),
+          resolution,
         },
       });
       created.push(job.id);

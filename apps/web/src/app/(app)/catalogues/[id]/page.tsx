@@ -14,6 +14,7 @@ import {
 } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
 interface Job {
@@ -69,55 +70,67 @@ function ImageCard({
 
   return (
     <div style={{ width: '100%', height: 316, display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <button
-        type="button"
-        disabled={!(isCompleted && result?.url)}
-        style={{
-          flex: 1,
-          background: tint,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          position: 'relative',
-          borderRadius: 8,
-          overflow: 'hidden',
-          cursor: isCompleted && result?.url ? 'pointer' : 'default',
-          border: 'none',
-          padding: 0,
-        }}
-        onClick={() => {
-          if (isCompleted && result?.url) onZoom(result.url);
-        }}
+      <Tooltip
+        tip={
+          !(isCompleted && result?.url)
+            ? isFailed
+              ? 'Generation failed'
+              : 'Image is still generating…'
+            : undefined
+        }
+        position="top"
       >
-        {isCompleted && result?.url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={result.url}
-            alt={`#${job.id.slice(0, 8)}`}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              objectPosition: 'center',
-            }}
-          />
-        ) : isFailed ? (
-          <span style={{ color: C.mid, fontSize: 13 }}>Failed</span>
-        ) : (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 8,
-              color: C.mid,
-            }}
-          >
-            <SpinnerIcon />
-            <span style={{ fontSize: 13 }}>{job.status.toLowerCase().replace('_', ' ')}</span>
-          </div>
-        )}
-      </button>
+        <button
+          type="button"
+          disabled={!(isCompleted && result?.url)}
+          style={{
+            flex: 1,
+            background: tint,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            borderRadius: 8,
+            overflow: 'hidden',
+            cursor: isCompleted && result?.url ? 'pointer' : 'default',
+            border: 'none',
+            padding: 0,
+          }}
+          onClick={() => {
+            if (isCompleted && result?.url) onZoom(result.url);
+          }}
+        >
+          {isCompleted && result?.url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            // biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible
+            <img
+              src={result.url}
+              alt={`#${job.id.slice(0, 8)}`}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                objectPosition: 'center',
+              }}
+            />
+          ) : isFailed ? (
+            <span style={{ color: C.mid, fontSize: 13 }}>Failed</span>
+          ) : (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 8,
+                color: C.mid,
+              }}
+            >
+              <SpinnerIcon />
+              <span style={{ fontSize: 13 }}>{job.status.toLowerCase().replace('_', ' ')}</span>
+            </div>
+          )}
+        </button>
+      </Tooltip>
       <div
         style={{
           height: 28,
@@ -333,7 +346,12 @@ export default function CataloguePage({
 
       {zoom && (
         <div
+          role="dialog"
+          aria-modal="true"
           onClick={() => setZoom(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setZoom(null);
+          }}
           style={{
             position: 'fixed',
             inset: 0,
@@ -367,6 +385,7 @@ export default function CataloguePage({
             <XIcon size={20} />
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible */}
           <img
             src={zoom}
             alt=""
@@ -377,8 +396,8 @@ export default function CataloguePage({
               borderRadius: 8,
               transform: zoomVisible ? 'translateX(0)' : 'translateX(100%)',
               transition: 'transform 300ms ease-out',
+              pointerEvents: 'none',
             }}
-            onClick={(e) => e.stopPropagation()}
           />
         </div>
       )}

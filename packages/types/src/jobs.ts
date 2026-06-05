@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+export const RESOLUTION_COSTS = {
+  HD: 25,
+  '2K': 35,
+  '4K': 40,
+} as const;
+
+export type Resolution = keyof typeof RESOLUTION_COSTS;
+
 export const CreateTryOnJobRequest = z.object({
   inputs: z.object({
     upperGarmentKey: z.string().min(1).max(512),
@@ -21,6 +29,7 @@ export const CreateTryOnJobRequest = z.object({
     .optional(),
   userHint: z.string().max(300).optional(),
   aspectRatio: z.enum(['1:1', '3:4', '4:5']),
+  resolution: z.enum(['HD', '2K', '4K']),
 });
 
 export const PresignUploadBody = z.object({

@@ -27,6 +27,8 @@ const Env = z.object({
   WEB_URL: z.string().url().default('http://localhost:3000'),
   RESEND_API_KEY: z.string().min(1),
   EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),
+  RAZORPAY_KEY_ID: z.string().min(1).optional(),
+  RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {

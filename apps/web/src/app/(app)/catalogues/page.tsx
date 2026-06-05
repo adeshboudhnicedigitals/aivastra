@@ -20,6 +20,7 @@ import {
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -602,90 +603,114 @@ export default function CataloguesPage(): React.ReactElement {
                   }}
                 >
                   <span>{selected.size} selected</span>
-                  <button
-                    type="button"
-                    onClick={clearSelection}
-                    disabled={downloading}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 18,
-                      height: 18,
-                      borderRadius: 4,
-                      border: 'none',
-                      background: 'none',
-                      cursor: downloading ? 'not-allowed' : 'pointer',
-                      color: C.mid,
-                      padding: 0,
-                    }}
-                  >
-                    <XIcon size={14} />
-                  </button>
+                  <Tooltip tip={downloading ? 'Download in progress' : undefined} position="top">
+                    <button
+                      type="button"
+                      onClick={clearSelection}
+                      disabled={downloading}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: 18,
+                        height: 18,
+                        borderRadius: 4,
+                        border: 'none',
+                        background: 'none',
+                        cursor: downloading ? 'not-allowed' : 'pointer',
+                        color: C.mid,
+                        padding: 0,
+                      }}
+                    >
+                      <XIcon size={14} />
+                    </button>
+                  </Tooltip>
                 </div>
 
                 {/* select-all (indeterminate-aware) */}
-                <button
-                  type="button"
-                  onClick={handleSelectAll}
-                  disabled={downloading || filtered.length === 0}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '0 14px',
-                    height: 40,
-                    borderRadius: 8,
-                    border: '1px solid #EEEEEE',
-                    background: '#FEFEFE',
-                    fontFamily: 'inherit',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: downloading || filtered.length === 0 ? 'not-allowed' : 'pointer',
-                    color: C.mid,
-                    opacity: downloading ? 0.5 : 1,
-                  }}
+                <Tooltip
+                  tip={
+                    downloading
+                      ? 'Download in progress'
+                      : filtered.length === 0
+                        ? 'No catalogues to select'
+                        : undefined
+                  }
+                  position="top"
                 >
-                  {allVisibleSelected ? (
-                    <CheckSquareIcon size={16} />
-                  ) : isPartial ? (
-                    <MinusSquareIcon size={16} />
-                  ) : (
-                    <SquareIcon size={16} />
-                  )}
-                  {allVisibleSelected ? 'Deselect All' : 'Select All'}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleSelectAll}
+                    disabled={downloading || filtered.length === 0}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '0 14px',
+                      height: 40,
+                      borderRadius: 8,
+                      border: '1px solid #EEEEEE',
+                      background: '#FEFEFE',
+                      fontFamily: 'inherit',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: downloading || filtered.length === 0 ? 'not-allowed' : 'pointer',
+                      color: C.mid,
+                      opacity: downloading ? 0.5 : 1,
+                    }}
+                  >
+                    {allVisibleSelected ? (
+                      <CheckSquareIcon size={16} />
+                    ) : isPartial ? (
+                      <MinusSquareIcon size={16} />
+                    ) : (
+                      <SquareIcon size={16} />
+                    )}
+                    {allVisibleSelected ? 'Deselect All' : 'Select All'}
+                  </button>
+                </Tooltip>
 
                 {/* download button */}
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  disabled={!canDownload}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    height: 40,
-                    padding: '0 16px',
-                    borderRadius: 12,
-                    background: canDownload ? '#141414' : '#141414',
-                    opacity: canDownload ? 1 : 0.4,
-                    border: 'none',
-                    cursor: canDownload ? 'pointer' : 'not-allowed',
-                    color: '#FFFFFF',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    fontFamily: 'inherit',
-                    whiteSpace: 'nowrap',
-                  }}
+                <Tooltip
+                  tip={
+                    downloading
+                      ? 'Download in progress'
+                      : !canDownload
+                        ? 'Select completed catalogues to download'
+                        : undefined
+                  }
+                  position="top"
                 >
-                  {downloading ? <SpinnerIcon size={16} /> : <DownloadIcon size={16} />}
-                  {downloading
-                    ? zipProgress !== null
-                      ? `${Math.round(zipProgress)}%`
-                      : 'Preparing…'
-                    : `Download (${downloadableCatalogues.length})`}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleDownload}
+                    disabled={!canDownload}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      height: 40,
+                      padding: '0 16px',
+                      borderRadius: 12,
+                      background: canDownload ? '#141414' : '#141414',
+                      opacity: canDownload ? 1 : 0.4,
+                      border: 'none',
+                      cursor: canDownload ? 'pointer' : 'not-allowed',
+                      color: '#FFFFFF',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      fontFamily: 'inherit',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {downloading ? <SpinnerIcon size={16} /> : <DownloadIcon size={16} />}
+                    {downloading
+                      ? zipProgress !== null
+                        ? `${Math.round(zipProgress)}%`
+                        : 'Preparing…'
+                      : `Download (${downloadableCatalogues.length})`}
+                  </button>
+                </Tooltip>
               </div>
             ) : (
               <div style={{ display: 'flex', gap: 12 }}>
@@ -1100,31 +1125,38 @@ export default function CataloguesPage(): React.ReactElement {
                             >
                               Clear
                             </button>
-                            <button
-                              type="button"
-                              disabled={!pendingFrom && !pendingTo}
-                              onClick={() => {
-                                setDateFilter('Custom Range');
-                                setCustomFrom(pendingFrom);
-                                setCustomTo(pendingTo);
-                                setShowDateDropdown(false);
-                                setDateSubPanel('presets');
-                              }}
-                              style={{
-                                flex: 2,
-                                height: 32,
-                                borderRadius: 6,
-                                border: 'none',
-                                background: pendingFrom || pendingTo ? '#141414' : '#EEEEEE',
-                                fontFamily: 'inherit',
-                                fontSize: 12,
-                                fontWeight: 600,
-                                color: pendingFrom || pendingTo ? '#fff' : C.light,
-                                cursor: pendingFrom || pendingTo ? 'pointer' : 'not-allowed',
-                              }}
+                            <Tooltip
+                              tip={
+                                !pendingFrom && !pendingTo ? 'Select at least one date' : undefined
+                              }
+                              position="top"
                             >
-                              Apply
-                            </button>
+                              <button
+                                type="button"
+                                disabled={!pendingFrom && !pendingTo}
+                                onClick={() => {
+                                  setDateFilter('Custom Range');
+                                  setCustomFrom(pendingFrom);
+                                  setCustomTo(pendingTo);
+                                  setShowDateDropdown(false);
+                                  setDateSubPanel('presets');
+                                }}
+                                style={{
+                                  flex: 2,
+                                  height: 32,
+                                  borderRadius: 6,
+                                  border: 'none',
+                                  background: pendingFrom || pendingTo ? '#141414' : '#EEEEEE',
+                                  fontFamily: 'inherit',
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  color: pendingFrom || pendingTo ? '#fff' : C.light,
+                                  cursor: pendingFrom || pendingTo ? 'pointer' : 'not-allowed',
+                                }}
+                              >
+                                Apply
+                              </button>
+                            </Tooltip>
                           </div>
                         </div>
                       )}
@@ -1133,56 +1165,63 @@ export default function CataloguesPage(): React.ReactElement {
                 </div>
 
                 {/* select all (normal mode) */}
-                <button
-                  type="button"
-                  onClick={handleSelectAll}
-                  disabled={filtered.length === 0}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                    padding: 10,
-                    width: 118,
-                    height: 40,
-                    borderRadius: 8,
-                    border: '1px solid #EEEEEE',
-                    background: '#FEFEFE',
-                    fontFamily: 'inherit',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
-                    color: C.mid,
-                    opacity: filtered.length === 0 ? 0.4 : 1,
-                    boxSizing: 'border-box',
-                  }}
+                <Tooltip
+                  tip={filtered.length === 0 ? 'No catalogues to select' : undefined}
+                  position="top"
                 >
-                  <SquareIcon size={16} />
-                  Select All
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleSelectAll}
+                    disabled={filtered.length === 0}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      padding: 10,
+                      width: 118,
+                      height: 40,
+                      borderRadius: 8,
+                      border: '1px solid #EEEEEE',
+                      background: '#FEFEFE',
+                      fontFamily: 'inherit',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: filtered.length === 0 ? 'not-allowed' : 'pointer',
+                      color: C.mid,
+                      opacity: filtered.length === 0 ? 0.4 : 1,
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <SquareIcon size={16} />
+                    Select All
+                  </button>
+                </Tooltip>
 
                 {/* download (inactive in normal mode) */}
-                <button
-                  type="button"
-                  disabled
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 56,
-                    height: 40,
-                    padding: '12px 20px',
-                    borderRadius: 12,
-                    background: '#141414',
-                    opacity: 0.4,
-                    border: 'none',
-                    cursor: 'not-allowed',
-                    color: '#FFFFFF',
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <DownloadIcon size={16} />
-                </button>
+                <Tooltip tip="Select images to download" position="top">
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 56,
+                      height: 40,
+                      padding: '12px 20px',
+                      borderRadius: 12,
+                      background: '#141414',
+                      opacity: 0.4,
+                      border: 'none',
+                      cursor: 'not-allowed',
+                      color: '#FFFFFF',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <DownloadIcon size={16} />
+                  </button>
+                </Tooltip>
               </div>
             )}
           </div>

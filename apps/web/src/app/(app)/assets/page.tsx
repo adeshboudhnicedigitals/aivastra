@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { FilterIcon, ImagesIcon, SearchIcon, SortIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
 interface Asset {
@@ -120,12 +121,16 @@ export default function AssetsPage(): React.ReactElement {
               }}
             />
           </div>
-          <button type="button" style={ctlBtn} disabled>
-            <FilterIcon /> Filter
-          </button>
-          <button type="button" style={ctlBtn} disabled>
-            <SortIcon /> Sort
-          </button>
+          <Tooltip tip="Filter coming soon" position="bottom">
+            <button type="button" style={ctlBtn} disabled>
+              <FilterIcon /> Filter
+            </button>
+          </Tooltip>
+          <Tooltip tip="Sort coming soon" position="bottom">
+            <button type="button" style={ctlBtn} disabled>
+              <SortIcon /> Sort
+            </button>
+          </Tooltip>
         </div>
 
         {error && (
@@ -201,16 +206,24 @@ export default function AssetsPage(): React.ReactElement {
                     const child = e.currentTarget.querySelector('div');
                     if (child) child.style.transform = 'scale(1.05)';
                   }}
+                  onFocus={(e) => {
+                    if (!asset.thumbnailUrl) return;
+                    e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.12)';
+                  }}
                   onMouseOut={(e) => {
                     if (!asset.thumbnailUrl) return;
                     e.currentTarget.style.boxShadow = 'none';
                     const child = e.currentTarget.querySelector('div');
                     if (child) child.style.transform = 'scale(1)';
                   }}
+                  onBlur={(e) => {
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
                 >
                   <div style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
                     {asset.thumbnailUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
+                      // biome-ignore lint/performance/noImgElement: presigned R2 URL
                       <img
                         src={asset.thumbnailUrl}
                         alt=""
@@ -309,6 +322,7 @@ export default function AssetsPage(): React.ReactElement {
             <XIcon size={20} />
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+          {/* biome-ignore lint/performance/noImgElement: presigned R2 URL */}
           <img
             src={zoom}
             alt=""
