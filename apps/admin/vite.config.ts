@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react()],
-  base: process.env['NODE_ENV'] === 'production' ? '/webtool-admin/' : '/',
+  base: process.env['NODE_ENV'] === 'production' ? '/admin/' : '/',
   server: {
     port: 5173,
     proxy: {
