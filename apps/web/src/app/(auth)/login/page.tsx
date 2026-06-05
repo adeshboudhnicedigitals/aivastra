@@ -39,7 +39,14 @@ const inputStyle: React.CSSProperties = {
 
 function ImagePanel() {
   return (
-    <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+    <div
+      style={{
+        width: '58.2%',
+        flexShrink: 0,
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={`${BASE}/assets/auth-bg.png`}
@@ -50,29 +57,29 @@ function ImagePanel() {
           width: '100%',
           height: '100%',
           objectFit: 'cover',
-          objectPosition: 'top',
+          objectPosition: 'top center',
         }}
       />
       <div
         style={{
           position: 'absolute',
           inset: 0,
-          background: 'linear-gradient(to bottom, rgba(80,80,80,0) 70%, rgba(0,0,0,0.65) 100%)',
+          background: 'linear-gradient(to bottom, rgba(0,0,0,0) 60%, rgba(0,0,0,0.72) 100%)',
         }}
       />
-      <div style={{ position: 'absolute', bottom: 40, left: 48, right: 48 }}>
+      <div style={{ position: 'absolute', bottom: 40, left: 40, right: 40 }}>
         <h2
           style={{
             fontWeight: 700,
             fontSize: 20,
-            color: C.white,
+            color: '#fff',
             marginBottom: 8,
             lineHeight: 1.4,
           }}
         >
           Turn Flat Lay Images Into Premium Model Shoots
         </h2>
-        <p style={{ fontSize: 13, color: C.lighter, lineHeight: 1.6, margin: 0 }}>
+        <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', lineHeight: 1.6, margin: 0 }}>
           Generate realistic AI catalogue photos with premium models, luxury backgrounds, and
           ecommerce-ready poses.
         </p>
@@ -118,159 +125,196 @@ function LoginFormInner() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: C.white }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: '#000',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '40px 20px',
+        boxSizing: 'border-box',
+      }}
+    >
       <div
         style={{
-          width: 640,
-          padding: '0 120px',
+          width: '100%',
+          maxWidth: 1143,
+          height: 'min(772px, 88vh)',
+          background: '#FDFDFD',
+          borderRadius: 20,
           display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          gap: 24,
-          flexShrink: 0,
+          overflow: 'hidden',
         }}
       >
-        <LogoAuth />
-        {resetSuccess && (
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: 8,
-              background: 'rgba(0,180,100,0.08)',
-              border: '1px solid rgba(0,180,100,0.3)',
-              fontSize: 13,
-              color: '#00a860',
-            }}
-          >
-            Password reset successfully. Please log in.
-          </div>
-        )}
-        <div>
-          <h1 style={{ fontWeight: 700, fontSize: 22, color: C.text, marginBottom: 4 }}>
-            Welcome Back
-          </h1>
-          <div
-            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: C.mid }}
-          >
-            <GiftIcon /> <span>Get 100 Free credits to start.</span>
-          </div>
-        </div>
-        <GoogleBtn label="Continue with Google" />
-        <Divider label="Or Continue With" />
-        <form
-          onSubmit={handleSubmit(onSubmit)}
-          style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+        {/* Form side */}
+        <div
+          style={{
+            flex: 1,
+            paddingLeft: 48,
+            paddingRight: 40,
+            paddingTop: 48,
+            paddingBottom: 48,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            gap: 20,
+            overflowY: 'auto',
+          }}
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <label htmlFor="email" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
-              Email*
-            </label>
-            <div style={fieldWrap}>
-              <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
-                <MailIcon />
-              </span>
-              <input
-                id="email"
-                type="email"
-                placeholder="Enter your email"
-                autoComplete="email"
-                style={inputStyle}
-                {...register('email')}
-              />
-            </div>
-            {errors.email && (
-              <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.email.message}</p>
-            )}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label htmlFor="password" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
-                Password*
-              </label>
-              <button
-                type="button"
-                onClick={() => router.push('/forgot-password')}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  color: C.text,
-                  fontWeight: 500,
-                }}
-              >
-                Forgot Password?
-              </button>
-            </div>
-            <div style={fieldWrap}>
-              <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
-                <LockIcon />
-              </span>
-              <input
-                id="password"
-                type="password"
-                placeholder="Enter password"
-                autoComplete="current-password"
-                style={inputStyle}
-                {...register('password')}
-              />
-            </div>
-            {errors.password && (
-              <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.password.message}</p>
-            )}
-          </div>
-          {error && (
+          <LogoAuth />
+
+          {resetSuccess && (
             <div
               style={{
                 padding: '10px 14px',
                 borderRadius: 8,
-                border: `1px solid ${C.pink}`,
-                background: 'rgba(245,92,122,0.06)',
-                fontSize: 14,
-                color: C.pink,
+                background: 'rgba(0,180,100,0.08)',
+                border: '1px solid rgba(0,180,100,0.3)',
+                fontSize: 13,
+                color: '#00a860',
               }}
             >
-              {error}
+              Password reset successfully. Please log in.
             </div>
           )}
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            style={{
-              width: '100%',
-              height: 44,
-              borderRadius: 8,
-              border: 'none',
-              cursor: 'pointer',
-              background: C.dark,
-              color: C.white,
-              fontFamily: 'inherit',
-              fontWeight: 600,
-              fontSize: 14,
-              opacity: isSubmitting ? 0.6 : 1,
-            }}
+
+          <div>
+            <h1 style={{ fontWeight: 700, fontSize: 22, color: C.text, marginBottom: 4 }}>
+              Welcome Back
+            </h1>
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: C.mid }}
+            >
+              <GiftIcon /> <span>Get 100 Free credits to start.</span>
+            </div>
+          </div>
+
+          <GoogleBtn label="Continue with Google" />
+          <Divider label="Or Continue With" />
+
+          <form
+            onSubmit={handleSubmit(onSubmit)}
+            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
           >
-            {isSubmitting ? 'Signing in…' : 'Continue'}
-          </button>
-        </form>
-        <p style={{ textAlign: 'center', fontSize: 12, color: C.light }}>
-          Don&apos;t have an account?{' '}
-          <Link
-            href="/register"
-            style={{ fontWeight: 700, fontSize: 12, color: C.pink, textDecoration: 'none' }}
-          >
-            Sign Up
-          </Link>
-        </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label htmlFor="email" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
+                Email*
+              </label>
+              <div style={fieldWrap}>
+                <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
+                  <MailIcon />
+                </span>
+                <input
+                  id="email"
+                  type="email"
+                  placeholder="Enter your email"
+                  autoComplete="email"
+                  style={inputStyle}
+                  {...register('email')}
+                />
+              </div>
+              {errors.email && (
+                <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.email.message}</p>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <label htmlFor="password" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
+                  Password*
+                </label>
+                <button
+                  type="button"
+                  onClick={() => router.push('/forgot-password')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    color: C.text,
+                    fontWeight: 500,
+                  }}
+                >
+                  Forgot Password?
+                </button>
+              </div>
+              <div style={fieldWrap}>
+                <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
+                  <LockIcon />
+                </span>
+                <input
+                  id="password"
+                  type="password"
+                  placeholder="Enter password"
+                  autoComplete="current-password"
+                  style={inputStyle}
+                  {...register('password')}
+                />
+              </div>
+              {errors.password && (
+                <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.password.message}</p>
+              )}
+            </div>
+
+            {error && (
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${C.pink}`,
+                  background: 'rgba(245,92,122,0.06)',
+                  fontSize: 14,
+                  color: C.pink,
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              style={{
+                width: '100%',
+                height: 44,
+                borderRadius: 8,
+                border: 'none',
+                cursor: 'pointer',
+                background: C.dark,
+                color: C.white,
+                fontFamily: 'inherit',
+                fontWeight: 600,
+                fontSize: 14,
+                opacity: isSubmitting ? 0.6 : 1,
+              }}
+            >
+              {isSubmitting ? 'Signing in…' : 'Continue'}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', fontSize: 12, color: C.light, margin: 0 }}>
+            Don&apos;t have an account?{' '}
+            <Link
+              href="/register"
+              style={{ fontWeight: 700, fontSize: 12, color: C.pink, textDecoration: 'none' }}
+            >
+              Sign Up
+            </Link>
+          </p>
+        </div>
+
+        <ImagePanel />
       </div>
-      <ImagePanel />
     </div>
   );
 }
 
 export default function LoginPage(): React.ReactElement {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.white }} />}>
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#000' }} />}>
       <LoginFormInner />
     </Suspense>
   );
