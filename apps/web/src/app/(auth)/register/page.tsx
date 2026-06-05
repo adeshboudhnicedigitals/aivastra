@@ -40,6 +40,7 @@ const inputStyle: React.CSSProperties = {
 function ImagePanel() {
   return (
     <div
+      className="auth-image-panel"
       style={{
         width: '58.2%',
         flexShrink: 0,
@@ -137,6 +138,7 @@ export default function RegisterPage(): React.ReactElement {
       }}
     >
       <div
+        className="auth-card"
         style={{
           width: '100%',
           maxWidth: 1143,

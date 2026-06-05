@@ -54,13 +54,31 @@ export async function jobsRoutes(app: FastifyInstance) {
       map.get(key)?.push(row);
     }
 
-    return Array.from(map.entries()).map(([catalogueId, cJobs]) => ({
+    const groups = Array.from(map.entries()).map(([catalogueId, cJobs]) => ({
       catalogueId,
       // genderSlug comes from the first job that has one (all jobs in a catalogue share the same gender)
       genderSlug: cJobs.find((j) => j.genderSlug)?.genderSlug ?? null,
       jobs: cJobs.map(({ genderSlug: _g, ...j }) => j),
       createdAt: cJobs[cJobs.length - 1].createdAt,
     }));
+
+    // Presign a cover URL per catalogue server-side (fast local crypto, no network)
+    // so the client renders covers from one response instead of one request per card.
+    return Promise.all(
+      groups.map(async (g) => {
+        const cover = g.jobs.find((j) => j.status === 'COMPLETED');
+        let coverUrl: string | null = null;
+        if (cover) {
+          try {
+            const { url } = await app.storage.presignGet(keys.output(cover.id), 3600);
+            coverUrl = url;
+          } catch {
+            /* missing object — leave null, client shows placeholder */
+          }
+        }
+        return { ...g, coverUrl };
+      }),
+    );
   });
 
   // Single catalogue — all jobs for a catalogueId
@@ -108,11 +126,27 @@ export async function jobsRoutes(app: FastifyInstance) {
       .groupBy(schema.jobInputs.upperGarmentKey)
       .orderBy(desc(sql`MAX(${schema.jobs.createdAt})`));
 
-    return result.map((asset) => ({
-      r2Key: asset.r2Key,
-      uploadedAt: asset.uploadedAt,
-      jobsCount: asset.jobCount,
-    }));
+    // Presign each thumbnail server-side so the client gets URLs in one response
+    // instead of firing a /v1/uploads/thumbnail request per asset (N+1).
+    return Promise.all(
+      result.map(async (asset) => {
+        let thumbnailUrl: string | null = null;
+        if (asset.r2Key) {
+          try {
+            const { url } = await app.storage.presignGet(asset.r2Key, 3600);
+            thumbnailUrl = url;
+          } catch {
+            /* missing object — leave null, client shows placeholder */
+          }
+        }
+        return {
+          r2Key: asset.r2Key,
+          uploadedAt: asset.uploadedAt,
+          jobsCount: asset.jobCount,
+          thumbnailUrl,
+        };
+      }),
+    );
   });
 
   app.get('/v1/jobs', { preHandler: app.requireUser }, async (req) => {

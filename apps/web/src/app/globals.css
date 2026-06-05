@@ -128,3 +128,14 @@ a {
   background-size: 200% 100%;
   animation: av-shimmer 1.4s linear infinite;
 }
+
+/* Auth layout — drop the image panel on narrow viewports so the form can breathe */
+@media (max-width: 860px) {
+  .auth-image-panel {
+    display: none !important;
+  }
+  .auth-card {
+    height: auto !important;
+    max-width: 480px !important;
+  }
+}

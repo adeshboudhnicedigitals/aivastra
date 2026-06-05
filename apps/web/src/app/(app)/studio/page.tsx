@@ -1,5 +1,5 @@
 'use client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useCallback, useRef, useState } from 'react';
 import {
@@ -17,6 +17,7 @@ import { StepBar } from '@/components/step-indicator';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { DarkBtn } from '@/components/ui/dark-btn';
+import { ErrorState } from '@/components/ui/error-state';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
@@ -309,6 +310,7 @@ const ghostBtn: React.CSSProperties = {
 
 export default function StudioPage(): React.ReactElement {
   const router = useRouter();
+  const qc = useQueryClient();
   const [step, setStep] = useState(0); // 0..3
 
   const [gender, setGender] = useState('women');
@@ -365,7 +367,11 @@ export default function StudioPage(): React.ReactElement {
     queryFn: () => api.get(`/v1/models/garment-types?gender=${gender}`),
     enabled: !!gender,
   });
-  const { data: faces } = useQuery<{ items: FaceItem[] }>({
+  const {
+    data: faces,
+    isError: facesError,
+    refetch: refetchFaces,
+  } = useQuery<{ items: FaceItem[] }>({
     queryKey: ['faces', gender, garmentTypeId],
     queryFn: () => {
       const p = new URLSearchParams({ gender });
@@ -374,7 +380,11 @@ export default function StudioPage(): React.ReactElement {
     },
     enabled: !!gender && step >= 1,
   });
-  const { data: backgrounds } = useQuery<BackgroundsResponse>({
+  const {
+    data: backgrounds,
+    isError: backgroundsError,
+    refetch: refetchBackgrounds,
+  } = useQuery<BackgroundsResponse>({
     queryKey: ['backgrounds', faceId, garmentTypeId],
     queryFn: () => {
       const p = new URLSearchParams();
@@ -384,7 +394,11 @@ export default function StudioPage(): React.ReactElement {
     },
     enabled: !!faceId && step >= 2,
   });
-  const { data: poses } = useQuery<{ items: PoseItem[] }>({
+  const {
+    data: poses,
+    isError: posesError,
+    refetch: refetchPoses,
+  } = useQuery<{ items: PoseItem[] }>({
     queryKey: ['poses', garmentTypeId, faceId, backgroundId],
     queryFn: () =>
       api.get(
@@ -451,9 +465,14 @@ export default function StudioPage(): React.ReactElement {
     setShoeCatalogId('');
   }
   function handlePoseSelect(id: string) {
-    setPoseIds((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
-    setLowerCatalogId('');
-    setShoeCatalogId('');
+    setPoseIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+      // Clear lower/shoe selections only if the new pose set no longer needs them
+      const nextPoses = poses?.items.filter((p) => next.includes(p.id)) ?? [];
+      if (!nextPoses.some((p) => p.hasLower)) setLowerCatalogId('');
+      if (!nextPoses.some((p) => p.hasShoes)) setShoeCatalogId('');
+      return next;
+    });
   }
 
   const RESOLUTION_COSTS = { HD: 25, '2K': 35, '4K': 40 } as const;
@@ -475,6 +494,9 @@ export default function StudioPage(): React.ReactElement {
         aspectRatio: aspect,
         resolution,
       });
+      // Credits were deducted server-side — refresh balance + catalogues list.
+      qc.invalidateQueries({ queryKey: ['credits'] });
+      qc.invalidateQueries({ queryKey: ['catalogues'] });
       router.push(`/catalogues/${catalogueId}`);
     } catch (e) {
       setSubmitError((e as Error).message);
@@ -1063,7 +1085,14 @@ export default function StudioPage(): React.ReactElement {
                 </div>
               </div>
             )}
-            {!faces ? (
+            {facesError ? (
+              <ErrorState
+                compact
+                title="Couldn't load models"
+                message="There was a problem fetching models. Please try again."
+                onRetry={() => refetchFaces()}
+              />
+            ) : !faces ? (
               <div
                 style={{
                   display: 'flex',
@@ -1105,7 +1134,14 @@ export default function StudioPage(): React.ReactElement {
         {step === 2 && (
           <section>
             <SectionHead title="Select Background" />
-            {!backgrounds ? (
+            {backgroundsError ? (
+              <ErrorState
+                compact
+                title="Couldn't load backgrounds"
+                message="There was a problem fetching backgrounds. Please try again."
+                onRetry={() => refetchBackgrounds()}
+              />
+            ) : !backgrounds ? (
               <div
                 style={{
                   display: 'flex',
@@ -1150,7 +1186,14 @@ export default function StudioPage(): React.ReactElement {
           <>
             <section>
               <SectionHead title="Choose Poses" />
-              {!poses ? (
+              {posesError ? (
+                <ErrorState
+                  compact
+                  title="Couldn't load poses"
+                  message="There was a problem fetching poses. Please try again."
+                  onRetry={() => refetchPoses()}
+                />
+              ) : !poses ? (
                 <div
                   style={{
                     display: 'flex',
@@ -1189,91 +1232,95 @@ export default function StudioPage(): React.ReactElement {
               )}
             </section>
 
-            <section>
-              <SectionHead title="Lower Garment" />
-              <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>
-                Optional — select if your pose shows lower body
-              </p>
-              {!lowerCatalog ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    padding: '24px 0',
-                    color: C.mid,
-                  }}
-                >
-                  <SpinnerIcon />
-                </div>
-              ) : lowerItems.length === 0 ? (
-                <p style={{ fontSize: 14, color: C.mid }}>
-                  No lower garment options available yet.
+            {needsLower && (
+              <section>
+                <SectionHead title="Lower Garment" />
+                <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>
+                  Optional — select if your pose shows lower body
                 </p>
-              ) : (
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
-                    gap: 12,
-                    width: '100%',
-                  }}
-                >
-                  {lowerItems.map((i) => (
-                    <SelCard
-                      key={i.id}
-                      selected={lowerCatalogId === i.id}
-                      onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
-                      imageUrl={i.thumbnailUrl}
-                      label={i.label}
-                      w={152.57}
-                      h={119}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+                {!lowerCatalog ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      padding: '24px 0',
+                      color: C.mid,
+                    }}
+                  >
+                    <SpinnerIcon />
+                  </div>
+                ) : lowerItems.length === 0 ? (
+                  <p style={{ fontSize: 14, color: C.mid }}>
+                    No lower garment options available yet.
+                  </p>
+                ) : (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
+                      gap: 12,
+                      width: '100%',
+                    }}
+                  >
+                    {lowerItems.map((i) => (
+                      <SelCard
+                        key={i.id}
+                        selected={lowerCatalogId === i.id}
+                        onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
+                        imageUrl={i.thumbnailUrl}
+                        label={i.label}
+                        w={152.57}
+                        h={119}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
-            <section>
-              <SectionHead title="Shoes" />
-              <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>
-                Optional — select if your pose shows feet
-              </p>
-              {!shoesCatalog ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    padding: '24px 0',
-                    color: C.mid,
-                  }}
-                >
-                  <SpinnerIcon />
-                </div>
-              ) : shoeItems.length === 0 ? (
-                <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
-              ) : (
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
-                    gap: 12,
-                    width: '100%',
-                  }}
-                >
-                  {shoeItems.map((i) => (
-                    <SelCard
-                      key={i.id}
-                      selected={shoeCatalogId === i.id}
-                      onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
-                      imageUrl={i.thumbnailUrl}
-                      label={i.label}
-                      w={152.57}
-                      h={119}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+            {needsShoes && (
+              <section>
+                <SectionHead title="Shoes" />
+                <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>
+                  Optional — select if your pose shows feet
+                </p>
+                {!shoesCatalog ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      padding: '24px 0',
+                      color: C.mid,
+                    }}
+                  >
+                    <SpinnerIcon />
+                  </div>
+                ) : shoeItems.length === 0 ? (
+                  <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
+                ) : (
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
+                      gap: 12,
+                      width: '100%',
+                    }}
+                  >
+                    {shoeItems.map((i) => (
+                      <SelCard
+                        key={i.id}
+                        selected={shoeCatalogId === i.id}
+                        onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
+                        imageUrl={i.thumbnailUrl}
+                        label={i.label}
+                        w={152.57}
+                        h={119}
+                      />
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
           </>
         )}
 

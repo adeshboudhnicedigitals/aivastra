@@ -7,7 +7,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 60_000, retry: 1 },
+          queries: {
+            staleTime: 5 * 60 * 1000, // 5 min — most catalog/model/profile data is stable
+            gcTime: 30 * 60 * 1000, // keep cached pages warm for instant revisits
+            refetchOnWindowFocus: false, // no surprise refetch jank on tab refocus
+            refetchOnReconnect: false,
+            retry: 1,
+          },
         },
       }),
   );

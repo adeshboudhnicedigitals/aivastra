@@ -1,5 +1,5 @@
 'use client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import {
@@ -104,6 +104,7 @@ function loadRazorpay(): Promise<boolean> {
 
 export default function PricingPage(): React.ReactElement {
   const router = useRouter();
+  const qc = useQueryClient();
   const [toast, setToast] = useState('');
   const [buying, setBuying] = useState<string | null>(null);
   const [country, setCountry] = useState('IN');
@@ -182,6 +183,8 @@ export default function PricingPage(): React.ReactElement {
         rzp.open();
       });
 
+      // Balance changed server-side — refresh it so the sidebar reflects it.
+      qc.invalidateQueries({ queryKey: ['credits'] });
       setToast(`${plan.credits.toLocaleString('en-IN')} credits added to your account!`);
       setTimeout(() => router.push('/catalogues'), 1500);
     } catch (err) {
@@ -317,276 +320,285 @@ export default function PricingPage(): React.ReactElement {
 
       <div
         style={{
-          width: 1140,
+          width: '100%',
+          maxWidth: 1140,
           margin: '0 auto 40px',
           background: C.white,
           border: `1px solid ${C.border}`,
           borderRadius: 12,
           padding: 16,
           boxSizing: 'border-box',
+          overflowX: 'auto',
         }}
       >
-        {/* Plan headers */}
-        <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
-          <div
-            style={{
-              width: 262,
-              height: 178,
-              background: '#F9F9F9',
-              border: '1px solid #EEEEEE',
-              borderRadius: 8,
-              padding: 12,
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              alignItems: 'center',
-              boxSizing: 'border-box',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <SparklesIcon size={18} />
-              <span style={{ fontSize: 16, fontWeight: 600, lineHeight: '20px', color: '#1F2937' }}>
-                Features
-              </span>
-            </div>
-          </div>
-          {plansLoading
-            ? [0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: 262,
-                    height: 178,
-                    background: '#F3F4F6',
-                    border: '1px solid #EEEEEE',
-                    borderRadius: 8,
-                    boxSizing: 'border-box',
-                  }}
-                />
-              ))
-            : plans.map((plan) => (
-                <div
-                  key={plan.slug}
-                  style={{
-                    width: 262,
-                    height: 178,
-                    background: plan.isHighlighted
-                      ? 'linear-gradient(90deg, #D94D69 0%, #D49332 100%)'
-                      : '#FEEFF266',
-                    border: '1px solid #EEEEEE',
-                    borderRadius: 8,
-                    padding: 12,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    boxSizing: 'border-box',
-                    position: 'relative',
-                  }}
-                >
-                  {plan.badge && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: 8,
-                        right: 8,
-                        padding: '3px 10px',
-                        borderRadius: 4,
-                        background: plan.isHighlighted ? 'rgba(255,255,255,0.22)' : grad,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: C.onDark,
-                      }}
-                    >
-                      ⭐ {plan.badge}
-                    </div>
-                  )}
-                  <div
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 15,
-                      color: plan.isHighlighted ? '#FFFFFF' : C.text,
-                      marginBottom: 4,
-                    }}
-                  >
-                    {plan.name}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: plan.isHighlighted ? 'rgba(255,255,255,0.8)' : C.mid,
-                      marginBottom: 10,
-                    }}
-                  >
-                    {plan.subtext}
-                  </div>
-                  <div
-                    style={{
-                      fontWeight: 700,
-                      fontSize: 22,
-                      color: plan.isHighlighted ? '#FFFFFF' : C.text,
-                      marginBottom: 2,
-                    }}
-                  >
-                    {plan.credits.toLocaleString('en-IN')} Credits
-                  </div>
-                  <div
-                    style={{
-                      marginBottom: 8,
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      gap: 6,
-                      flexWrap: 'wrap',
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 15,
-                        fontWeight: 700,
-                        color: plan.isHighlighted ? '#FFFFFF' : C.text,
-                      }}
-                    >
-                      {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        color: plan.isHighlighted ? 'rgba(255,255,255,0.65)' : C.light,
-                      }}
-                    >
-                      ({paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))} GST)
-                    </span>
-                  </div>
-                  <Tooltip
-                    tip={
-                      buying && buying !== plan.slug ? 'Another payment is in progress' : undefined
-                    }
-                    position="bottom"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => void buy(plan)}
-                      disabled={!!buying}
-                      style={{
-                        width: '100%',
-                        padding: '8px 20px',
-                        height: 36,
-                        borderRadius: 8,
-                        border: '1px solid #EEEEEE',
-                        cursor: buying ? 'not-allowed' : 'pointer',
-                        fontFamily: 'inherit',
-                        fontWeight: 700,
-                        fontSize: 14,
-                        lineHeight: '20px',
-                        background: '#FEFEFE',
-                        color: '#626262',
-                        boxSizing: 'border-box',
-                        opacity: buying && buying !== plan.slug ? 0.5 : 1,
-                      }}
-                    >
-                      {buying === plan.slug
-                        ? 'Processing…'
-                        : `Buy — ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}`}
-                    </button>
-                  </Tooltip>
-                </div>
-              ))}
-        </div>
-
-        {SECTIONS.map((sec) => (
-          <Fragment key={sec.title}>
+        <div style={{ minWidth: 1108 }}>
+          {/* Plan headers */}
+          <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
             <div
               style={{
+                width: 262,
+                height: 178,
+                background: '#F9F9F9',
+                border: '1px solid #EEEEEE',
+                borderRadius: 8,
+                padding: 12,
                 display: 'flex',
-                gap: 20,
-                background: C.field,
-                borderBottom: `1px solid ${C.border}`,
-                padding: '10px 16px',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                boxSizing: 'border-box',
               }}
             >
-              <div
-                style={{
-                  width: 262,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: C.mid,
-                  letterSpacing: '.5px',
-                }}
-              >
-                {sec.title}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <SparklesIcon size={18} />
+                <span
+                  style={{ fontSize: 16, fontWeight: 600, lineHeight: '20px', color: '#1F2937' }}
+                >
+                  Features
+                </span>
               </div>
-              {plans.map((plan) => (
-                <div key={plan.slug} style={{ width: 262 }} />
-              ))}
             </div>
-            {sec.rows.map((row) => (
+            {plansLoading
+              ? [0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: 262,
+                      height: 178,
+                      background: '#F3F4F6',
+                      border: '1px solid #EEEEEE',
+                      borderRadius: 8,
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                ))
+              : plans.map((plan) => (
+                  <div
+                    key={plan.slug}
+                    style={{
+                      width: 262,
+                      height: 178,
+                      background: plan.isHighlighted
+                        ? 'linear-gradient(90deg, #D94D69 0%, #D49332 100%)'
+                        : '#FEEFF266',
+                      border: '1px solid #EEEEEE',
+                      borderRadius: 8,
+                      padding: 12,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      boxSizing: 'border-box',
+                      position: 'relative',
+                    }}
+                  >
+                    {plan.badge && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 8,
+                          right: 8,
+                          padding: '3px 10px',
+                          borderRadius: 4,
+                          background: plan.isHighlighted ? 'rgba(255,255,255,0.22)' : grad,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: C.onDark,
+                        }}
+                      >
+                        ⭐ {plan.badge}
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 15,
+                        color: plan.isHighlighted ? '#FFFFFF' : C.text,
+                        marginBottom: 4,
+                      }}
+                    >
+                      {plan.name}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: plan.isHighlighted ? 'rgba(255,255,255,0.8)' : C.mid,
+                        marginBottom: 10,
+                      }}
+                    >
+                      {plan.subtext}
+                    </div>
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        fontSize: 22,
+                        color: plan.isHighlighted ? '#FFFFFF' : C.text,
+                        marginBottom: 2,
+                      }}
+                    >
+                      {plan.credits.toLocaleString('en-IN')} Credits
+                    </div>
+                    <div
+                      style={{
+                        marginBottom: 8,
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 700,
+                          color: plan.isHighlighted ? '#FFFFFF' : C.text,
+                        }}
+                      >
+                        {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: plan.isHighlighted ? 'rgba(255,255,255,0.65)' : C.light,
+                        }}
+                      >
+                        ({paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))}{' '}
+                        GST)
+                      </span>
+                    </div>
+                    <Tooltip
+                      tip={
+                        buying && buying !== plan.slug
+                          ? 'Another payment is in progress'
+                          : undefined
+                      }
+                      position="bottom"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void buy(plan)}
+                        disabled={!!buying}
+                        style={{
+                          width: '100%',
+                          padding: '8px 20px',
+                          height: 36,
+                          borderRadius: 8,
+                          border: '1px solid #EEEEEE',
+                          cursor: buying ? 'not-allowed' : 'pointer',
+                          fontFamily: 'inherit',
+                          fontWeight: 700,
+                          fontSize: 14,
+                          lineHeight: '20px',
+                          background: '#FEFEFE',
+                          color: '#626262',
+                          boxSizing: 'border-box',
+                          opacity: buying && buying !== plan.slug ? 0.5 : 1,
+                        }}
+                      >
+                        {buying === plan.slug
+                          ? 'Processing…'
+                          : `Buy — ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}`}
+                      </button>
+                    </Tooltip>
+                  </div>
+                ))}
+          </div>
+
+          {SECTIONS.map((sec) => (
+            <Fragment key={sec.title}>
               <div
-                key={row.feature}
                 style={{
                   display: 'flex',
                   gap: 20,
+                  background: C.field,
                   borderBottom: `1px solid ${C.border}`,
-                  padding: '14px 16px',
+                  padding: '10px 16px',
                 }}
               >
-                <div style={{ width: 262, fontSize: 13, color: C.text, fontWeight: 500 }}>
-                  {row.feature}
+                <div
+                  style={{
+                    width: 262,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: C.mid,
+                    letterSpacing: '.5px',
+                  }}
+                >
+                  {sec.title}
                 </div>
-                {row.vals.map((v, vi) => (
-                  <div
-                    key={plans[vi]?.slug ?? vi}
-                    style={{
-                      width: 262,
-                      textAlign: 'center',
-                      fontSize: 13,
-                      color:
-                        v === 'No'
-                          ? '#9CA3AF'
-                          : v === 'Yes'
-                            ? C.mint
-                            : v === 'Full'
-                              ? C.pink
-                              : v === 'Limited'
-                                ? C.amber
-                                : C.mid,
-                      fontWeight: ['Yes', 'No', 'Full', 'Limited'].includes(v) ? 500 : 400,
-                    }}
-                  >
-                    {v === 'Yes' ? (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          background: 'rgba(32,158,70,0.12)',
-                        }}
-                      >
-                        <CheckIcon color={C.mint} size={13} />
-                      </span>
-                    ) : v === 'No' ? (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          background: 'rgba(245,92,122,0.12)',
-                        }}
-                      >
-                        <XIcon size={13} />
-                      </span>
-                    ) : (
-                      v
-                    )}
-                  </div>
+                {plans.map((plan) => (
+                  <div key={plan.slug} style={{ width: 262 }} />
                 ))}
               </div>
-            ))}
-          </Fragment>
-        ))}
+              {sec.rows.map((row) => (
+                <div
+                  key={row.feature}
+                  style={{
+                    display: 'flex',
+                    gap: 20,
+                    borderBottom: `1px solid ${C.border}`,
+                    padding: '14px 16px',
+                  }}
+                >
+                  <div style={{ width: 262, fontSize: 13, color: C.text, fontWeight: 500 }}>
+                    {row.feature}
+                  </div>
+                  {row.vals.map((v, vi) => (
+                    <div
+                      key={plans[vi]?.slug ?? vi}
+                      style={{
+                        width: 262,
+                        textAlign: 'center',
+                        fontSize: 13,
+                        color:
+                          v === 'No'
+                            ? '#9CA3AF'
+                            : v === 'Yes'
+                              ? C.mint
+                              : v === 'Full'
+                                ? C.pink
+                                : v === 'Limited'
+                                  ? C.amber
+                                  : C.mid,
+                        fontWeight: ['Yes', 'No', 'Full', 'Limited'].includes(v) ? 500 : 400,
+                      }}
+                    >
+                      {v === 'Yes' ? (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            background: 'rgba(32,158,70,0.12)',
+                          }}
+                        >
+                          <CheckIcon color={C.mint} size={13} />
+                        </span>
+                      ) : v === 'No' ? (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            background: 'rgba(245,92,122,0.12)',
+                          }}
+                        >
+                          <XIcon size={13} />
+                        </span>
+                      ) : (
+                        v
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </Fragment>
+          ))}
+        </div>
       </div>
 
       {toast && (

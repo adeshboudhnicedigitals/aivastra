@@ -1,5 +1,5 @@
 'use client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
@@ -32,6 +32,27 @@ const NAV = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const qc = useQueryClient();
+
+  // Prefetch a route's primary data on hover/focus so the page opens from cache.
+  function prefetchRoute(id: string) {
+    if (id === 'catalogues') {
+      qc.prefetchQuery({ queryKey: ['catalogues'], queryFn: () => api.get('/v1/catalogues') });
+    } else if (id === 'pricing') {
+      qc.prefetchQuery({
+        queryKey: ['credit-plans'],
+        queryFn: () => api.get('/v1/payments/plans'),
+        staleTime: 5 * 60 * 1000,
+      });
+    } else if (id === 'assets') {
+      qc.prefetchQuery({ queryKey: ['assets'], queryFn: () => api.get('/v1/assets') });
+    } else if (id === 'studio') {
+      qc.prefetchQuery({
+        queryKey: ['garmentTypes', 'women'],
+        queryFn: () => api.get('/v1/models/garment-types?gender=women'),
+      });
+    }
+  }
   const [collapsed, setCollapsed] = useState(false);
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupRect, setPopupRect] = useState<{
@@ -356,7 +377,9 @@ export function Sidebar() {
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                  prefetchRoute(item.id);
                 }}
+                onFocus={() => prefetchRoute(item.id)}
                 onMouseLeave={(e) => {
                   if (!isActive) e.currentTarget.style.background = 'transparent';
                 }}
