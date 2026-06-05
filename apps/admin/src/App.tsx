@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { ToastStack } from './components/ToastStack';
 import { Topbar } from './components/Topbar';
@@ -12,10 +13,9 @@ import UsersPage from './pages/UsersPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import type { ToastItem } from './types';
 
-type Page = 'dashboard' | 'assets' | 'users' | 'jobs' | 'settings' | 'workflows';
 type Theme = 'light' | 'dark';
 
-const PAGE_LABELS: Record<Page, string> = {
+const PATH_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   assets: 'Assets',
   users: 'Users',
@@ -31,11 +31,12 @@ function readInitialTheme(): Theme {
 
 export default function App() {
   const { token, role, isLoading } = useAuth();
-  const [page, setPage] = useState<Page>('dashboard');
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const idRef = useRef(0);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -58,15 +59,18 @@ export default function App() {
     setToasts((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
-  const handleNav = useCallback((p: string) => {
-    setPage(p as Page);
-  }, []);
+  const handleNav = useCallback(
+    (p: string) => {
+      navigate(`/${p}`);
+    },
+    [navigate],
+  );
 
   const handleNavWithFilter = useCallback(
     (_page: string, _filter?: { page: string; filter?: string }) => {
-      setPage(_page as Page);
+      navigate(`/${_page}`);
     },
-    [],
+    [navigate],
   );
 
   if (isLoading) {
@@ -92,28 +96,34 @@ export default function App() {
     return <LoginPage />;
   }
 
-  const trail = ['Aivastra', PAGE_LABELS[page]];
+  const segment = location.pathname.slice(1).split('/')[0] || 'dashboard';
+  const pageLabel = PATH_LABELS[segment] ?? 'Dashboard';
+  const trail = ['Aivastra', pageLabel];
   const pageProps = { onNav: handleNavWithFilter, toast };
   const settingsProps = { onNav: handleNavWithFilter, toast, theme, onToggleTheme: toggleTheme };
 
   return (
     <div className={`app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
       <Sidebar
-        page={page}
+        page={segment}
         onNav={handleNav}
         role={role ?? ''}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
       />
       <div className="main">
-        <Topbar trail={trail} onNavTrail={(i) => i === 0 && setPage('dashboard')} />
+        <Topbar trail={trail} onNavTrail={(i) => i === 0 && navigate('/dashboard')} />
         <main className="content">
-          {page === 'dashboard' && <DashboardPage {...pageProps} />}
-          {page === 'assets' && <AssetsPage {...pageProps} />}
-          {page === 'users' && <UsersPage {...pageProps} />}
-          {page === 'jobs' && <JobsPage {...pageProps} />}
-          {page === 'workflows' && <WorkflowsPage {...pageProps} />}
-          {page === 'settings' && <SettingsPage {...settingsProps} />}
+          <Routes>
+            <Route path="/" element={<DashboardPage {...pageProps} />} />
+            <Route path="/dashboard" element={<DashboardPage {...pageProps} />} />
+            <Route path="/assets" element={<AssetsPage {...pageProps} />} />
+            <Route path="/users" element={<UsersPage {...pageProps} />} />
+            <Route path="/jobs" element={<JobsPage {...pageProps} />} />
+            <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
+            <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
+            <Route path="*" element={<DashboardPage {...pageProps} />} />
+          </Routes>
         </main>
       </div>
       <ToastStack items={toasts} onDismiss={dismissToast} />

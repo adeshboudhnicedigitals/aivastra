@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { BackgroundUploadModal } from '../components/BackgroundUploadModal';
 import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import { EditBackgroundModal } from '../components/EditBackgroundModal';
@@ -147,7 +148,11 @@ function AssetThumb({
 export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const { storagePublicUrl } = useAuth();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<AssetTab>('garment-types');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const VALID_TABS: AssetTab[] = ['garment-types', 'faces', 'backgrounds', 'lower', 'shoe'];
+  const rawTab = searchParams.get('tab') as AssetTab | null;
+  const activeTab: AssetTab = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'garment-types';
+  const setActiveTab = (tab: AssetTab) => setSearchParams({ tab }, { replace: true });
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
   const [subView, setSubView] = useState<SubView>({ kind: 'list' });
 

@@ -428,8 +428,16 @@ export default function PricingPage(): React.ReactElement {
                   >
                     {plan.credits.toLocaleString('en-IN')} Credits
                   </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <div
+                  <div
+                    style={{
+                      marginBottom: 8,
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span
                       style={{
                         fontSize: 15,
                         fontWeight: 700,
@@ -437,17 +445,15 @@ export default function PricingPage(): React.ReactElement {
                       }}
                     >
                       {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}
-                    </div>
-                    <div
+                    </span>
+                    <span
                       style={{
                         fontSize: 11,
                         color: plan.isHighlighted ? 'rgba(255,255,255,0.65)' : C.light,
-                        marginTop: 1,
                       }}
                     >
-                      {paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))} GST
-                      (18%)
-                    </div>
+                      ({paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))} GST)
+                    </span>
                   </div>
                   <Tooltip
                     tip={
