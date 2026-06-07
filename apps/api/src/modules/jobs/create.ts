@@ -14,8 +14,15 @@ export async function createJob(
   userId: string,
   body: z.infer<typeof CreateTryOnJobRequest>,
 ) {
-  const { faceId, backgroundId, poseIds, upperGarmentKey, lowerCatalogId, shoeCatalogId } =
-    body.inputs;
+  const {
+    faceId,
+    backgroundId,
+    poseIds,
+    upperGarmentKey,
+    lowerCatalogId,
+    lowerGarmentKey,
+    shoeCatalogId,
+  } = body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
   const resolution: Resolution = body.resolution;
   const COST = RESOLUTION_COSTS[resolution];
@@ -66,8 +73,8 @@ export async function createJob(
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
 
   for (const pw of poseWorkflows) {
-    if (pw.lowerNodeId && !lowerCatalogId) {
-      throw new AppError('VALIDATION', 400, 'lower garment catalog item required for this pose');
+    if (pw.lowerNodeId && !lowerCatalogId && !lowerGarmentKey) {
+      throw new AppError('VALIDATION', 400, 'lower garment required for this pose');
     }
     if (pw.shoeNodeId && !shoeCatalogId) {
       throw new AppError('VALIDATION', 400, 'shoe catalog item required for this pose');
@@ -86,7 +93,9 @@ export async function createJob(
 
       // Only store inputs the workflow actually supports — strips irrelevant fields
       // so the dispatcher never receives/resolves data it won't use.
-      const effectiveLowerCatalogId = pw?.lowerNodeId ? (lowerCatalogId ?? null) : null;
+      const effectiveLowerCatalogId =
+        pw?.lowerNodeId && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
+      const effectiveLowerGarmentKey = pw?.lowerNodeId && lowerGarmentKey ? lowerGarmentKey : null;
       const effectiveShoeCatalogId = pw?.shoeNodeId ? (shoeCatalogId ?? null) : null;
       // Always store aspectRatio — patcher gates on sizeNodeIds.length at dispatch time
       const effectiveAspectRatio = aspectRatio;
@@ -109,6 +118,7 @@ export async function createJob(
         backgroundId,
         poseId,
         lowerCatalogId: effectiveLowerCatalogId,
+        lowerGarmentKey: effectiveLowerGarmentKey,
         shoeCatalogId: effectiveShoeCatalogId,
         userHint: promptGuard(body.userHint),
         params: {

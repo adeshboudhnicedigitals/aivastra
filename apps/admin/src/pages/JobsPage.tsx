@@ -28,8 +28,18 @@ interface JobEvent {
   createdAt: string;
 }
 
+interface InputImages {
+  face?: string;
+  background?: string;
+  pose?: string;
+  upper?: string;
+  lower?: string;
+  shoe?: string;
+}
+
 interface JobDetail extends Job {
   events?: JobEvent[];
+  inputImages?: InputImages;
 }
 
 function EventRow({ ev }: { ev: JobEvent }) {
@@ -250,6 +260,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     const j = detail;
     return (
       <>
+        <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
         <div className="page-head">
           <div>
             <button className="btn ghost" onClick={() => setDetail(null)}>
@@ -261,6 +272,23 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
             </p>
           </div>
           <div className="head-tools">
+            <button
+              className="btn sm ghost"
+              onClick={() => void openDetail(j)}
+              disabled={detailLoading}
+              title="Refresh"
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  animation: detailLoading ? 'spin 0.8s linear infinite' : 'none',
+                }}
+              >
+                <Icon.Refresh />
+              </span>
+              Refresh
+            </button>
             <StatusBadge status={j.status} />
             {(j.status === 'QUEUED' ||
               j.status === 'GENERATING' ||
@@ -314,6 +342,68 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                   <a href={j.outputUrl} target="_blank" rel="noreferrer" className="link">
                     View output <Icon.ExternalLink />
                   </a>
+                </div>
+              </div>
+            )}
+
+            {j.inputImages && Object.values(j.inputImages).some(Boolean) && (
+              <div className="card" style={{ marginBottom: 14 }}>
+                <div className="card-head">
+                  <h3>Input Images</h3>
+                </div>
+                <div className="card-body">
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                    {(
+                      [
+                        { key: 'face', label: 'Face (ComfyUI)' },
+                        { key: 'background', label: 'Background (ComfyUI)' },
+                        { key: 'pose', label: 'Pose' },
+                        { key: 'upper', label: 'Upper Garment' },
+                        { key: 'lower', label: 'Lower Garment' },
+                        { key: 'shoe', label: 'Shoes' },
+                      ] as { key: keyof InputImages; label: string }[]
+                    ).map(({ key, label }) => {
+                      const url = j.inputImages?.[key];
+                      if (!url) return null;
+                      return (
+                        <a
+                          key={key}
+                          href={url}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ textDecoration: 'none', textAlign: 'center' }}
+                        >
+                          {/* biome-ignore lint/performance/noImgElement: admin SPA, not Next.js */}
+                          <img
+                            src={url}
+                            alt={label}
+                            style={{
+                              width: 96,
+                              height: 96,
+                              objectFit: 'cover',
+                              borderRadius: 8,
+                              border: '1px solid var(--border)',
+                              display: 'block',
+                              cursor: 'zoom-in',
+                            }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: 'var(--muted)',
+                              marginTop: 4,
+                              display: 'block',
+                            }}
+                          >
+                            {label}
+                          </span>
+                        </a>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
@@ -399,6 +489,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
 
   return (
     <>
+      <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
       <div className="page-head">
         <div>
           <h1>Jobs</h1>
@@ -415,6 +506,23 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
+          <button
+            className="btn sm ghost"
+            onClick={() => void load()}
+            disabled={loading}
+            title="Refresh"
+            style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+          >
+            <span
+              style={{
+                display: 'inline-block',
+                animation: loading ? 'spin 0.8s linear infinite' : 'none',
+              }}
+            >
+              <Icon.Refresh />
+            </span>
+            Refresh
+          </button>
         </div>
       </div>
 

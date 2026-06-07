@@ -33,6 +33,7 @@ export interface GarmentType {
   thumbnailKey?: string | null;
   isActive: boolean;
   sortOrder: number;
+  requiresLowerUpload: boolean;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;

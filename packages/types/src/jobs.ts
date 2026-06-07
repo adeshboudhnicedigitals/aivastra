@@ -15,6 +15,7 @@ export const CreateTryOnJobRequest = z.object({
     backgroundId: z.string().uuid(),
     poseIds: z.array(z.string().uuid()).min(1).max(6),
     lowerCatalogId: z.string().uuid().optional(),
+    lowerGarmentKey: z.string().min(1).max(512).optional(),
     shoeCatalogId: z.string().uuid().optional(),
   }),
   params: z

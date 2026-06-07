@@ -29,6 +29,7 @@ interface GarmentType {
   slug: string;
   label: string;
   thumbnailUrl?: string | null;
+  requiresLowerUpload: boolean;
 }
 interface FaceItem {
   id: string;
@@ -328,9 +329,13 @@ export default function StudioPage(): React.ReactElement {
   };
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
   const [garmentKey, setGarmentKey] = useState('');
+  const [lowerGarmentFile, setLowerGarmentFile] = useState<File | null>(null);
+  const [lowerGarmentKey, setLowerGarmentKey] = useState('');
+  const [isUploadingLower, setIsUploadingLower] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lowerFileInputRef = useRef<HTMLInputElement>(null);
   const [garmentVisibleCount, setGarmentVisibleCount] = useState(6);
   const garmentRoRef = useRef<ResizeObserver | null>(null);
   const garmentRowRef = useCallback((el: HTMLDivElement | null) => {
@@ -451,6 +456,25 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
+  async function handleLowerGarmentUpload(file: File) {
+    setLowerGarmentFile(file);
+    setIsUploadingLower(true);
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {});
+      setLowerGarmentKey(r2Key);
+    } catch (e) {
+      showToast(`Lower garment upload failed: ${(e as Error).message}`);
+      setLowerGarmentFile(null);
+    } finally {
+      setIsUploadingLower(false);
+    }
+  }
+
   function handleFaceSelect(id: string) {
     setFaceId(id);
     setBackgroundId('');
@@ -489,6 +513,7 @@ export default function StudioPage(): React.ReactElement {
           backgroundId,
           poseIds,
           lowerCatalogId: lowerCatalogId || undefined,
+          lowerGarmentKey: lowerGarmentKey || undefined,
           shoeCatalogId: shoeCatalogId || undefined,
         },
         aspectRatio: aspect,
@@ -504,8 +529,15 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
+  const selectedGarmentType = garmentTypes?.items.find((g) => g.id === garmentTypeId);
+  const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
+
   const canNext = (): boolean => {
-    if (step === 0) return !!gender && !!garmentTypeId && (!!garmentFile || !!garmentKey);
+    if (step === 0) {
+      const hasUpper = !!garmentFile || !!garmentKey;
+      const hasLower = !requiresLowerUpload || !!lowerGarmentFile || !!lowerGarmentKey;
+      return !!gender && !!garmentTypeId && hasUpper && hasLower;
+    }
     if (step === 1) return !!faceId;
     if (step === 2) return !!backgroundId;
     return true;
@@ -760,8 +792,11 @@ export default function StudioPage(): React.ReactElement {
             </div>
 
             <section>
-              <SectionHead title="Upload Garment Image" />
+              <SectionHead
+                title={requiresLowerUpload ? 'Upload Garment Images' : 'Upload Garment Image'}
+              />
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                {/* Dashed upload box — single zone or split into two */}
                 <div
                   style={{
                     flex: 1,
@@ -770,6 +805,7 @@ export default function StudioPage(): React.ReactElement {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    gap: requiresLowerUpload ? 8 : 0,
                     background: '#F9F9F9',
                     borderRadius: 12,
                     border: '1px dashed #B1B1B1',
@@ -777,9 +813,12 @@ export default function StudioPage(): React.ReactElement {
                     boxSizing: 'border-box',
                   }}
                 >
+                  {/* Upper garment label */}
                   <label
                     style={{
-                      width: 265,
+                      flex: requiresLowerUpload ? 1 : 'none',
+                      width: requiresLowerUpload ? undefined : 265,
+                      minWidth: 0,
                       height: 210,
                       display: 'flex',
                       flexDirection: 'column',
@@ -791,6 +830,7 @@ export default function StudioPage(): React.ReactElement {
                       padding: 12,
                       cursor: 'pointer',
                       boxSizing: 'border-box',
+                      overflow: 'hidden',
                     }}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={(e) => {
@@ -909,54 +949,56 @@ export default function StudioPage(): React.ReactElement {
                         <img
                           src={`${BASE}/assets/upperGarmentRef.png`}
                           alt="Upper garment reference"
-                          style={{ width: 92, height: 92, borderRadius: 8, objectFit: 'cover' }}
+                          style={{
+                            width: requiresLowerUpload ? 56 : 92,
+                            height: requiresLowerUpload ? 56 : 92,
+                            borderRadius: 8,
+                            objectFit: 'cover',
+                          }}
                         />
                         <span
                           style={{
-                            width: 241,
-                            height: 18,
-                            fontSize: 12,
+                            width: '100%',
+                            fontSize: requiresLowerUpload ? 11 : 12,
                             fontWeight: 500,
                             lineHeight: '100%',
                             color: '#141414',
                             textAlign: 'center',
                           }}
                         >
-                          Upload Top Wear
+                          {requiresLowerUpload ? 'Top Wear' : 'Upload Top Wear'}
                         </span>
                         <span
                           style={{
-                            width: 241,
-                            height: 30,
+                            width: '100%',
                             fontSize: 10,
                             fontWeight: 500,
-                            lineHeight: '100%',
+                            lineHeight: '140%',
                             color: '#939393',
                             textAlign: 'center',
                           }}
                         >
-                          Drag and drop an image here · JPG, PNG · Max 10MB
+                          {requiresLowerUpload
+                            ? 'JPG, PNG · Max 10MB'
+                            : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
                         </span>
                         <div
                           style={{
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 8,
-                            width: 110,
-                            height: 18,
+                            gap: 6,
                           }}
                         >
-                          <ImagePlusIcon size={16} />
+                          <ImagePlusIcon size={14} />
                           <span
                             style={{
-                              fontSize: 12,
+                              fontSize: 11,
                               fontWeight: 500,
                               lineHeight: '18px',
                               color: '#141414',
-                              textAlign: 'center',
                             }}
                           >
-                            Browse Image
+                            Browse
                           </span>
                         </div>
                       </>
@@ -972,7 +1014,185 @@ export default function StudioPage(): React.ReactElement {
                       }}
                     />
                   </label>
+
+                  {/* Lower garment label — only when requiresLowerUpload */}
+                  {requiresLowerUpload && (
+                    <label
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        height: 210,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 12,
+                        background: '#FEFEFE',
+                        border: '1px solid #EEEEEE',
+                        borderRadius: 8,
+                        padding: 12,
+                        cursor: 'pointer',
+                        boxSizing: 'border-box',
+                        overflow: 'hidden',
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const f = e.dataTransfer.files?.[0];
+                        if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                          handleLowerGarmentUpload(f);
+                      }}
+                    >
+                      {lowerGarmentFile ? (
+                        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={URL.createObjectURL(lowerGarmentFile)}
+                            alt={lowerGarmentFile.name}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                              borderRadius: 6,
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setLowerGarmentFile(null);
+                              setLowerGarmentKey('');
+                            }}
+                            style={{
+                              position: 'absolute',
+                              top: 6,
+                              right: 6,
+                              width: 24,
+                              height: 24,
+                              borderRadius: '50%',
+                              background: 'rgba(0,0,0,0.5)',
+                              border: 'none',
+                              color: 'white',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <XIcon size={14} />
+                          </button>
+                          {isUploadingLower && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                bottom: 8,
+                                left: 8,
+                                right: 8,
+                                background: 'rgba(255,255,255,0.95)',
+                                borderRadius: 8,
+                                padding: '6px 10px',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  fontSize: 12,
+                                  color: C.text,
+                                }}
+                              >
+                                <SpinnerIcon size={14} /> Uploading…
+                              </div>
+                            </div>
+                          )}
+                          {lowerGarmentKey && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 8,
+                                left: 8,
+                                background: C.mint,
+                                color: 'white',
+                                borderRadius: 6,
+                                padding: '3px 8px',
+                                fontSize: 11,
+                                fontWeight: 600,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <CheckIcon color="#fff" size={10} /> Uploaded
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={`${BASE}/assets/upperGarmentRef.png`}
+                            alt="Lower garment reference"
+                            style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover' }}
+                          />
+                          <span
+                            style={{
+                              width: '100%',
+                              fontSize: 11,
+                              fontWeight: 500,
+                              lineHeight: '100%',
+                              color: '#141414',
+                              textAlign: 'center',
+                            }}
+                          >
+                            Bottom Wear
+                          </span>
+                          <span
+                            style={{
+                              width: '100%',
+                              fontSize: 10,
+                              fontWeight: 500,
+                              lineHeight: '140%',
+                              color: '#939393',
+                              textAlign: 'center',
+                            }}
+                          >
+                            JPG, PNG · Max 10MB
+                          </span>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            <ImagePlusIcon size={14} />
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 500,
+                                lineHeight: '18px',
+                                color: '#141414',
+                              }}
+                            >
+                              Browse
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      <input
+                        ref={lowerFileInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) handleLowerGarmentUpload(f);
+                        }}
+                      />
+                    </label>
+                  )}
                 </div>
+                {/* Tips panel — always on the right */}
                 <div
                   style={{
                     flex: 1,
@@ -1232,7 +1452,7 @@ export default function StudioPage(): React.ReactElement {
               )}
             </section>
 
-            {needsLower && (
+            {needsLower && !requiresLowerUpload && (
               <section>
                 <SectionHead title="Lower Garment" />
                 <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>
