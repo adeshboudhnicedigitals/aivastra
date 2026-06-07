@@ -170,6 +170,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     slug: '',
     label: '',
     genderSlug: 'men' as GenderSlug,
+    requiresLowerUpload: false,
   });
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
@@ -178,6 +179,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [editSubcatImageFile, setEditSubcatImageFile] = useState<File | null>(null);
   const [editSubcatSaving, setEditSubcatSaving] = useState(false);
   const [editSubcatLabel, setEditSubcatLabel] = useState('');
+  const [editSubcatRequiresLowerUpload, setEditSubcatRequiresLowerUpload] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDelete | null>(null);
@@ -530,7 +532,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             <button
               className="btn"
               onClick={() => {
-                setSubcatForm({ slug: '', label: '', genderSlug: 'men' });
+                setSubcatForm({
+                  slug: '',
+                  label: '',
+                  genderSlug: 'men',
+                  requiresLowerUpload: false,
+                });
                 setShowSubcatModal(true);
               }}
             >
@@ -817,6 +824,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                           onClick={() => {
                             setEditingSubcat(sub);
                             setEditSubcatLabel(sub.label);
+                            setEditSubcatRequiresLowerUpload(sub.requiresLowerUpload);
                             setEditSubcatImageFile(null);
                           }}
                         >
@@ -1459,6 +1467,22 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 </select>
               </div>
               <div className="field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={subcatForm.requiresLowerUpload}
+                    disabled={subcatSaving}
+                    onChange={(e) =>
+                      setSubcatForm((f) => ({ ...f, requiresLowerUpload: e.target.checked }))
+                    }
+                  />
+                  Requires lower garment upload
+                  <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                    (user uploads bottom wear separately)
+                  </span>
+                </label>
+              </div>
+              <div className="field">
                 <label>
                   Thumbnail image{' '}
                   <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
@@ -1578,6 +1602,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   setEditingSubcat(null);
                   setEditSubcatImageFile(null);
                   setEditSubcatLabel('');
+                  setEditSubcatRequiresLowerUpload(false);
                 }
           }
         >
@@ -1594,6 +1619,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   setEditingSubcat(null);
                   setEditSubcatImageFile(null);
                   setEditSubcatLabel('');
+                  setEditSubcatRequiresLowerUpload(false);
                 }}
                 disabled={editSubcatSaving}
                 style={{ marginLeft: 'auto' }}
@@ -1613,6 +1639,20 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   disabled={editSubcatSaving}
                   onChange={(e) => setEditSubcatLabel(e.target.value)}
                 />
+              </div>
+              <div className="field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={editSubcatRequiresLowerUpload}
+                    disabled={editSubcatSaving}
+                    onChange={(e) => setEditSubcatRequiresLowerUpload(e.target.checked)}
+                  />
+                  Requires lower garment upload
+                  <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                    (user uploads bottom wear separately)
+                  </span>
+                </label>
               </div>
               <div className="field">
                 <label>Thumbnail image</label>
@@ -1691,6 +1731,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   setEditingSubcat(null);
                   setEditSubcatImageFile(null);
                   setEditSubcatLabel('');
+                  setEditSubcatRequiresLowerUpload(false);
                 }}
                 disabled={editSubcatSaving}
               >
@@ -1700,12 +1741,18 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 className="btn primary"
                 disabled={
                   editSubcatSaving ||
-                  (!editSubcatImageFile && editSubcatLabel.trim() === editingSubcat.label.trim())
+                  (!editSubcatImageFile &&
+                    editSubcatLabel.trim() === editingSubcat.label.trim() &&
+                    editSubcatRequiresLowerUpload === editingSubcat.requiresLowerUpload)
                 }
                 onClick={async () => {
                   setEditSubcatSaving(true);
                   try {
-                    const patchBody: { thumbnailKey?: string; label?: string } = {};
+                    const patchBody: {
+                      thumbnailKey?: string;
+                      label?: string;
+                      requiresLowerUpload?: boolean;
+                    } = {};
                     if (editSubcatImageFile) {
                       const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
                         '/admin/assets/garment-types/presign',
@@ -1725,6 +1772,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     if (editSubcatLabel.trim() !== editingSubcat.label.trim()) {
                       patchBody.label = editSubcatLabel.trim();
                     }
+                    if (editSubcatRequiresLowerUpload !== editingSubcat.requiresLowerUpload) {
+                      patchBody.requiresLowerUpload = editSubcatRequiresLowerUpload;
+                    }
                     if (Object.keys(patchBody).length > 0) {
                       await apiFetch(`/admin/assets/garment-types/${editingSubcat.id}`, {
                         method: 'PATCH',
@@ -1738,6 +1788,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     setEditingSubcat(null);
                     setEditSubcatImageFile(null);
                     setEditSubcatLabel('');
+                    setEditSubcatRequiresLowerUpload(false);
                   } catch {
                     toast({ kind: 'error', title: 'Failed to save' });
                   } finally {

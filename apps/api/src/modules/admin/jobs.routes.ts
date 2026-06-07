@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { aliasedTable, and, count, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -28,6 +28,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
 
   app.get('/admin/jobs', { preHandler: R, schema: { querystring: JobsQuery } }, async (req) => {
+    // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
     const { page, pageSize, status, search } = req.query as any;
 
     const conditions: ReturnType<typeof eq>[] = [];
@@ -100,7 +101,11 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     '/admin/jobs/:id',
     { preHandler: R, schema: { params: z.object({ id: z.string().uuid() }) } },
     async (req) => {
+      // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
       const { id } = req.params as any;
+      const lowerCatalog = aliasedTable(schema.catalogItems, 'lower_catalog');
+      const shoeCatalog = aliasedTable(schema.catalogItems, 'shoe_catalog');
+
       const [row] = await app.db
         .select({
           id: schema.jobs.id,
@@ -122,6 +127,15 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
           userHint: schema.jobInputs.userHint,
           outputKey: schema.jobOutputs.resultKey,
+          // ComfyUI-actual inputs — mirrors dispatcher's key resolution exactly
+          faceSideKey: schema.modelPoses.faceSideR2Key,
+          bgComfyKey: schema.modelPoses.bgComfyR2Key,
+          bgFallbackKey: schema.modelBackgrounds.r2Key,
+          poseKey: schema.modelPoses.r2Key,
+          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          lowerCatalogKey: lowerCatalog.r2Key,
+          shoeCatalogKey: shoeCatalog.r2Key,
         })
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
@@ -133,6 +147,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         )
         .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .leftJoin(lowerCatalog, eq(lowerCatalog.id, schema.jobInputs.lowerCatalogId))
+        .leftJoin(shoeCatalog, eq(shoeCatalog.id, schema.jobInputs.shoeCatalogId))
         .where(eq(schema.jobs.id, id));
 
       if (!row) throw new AppError('NOT_FOUND', 404, 'job not found');
@@ -144,10 +160,32 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .orderBy(desc(schema.jobEvents.createdAt))
         .limit(50);
 
+      const pu = (key: string | null | undefined) => (key ? app.storage.publicUrl(key) : undefined);
+
+      // Mirrors dispatcher resolution: lowerGarmentKey (user-upload) takes priority over catalog
+      const lowerKey = row.lowerGarmentKey ?? row.lowerCatalogKey;
+      const shoeKey = row.shoeCatalogKey;
+
       return {
         ...row,
-        outputUrl: row.outputKey ? app.storage.publicUrl(row.outputKey) : undefined,
+        outputUrl: pu(row.outputKey),
         outputKey: undefined,
+        faceSideKey: undefined,
+        bgComfyKey: undefined,
+        bgFallbackKey: undefined,
+        poseKey: undefined,
+        upperGarmentKey: undefined,
+        lowerGarmentKey: undefined,
+        lowerCatalogKey: undefined,
+        shoeCatalogKey: undefined,
+        inputImages: {
+          face: pu(row.faceSideKey),
+          background: pu(row.bgComfyKey ?? row.bgFallbackKey),
+          pose: pu(row.poseKey),
+          upper: pu(row.upperGarmentKey),
+          lower: pu(lowerKey),
+          shoe: pu(shoeKey),
+        },
         events,
       };
     },
@@ -157,6 +195,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     '/admin/jobs/:id/retry',
     { preHandler: W, schema: { params: z.object({ id: z.string().uuid() }) } },
     async (req) => {
+      // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
       const { id } = req.params as any;
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');
@@ -175,6 +214,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     '/admin/jobs/:id/cancel',
     { preHandler: W, schema: { params: z.object({ id: z.string().uuid() }) } },
     async (req) => {
+      // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
       const { id } = req.params as any;
       const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, id));
       if (!job) throw new AppError('NOT_FOUND', 404, 'no job');

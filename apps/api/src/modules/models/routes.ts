@@ -19,6 +19,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           label: schema.garmentSubcategories.label,
           sortOrder: schema.garmentSubcategories.sortOrder,
           thumbnailKey: schema.garmentSubcategories.thumbnailKey,
+          requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
         })
         .from(schema.garmentSubcategories)
         .where(

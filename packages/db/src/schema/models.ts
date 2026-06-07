@@ -45,6 +45,7 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   thumbnailKey: text('thumbnail_key'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
+  requiresLowerUpload: boolean('requires_lower_upload').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

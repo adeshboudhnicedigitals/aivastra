@@ -37,7 +37,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       preHandler: W,
       schema: { body: PresignGarmentTypeBody },
     },
-    async (req) => {
+    async (_req) => {
       const newId = randomUUID();
       const thumbKey = keys.subcategoryThumb(newId);
       // contentType is still validated by the route schema, but the uploaded image is
@@ -54,16 +54,25 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       schema: { body: CreateGarmentTypeBody },
     },
     async (req) => {
-      const { genderSlug, slug, label, sortOrder, thumbnailKey } = req.body as {
-        genderSlug: string;
-        slug: string;
-        label: string;
-        sortOrder: number;
-        thumbnailKey?: string;
-      };
+      const { genderSlug, slug, label, sortOrder, thumbnailKey, requiresLowerUpload } =
+        req.body as {
+          genderSlug: string;
+          slug: string;
+          label: string;
+          sortOrder: number;
+          thumbnailKey?: string;
+          requiresLowerUpload?: boolean;
+        };
       const [row] = await app.db
         .insert(schema.garmentSubcategories)
-        .values({ genderSlug, slug, label, sortOrder, thumbnailKey })
+        .values({
+          genderSlug,
+          slug,
+          label,
+          sortOrder,
+          thumbnailKey,
+          requiresLowerUpload: requiresLowerUpload ?? false,
+        })
         .returning();
       return row;
     },

@@ -251,12 +251,14 @@ export const CreateGarmentTypeBody = z.object({
   label: z.string().min(1).max(120),
   sortOrder: z.number().int().default(0),
   thumbnailKey: z.string().optional(),
+  requiresLowerUpload: z.boolean().optional().default(false),
 });
 export const PatchGarmentTypeBody = z.object({
   label: z.string().min(1).max(120).optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   thumbnailKey: z.string().nullable().optional(),
+  requiresLowerUpload: z.boolean().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,

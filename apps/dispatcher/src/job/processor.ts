@@ -118,9 +118,11 @@ export async function processJob(
   const poseKey = poseRow.r2Key;
   const workflowTemplateId = poseRow.workflowTemplateId;
 
-  // Resolve optional lower garment catalog ID → R2 key
+  // Resolve lower garment: user-uploaded key takes priority over catalog ID
   let lowerKey: string | null = null;
-  if (inputs.lowerCatalogId) {
+  if (inputs.lowerGarmentKey) {
+    lowerKey = inputs.lowerGarmentKey;
+  } else if (inputs.lowerCatalogId) {
     const [lowerRow] = await db
       .select({ r2Key: schema.catalogItems.r2Key })
       .from(schema.catalogItems)
