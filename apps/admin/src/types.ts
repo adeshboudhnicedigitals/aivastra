@@ -96,6 +96,7 @@ export interface User {
   tier: string;
   isBanned: boolean;
   banReason: string | null;
+  isAdmin: boolean;
   balance: number;
   totalJobs: number;
   lastJobAt: string | null;

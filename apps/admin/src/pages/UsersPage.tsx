@@ -150,6 +150,11 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
             </p>
           </div>
           <div className="head-tools">
+            {u.isAdmin && (
+              <span className="badge dot" style={{ background: 'var(--pink)', color: '#fff' }}>
+                Admin
+              </span>
+            )}
             <StatusBadge status={u.isBanned ? 'FAILED' : 'active'} />
             <button
               className="btn"
@@ -161,9 +166,11 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
             >
               <Icon.Plus /> Grant Credits
             </button>
-            <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
-              <Icon.Ban /> {u.isBanned ? 'Unsuspend' : 'Suspend'}
-            </button>
+            {!u.isAdmin && (
+              <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
+                <Icon.Ban /> {u.isBanned ? 'Unsuspend' : 'Suspend'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -367,9 +374,20 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <NameAvatar name={u.displayName ?? u.email} email={u.email} size={34} />
                         <div>
-                          <span className="semi">
+                          <span
+                            className="semi"
+                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                          >
                             {u.displayName ?? (
                               <span style={{ color: 'var(--muted)' }}>{u.email}</span>
+                            )}
+                            {u.isAdmin && (
+                              <span
+                                className="badge dot"
+                                style={{ background: 'var(--pink)', color: '#fff', fontSize: 10 }}
+                              >
+                                Admin
+                              </span>
                             )}
                           </span>
                           {u.displayName && (
