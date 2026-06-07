@@ -1,8 +1,9 @@
 import { schema } from '@aivastra/db';
 import { UpdateUserBody } from '@aivastra/types';
-import { count, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { count, desc, eq, ilike, isNotNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
 
 const PaginatedSearch = z.object({
@@ -43,12 +44,14 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           balance: sql<number>`COALESCE(${schema.userCredits.balance}, 0)`,
           totalJobs: sql<number>`COUNT(${schema.jobs.id})::int`,
           lastJobAt: sql<string | null>`MAX(${schema.jobs.createdAt})`,
+          isAdmin: isNotNull(schema.adminUsers.id),
         })
         .from(schema.users)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
         .leftJoin(schema.jobs, eq(schema.jobs.userId, schema.users.id))
+        .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
         .where(where)
-        .groupBy(schema.users.id, schema.userCredits.balance)
+        .groupBy(schema.users.id, schema.userCredits.balance, schema.adminUsers.id)
         .orderBy(desc(schema.users.createdAt))
         .limit(pageSize)
         .offset((page - 1) * pageSize);
@@ -75,8 +78,10 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           banReason: schema.users.banReason,
           createdAt: schema.users.createdAt,
           updatedAt: schema.users.updatedAt,
+          isAdmin: isNotNull(schema.adminUsers.id),
         })
         .from(schema.users)
+        .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
         .where(eq(schema.users.id, id));
       const [credits] = await app.db
         .select()
@@ -108,6 +113,15 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as any;
       const { tier, isBanned, banReason, forceLogout } = req.body as any;
+
+      if (isBanned) {
+        const [adminRow] = await app.db
+          .select({ id: schema.adminUsers.id })
+          .from(schema.adminUsers)
+          .where(eq(schema.adminUsers.userId, id));
+        if (adminRow) throw new AppError('FORBIDDEN', 403, 'cannot suspend an admin user');
+      }
+
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (tier !== undefined) patch.tier = tier;
       if (isBanned !== undefined) patch.isBanned = isBanned;
@@ -130,6 +144,12 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as any;
+      const [adminRow] = await app.db
+        .select({ id: schema.adminUsers.id })
+        .from(schema.adminUsers)
+        .where(eq(schema.adminUsers.userId, id));
+      if (adminRow) throw new AppError('FORBIDDEN', 403, 'cannot delete an admin user');
+
       await app.db
         .update(schema.users)
         .set({
