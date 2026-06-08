@@ -130,7 +130,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       if (forceLogout)
         await app.db
           .update(schema.refreshTokens)
-          .set({ revoked: true })
+          .set({ revokedAt: new Date() })
           .where(eq(schema.refreshTokens.userId, id));
       return { ok: true };
     },
@@ -161,7 +161,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .where(eq(schema.users.id, id));
       await app.db
         .update(schema.refreshTokens)
-        .set({ revoked: true })
+        .set({ revokedAt: new Date() })
         .where(eq(schema.refreshTokens.userId, id));
       return { ok: true };
     },

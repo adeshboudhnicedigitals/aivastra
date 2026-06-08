@@ -7,6 +7,68 @@
 
 ## Log
 
+### 2026-06-08 — Auth refresh token family fix (logout race condition)
+
+**Done**
+- Migration `0032_refresh_token_family.sql`: added `family_id`, `generation`, `used_at`, `revoked_at`; backfilled; added `UNIQUE(token_hash)`, `UNIQUE(family_id, generation)`, partial unique index `refresh_tokens_one_active_per_family` (with explicit comment on why `expires_at` is excluded), and `family_id` index
+- Updated `packages/db/src/schema/users.ts` `refreshTokens` table with new columns (kept `revoked` boolean for backward compat)
+- Renamed `issueTokens()` → `createSessionTokens()` in `tokens.ts`; documented "session creation ONLY"; added `familyId: crypto.randomUUID()` and `generation: 1`
+- Rewrote `/v1/auth/refresh` in `routes.ts` as self-contained rotation (no `createSessionTokens` call):
+  - `FOR UPDATE` lock on presented token row only
+  - Transaction wraps `mark used` + `insert successor`; JWT/signing stays outside
+  - Grace window (3s): concurrent tab reuse of just-used token finds latest active successor via `ORDER BY generation DESC LIMIT 1` and gets reissued (200, no cookie change)
+  - Stale replay outside grace window logs `REFRESH_TOKEN_STALE` and returns 401 without revoking family
+- Rewrote `/v1/auth/logout` to revoke entire family (`revokedAt` on all rows matching `family_id`)
+- Updated password change + reset + admin suspend/delete to use `revokedAt` instead of `revoked`
+- Full audit: zero remaining `revoked: true` writes in the entire codebase
+- Updated `apps/web/src/lib/api.ts`:
+  - BroadcastChannel listens for `token-refreshed`, writes `access_token` cookie for other tabs
+  - `getToken()` consumes `broadcastToken` before falling back to `document.cookie`
+  - Current tab explicitly writes its own `access_token` cookie via `setAccessTokenCookie()` after successful refresh (does not rely on BFF alone or BroadcastChannel echo)
+  - Posts `token-refreshed` to other tabs after successful refresh
+- Added auth integration tests (written but **not executed** — Docker unavailable): concurrent refresh, replay outside grace, logout family revocation, grace window reissue
+- Typecheck: clean rebuild of `@aivastra/db` → API auth code typechecks; 4 pre-existing errors remain in unrelated files (`ClonePoseBody`, `lowerGarmentKey`, `platform`)
+- Lint: only warnings on changed files (pre-existing `any` types, intentional `document.cookie` writes, non-null assertions in regex parsing); zero new errors
+
+**Failed / Not Done**
+- Integration tests were **written but never executed**. Docker Desktop is not running (`ECONNREFUSED 127.0.0.1:5432`). Tests compile but validation is pending. This is a hard blocker before merge.
+- `window.location.href` navigation on auth failure remains (pre-existing, out of scope for this PR)
+
+**Open Questions / Decisions**
+- Two-phase migration recommended: Deploy 0032 + observe `REFRESH_TOKEN_STALE`/`REFRESH_TOKEN_REISSUE` metrics for 1-2 weeks before dropping `revoked` column in 0033
+- Cookie Store API is not widely supported enough to replace `document.cookie` for BroadcastChannel sync. Keeping manual string construction.
+
+**Merge Gate (must pass before merge)**
+1. `pnpm docker:up` → `node apps/api/node_modules/vitest/vitest.mjs run test/integration/auth.test.ts`
+2. Verify concurrent refresh: 5 requests → 1 rotated, 4 reissued, 0 failures
+3. Verify logout family revocation: G1→G2, logout, G2 refresh → 401
+4. Verify replay outside grace: G1→G2, wait >3s, reuse G1 → 401, G2 still works
+
+---
+
+### 2026-06-08 — Studio wizard auto-select defaults + pose clone gap analysis
+
+**Done**
+- Studio wizard: auto-select first garment type, face/model, background, resolution (HD), lower garment, shoes on data load
+- Fixed garment type click handler to cascade-clear downstream selections (face, bg, poses, lower, shoes)
+- Maintained pose selection as user-driven multi-select (not auto-selected)
+- Typecheck + lint clean
+
+**Open Questions**
+- Pose clone gaps documented (R2 key sharing, missing faceSideR2Key/bgComfyR2Key cleanup, no DB unique constraint, no gender validation, no transaction). Fixes not yet implemented.
+
+---
+
+### 2026-06-08 — AGENTS.md refresh
+
+**Done**
+- Updated `AGENTS.md` to reflect current repo state: added `@aivastra/observability`, `apps/dispatcher`, `apps/web`, `apps/admin` to monorepo boundaries table
+- Removed stale "dispatcher (not yet built)" text; added full dispatcher role, web BFF auth pattern, and package build order to invariants
+- Added gotchas: lefthook git hooks, CI auto-deploy on master push, web/admin lack test scripts, web is not ESM
+- Added lint/format tool (Biome) to Stack section
+
+---
+
 ### 2026-06-03 — Aspect ratio cleanup, presign bug fix, CI/deploy fixes
 
 **Done**

@@ -1,7 +1,7 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   CheckIcon,
@@ -360,6 +360,11 @@ export default function StudioPage(): React.ReactElement {
   const [lowerCatalogId, setLowerCatalogId] = useState('');
   const [shoeCatalogId, setShoeCatalogId] = useState('');
   const [resolution, setResolution] = useState<'HD' | '2K' | '4K' | ''>('');
+  useEffect(() => {
+    if (step === 3 && !resolution) {
+      setResolution('HD');
+    }
+  }, [step, resolution]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -374,6 +379,13 @@ export default function StudioPage(): React.ReactElement {
     queryFn: () => api.get(`/v1/models/garment-types?gender=${gender}`),
     enabled: !!gender,
   });
+  const didAutoGarment = useRef('');
+  useEffect(() => {
+    if (garmentTypes?.items?.length && !garmentTypeId && didAutoGarment.current !== gender) {
+      setGarmentTypeId(garmentTypes.items[0]!.id);
+      didAutoGarment.current = gender;
+    }
+  }, [garmentTypes, garmentTypeId, gender]);
   const {
     data: faces,
     isError: facesError,
@@ -387,6 +399,18 @@ export default function StudioPage(): React.ReactElement {
     },
     enabled: !!gender && step >= 1,
   });
+  const filteredFaces = useMemo(() => {
+    if (!faces?.items) return [];
+    return modelFilter === 'All'
+      ? faces.items
+      : faces.items.filter((f) => f.gender === modelFilter);
+  }, [faces?.items, modelFilter]);
+  useEffect(() => {
+    if (!filteredFaces.length) return;
+    if (!filteredFaces.some((f) => f.id === faceId)) {
+      setFaceId(filteredFaces[0]!.id);
+    }
+  }, [filteredFaces, faceId]);
   const {
     data: backgrounds,
     isError: backgroundsError,
@@ -401,6 +425,11 @@ export default function StudioPage(): React.ReactElement {
     },
     enabled: !!faceId && step >= 2,
   });
+  useEffect(() => {
+    if (backgrounds?.items?.length && !backgroundId) {
+      setBackgroundId(backgrounds.items[0]!.id);
+    }
+  }, [backgrounds, backgroundId]);
   const {
     data: poses,
     isError: posesError,
@@ -440,6 +469,16 @@ export default function StudioPage(): React.ReactElement {
   });
   const lowerItems = lowerCatalog ? flattenCatalog(lowerCatalog.tree) : [];
   const shoeItems = shoesCatalog ? flattenCatalog(shoesCatalog.tree) : [];
+  useEffect(() => {
+    if (lowerItems.length && needsLower && !lowerCatalogId) {
+      setLowerCatalogId(lowerItems[0]!.id);
+    }
+  }, [lowerItems, needsLower, lowerCatalogId]);
+  useEffect(() => {
+    if (shoeItems.length && needsShoes && !shoeCatalogId) {
+      setShoeCatalogId(shoeItems[0]!.id);
+    }
+  }, [shoeItems, needsShoes, shoeCatalogId]);
 
   async function handleGarmentUpload(file: File) {
     setGarmentFile(file);
@@ -783,7 +822,17 @@ export default function StudioPage(): React.ReactElement {
                           img={img}
                           label={s.label}
                           selected={garmentTypeId === s.id}
-                          onClick={() => setGarmentTypeId(garmentTypeId === s.id ? '' : s.id)}
+                          onClick={() => {
+                            const next = garmentTypeId === s.id ? '' : s.id;
+                            setGarmentTypeId(next);
+                            if (next && next !== garmentTypeId) {
+                              setFaceId('');
+                              setBackgroundId('');
+                              setPoseIds([]);
+                              setLowerCatalogId('');
+                              setShoeCatalogId('');
+                            }
+                          }}
                         />
                       );
                     });
@@ -1723,8 +1772,16 @@ export default function StudioPage(): React.ReactElement {
                   <div
                     key={s.id}
                     onClick={() => {
+                      const changed = s.id !== garmentTypeId;
                       setGarmentTypeId(s.id);
                       setGarmentModalOpen(false);
+                      if (changed) {
+                        setFaceId('');
+                        setBackgroundId('');
+                        setPoseIds([]);
+                        setLowerCatalogId('');
+                        setShoeCatalogId('');
+                      }
                     }}
                     style={{
                       cursor: 'pointer',

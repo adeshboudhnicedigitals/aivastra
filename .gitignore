@@ -6,12 +6,9 @@ build
 coverage
 *.tsbuildinfo
 
-.env
-.env.local
-.env.development
-.env.production
-.env.*.local
+.env*
 !.env.example
+!.env.*.example
 
 .DS_Store
 Thumbs.db

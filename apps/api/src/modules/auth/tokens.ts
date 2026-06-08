@@ -2,7 +2,12 @@ import { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
 import { newRefreshToken, signAccess } from './service.js';
 
-export async function issueTokens(
+/**
+ * Creates a NEW session family.
+ * Called from login, verify-email, and OAuth callbacks.
+ * NEVER call from refresh — refresh rotates within an existing family.
+ */
+export async function createSessionTokens(
   app: FastifyInstance,
   userId: string,
   reply: any,
@@ -12,7 +17,13 @@ export async function issueTokens(
   const accessToken = await signAccess(secret, userId, { kind: 'access' }, app.env.JWT_EXPIRY);
   const r = newRefreshToken();
   const expiresAt = new Date(Date.now() + parseDuration(app.env.REFRESH_TOKEN_EXPIRY));
-  await app.db.insert(schema.refreshTokens).values({ userId, tokenHash: r.hash, expiresAt });
+  await app.db.insert(schema.refreshTokens).values({
+    userId,
+    familyId: crypto.randomUUID(),
+    generation: 1,
+    tokenHash: r.hash,
+    expiresAt,
+  });
   reply.setCookie('refresh', r.plain, {
     httpOnly: true,
     secure: app.env.NODE_ENV === 'production',
