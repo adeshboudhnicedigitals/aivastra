@@ -1,8 +1,26 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
+const AUTH_CHANNEL =
+  typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('aivastra-auth') : null;
+
+let broadcastToken: string | null = null;
+
+AUTH_CHANNEL?.addEventListener('message', (e) => {
+  if (e.data?.type === 'token-refreshed' && e.data?.accessToken) {
+    broadcastToken = e.data.accessToken;
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `access_token=${encodeURIComponent(e.data.accessToken)}; path=/; max-age=900; SameSite=Lax${secure}`;
+  }
+});
+
 function getToken(): string | null {
   if (typeof document === 'undefined') return null;
+  if (broadcastToken) {
+    const t = broadcastToken;
+    broadcastToken = null;
+    return t;
+  }
   const match = document.cookie.match(/(?:^|; )access_token=([^;]*)/);
   return match ? decodeURIComponent(match[1]!) : null;
 }
@@ -13,6 +31,12 @@ function getToken(): string | null {
 // the rest hit a revoked token and force a logout. Dedup avoids that race.
 let refreshInFlight: Promise<string | null> | null = null;
 
+function setAccessTokenCookie(token: string): void {
+  if (typeof document === 'undefined') return;
+  const secure = location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `access_token=${encodeURIComponent(token)}; path=/; max-age=900; SameSite=Lax${secure}`;
+}
+
 function tryRefresh(): Promise<string | null> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
@@ -20,6 +44,9 @@ function tryRefresh(): Promise<string | null> {
         const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
         if (!res.ok) return null;
         const data = (await res.json()) as { accessToken: string };
+        // Always update local cookie explicitly — do not rely on BFF alone
+        // or on BroadcastChannel echoing back to this tab.
+        setAccessTokenCookie(data.accessToken);
         return data.accessToken;
       } catch {
         return null;
@@ -53,6 +80,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (refreshed) {
       headers['Authorization'] = `Bearer ${refreshed}`;
       res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+      // Notify other tabs of the new token (best-effort UX optimization)
+      AUTH_CHANNEL?.postMessage({ type: 'token-refreshed', accessToken: refreshed });
     } else {
       if (typeof window !== 'undefined') window.location.href = `${BASE}/login`;
       throw new Error('Unauthorized');

@@ -1,13 +1,21 @@
 import { randomBytes } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { LoginBody, RegisterBody } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { sendPasswordResetEmail, sendVerificationEmail } from '../../lib/mailer.js';
-import { hashPassword, hashRefresh, verifyPassword } from './service.js';
-import { issueTokens } from './tokens.js';
+import {
+  hashPassword,
+  hashRefresh,
+  newRefreshToken,
+  signAccess,
+  verifyPassword,
+} from './service.js';
+import { createSessionTokens, parseDuration } from './tokens.js';
+
+const REFRESH_GRACE_MS = 3_000;
 
 function makeToken(): string {
   return randomBytes(32).toString('hex');
@@ -58,7 +66,7 @@ export async function authRoutes(app: FastifyInstance) {
       if (!(await verifyPassword(user.passwordHash, password)))
         throw new AppError('INVALID', 401, 'invalid credentials');
       if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
-      return issueTokens(app, user.id, reply, 200);
+      return createSessionTokens(app, user.id, reply, 200);
     },
   );
 
@@ -66,17 +74,125 @@ export async function authRoutes(app: FastifyInstance) {
     const plain = req.cookies.refresh;
     if (!plain) throw new AppError('NO_REFRESH', 401, 'no refresh token');
     const tokenHash = hashRefresh(plain);
-    const [row] = await app.db
-      .select()
-      .from(schema.refreshTokens)
-      .where(eq(schema.refreshTokens.tokenHash, tokenHash));
-    if (!row || row.revoked || row.expiresAt < new Date())
-      throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
-    await app.db
-      .update(schema.refreshTokens)
-      .set({ revoked: true })
-      .where(eq(schema.refreshTokens.id, row.id));
-    return issueTokens(app, row.userId, reply, 200);
+
+    const result = await app.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(schema.refreshTokens)
+        .where(eq(schema.refreshTokens.tokenHash, tokenHash))
+        .for('update');
+
+      if (!row || row.expiresAt < new Date() || row.revokedAt) return { kind: 'invalid' } as const;
+
+      if (row.usedAt) {
+        const age = Date.now() - row.usedAt.getTime();
+        if (age > REFRESH_GRACE_MS) {
+          return {
+            kind: 'stale',
+            familyId: row.familyId,
+            userId: row.userId,
+            generation: row.generation,
+            tokenId: row.id,
+            age,
+          } as const;
+        }
+        // Grace window: find latest active generation in family (future-proof vs gaps)
+        const [successor] = await tx
+          .select({ userId: schema.refreshTokens.userId })
+          .from(schema.refreshTokens)
+          .where(
+            and(
+              eq(schema.refreshTokens.familyId, row.familyId),
+              isNull(schema.refreshTokens.usedAt),
+              isNull(schema.refreshTokens.revokedAt),
+            ),
+          )
+          .orderBy(desc(schema.refreshTokens.generation))
+          .limit(1);
+        if (successor) return { kind: 'reissue', userId: successor.userId } as const;
+        return { kind: 'invalid' } as const;
+      }
+
+      // ── First use: rotate ──
+      // Must remain in same transaction.
+      // Either both operations commit or neither does.
+      await tx
+        .update(schema.refreshTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(schema.refreshTokens.id, row.id));
+
+      const r = newRefreshToken();
+      const expiresAt = new Date(Date.now() + parseDuration(app.env.REFRESH_TOKEN_EXPIRY));
+      await tx.insert(schema.refreshTokens).values({
+        userId: row.userId,
+        familyId: row.familyId,
+        generation: row.generation + 1,
+        tokenHash: r.hash,
+        expiresAt,
+      });
+
+      return {
+        kind: 'rotated',
+        userId: row.userId,
+        refreshPlain: r.plain,
+        expiresAt,
+      } as const;
+    });
+
+    // Phase 2: outside transaction
+    const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+
+    switch (result.kind) {
+      case 'invalid':
+        throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
+
+      case 'stale':
+        app.log.warn(
+          {
+            event: 'REFRESH_TOKEN_STALE',
+            familyId: result.familyId,
+            userId: result.userId,
+            generation: result.generation,
+            tokenId: result.tokenId,
+            ageMs: result.age,
+          },
+          'Stale refresh token denied without family revocation',
+        );
+        throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
+
+      case 'reissue':
+        app.log.info(
+          { event: 'REFRESH_TOKEN_REISSUE', userId: result.userId },
+          'Concurrent refresh reissued',
+        );
+        return {
+          accessToken: await signAccess(
+            secret,
+            result.userId,
+            { kind: 'access' },
+            app.env.JWT_EXPIRY,
+          ),
+        };
+
+      case 'rotated':
+        reply.setCookie('refresh', result.refreshPlain, {
+          httpOnly: true,
+          secure: app.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/v1/auth',
+          expires: result.expiresAt,
+          signed: false,
+        });
+        reply.code(200);
+        return {
+          accessToken: await signAccess(
+            secret,
+            result.userId,
+            { kind: 'access' },
+            app.env.JWT_EXPIRY,
+          ),
+        };
+    }
   });
 
   app.get('/v1/me', { preHandler: app.requireUser }, async (req) => {
@@ -121,10 +237,18 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/v1/auth/logout', { preHandler: app.requireUser }, async (req, reply) => {
     const plain = req.cookies.refresh;
     if (plain) {
-      await app.db
-        .update(schema.refreshTokens)
-        .set({ revoked: true })
-        .where(eq(schema.refreshTokens.tokenHash, hashRefresh(plain)));
+      const tokenHash = hashRefresh(plain);
+      const [row] = await app.db
+        .select({ familyId: schema.refreshTokens.familyId })
+        .from(schema.refreshTokens)
+        .where(eq(schema.refreshTokens.tokenHash, tokenHash))
+        .limit(1);
+      if (row) {
+        await app.db
+          .update(schema.refreshTokens)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.refreshTokens.familyId, row.familyId));
+      }
     }
     reply.clearCookie('refresh', { path: '/v1/auth' });
     return { ok: true };
@@ -143,7 +267,7 @@ export async function authRoutes(app: FastifyInstance) {
         .update(schema.users)
         .set({ emailVerified: true })
         .where(eq(schema.users.id, userId));
-      return issueTokens(app, userId, reply, 200);
+      return createSessionTokens(app, userId, reply, 200);
     },
   );
 
@@ -211,7 +335,7 @@ export async function authRoutes(app: FastifyInstance) {
         .where(eq(schema.users.id, req.userId));
       await app.db
         .update(schema.refreshTokens)
-        .set({ revoked: true })
+        .set({ revokedAt: new Date() })
         .where(eq(schema.refreshTokens.userId, req.userId));
       return { ok: true };
     },
@@ -267,7 +391,7 @@ export async function authRoutes(app: FastifyInstance) {
       // Revoke all existing sessions for security
       await app.db
         .update(schema.refreshTokens)
-        .set({ revoked: true })
+        .set({ revokedAt: new Date() })
         .where(eq(schema.refreshTokens.userId, userId));
       return { ok: true };
     },

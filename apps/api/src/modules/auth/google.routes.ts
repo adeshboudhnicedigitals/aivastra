@@ -4,7 +4,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { issueTokens } from './tokens.js';
+import { createSessionTokens } from './tokens.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -190,7 +190,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       const { code } = req.body as { code: string };
       const userId = await app.redis.getdel(`oauth:otp:${code}`);
       if (!userId) throw new AppError('INVALID_OTP', 400, 'invalid or expired OTP');
-      return issueTokens(app, userId, reply, 200);
+      return createSessionTokens(app, userId, reply, 200);
     },
   );
 }
