@@ -188,6 +188,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [showFaceUpload, setShowFaceUpload] = useState(false);
   const [showPoseUpload, setShowPoseUpload] = useState(false);
   const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
+  const [clonePose, setClonePose] = useState<ModelPose | null>(null);
+  const [cloneTargetIds, setCloneTargetIds] = useState<string[]>([]);
+  const [cloning, setCloning] = useState(false);
   const [editingBackground, setEditingBackground] = useState<ModelBackground | null>(null);
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
 
@@ -398,6 +401,26 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
+  const setAmazonWhiteBg = async (id: string) => {
+    const prev = backgrounds.find((b) => b.isWhiteBg);
+    // Optimistic update: set the selected one as white, unset all others
+    setBackgrounds((prevBg) => prevBg.map((b) => ({ ...b, isWhiteBg: b.id === id })));
+    try {
+      await apiFetch(`/admin/assets/backgrounds/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isWhiteBg: true }),
+      });
+      const item = backgrounds.find((b) => b.id === id);
+      toast({ title: `${item?.label ?? 'Background'} set as Amazon white background` });
+    } catch {
+      // Rollback
+      setBackgrounds((prevBg) =>
+        prevBg.map((b) => ({ ...b, isWhiteBg: prev?.id === b.id ?? false })),
+      );
+      toast({ kind: 'error', title: 'Failed to set Amazon white background' });
+    }
+  };
+
   const T = (
     item: { thumbnailKey: string; r2Key?: string; label: string },
     w?: number,
@@ -595,6 +618,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 <tr>
                   <th>Label</th>
                   <th>Gender</th>
+                  <th>Amazon</th>
                   <th>Active</th>
                   <th></th>
                 </tr>
@@ -615,6 +639,26 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     </td>
                     <td>
                       <span className="badge dot">{(bg as any).genderSlug ?? 'all'}</span>
+                    </td>
+                    <td>
+                      <button
+                        className={`btn sm ${bg.isWhiteBg ? 'primary' : 'ghost'}`}
+                        onClick={() => setAmazonWhiteBg(bg.id)}
+                        title={
+                          bg.isWhiteBg
+                            ? 'Amazon white background (selected)'
+                            : 'Set as Amazon white background'
+                        }
+                      >
+                        {bg.isWhiteBg ? (
+                          <>
+                            <span style={{ color: 'var(--success)', marginRight: 4 }}>&#9733;</span>
+                            White BG
+                          </>
+                        ) : (
+                          'Set White BG'
+                        )}
+                      </button>
                     </td>
                     <td>
                       <Switch checked={bg.isActive} onChange={() => toggleBg(bg.id)} />
@@ -639,7 +683,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 {backgrounds.length === 0 && (
                   <tr>
                     <td
-                      colSpan={4}
+                      colSpan={5}
                       style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
                     >
                       No backgrounds yet.
@@ -1032,6 +1076,16 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button className="btn sm ghost" onClick={() => setEditingPose(pose)}>
                           <Icon.Edit />
+                        </button>
+                        <button
+                          className="btn sm ghost"
+                          title="Clone to other garment types"
+                          onClick={() => {
+                            setClonePose(pose);
+                            setCloneTargetIds([]);
+                          }}
+                        >
+                          <Icon.Copy />
                         </button>
                         <button
                           className="btn sm ghost"
@@ -2155,6 +2209,123 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           onClose={() => setShowCatalogUpload(false)}
           toast={toast}
         />
+      )}
+      {clonePose && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setClonePose(null)}
+        >
+          <div
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: '1.5rem',
+              width: 420,
+              maxWidth: '95vw',
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontWeight: 600, fontSize: 15 }}>
+              Clone "{clonePose.label}" to garment types
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              Select garment types to clone this pose to. Existing combos (same face + background)
+              will be skipped.
+            </div>
+            <div
+              style={{
+                overflowY: 'auto',
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              {garmentTypes
+                .filter((g) => g.id !== (subView.kind === 'garment-type' ? subView.sub.id : ''))
+                .map((g) => (
+                  <label
+                    key={g.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      background: cloneTargetIds.includes(g.id)
+                        ? 'var(--surface-hover)'
+                        : 'transparent',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={cloneTargetIds.includes(g.id)}
+                      onChange={(e) =>
+                        setCloneTargetIds((prev) =>
+                          e.target.checked ? [...prev, g.id] : prev.filter((id) => id !== g.id),
+                        )
+                      }
+                    />
+                    <span style={{ fontSize: 13 }}>
+                      {g.label}
+                      <span style={{ color: 'var(--muted)', marginLeft: 6, fontSize: 11 }}>
+                        {g.genderSlug}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn sm ghost" onClick={() => setClonePose(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn sm primary"
+                disabled={cloneTargetIds.length === 0 || cloning}
+                onClick={async () => {
+                  if (!clonePose) return;
+                  setCloning(true);
+                  try {
+                    const res = await apiFetch<{ created: number; skipped: number }>(
+                      `/admin/assets/poses/${clonePose.id}/clone`,
+                      {
+                        method: 'POST',
+                        body: JSON.stringify({ targetGarmentTypeIds: cloneTargetIds }),
+                      },
+                    );
+                    toast({
+                      title: `Cloned to ${res.created} garment type${res.created !== 1 ? 's' : ''}${res.skipped > 0 ? ` (${res.skipped} skipped)` : ''}`,
+                    });
+                    setClonePose(null);
+                    setCloneTargetIds([]);
+                  } catch {
+                    toast({ kind: 'error', title: 'Clone failed' });
+                  } finally {
+                    setCloning(false);
+                  }
+                }}
+              >
+                {cloning
+                  ? 'Cloning…'
+                  : `Clone to ${cloneTargetIds.length} type${cloneTargetIds.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {previewUrl && (
         <div

@@ -3,6 +3,7 @@ import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   AssetContentType,
+  ClonePoseBody,
   ConfirmModelBackgroundBody,
   ConfirmModelFaceBody,
   ConfirmModelPoseBody,
@@ -13,7 +14,7 @@ import {
   PresignModelFaceBody,
   PresignModelPoseBody,
 } from '@aivastra/types';
-import { and, count, eq, getTableColumns, inArray } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -176,7 +177,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         thumbnailKey: string;
         sortOrder: number;
         genderSlug?: string;
+        isWhiteBg?: boolean;
       };
+      // If marking this background as white, unset all other backgrounds' isWhiteBg first
+      if (body.isWhiteBg) {
+        await app.db
+          .update(schema.modelBackgrounds)
+          .set({ isWhiteBg: false })
+          .where(eq(schema.modelBackgrounds.isWhiteBg, true));
+      }
       const [row] = await app.db
         .insert(schema.modelBackgrounds)
         .values({
@@ -185,6 +194,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           thumbnailKey: body.thumbnailKey,
           sortOrder: body.sortOrder,
           genderSlug: body.genderSlug ?? null,
+          isWhiteBg: body.isWhiteBg ?? false,
         })
         .returning();
       return row;
@@ -199,9 +209,17 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
+      const body = req.body as Record<string, unknown>;
+      // If marking this background as white, unset all other backgrounds' isWhiteBg first
+      if (body.isWhiteBg === true) {
+        await app.db
+          .update(schema.modelBackgrounds)
+          .set({ isWhiteBg: false })
+          .where(eq(schema.modelBackgrounds.isWhiteBg, true));
+      }
       const [updated] = await app.db
         .update(schema.modelBackgrounds)
-        .set({ ...(req.body as object), updatedAt: new Date() })
+        .set({ ...(body as object), updatedAt: new Date() })
         .where(eq(schema.modelBackgrounds.id, id))
         .returning({ id: schema.modelBackgrounds.id });
       if (!updated) throw new AppError('NOT_FOUND', 404, 'background not found');
@@ -348,10 +366,10 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
       const results = await Promise.all(presignTasks);
       let idx = 0;
-      const uploadUrl = results[idx++]!.url;
-      const thumbnailUploadUrl = results[idx++]!.url;
-      const faceSideUploadUrl = faceSideKey ? results[idx++]!.url : undefined;
-      const bgComfyUploadUrl = bgComfyKey ? results[idx++]!.url : undefined;
+      const uploadUrl = results[idx++]?.url;
+      const thumbnailUploadUrl = results[idx++]?.url;
+      const faceSideUploadUrl = faceSideKey ? results[idx++]?.url : undefined;
+      const bgComfyUploadUrl = bgComfyKey ? results[idx++]?.url : undefined;
 
       const response: Record<string, unknown> = {
         uploadUrl,
@@ -360,26 +378,26 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         thumbnailKey: thumbKey,
       };
       if (faceSideUploadUrl && faceSideKey) {
-        response['faceSideUploadUrl'] = faceSideUploadUrl;
-        response['faceSideR2Key'] = faceSideKey;
+        response.faceSideUploadUrl = faceSideUploadUrl;
+        response.faceSideR2Key = faceSideKey;
       }
       if (bgComfyUploadUrl && bgComfyKey) {
-        response['bgComfyUploadUrl'] = bgComfyUploadUrl;
-        response['bgComfyR2Key'] = bgComfyKey;
+        response.bgComfyUploadUrl = bgComfyUploadUrl;
+        response.bgComfyR2Key = bgComfyKey;
       }
 
       if (newFaceId && newFaceR2Key && newFaceThumbKey) {
-        response['newFaceUploadUrl'] = results[idx++]!.url;
-        response['newFaceR2Key'] = newFaceR2Key;
-        response['newFaceThumbnailUploadUrl'] = results[idx++]!.url;
-        response['newFaceThumbnailKey'] = newFaceThumbKey;
+        response.newFaceUploadUrl = results[idx++]?.url;
+        response.newFaceR2Key = newFaceR2Key;
+        response.newFaceThumbnailUploadUrl = results[idx++]?.url;
+        response.newFaceThumbnailKey = newFaceThumbKey;
       }
 
       if (newBgId && newBgR2Key && newBgThumbKey) {
-        response['newBgUploadUrl'] = results[idx++]!.url;
-        response['newBgR2Key'] = newBgR2Key;
-        response['newBgThumbnailUploadUrl'] = results[idx++]!.url;
-        response['newBgThumbnailKey'] = newBgThumbKey;
+        response.newBgUploadUrl = results[idx++]?.url;
+        response.newBgR2Key = newBgR2Key;
+        response.newBgThumbnailUploadUrl = results[idx++]?.url;
+        response.newBgThumbnailKey = newBgThumbKey;
       }
 
       return response;
@@ -430,7 +448,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
               sortOrder: 0,
             })
             .returning({ id: schema.modelFaces.id });
-          resolvedFaceId = newFaceRow!.id;
+          resolvedFaceId = newFaceRow?.id;
         }
 
         let resolvedBgId = body.backgroundId ?? '';
@@ -446,7 +464,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
               sortOrder: 0,
             })
             .returning({ id: schema.modelBackgrounds.id });
-          resolvedBgId = newBgRow!.id;
+          resolvedBgId = newBgRow?.id;
         }
 
         const [inserted] = await tx
@@ -567,8 +585,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           .from(schema.workflowTemplates)
           .where(eq(schema.workflowTemplates.id, body.workflowTemplateId));
         if (!wfCheck) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
-        (body as Record<string, unknown>)['showsLower'] = wfCheck.lowerNodeId != null;
-        (body as Record<string, unknown>)['showsShoes'] = wfCheck.shoeNodeId != null;
+        (body as Record<string, unknown>).showsLower = wfCheck.lowerNodeId != null;
+        (body as Record<string, unknown>).showsShoes = wfCheck.shoeNodeId != null;
       }
 
       const poseFields = body as Record<string, unknown>;
@@ -584,6 +602,74 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         }
       });
       return { ok: true };
+    },
+  );
+
+  app.post(
+    '/admin/assets/poses/:id/clone',
+    { preHandler: W, schema: { params: uuidParam, body: ClonePoseBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { targetGarmentTypeIds } = req.body as { targetGarmentTypeIds: string[] };
+
+      const [source] = await app.db
+        .select()
+        .from(schema.modelPoses)
+        .where(eq(schema.modelPoses.id, id));
+      if (!source) throw new AppError('NOT_FOUND', 404, 'pose not found');
+
+      const validSubs = await app.db
+        .select({ id: schema.garmentSubcategories.id })
+        .from(schema.garmentSubcategories)
+        .where(inArray(schema.garmentSubcategories.id, targetGarmentTypeIds));
+      if (validSubs.length !== targetGarmentTypeIds.length)
+        throw new AppError('BAD_CATALOG', 400, 'one or more garment types not found');
+
+      // Find which targets already have a pose for the same (face × background) combo
+      const existing = await app.db
+        .select({ subcategoryId: schema.modelPoses.subcategoryId })
+        .from(schema.modelPoses)
+        .where(
+          and(
+            inArray(schema.modelPoses.subcategoryId, targetGarmentTypeIds),
+            eq(schema.modelPoses.faceId, source.faceId),
+            eq(schema.modelPoses.backgroundId, source.backgroundId),
+          ),
+        );
+      const existingIds = new Set(existing.map((r) => r.subcategoryId));
+      const toCreate = targetGarmentTypeIds.filter((tid) => !existingIds.has(tid));
+
+      if (toCreate.length === 0)
+        return { created: 0, skipped: targetGarmentTypeIds.length, ids: [] };
+
+      const inserted = await app.db
+        .insert(schema.modelPoses)
+        .values(
+          toCreate.map((subcategoryId) => ({
+            subcategoryId,
+            faceId: source.faceId,
+            backgroundId: source.backgroundId,
+            label: source.label,
+            r2Key: source.r2Key,
+            thumbnailKey: source.thumbnailKey,
+            faceSideR2Key: source.faceSideR2Key,
+            bgComfyR2Key: source.bgComfyR2Key,
+            workflowTemplateId: source.workflowTemplateId,
+            promptFacePhase: source.promptFacePhase,
+            promptGarmentPhase: source.promptGarmentPhase,
+            showsLower: source.showsLower,
+            showsShoes: source.showsShoes,
+            sortOrder: source.sortOrder,
+            isActive: source.isActive,
+          })),
+        )
+        .returning({ id: schema.modelPoses.id });
+
+      return {
+        created: inserted.length,
+        skipped: existingIds.size,
+        ids: inserted.map((r) => r.id),
+      };
     },
   );
 

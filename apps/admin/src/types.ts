@@ -19,6 +19,7 @@ export interface ModelBackground {
   thumbnailKey: string;
   r2Key: string;
   isActive: boolean;
+  isWhiteBg: boolean;
   sortOrder: number;
   genderSlug: string | null;
   createdAt: string;
