@@ -109,6 +109,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             id: schema.modelBackgrounds.id,
             label: schema.modelBackgrounds.label,
             thumbnailKey: schema.modelBackgrounds.thumbnailKey,
+            isWhiteBg: schema.modelBackgrounds.isWhiteBg,
           })
           .from(schema.modelBackgrounds)
           .innerJoin(
@@ -128,6 +129,7 @@ export async function modelsRoutes(app: FastifyInstance) {
             label: b.label,
             thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
             previewUrl: app.storage.publicUrl(b.thumbnailKey),
+            isWhiteBg: b.isWhiteBg,
           })),
         };
       }
@@ -137,6 +139,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           id: schema.modelBackgrounds.id,
           label: schema.modelBackgrounds.label,
           thumbnailKey: schema.modelBackgrounds.thumbnailKey,
+          isWhiteBg: schema.modelBackgrounds.isWhiteBg,
         })
         .from(schema.modelBackgrounds)
         .where(eq(schema.modelBackgrounds.isActive, true));
@@ -147,6 +150,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           label: b.label,
           thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
           previewUrl: app.storage.publicUrl(b.thumbnailKey),
+          isWhiteBg: b.isWhiteBg,
         })),
       };
     },

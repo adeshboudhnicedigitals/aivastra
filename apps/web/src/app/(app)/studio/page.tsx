@@ -42,6 +42,7 @@ interface BackgroundItem {
   label: string;
   thumbnailUrl: string;
   previewUrl: string;
+  isWhiteBg?: boolean;
 }
 interface BackgroundsResponse {
   items: BackgroundItem[];
@@ -319,6 +320,7 @@ export default function StudioPage(): React.ReactElement {
   const [garmentModalOpen, setGarmentModalOpen] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
+  const [amazonPoseModalOpen, setAmazonPoseModalOpen] = useState(false);
 
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
 
@@ -416,6 +418,9 @@ export default function StudioPage(): React.ReactElement {
   const needsLower = selectedPoses.some((p) => p.hasLower);
   const needsShoes = selectedPoses.some((p) => p.hasShoes);
 
+  // Find the white background (tagged for Amazon) from loaded backgrounds
+  const whiteBg = backgrounds?.items.find((b) => b.isWhiteBg);
+
   const poseIdsParam = poseIds.length > 0 ? `poseIds=${poseIds.join(',')}` : '';
   const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
     queryKey: ['catalog', 'lower', gender, poseIds.join(',')],
@@ -503,6 +508,13 @@ export default function StudioPage(): React.ReactElement {
 
   async function handleSubmit() {
     if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0 || !resolution) return;
+
+    // Amazon requires a single pose — show picker popup for confirmation
+    if (platform === 'Amazon' && poseIds.length >= 1) {
+      setAmazonPoseModalOpen(true);
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitError('');
     try {
@@ -518,8 +530,37 @@ export default function StudioPage(): React.ReactElement {
         },
         aspectRatio: aspect,
         resolution,
+        platform,
       });
       // Credits were deducted server-side — refresh balance + catalogues list.
+      qc.invalidateQueries({ queryKey: ['credits'] });
+      qc.invalidateQueries({ queryKey: ['catalogues'] });
+      router.push(`/catalogues/${catalogueId}`);
+    } catch (e) {
+      setSubmitError((e as Error).message);
+      setIsSubmitting(false);
+    }
+  }
+
+  async function submitAmazonPose(selectedPoseId: string) {
+    setAmazonPoseModalOpen(false);
+    setIsSubmitting(true);
+    setSubmitError('');
+    try {
+      const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          backgroundId,
+          poseIds: [selectedPoseId],
+          lowerCatalogId: lowerCatalogId || undefined,
+          lowerGarmentKey: lowerGarmentKey || undefined,
+          shoeCatalogId: shoeCatalogId || undefined,
+        },
+        aspectRatio: aspect,
+        resolution,
+        platform: 'Amazon',
+      });
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
       router.push(`/catalogues/${catalogueId}`);
@@ -1872,6 +1913,127 @@ export default function StudioPage(): React.ReactElement {
           )}
         </div>
       </div>
+
+      {/* Amazon Pose Picker Modal */}
+      {amazonPoseModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onClick={() => setAmazonPoseModalOpen(false)}
+        >
+          <div
+            style={{
+              background: C.white,
+              borderRadius: 16,
+              padding: 32,
+              maxWidth: 600,
+              width: 'calc(100vw - 40px)',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.15)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                fontSize: 18,
+                fontWeight: 700,
+                color: C.text,
+                marginBottom: 6,
+              }}
+            >
+              Select one pose for Amazon
+            </h2>
+            <p style={{ fontSize: 13, color: C.mid, marginBottom: 16 }}>
+              Amazon requires images with a white background. Choose one pose to generate.
+            </p>
+
+            {whiteBg && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  border: `1px solid ${C.border2}`,
+                  background: '#fafafa',
+                  marginBottom: 20,
+                }}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={whiteBg.previewUrl}
+                  alt="White background"
+                  style={{
+                    width: 64,
+                    height: 48,
+                    objectFit: 'cover',
+                    borderRadius: 6,
+                    border: `1px solid ${C.border}`,
+                  }}
+                />
+                <div>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                    {whiteBg.label}
+                  </span>
+                  <span style={{ fontSize: 11, color: C.light, display: 'block', marginTop: 2 }}>
+                    White background will replace original
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <p style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 12 }}>
+              Selected poses:
+            </p>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
+                gap: 12,
+                justifyContent: 'center',
+              }}
+            >
+              {selectedPoses.map((p) => (
+                <SelCard
+                  key={p.id}
+                  selected={false}
+                  onClick={() => submitAmazonPose(p.id)}
+                  imageUrl={p.thumbnailUrl}
+                  label={p.label}
+                  w={152.57}
+                  h={200}
+                />
+              ))}
+            </div>
+            <div style={{ marginTop: 20, textAlign: 'center' }}>
+              <button
+                onClick={() => setAmazonPoseModalOpen(false)}
+                style={{
+                  padding: '8px 24px',
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  background: C.white,
+                  fontFamily: 'inherit',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  color: C.mid,
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div

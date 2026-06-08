@@ -31,6 +31,7 @@ export const CreateTryOnJobRequest = z.object({
   userHint: z.string().max(300).optional(),
   aspectRatio: z.enum(['1:1', '3:4', '4:5']),
   resolution: z.enum(['HD', '2K', '4K']),
+  platform: z.string().optional(),
 });
 
 export const PresignUploadBody = z.object({

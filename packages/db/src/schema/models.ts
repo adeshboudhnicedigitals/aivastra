@@ -31,6 +31,7 @@ export const modelBackgrounds = pgTable('model_backgrounds', {
   thumbnailKey: text('thumbnail_key').notNull(),
   genderSlug: text('gender_slug'), // nullable — null means shown for all genders
   isActive: boolean('is_active').notNull().default(true),
+  isWhiteBg: boolean('is_white_bg').notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
