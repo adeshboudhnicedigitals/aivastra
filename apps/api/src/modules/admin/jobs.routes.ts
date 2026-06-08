@@ -136,6 +136,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           lowerCatalogKey: lowerCatalog.r2Key,
           shoeCatalogKey: shoeCatalog.r2Key,
+          jobParams: schema.jobInputs.params,
         })
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
@@ -166,6 +167,13 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const lowerKey = row.lowerGarmentKey ?? row.lowerCatalogKey;
       const shoeKey = row.shoeCatalogKey;
 
+      // Mirror dispatcher's bg key logic exactly:
+      // Amazon always uses the white BG (bgFallbackKey = modelBackgrounds.r2Key, already overridden to white BG at job creation)
+      // Non-Amazon uses pose's ComfyUI-specific bg key, falling back to display bg
+      const params = (row.jobParams ?? {}) as Record<string, unknown>;
+      const isAmazon = params.platform === 'Amazon';
+      const bgKey = isAmazon ? row.bgFallbackKey : (row.bgComfyKey ?? row.bgFallbackKey);
+
       return {
         ...row,
         outputUrl: pu(row.outputKey),
@@ -178,9 +186,10 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         lowerGarmentKey: undefined,
         lowerCatalogKey: undefined,
         shoeCatalogKey: undefined,
+        jobParams: undefined,
         inputImages: {
           face: pu(row.faceSideKey),
-          background: pu(row.bgComfyKey ?? row.bgFallbackKey),
+          background: pu(bgKey),
           pose: pu(row.poseKey),
           upper: pu(row.upperGarmentKey),
           lower: pu(lowerKey),
