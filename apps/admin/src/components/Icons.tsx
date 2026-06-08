@@ -255,4 +255,10 @@ export const Icon: Record<string, () => JSX.Element> = {
       <path d="M3 10l-2-2 2-2M13 6l2 2-2 2M1 8h6M15 8H9" />
     </svg>
   ),
+  Copy: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="5.5" y="5.5" width="8" height="9" rx="1" />
+      <path d="M5.5 10.5H3a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v2" />
+    </svg>
+  ),
 };
