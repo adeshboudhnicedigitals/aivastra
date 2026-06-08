@@ -165,6 +165,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [filterFace, setFilterFace] = useState('');
   const [filterBg, setFilterBg] = useState('');
   const [filterPose, setFilterPose] = useState('');
+  const [poseSortKey, setPoseSortKey] = useState<'label' | 'sortOrder' | 'createdAt'>('label');
+  const [poseSortDir, setPoseSortDir] = useState<'asc' | 'desc'>('asc');
   const [showSubcatModal, setShowSubcatModal] = useState(false);
   const [subcatForm, setSubcatForm] = useState({
     slug: '',
@@ -188,9 +190,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [showFaceUpload, setShowFaceUpload] = useState(false);
   const [showPoseUpload, setShowPoseUpload] = useState(false);
   const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
-  const [clonePose, setClonePose] = useState<ModelPose | null>(null);
+  const [clonePoseIds, setClonePoseIds] = useState<string[]>([]);
   const [cloneTargetIds, setCloneTargetIds] = useState<string[]>([]);
   const [cloning, setCloning] = useState(false);
+  const [selectedPoseIds, setSelectedPoseIds] = useState<string[]>([]);
   const [editingBackground, setEditingBackground] = useState<ModelBackground | null>(null);
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
 
@@ -415,7 +418,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     } catch {
       // Rollback
       setBackgrounds((prevBg) =>
-        prevBg.map((b) => ({ ...b, isWhiteBg: prev?.id === b.id ?? false })),
+        prevBg.map((b) => ({ ...b, isWhiteBg: prev != null && prev.id === b.id })),
       );
       toast({ kind: 'error', title: 'Failed to set Amazon white background' });
     }
@@ -463,10 +466,16 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     (p) => (!filterFace || p.faceId === filterFace) && (!filterBg || p.backgroundId === filterBg),
   );
 
-  // Filtered poses for grid — sorted by label ascending
+  // Filtered poses for grid
   const visiblePoses = posesInCell
     .filter((p) => !filterPose || p.id === filterPose)
-    .sort((a, b) => a.label.localeCompare(b.label));
+    .sort((a, b) => {
+      let cmp = 0;
+      if (poseSortKey === 'label') cmp = a.label.localeCompare(b.label);
+      else if (poseSortKey === 'sortOrder') cmp = a.sortOrder - b.sortOrder;
+      else cmp = a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
+      return poseSortDir === 'asc' ? cmp : -cmp;
+    });
 
   // Only show faces/backgrounds actually used by poses in this garment type
   const usedFaceIds = new Set(poses.map((p) => p.faceId));
@@ -504,7 +513,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             >
               <button
                 className="btn sm ghost"
-                onClick={() => setSubView({ kind: 'list' })}
+                onClick={() => {
+                  setSubView({ kind: 'list' });
+                  setSelectedPoseIds([]);
+                }}
                 style={{ padding: '2px 8px', fontSize: 13 }}
               >
                 Garment Types
@@ -982,6 +994,53 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 Clear
               </button>
             )}
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              <select
+                className="select"
+                style={{ minWidth: 120 }}
+                value={poseSortKey}
+                onChange={(e) =>
+                  setPoseSortKey(e.target.value as 'label' | 'sortOrder' | 'createdAt')
+                }
+              >
+                <option value="label">Name</option>
+                <option value="sortOrder">Sort order</option>
+                <option value="createdAt">Date added</option>
+              </select>
+              <button
+                className="btn sm ghost"
+                title={poseSortDir === 'asc' ? 'Ascending' : 'Descending'}
+                onClick={() => setPoseSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+              >
+                {poseSortDir === 'asc' ? '↑' : '↓'}
+              </button>
+            </div>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button
+                className="btn sm ghost"
+                onClick={() => {
+                  const allVisible = visiblePoses.map((p) => p.id);
+                  const allSelected = allVisible.every((id) => selectedPoseIds.includes(id));
+                  setSelectedPoseIds(allSelected ? [] : allVisible);
+                }}
+              >
+                {visiblePoses.every((p) => selectedPoseIds.includes(p.id)) &&
+                visiblePoses.length > 0
+                  ? 'Deselect all'
+                  : 'Select all'}
+              </button>
+              {selectedPoseIds.length > 0 && (
+                <button
+                  className="btn sm primary"
+                  onClick={() => {
+                    setClonePoseIds(selectedPoseIds);
+                    setCloneTargetIds([]);
+                  }}
+                >
+                  Clone selected ({selectedPoseIds.length})
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Pose grid */}
@@ -1008,11 +1067,37 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   style={{
                     opacity: pose.isActive ? 1 : 0.6,
                     padding: 14,
-                    outline: missingAddons ? '2px solid #f59e0b' : undefined,
+                    outline: selectedPoseIds.includes(pose.id)
+                      ? '2px solid var(--pink)'
+                      : missingAddons
+                        ? '2px solid #f59e0b'
+                        : undefined,
                   }}
                 >
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    {T(pose, 64, 88)}
+                    <div style={{ position: 'relative', flexShrink: 0 }}>
+                      {T(pose, 64, 88)}
+                      <input
+                        type="checkbox"
+                        checked={selectedPoseIds.includes(pose.id)}
+                        onChange={(e) =>
+                          setSelectedPoseIds((prev) =>
+                            e.target.checked
+                              ? [...prev, pose.id]
+                              : prev.filter((id) => id !== pose.id),
+                          )
+                        }
+                        style={{
+                          position: 'absolute',
+                          top: 4,
+                          left: 4,
+                          width: 15,
+                          height: 15,
+                          cursor: 'pointer',
+                          accentColor: 'var(--pink)',
+                        }}
+                      />
+                    </div>
                     <div style={{ marginTop: 4, minWidth: 0 }}>
                       <span className="semi" style={{ fontSize: 13 }}>
                         {pose.label}
@@ -1081,7 +1166,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                           className="btn sm ghost"
                           title="Clone to other garment types"
                           onClick={() => {
-                            setClonePose(pose);
+                            setClonePoseIds([pose.id]);
                             setCloneTargetIds([]);
                           }}
                         >
@@ -2210,7 +2295,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           toast={toast}
         />
       )}
-      {clonePose && (
+      {clonePoseIds.length > 0 && (
         <div
           style={{
             position: 'fixed',
@@ -2221,7 +2306,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             justifyContent: 'center',
             zIndex: 1000,
           }}
-          onClick={() => setClonePose(null)}
+          onClick={() => setClonePoseIds([])}
         >
           <div
             style={{
@@ -2239,12 +2324,34 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ fontWeight: 600, fontSize: 15 }}>
-              Clone "{clonePose.label}" to garment types
+              {clonePoseIds.length === 1
+                ? `Clone "${poses.find((p) => p.id === clonePoseIds[0])?.label ?? '…'}" to garment types`
+                : `Clone ${clonePoseIds.length} poses to garment types`}
             </div>
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Select garment types to clone this pose to. Existing combos (same face + background)
-              will be skipped.
+              Select garment types to clone to. Existing combos (same face + background) will be
+              skipped.
             </div>
+            {(() => {
+              const cloneableIds = garmentTypes
+                .filter(
+                  (g) =>
+                    g.id !== (subView.kind === 'garment-type' ? subView.sub.id : '') &&
+                    (subView.kind !== 'garment-type' || g.genderSlug === subView.sub.genderSlug),
+                )
+                .map((g) => g.id);
+              const allSelected =
+                cloneableIds.length > 0 && cloneableIds.every((id) => cloneTargetIds.includes(id));
+              return (
+                <button
+                  className="btn sm ghost"
+                  style={{ alignSelf: 'flex-start' }}
+                  onClick={() => setCloneTargetIds(allSelected ? [] : cloneableIds)}
+                >
+                  {allSelected ? 'Deselect all' : 'Select all'}
+                </button>
+              );
+            })()}
             <div
               style={{
                 overflowY: 'auto',
@@ -2255,7 +2362,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               }}
             >
               {garmentTypes
-                .filter((g) => g.id !== (subView.kind === 'garment-type' ? subView.sub.id : ''))
+                .filter(
+                  (g) =>
+                    g.id !== (subView.kind === 'garment-type' ? subView.sub.id : '') &&
+                    (subView.kind !== 'garment-type' || g.genderSlug === subView.sub.genderSlug),
+                )
                 .map((g) => (
                   <label
                     key={g.id}
@@ -2290,28 +2401,34 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 ))}
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn sm ghost" onClick={() => setClonePose(null)}>
+              <button className="btn sm ghost" onClick={() => setClonePoseIds([])}>
                 Cancel
               </button>
               <button
                 className="btn sm primary"
                 disabled={cloneTargetIds.length === 0 || cloning}
                 onClick={async () => {
-                  if (!clonePose) return;
                   setCloning(true);
                   try {
                     const res = await apiFetch<{ created: number; skipped: number }>(
-                      `/admin/assets/poses/${clonePose.id}/clone`,
+                      clonePoseIds.length === 1
+                        ? `/admin/assets/poses/${clonePoseIds[0]}/clone`
+                        : '/admin/assets/poses/clone-bulk',
                       {
                         method: 'POST',
-                        body: JSON.stringify({ targetGarmentTypeIds: cloneTargetIds }),
+                        body: JSON.stringify(
+                          clonePoseIds.length === 1
+                            ? { targetGarmentTypeIds: cloneTargetIds }
+                            : { poseIds: clonePoseIds, targetGarmentTypeIds: cloneTargetIds },
+                        ),
                       },
                     );
                     toast({
                       title: `Cloned to ${res.created} garment type${res.created !== 1 ? 's' : ''}${res.skipped > 0 ? ` (${res.skipped} skipped)` : ''}`,
                     });
-                    setClonePose(null);
+                    setClonePoseIds([]);
                     setCloneTargetIds([]);
+                    setSelectedPoseIds([]);
                   } catch {
                     toast({ kind: 'error', title: 'Clone failed' });
                   } finally {

@@ -4,6 +4,7 @@ import { keys } from '@aivastra/storage';
 import {
   AssetContentType,
   ClonePoseBody,
+  ClonePosesBulkBody,
   ConfirmModelBackgroundBody,
   ConfirmModelFaceBody,
   ConfirmModelPoseBody,
@@ -670,6 +671,80 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         skipped: existingIds.size,
         ids: inserted.map((r) => r.id),
       };
+    },
+  );
+
+  app.post(
+    '/admin/assets/poses/clone-bulk',
+    { preHandler: W, schema: { body: ClonePosesBulkBody } },
+    async (req) => {
+      const { poseIds, targetGarmentTypeIds } = req.body as {
+        poseIds: string[];
+        targetGarmentTypeIds: string[];
+      };
+
+      const sources = await app.db
+        .select()
+        .from(schema.modelPoses)
+        .where(inArray(schema.modelPoses.id, poseIds));
+      if (sources.length === 0) throw new AppError('NOT_FOUND', 404, 'no poses found');
+
+      const validSubs = await app.db
+        .select({ id: schema.garmentSubcategories.id })
+        .from(schema.garmentSubcategories)
+        .where(inArray(schema.garmentSubcategories.id, targetGarmentTypeIds));
+      if (validSubs.length !== targetGarmentTypeIds.length)
+        throw new AppError('BAD_CATALOG', 400, 'one or more garment types not found');
+
+      let created = 0;
+      let skipped = 0;
+      const ids: string[] = [];
+
+      for (const source of sources) {
+        const existing = await app.db
+          .select({ subcategoryId: schema.modelPoses.subcategoryId })
+          .from(schema.modelPoses)
+          .where(
+            and(
+              inArray(schema.modelPoses.subcategoryId, targetGarmentTypeIds),
+              eq(schema.modelPoses.faceId, source.faceId),
+              eq(schema.modelPoses.backgroundId, source.backgroundId),
+            ),
+          );
+        const existingIds = new Set(existing.map((r) => r.subcategoryId));
+        const toCreate = targetGarmentTypeIds.filter((tid) => !existingIds.has(tid));
+        skipped += existingIds.size;
+
+        if (toCreate.length === 0) continue;
+
+        const inserted = await app.db
+          .insert(schema.modelPoses)
+          .values(
+            toCreate.map((subcategoryId) => ({
+              subcategoryId,
+              faceId: source.faceId,
+              backgroundId: source.backgroundId,
+              label: source.label,
+              r2Key: source.r2Key,
+              thumbnailKey: source.thumbnailKey,
+              faceSideR2Key: source.faceSideR2Key,
+              bgComfyR2Key: source.bgComfyR2Key,
+              workflowTemplateId: source.workflowTemplateId,
+              promptFacePhase: source.promptFacePhase,
+              promptGarmentPhase: source.promptGarmentPhase,
+              showsLower: source.showsLower,
+              showsShoes: source.showsShoes,
+              sortOrder: source.sortOrder,
+              isActive: source.isActive,
+            })),
+          )
+          .returning({ id: schema.modelPoses.id });
+
+        created += inserted.length;
+        ids.push(...inserted.map((r) => r.id));
+      }
+
+      return { created, skipped, ids };
     },
   );
 

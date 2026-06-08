@@ -225,6 +225,10 @@ export const ConfirmModelPoseBody = z
 export const ClonePoseBody = z.object({
   targetGarmentTypeIds: z.array(z.string().uuid()).min(1),
 });
+export const ClonePosesBulkBody = z.object({
+  poseIds: z.array(z.string().uuid()).min(1),
+  targetGarmentTypeIds: z.array(z.string().uuid()).min(1),
+});
 
 export const PatchModelPoseBody = z.object({
   label: z.string().min(1).max(120).optional(),
