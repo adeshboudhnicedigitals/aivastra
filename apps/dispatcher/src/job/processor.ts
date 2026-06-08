@@ -114,7 +114,17 @@ export async function processJob(
 
   // bgComfyR2Key is the ComfyUI-specific background; bgRow.r2Key is display-only.
   // Fall back to display background only for legacy poses that pre-date the bgComfy field.
-  const bgKey = poseRow.bgComfyR2Key ?? bgRow.r2Key;
+  // Amazon platform overrides the background entirely — always use the configured white BG image.
+  let params: Record<string, unknown> = {};
+  if (inputs.params) {
+    params =
+      typeof inputs.params === 'string'
+        ? JSON.parse(inputs.params)
+        : (inputs.params as Record<string, unknown>);
+  }
+  const isAmazon = params.platform === 'Amazon';
+  jobLog.info({ platform: params.platform, isAmazon }, 'platform check');
+  const bgKey = isAmazon ? bgRow.r2Key : (poseRow.bgComfyR2Key ?? bgRow.r2Key);
   const poseKey = poseRow.r2Key;
   const workflowTemplateId = poseRow.workflowTemplateId;
 

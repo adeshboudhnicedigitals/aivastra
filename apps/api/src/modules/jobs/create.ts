@@ -25,7 +25,36 @@ export async function createJob(
   } = body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
   const resolution: Resolution = body.resolution;
+  const platform: string | undefined = body.platform;
   const COST = RESOLUTION_COSTS[resolution];
+
+  // Amazon platform requires a white background — override user selection with the
+  // background tagged as isWhiteBg in the admin panel.
+  let effectiveBackgroundId = backgroundId;
+  if (platform === 'Amazon') {
+    const [whiteBg] = await app.db
+      .select({ id: schema.modelBackgrounds.id })
+      .from(schema.modelBackgrounds)
+      .where(
+        and(
+          eq(schema.modelBackgrounds.isActive, true),
+          eq(schema.modelBackgrounds.isWhiteBg, true),
+        ),
+      )
+      .limit(1);
+    if (!whiteBg) {
+      throw new AppError(
+        'VALIDATION',
+        400,
+        'Amazon platform requires a white background to be configured',
+      );
+    }
+    effectiveBackgroundId = whiteBg.id;
+    app.log.info(
+      { originalBg: backgroundId, amazonBg: effectiveBackgroundId, platform },
+      'amazon bg override',
+    );
+  }
 
   const [face, background, poses] = await Promise.all([
     app.db
@@ -37,7 +66,7 @@ export async function createJob(
       .from(schema.modelBackgrounds)
       .where(
         and(
-          eq(schema.modelBackgrounds.id, backgroundId),
+          eq(schema.modelBackgrounds.id, effectiveBackgroundId),
           eq(schema.modelBackgrounds.isActive, true),
         ),
       ),
@@ -115,7 +144,7 @@ export async function createJob(
         jobId: job.id,
         upperGarmentKey,
         faceId,
-        backgroundId,
+        backgroundId: effectiveBackgroundId,
         poseId,
         lowerCatalogId: effectiveLowerCatalogId,
         lowerGarmentKey: effectiveLowerGarmentKey,
@@ -125,6 +154,7 @@ export async function createJob(
           ...(body.params ?? {}),
           ...(effectiveAspectRatio ? { aspectRatio: effectiveAspectRatio } : {}),
           resolution,
+          ...(platform ? { platform } : {}),
         },
       });
       created.push(job.id);
