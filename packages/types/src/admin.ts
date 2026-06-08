@@ -89,11 +89,13 @@ export const ConfirmModelBackgroundBody = z.object({
   thumbnailKey: z.string().min(1),
   sortOrder: z.number().int().default(0),
   genderSlug: GenderEnum.optional(),
+  isWhiteBg: z.boolean().optional(),
 });
 export const PatchModelBackgroundBody = z.object({
   label: z.string().min(1).max(120).optional(),
   genderSlug: GenderEnum.nullable().optional(),
   isActive: z.boolean().optional(),
+  isWhiteBg: z.boolean().optional(),
   sortOrder: z.number().int().optional(),
   r2Key: z.string().optional(),
   thumbnailKey: z.string().optional(),
@@ -219,6 +221,10 @@ export const ConfirmModelPoseBody = z
     message: 'Provide either backgroundId or newBackground, not both',
     path: ['backgroundId'],
   });
+
+export const ClonePoseBody = z.object({
+  targetGarmentTypeIds: z.array(z.string().uuid()).min(1),
+});
 
 export const PatchModelPoseBody = z.object({
   label: z.string().min(1).max(120).optional(),
