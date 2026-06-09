@@ -57,7 +57,7 @@ export async function buildServer(env: Env) {
   await app.register(cookie, { secret: env.COOKIE_SECRET });
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
   await app.register(sensible);
-  await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
+  await app.register(multipart, { limits: { fileSize: 2.5 * 1024 * 1024 * 1024 } });
   await app.register(metricsPlugin);
 
   app.decorate('env', env);
