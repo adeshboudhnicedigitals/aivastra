@@ -194,6 +194,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [cloneTargetIds, setCloneTargetIds] = useState<string[]>([]);
   const [cloning, setCloning] = useState(false);
   const [selectedPoseIds, setSelectedPoseIds] = useState<string[]>([]);
+  const [confirmBulkDeletePoseIds, setConfirmBulkDeletePoseIds] = useState<string[]>([]);
   const [editingBackground, setEditingBackground] = useState<ModelBackground | null>(null);
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
 
@@ -404,6 +405,21 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
+  const doBulkDeletePoses = async () => {
+    const ids = confirmBulkDeletePoseIds;
+    setConfirmBulkDeletePoseIds([]);
+    if (ids.length === 0) return;
+    const results = await Promise.allSettled(
+      ids.map((id) => apiFetch(`/admin/assets/poses/${id}?force=true`, { method: 'DELETE' })),
+    );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    setPoses((prev) => prev.filter((p) => !ids.includes(p.id)));
+    setSelectedPoseIds((prev) => prev.filter((id) => !ids.includes(id)));
+    if (failed > 0)
+      toast({ kind: 'error', title: `Deleted ${ids.length - failed}, failed ${failed}` });
+    else toast({ title: `Deleted ${ids.length} pose${ids.length > 1 ? 's' : ''}` });
+  };
+
   const setAmazonWhiteBg = async (id: string) => {
     const prev = backgrounds.find((b) => b.isWhiteBg);
     // Optimistic update: set the selected one as white, unset all others
@@ -477,9 +493,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       return poseSortDir === 'asc' ? cmp : -cmp;
     });
 
-  // Only show faces/backgrounds actually used by poses in this garment type
-  const usedFaceIds = new Set(poses.map((p) => p.faceId));
-  const usedBgIds = new Set(poses.map((p) => p.backgroundId));
+  // Faces valid given current bg filter; backgrounds valid given current face filter
+  const usedFaceIds = new Set(
+    poses.filter((p) => !filterBg || p.backgroundId === filterBg).map((p) => p.faceId),
+  );
+  const usedBgIds = new Set(
+    poses.filter((p) => !filterFace || p.faceId === filterFace).map((p) => p.backgroundId),
+  );
   const poseFaces = faces.filter((f) => usedFaceIds.has(f.id));
   const poseBgs = allBackgrounds.filter((b) => usedBgIds.has(b.id));
 
@@ -1030,15 +1050,23 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   : 'Select all'}
               </button>
               {selectedPoseIds.length > 0 && (
-                <button
-                  className="btn sm primary"
-                  onClick={() => {
-                    setClonePoseIds(selectedPoseIds);
-                    setCloneTargetIds([]);
-                  }}
-                >
-                  Clone selected ({selectedPoseIds.length})
-                </button>
+                <>
+                  <button
+                    className="btn sm primary"
+                    onClick={() => {
+                      setClonePoseIds(selectedPoseIds);
+                      setCloneTargetIds([]);
+                    }}
+                  >
+                    Clone selected ({selectedPoseIds.length})
+                  </button>
+                  <button
+                    className="btn sm danger"
+                    onClick={() => setConfirmBulkDeletePoseIds([...selectedPoseIds])}
+                  >
+                    <Icon.Trash /> Delete selected ({selectedPoseIds.length})
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1439,6 +1467,33 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </button>
               <button className="btn danger" onClick={doDelete}>
                 <Icon.Trash /> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmBulkDeletePoseIds.length > 0 && (
+        <div className="modal-overlay" onClick={() => setConfirmBulkDeletePoseIds([])}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete {confirmBulkDeletePoseIds.length} poses</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Permanently delete <strong>{confirmBulkDeletePoseIds.length} selected poses</strong>
+                ? This cannot be undone.
+              </p>
+              <p style={{ color: 'var(--danger)', marginTop: 8 }}>
+                Warning: poses referenced by existing jobs will still be deleted (force).
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmBulkDeletePoseIds([])}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={doBulkDeletePoses}>
+                <Icon.Trash /> Delete {confirmBulkDeletePoseIds.length} poses
               </button>
             </div>
           </div>
