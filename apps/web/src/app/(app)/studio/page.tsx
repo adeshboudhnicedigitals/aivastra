@@ -751,7 +751,7 @@ export default function StudioPage(): React.ReactElement {
                       setGarmentTypeId('');
                       setGarmentModalOpen(false);
                     }}
-                    imgStyle={{ transform: 'scale(2.5)', transformOrigin: 'top center' }}
+                    imgStyle={{ transform: 'scale(1.4)', transformOrigin: 'center 1%' }}
                   />
                 ))}
               </div>
