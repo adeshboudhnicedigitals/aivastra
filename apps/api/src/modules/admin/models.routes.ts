@@ -774,13 +774,23 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
       await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, ids));
 
-      // Fire-and-forget R2 cleanup (don't block response)
-      void Promise.allSettled(
-        poses.flatMap((p) => [
-          app.storage.deleteObject(p.r2Key),
-          app.storage.deleteObject(p.thumbnailKey),
-        ]),
-      );
+      // Only delete R2 objects not referenced by any surviving pose (clones share r2Key)
+      const keysToCheck = [...new Set(poses.flatMap((p) => [p.r2Key, p.thumbnailKey]))];
+      const survivors = await app.db
+        .select({ r2Key: schema.modelPoses.r2Key, thumbnailKey: schema.modelPoses.thumbnailKey })
+        .from(schema.modelPoses)
+        .where(
+          inArray(
+            schema.modelPoses.r2Key,
+            poses.map((p) => p.r2Key),
+          ),
+        );
+      const survivingKeys = new Set(survivors.flatMap((s) => [s.r2Key, s.thumbnailKey]));
+      const orphanKeys = keysToCheck.filter((k) => !survivingKeys.has(k));
+
+      if (orphanKeys.length > 0) {
+        void Promise.allSettled(orphanKeys.map((k) => app.storage.deleteObject(k)));
+      }
 
       return { deleted: poses.length };
     },
@@ -823,11 +833,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
       }
 
-      await Promise.allSettled([
-        app.storage.deleteObject(pose.r2Key),
-        app.storage.deleteObject(pose.thumbnailKey),
-      ]);
       await app.db.delete(schema.modelPoses).where(eq(schema.modelPoses.id, id));
+
+      // Only delete R2 objects if no other pose shares the same key (clones reuse r2Key)
+      const siblings = await app.db
+        .select({ id: schema.modelPoses.id })
+        .from(schema.modelPoses)
+        .where(eq(schema.modelPoses.r2Key, pose.r2Key))
+        .limit(1);
+      if (siblings.length === 0) {
+        void Promise.allSettled([
+          app.storage.deleteObject(pose.r2Key),
+          app.storage.deleteObject(pose.thumbnailKey),
+        ]);
+      }
       return { ok: true };
     },
   );
