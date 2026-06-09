@@ -2147,7 +2147,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           garmentTypeGenderSlug={genderFilter !== 'all' ? genderFilter : 'men'}
           faces={faces}
           backgrounds={allBackgrounds}
-          onDone={(added) => {
+          onDone={(_added) => {
             setShowPoseAssetUpload(false);
             loadPoseAssets();
             apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
