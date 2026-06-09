@@ -747,6 +747,46 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   );
 
   app.delete(
+    '/admin/assets/poses',
+    {
+      preHandler: W,
+      schema: {
+        body: z.object({ ids: z.array(z.string().uuid()).min(1).max(1000) }),
+      },
+    },
+    async (req) => {
+      const { ids } = req.body as { ids: string[] };
+      const poses = await app.db
+        .select()
+        .from(schema.modelPoses)
+        .where(inArray(schema.modelPoses.id, ids));
+      if (poses.length === 0) return { deleted: 0 };
+
+      const jobRefs = await app.db
+        .select({ jobId: schema.jobInputs.jobId })
+        .from(schema.jobInputs)
+        .where(inArray(schema.jobInputs.poseId, ids));
+
+      if (jobRefs.length > 0) {
+        const jobIds = [...new Set(jobRefs.map((r) => r.jobId))];
+        await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
+      }
+
+      await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, ids));
+
+      // Fire-and-forget R2 cleanup (don't block response)
+      void Promise.allSettled(
+        poses.flatMap((p) => [
+          app.storage.deleteObject(p.r2Key),
+          app.storage.deleteObject(p.thumbnailKey),
+        ]),
+      );
+
+      return { deleted: poses.length };
+    },
+  );
+
+  app.delete(
     '/admin/assets/poses/:id',
     {
       preHandler: W,

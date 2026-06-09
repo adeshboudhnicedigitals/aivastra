@@ -409,15 +409,17 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     const ids = confirmBulkDeletePoseIds;
     setConfirmBulkDeletePoseIds([]);
     if (ids.length === 0) return;
-    const results = await Promise.allSettled(
-      ids.map((id) => apiFetch(`/admin/assets/poses/${id}?force=true`, { method: 'DELETE' })),
-    );
-    const failed = results.filter((r) => r.status === 'rejected').length;
-    setPoses((prev) => prev.filter((p) => !ids.includes(p.id)));
-    setSelectedPoseIds((prev) => prev.filter((id) => !ids.includes(id)));
-    if (failed > 0)
-      toast({ kind: 'error', title: `Deleted ${ids.length - failed}, failed ${failed}` });
-    else toast({ title: `Deleted ${ids.length} pose${ids.length > 1 ? 's' : ''}` });
+    try {
+      const res = await apiFetch<{ deleted: number }>('/admin/assets/poses', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids }),
+      });
+      setPoses((prev) => prev.filter((p) => !ids.includes(p.id)));
+      setSelectedPoseIds((prev) => prev.filter((id) => !ids.includes(id)));
+      toast({ title: `Deleted ${res.deleted} pose${res.deleted !== 1 ? 's' : ''}` });
+    } catch {
+      toast({ kind: 'error', title: 'Bulk delete failed' });
+    }
   };
 
   const setAmazonWhiteBg = async (id: string) => {
