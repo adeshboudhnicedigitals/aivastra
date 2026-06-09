@@ -4,7 +4,8 @@ import { BackgroundUploadModal } from '../components/BackgroundUploadModal';
 import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import { EditBackgroundModal } from '../components/EditBackgroundModal';
 import { EditFaceModal } from '../components/EditFaceModal';
-import { EditPoseModal } from '../components/EditPoseModal';
+import { EditPoseAssetModal } from '../components/EditPoseAssetModal';
+
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
 import { PoseUploadModal } from '../components/PoseUploadModal';
@@ -14,7 +15,7 @@ import { Th } from '../components/Th';
 import type { FieldDef } from '../components/UploadModal';
 import { UploadModal } from '../components/UploadModal';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../lib/data';
+import { apiFetch, getToken } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type {
   CatalogItem,
@@ -23,10 +24,11 @@ import type {
   ModelBackground,
   ModelFace,
   ModelPose,
+  ModelPoseAsset,
   WorkflowOption,
 } from '../types';
 
-type AssetTab = 'garment-types' | 'faces' | 'backgrounds' | 'lower' | 'shoe';
+type AssetTab = 'garment-types' | 'faces' | 'backgrounds' | 'lower' | 'shoe' | 'pose-assets';
 type GenderFilter = 'all' | GenderSlug;
 
 type SubView = { kind: 'list' } | { kind: 'garment-type'; sub: GarmentType };
@@ -149,7 +151,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const { storagePublicUrl } = useAuth();
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const VALID_TABS: AssetTab[] = ['garment-types', 'faces', 'backgrounds', 'lower', 'shoe'];
+  const VALID_TABS: AssetTab[] = [
+    'garment-types',
+    'faces',
+    'backgrounds',
+    'lower',
+    'shoe',
+    'pose-assets',
+  ];
   const rawTab = searchParams.get('tab') as AssetTab | null;
   const activeTab: AssetTab = rawTab && VALID_TABS.includes(rawTab) ? rawTab : 'garment-types';
   const setActiveTab = (tab: AssetTab) => setSearchParams({ tab }, { replace: true });
@@ -161,12 +170,58 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [faces, setFaces] = useState<ModelFace[]>([]);
   const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>([]);
   const [poses, setPoses] = useState<ModelPose[]>([]);
+  const [poseAssets, setPoseAssets] = useState<ModelPoseAsset[]>([]);
+  const [confirmDeletePoseAssetId, setConfirmDeletePoseAssetId] = useState<string | null>(null);
+  const [selectedPoseAssetIds, setSelectedPoseAssetIds] = useState<string[]>([]);
+  const [confirmBulkDeletePoseAssetIds, setConfirmBulkDeletePoseAssetIds] = useState<string[]>([]);
+
+  // Upload pose asset state
+  const [showPoseAssetUpload, setShowPoseAssetUpload] = useState(false);
+
+  // Edit pose asset state
+  const [editingPoseAsset, setEditingPoseAsset] = useState<ModelPoseAsset | null>(null);
+
+  // Map pose asset state
+  const [mappingPoseAsset, setMappingPoseAsset] = useState<ModelPoseAsset | null>(null);
+  const [mapGarmentTypeId, setMapGarmentTypeId] = useState('');
+  const [mapping, setMapping] = useState(false);
+  const [existingMappings, setExistingMappings] = useState<
+    {
+      id: string;
+      garmentTypeId: string;
+      garmentTypeLabel: string | null;
+      faceId: string;
+      faceLabel: string | null;
+      backgroundId: string;
+      backgroundLabel: string | null;
+      workflowTemplateId: string;
+      workflowLabel: string | null;
+      isActive: boolean;
+      createdAt: string;
+    }[]
+  >([]);
+  const [loadingMappings, setLoadingMappings] = useState(false);
+
+  // Bulk-map selected pose assets
+  const [showBulkMap, setShowBulkMap] = useState(false);
+  const [bulkMapGarmentTypeId, setBulkMapGarmentTypeId] = useState('');
+  const [bulkMapping, setBulkMapping] = useState(false);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [filterFace, setFilterFace] = useState('');
   const [filterBg, setFilterBg] = useState('');
   const [filterPose, setFilterPose] = useState('');
+  const [poseSearch, setPoseSearch] = useState('');
   const [poseSortKey, setPoseSortKey] = useState<'label' | 'sortOrder' | 'createdAt'>('label');
   const [poseSortDir, setPoseSortDir] = useState<'asc' | 'desc'>('asc');
+
+  // Pose-asset tab filters
+  const [paFilterFace, setPaFilterFace] = useState('');
+  const [paFilterBg, setPaFilterBg] = useState('');
+  const [paFilterWorkflow, setPaFilterWorkflow] = useState('');
+  const [paFilterPose, setPaFilterPose] = useState('');
+  const [paSearch, setPaSearch] = useState('');
+  const [paSortKey, setPaSortKey] = useState<'label' | 'createdAt'>('label');
+  const [paSortDir, setPaSortDir] = useState<'asc' | 'desc'>('asc');
   const [showSubcatModal, setShowSubcatModal] = useState(false);
   const [subcatForm, setSubcatForm] = useState({
     slug: '',
@@ -188,13 +243,16 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   const [showBgUpload, setShowBgUpload] = useState(false);
   const [showFaceUpload, setShowFaceUpload] = useState(false);
-  const [showPoseUpload, setShowPoseUpload] = useState(false);
-  const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
-  const [clonePoseIds, setClonePoseIds] = useState<string[]>([]);
-  const [cloneTargetIds, setCloneTargetIds] = useState<string[]>([]);
-  const [cloning, setCloning] = useState(false);
+
   const [selectedPoseIds, setSelectedPoseIds] = useState<string[]>([]);
   const [confirmBulkDeletePoseIds, setConfirmBulkDeletePoseIds] = useState<string[]>([]);
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  const [bulkImportGender, setBulkImportGender] = useState<GenderSlug>('men');
+  const [bulkImportWorkflowId, setBulkImportWorkflowId] = useState('');
+  const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkImportProgress, setBulkImportProgress] = useState(0);
+  const bulkImportRef = useRef<HTMLInputElement>(null);
   const [editingBackground, setEditingBackground] = useState<ModelBackground | null>(null);
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
 
@@ -223,6 +281,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         const qs = genderSlug ? `?genderSlug=${genderSlug}` : '';
         const res = await apiFetch<{ items: ModelBackground[] }>(`/admin/assets/backgrounds${qs}`);
         setBackgrounds(res.items);
+        if (!genderSlug) setAllBackgrounds(res.items);
       } catch {
         toast({ kind: 'error', title: 'Failed to load backgrounds' });
       } finally {
@@ -251,6 +310,22 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       setGarmentTypes(res.items);
     } catch {
       toast({ kind: 'error', title: 'Failed to load garment types' });
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  const loadPoseAssets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [assetsRes, wfRes] = await Promise.all([
+        apiFetch<{ items: ModelPoseAsset[] }>('/admin/assets/pose-assets'),
+        apiFetch<WorkflowOption[]>('/admin/workflows'),
+      ]);
+      setPoseAssets(assetsRes.items);
+      setWorkflows(wfRes);
+    } catch {
+      toast({ kind: 'error', title: 'Failed to load pose assets' });
     } finally {
       setLoading(false);
     }
@@ -297,7 +372,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       loadBackgrounds(g);
     } else if (activeTab === 'faces') loadFaces();
     else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog(g);
-    else if (activeTab === 'garment-types') {
+    else if (activeTab === 'pose-assets') {
+      loadPoseAssets();
+      loadGarmentTypes();
+    } else if (activeTab === 'garment-types') {
       if (subView.kind === 'list') loadGarmentTypes();
       else loadGarmentTypeAssets(subView.sub.id);
     }
@@ -310,6 +388,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     loadGarmentTypes,
     loadGarmentTypeAssets,
     loadCatalog,
+    loadPoseAssets,
   ]);
 
   // Preload faces + backgrounds silently so upload selects + filters are populated
@@ -422,6 +501,23 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
+  const doBulkDeletePoseAssets = async () => {
+    const ids = confirmBulkDeletePoseAssetIds;
+    setConfirmBulkDeletePoseAssetIds([]);
+    if (ids.length === 0) return;
+    try {
+      const res = await apiFetch<{ deleted: number }>('/admin/assets/pose-assets', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids }),
+      });
+      setPoseAssets((prev) => prev.filter((a) => !ids.includes(a.id)));
+      setSelectedPoseAssetIds((prev) => prev.filter((id) => !ids.includes(id)));
+      toast({ title: `Deleted ${res.deleted} pose asset${res.deleted !== 1 ? 's' : ''}` });
+    } catch {
+      toast({ kind: 'error', title: 'Bulk delete failed' });
+    }
+  };
+
   const setAmazonWhiteBg = async (id: string) => {
     const prev = backgrounds.find((b) => b.isWhiteBg);
     // Optimistic update: set the selected one as white, unset all others
@@ -462,6 +558,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     { k: 'garment-types', l: 'Garment Types' },
     { k: 'faces', l: 'Model Faces' },
     { k: 'backgrounds', l: 'Backgrounds' },
+    { k: 'pose-assets', l: 'Pose Assets' },
     { k: 'lower', l: 'Lower garments' },
     { k: 'shoe', l: 'Shoes' },
   ];
@@ -478,6 +575,42 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const filteredGarmentTypes = garmentTypes.filter(
     (s) => genderFilter === 'all' || s.genderSlug === genderFilter,
   );
+  const filteredPoseAssets = poseAssets
+    .filter((a) => {
+      if (genderFilter !== 'all' && a.genderSlug !== genderFilter) return false;
+      if (paFilterFace && a.faceId !== paFilterFace) return false;
+      if (paFilterBg && a.backgroundId !== paFilterBg) return false;
+      if (paFilterWorkflow && a.workflowTemplateId !== paFilterWorkflow) return false;
+      if (paFilterPose && a.id !== paFilterPose) return false;
+      if (paSearch) {
+        const q = paSearch.toLowerCase();
+        const matchLabel = a.label.toLowerCase().includes(q);
+        const matchDisplay = a.displayName?.toLowerCase().includes(q) ?? false;
+        if (!matchLabel && !matchDisplay) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      let cmp = 0;
+      if (paSortKey === 'label') cmp = a.label.localeCompare(b.label);
+      else cmp = a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
+      return paSortDir === 'asc' ? cmp : -cmp;
+    });
+
+  // Face / bg / workflow options for pose-asset filters (only IDs that appear in current gender slice)
+  const genderSlicedAssets = poseAssets.filter(
+    (a) => genderFilter === 'all' || a.genderSlug === genderFilter,
+  );
+  const paFaceOptions = faces.filter((f) => genderSlicedAssets.some((a) => a.faceId === f.id));
+  const paBgOptions = allBackgrounds.filter((b) =>
+    genderSlicedAssets.some((a) => a.backgroundId === b.id),
+  );
+  const paWorkflowOptions = workflows.filter((w) =>
+    genderSlicedAssets.some((a) => a.workflowTemplateId === w.id),
+  );
+  const paPoseOptions = genderSlicedAssets
+    .slice()
+    .sort((a, b) => (a.displayName ?? a.label).localeCompare(b.displayName ?? b.label));
 
   // Poses available in current face×bg cell (for 3rd-dimension selector)
   const posesInCell = poses.filter(
@@ -487,6 +620,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   // Filtered poses for grid
   const visiblePoses = posesInCell
     .filter((p) => !filterPose || p.id === filterPose)
+    .filter((p) => !poseSearch || p.label.toLowerCase().includes(poseSearch.toLowerCase()))
     .sort((a, b) => {
       let cmp = 0;
       if (poseSortKey === 'label') cmp = a.label.localeCompare(b.label);
@@ -552,18 +686,22 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               ? 'Backgrounds'
               : activeTab === 'faces'
                 ? 'Model Faces'
-                : activeTab === 'lower'
-                  ? 'Lower garments'
-                  : activeTab === 'shoe'
-                    ? 'Shoes'
-                    : subView.kind === 'garment-type'
-                      ? subView.sub.label
-                      : 'Garment Types'}
+                : activeTab === 'pose-assets'
+                  ? 'Pose Assets'
+                  : activeTab === 'lower'
+                    ? 'Lower garments'
+                    : activeTab === 'shoe'
+                      ? 'Shoes'
+                      : subView.kind === 'garment-type'
+                        ? subView.sub.label
+                        : 'Garment Types'}
           </h1>
           <p className="lede">
             {activeTab === 'backgrounds' &&
               'Global backgrounds sent to ComfyUI for all garment types.'}
             {activeTab === 'faces' && 'Model face images — select gender to filter.'}
+            {activeTab === 'pose-assets' &&
+              'Centralised pose image assets. Delete here removes R2 objects. Remove all garment-type mappings first.'}
             {activeTab === 'garment-types' &&
               subView.kind === 'list' &&
               'Garment types. Click to manage assets.'}
@@ -601,10 +739,24 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               <Icon.Add /> Add garment type
             </button>
           )}
-          {activeTab === 'garment-types' && subView.kind === 'garment-type' && (
-            <button className="btn" onClick={() => setShowPoseUpload(true)}>
-              <Icon.Upload /> Upload poses
-            </button>
+
+          {activeTab === 'pose-assets' && (
+            <>
+              <button className="btn ghost" onClick={() => setShowPoseAssetUpload(true)}>
+                <Icon.Add /> Upload pose
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setBulkImportGender('men');
+                  setBulkImportWorkflowId('');
+                  setBulkImportFile(null);
+                  setShowBulkImport(true);
+                }}
+              >
+                <Icon.Upload /> Bulk import ZIP
+              </button>
+            </>
           )}
           {(activeTab === 'lower' || activeTab === 'shoe') && (
             <button className="btn" onClick={() => setShowCatalogUpload(true)}>
@@ -622,6 +774,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             onClick={() => {
               setActiveTab(t.k);
               setSubView({ kind: 'list' });
+              setSelectedPoseAssetIds([]);
             }}
           >
             {t.l}
@@ -842,6 +995,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       setFilterFace('');
                       setFilterBg('');
                       setFilterPose('');
+                      setPoseSearch('');
                       setSubView({ kind: 'garment-type', sub });
                     }}
                   >
@@ -950,8 +1104,15 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             }}
           >
             <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-              {poses.length} poses
+              {visiblePoses.length}/{poses.length} poses
             </span>
+            <input
+              className="input"
+              style={{ minWidth: 160, maxWidth: 220 }}
+              placeholder="Search poses…"
+              value={poseSearch}
+              onChange={(e) => setPoseSearch(e.target.value)}
+            />
             <select
               className="select"
               style={{ minWidth: 150 }}
@@ -1004,13 +1165,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   </option>
                 ))}
             </select>
-            {(filterFace || filterBg || filterPose) && (
+            {(filterFace || filterBg || filterPose || poseSearch) && (
               <button
                 className="btn sm ghost"
                 onClick={() => {
                   setFilterFace('');
                   setFilterBg('');
                   setFilterPose('');
+                  setPoseSearch('');
                 }}
               >
                 Clear
@@ -1052,23 +1214,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   : 'Select all'}
               </button>
               {selectedPoseIds.length > 0 && (
-                <>
-                  <button
-                    className="btn sm primary"
-                    onClick={() => {
-                      setClonePoseIds(selectedPoseIds);
-                      setCloneTargetIds([]);
-                    }}
-                  >
-                    Clone selected ({selectedPoseIds.length})
-                  </button>
-                  <button
-                    className="btn sm danger"
-                    onClick={() => setConfirmBulkDeletePoseIds([...selectedPoseIds])}
-                  >
-                    <Icon.Trash /> Delete selected ({selectedPoseIds.length})
-                  </button>
-                </>
+                <button
+                  className="btn sm danger"
+                  onClick={() => setConfirmBulkDeletePoseIds([...selectedPoseIds])}
+                >
+                  <Icon.Trash /> Delete selected ({selectedPoseIds.length})
+                </button>
               )}
             </div>
           </div>
@@ -1189,19 +1340,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     >
                       <Switch checked={pose.isActive} onChange={() => togglePose(pose.id)} />
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="btn sm ghost" onClick={() => setEditingPose(pose)}>
-                          <Icon.Edit />
-                        </button>
-                        <button
-                          className="btn sm ghost"
-                          title="Clone to other garment types"
-                          onClick={() => {
-                            setClonePoseIds([pose.id]);
-                            setCloneTargetIds([]);
-                          }}
-                        >
-                          <Icon.Copy />
-                        </button>
                         <button
                           className="btn sm ghost"
                           onClick={() =>
@@ -1232,6 +1370,327 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </div>
             )}
           </div>
+        </>
+      )}
+
+      {!loading && activeTab === 'pose-assets' && (
+        <>
+          <div className="tabs" style={{ marginTop: -8 }}>
+            {GENDER_TABS.map((t) => (
+              <button
+                key={t.k}
+                className={`tab ${genderFilter === t.k ? 'active' : ''}`}
+                onClick={() => {
+                  setGenderFilter(t.k);
+                  setPaFilterFace('');
+                  setPaFilterBg('');
+                  setPaFilterWorkflow('');
+                  setPaFilterPose('');
+                  setPaSearch('');
+                }}
+              >
+                {t.l}
+              </button>
+            ))}
+          </div>
+          {/* Filter bar */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              marginTop: 8,
+              marginBottom: 4,
+              flexWrap: 'wrap',
+            }}
+          >
+            <input
+              className="input"
+              style={{ minWidth: 160, maxWidth: 220 }}
+              placeholder="Search label…"
+              value={paSearch}
+              onChange={(e) => setPaSearch(e.target.value)}
+            />
+            <select
+              className="select"
+              style={{ minWidth: 140 }}
+              value={paFilterFace}
+              onChange={(e) => setPaFilterFace(e.target.value)}
+            >
+              <option value="">All faces</option>
+              {paFaceOptions.map((f) => (
+                <option key={f.id} value={f.id}>
+                  [{f.gender}] {f.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className="select"
+              style={{ minWidth: 140 }}
+              value={paFilterBg}
+              onChange={(e) => setPaFilterBg(e.target.value)}
+            >
+              <option value="">All backgrounds</option>
+              {paBgOptions.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className="select"
+              style={{ minWidth: 140 }}
+              value={paFilterWorkflow}
+              onChange={(e) => setPaFilterWorkflow(e.target.value)}
+            >
+              <option value="">All workflows</option>
+              {paWorkflowOptions.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className="select"
+              style={{ minWidth: 160 }}
+              value={paFilterPose}
+              onChange={(e) => setPaFilterPose(e.target.value)}
+            >
+              <option value="">All poses</option>
+              {paPoseOptions.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.displayName ?? a.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className="select"
+              style={{ minWidth: 110 }}
+              value={paSortKey}
+              onChange={(e) => setPaSortKey(e.target.value as 'label' | 'createdAt')}
+            >
+              <option value="label">Name</option>
+              <option value="createdAt">Date added</option>
+            </select>
+            <button
+              className="btn sm ghost"
+              title={paSortDir === 'asc' ? 'Ascending' : 'Descending'}
+              onClick={() => setPaSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+            >
+              {paSortDir === 'asc' ? '↑' : '↓'}
+            </button>
+            {(paSearch || paFilterFace || paFilterBg || paFilterWorkflow || paFilterPose) && (
+              <button
+                className="btn sm ghost"
+                onClick={() => {
+                  setPaSearch('');
+                  setPaFilterFace('');
+                  setPaFilterBg('');
+                  setPaFilterWorkflow('');
+                  setPaFilterPose('');
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: 4,
+              flexWrap: 'wrap',
+            }}
+          >
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+              {filteredPoseAssets.length} asset{filteredPoseAssets.length !== 1 ? 's' : ''}
+              {genderFilter !== 'all' && ` · ${poseAssets.length} total`}
+            </p>
+            {filteredPoseAssets.length > 0 && (
+              <button
+                className="btn sm ghost"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => {
+                  const allIds = filteredPoseAssets.map((a) => a.id);
+                  const allSelected = allIds.every((id) => selectedPoseAssetIds.includes(id));
+                  setSelectedPoseAssetIds(allSelected ? [] : allIds);
+                }}
+              >
+                {filteredPoseAssets.length > 0 &&
+                filteredPoseAssets.every((a) => selectedPoseAssetIds.includes(a.id))
+                  ? 'Deselect all'
+                  : 'Select all'}
+              </button>
+            )}
+            {selectedPoseAssetIds.length > 0 && (
+              <>
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    setBulkMapGarmentTypeId('');
+                    setShowBulkMap(true);
+                  }}
+                >
+                  <Icon.Add /> Map selected ({selectedPoseAssetIds.length})
+                </button>
+                <button
+                  className="btn sm danger"
+                  onClick={() => setConfirmBulkDeletePoseAssetIds([...selectedPoseAssetIds])}
+                >
+                  <Icon.Trash /> Delete selected ({selectedPoseAssetIds.length})
+                </button>
+              </>
+            )}
+          </div>
+          {filteredPoseAssets.length === 0 ? (
+            <p style={{ color: 'var(--muted)', marginTop: 24 }}>No pose assets for this gender.</p>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                gap: 12,
+                marginTop: 12,
+              }}
+            >
+              {filteredPoseAssets.map((a) => (
+                <div
+                  key={a.id}
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    outline: selectedPoseAssetIds.includes(a.id)
+                      ? '2px solid var(--pink)'
+                      : undefined,
+                  }}
+                >
+                  <div
+                    style={{
+                      background: 'var(--surface2, #1a1a1a)',
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      aspectRatio: '3/4',
+                      cursor: 'zoom-in',
+                      position: 'relative',
+                    }}
+                    onClick={() => setPreviewUrl(`${storagePublicUrl}/${a.r2Key}`)}
+                  >
+                    <AssetThumb
+                      thumbnailKey={a.thumbnailKey}
+                      r2Key={a.r2Key}
+                      label={a.label}
+                      storageBase={storagePublicUrl}
+                      onPreview={setPreviewUrl}
+                      w={160}
+                      h={210}
+                    />
+                    <input
+                      type="checkbox"
+                      checked={selectedPoseAssetIds.includes(a.id)}
+                      onChange={(e) =>
+                        setSelectedPoseAssetIds((prev) =>
+                          e.target.checked ? [...prev, a.id] : prev.filter((id) => id !== a.id),
+                        )
+                      }
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        position: 'absolute',
+                        top: 6,
+                        left: 6,
+                        width: 15,
+                        height: 15,
+                        cursor: 'pointer',
+                        accentColor: 'var(--pink)',
+                      }}
+                    />
+                  </div>
+                  <div style={{ padding: '8px 8px 10px' }}>
+                    <p
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={a.displayName ?? a.label}
+                    >
+                      {a.displayName ?? a.label}
+                    </p>
+                    {a.genderSlug && (
+                      <span className="badge dot accent" style={{ fontSize: 10, marginTop: 4 }}>
+                        {a.genderSlug}
+                      </span>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 5 }}>
+                      {a.faceId && (
+                        <span className="badge dot" style={{ fontSize: 10 }} title="Face">
+                          {faces.find((f) => f.id === a.faceId)?.label ?? '?'}
+                        </span>
+                      )}
+                      {a.backgroundId && (
+                        <span className="badge dot" style={{ fontSize: 10 }} title="Background">
+                          {allBackgrounds.find((b) => b.id === a.backgroundId)?.label ?? '?'}
+                        </span>
+                      )}
+                      {a.workflowTemplateId && (
+                        <span
+                          className="badge dot accent"
+                          style={{ fontSize: 10 }}
+                          title="Workflow"
+                        >
+                          {workflows.find((w) => w.id === a.workflowTemplateId)?.label ?? '?'}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                      <button
+                        className="btn ghost"
+                        style={{ flex: 1, fontSize: 10, padding: '3px 0' }}
+                        onClick={() => setEditingPoseAsset(a)}
+                      >
+                        <Icon.Edit /> Edit
+                      </button>
+                      <button
+                        className="btn ghost"
+                        style={{ flex: 1, fontSize: 10, padding: '3px 0' }}
+                        onClick={async () => {
+                          setMappingPoseAsset(a);
+                          setMapGarmentTypeId('');
+                          setExistingMappings([]);
+                          setLoadingMappings(true);
+                          try {
+                            const res = await apiFetch<{ items: typeof existingMappings }>(
+                              `/admin/assets/pose-assets/${a.id}/mappings`,
+                            );
+                            setExistingMappings(res.items);
+                          } catch {
+                            /* ignore */
+                          } finally {
+                            setLoadingMappings(false);
+                          }
+                        }}
+                      >
+                        <Icon.Add /> Map
+                      </button>
+                    </div>
+                    <button
+                      className="btn danger"
+                      style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
+                      onClick={() => setConfirmDeletePoseAssetId(a.id)}
+                    >
+                      <Icon.Trash /> Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -1502,6 +1961,571 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         </div>
       )}
 
+      {showBulkImport && (
+        <div className="modal-overlay" onClick={() => !bulkImporting && setShowBulkImport(false)}>
+          <div className="modal" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Bulk import ZIP</h3>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+            >
+              <div>
+                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>
+                  ZIP file
+                </label>
+                <input
+                  ref={bulkImportRef}
+                  type="file"
+                  accept=".zip"
+                  style={{ width: '100%' }}
+                  onChange={(e) => setBulkImportFile(e.target.files?.[0] ?? null)}
+                />
+                {bulkImportFile && (
+                  <p style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                    {bulkImportFile.name} ({(bulkImportFile.size / 1024 / 1024).toFixed(1)} MB)
+                  </p>
+                )}
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>Gender</label>
+                <select
+                  className="input"
+                  value={bulkImportGender}
+                  onChange={(e) => setBulkImportGender(e.target.value as GenderSlug)}
+                  disabled={bulkImporting}
+                >
+                  <option value="men">Men</option>
+                  <option value="women">Women</option>
+                  <option value="boys">Boys</option>
+                  <option value="girls">Girls</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>
+                  Workflow template{' '}
+                  <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span>
+                </label>
+                <select
+                  className="input"
+                  value={bulkImportWorkflowId}
+                  onChange={(e) => setBulkImportWorkflowId(e.target.value)}
+                  disabled={bulkImporting}
+                >
+                  <option value="">— none —</option>
+                  {workflows.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+                ZIP must contain <code>backgrounds/</code>, <code>faces/</code>, and{' '}
+                <code>poses/</code> folders. Pose filenames: <code>faceXXbgYposeZZ.png</code>
+              </p>
+              {bulkImporting && (
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 12,
+                      marginBottom: 4,
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    <span>{bulkImportProgress < 100 ? 'Uploading…' : 'Processing ZIP…'}</span>
+                    <span>{bulkImportProgress}%</span>
+                  </div>
+                  <div
+                    style={{
+                      height: 6,
+                      background: 'var(--border)',
+                      borderRadius: 3,
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${bulkImportProgress}%`,
+                        background: 'var(--accent, #6366f1)',
+                        borderRadius: 3,
+                        transition: 'width 0.2s ease',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                disabled={bulkImporting}
+                onClick={() => setShowBulkImport(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={bulkImporting || !bulkImportFile}
+                onClick={() => {
+                  if (!bulkImportFile) return;
+                  setBulkImporting(true);
+                  setBulkImportProgress(0);
+                  const fd = new FormData();
+                  if (bulkImportWorkflowId) fd.append('workflowTemplateId', bulkImportWorkflowId);
+                  fd.append('genderSlug', bulkImportGender);
+                  fd.append('zip', bulkImportFile);
+                  const tok = getToken();
+                  const xhr = new XMLHttpRequest();
+                  xhr.open('POST', '/admin/assets/bulk-import');
+                  if (tok) xhr.setRequestHeader('Authorization', `Bearer ${tok}`);
+                  xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                      setBulkImportProgress(Math.round((e.loaded / e.total) * 100));
+                    }
+                  };
+                  xhr.onload = async () => {
+                    setBulkImporting(false);
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                      const result = JSON.parse(xhr.responseText) as {
+                        created: { faces: number; backgrounds: number; poses: number };
+                        errors: string[];
+                      };
+                      setShowBulkImport(false);
+                      setBulkImportFile(null);
+                      setBulkImportProgress(0);
+                      const { faces, backgrounds, poses } = result.created;
+                      toast({
+                        title: `Imported ${faces} faces, ${backgrounds} backgrounds, ${poses} poses`,
+                        body:
+                          faces + backgrounds + poses === 0
+                            ? 'All items already exist — nothing new to import.'
+                            : undefined,
+                      });
+                      if (result.errors.length > 0) {
+                        // biome-ignore lint/suspicious/noConsole: surface import errors in devtools
+                        console.error('Bulk import errors:', result.errors);
+                        toast({
+                          kind: 'error',
+                          title: `${result.errors.length} item(s) failed`,
+                          body: result.errors[0],
+                        });
+                      }
+                      await Promise.all([loadPoseAssets(), loadFaces(), loadBackgrounds()]);
+                    } else {
+                      const err = JSON.parse(xhr.responseText) as {
+                        error?: { message?: string };
+                      };
+                      toast({
+                        kind: 'error',
+                        title: 'Bulk import failed',
+                        body: err.error?.message ?? xhr.statusText,
+                      });
+                    }
+                  };
+                  xhr.onerror = () => {
+                    setBulkImporting(false);
+                    toast({ kind: 'error', title: 'Bulk import failed', body: 'Network error' });
+                  };
+                  xhr.send(fd);
+                }}
+              >
+                {bulkImporting ? 'Importing…' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Upload single pose asset (rich form via PoseUploadModal in asset mode) ── */}
+      {showPoseAssetUpload && (
+        <PoseUploadModal
+          garmentTypeGenderSlug={genderFilter !== 'all' ? genderFilter : 'men'}
+          faces={faces}
+          backgrounds={allBackgrounds}
+          onDone={(added) => {
+            setShowPoseAssetUpload(false);
+            loadPoseAssets();
+            apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
+              .then((r) => setFaces(r.items))
+              .catch(() => {});
+            apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds')
+              .then((r) => setAllBackgrounds(r.items))
+              .catch(() => {});
+          }}
+          onClose={() => setShowPoseAssetUpload(false)}
+          toast={toast}
+        />
+      )}
+
+      {/* ── Edit pose asset ── */}
+      {editingPoseAsset && (
+        <EditPoseAssetModal
+          asset={editingPoseAsset}
+          faces={faces}
+          backgrounds={allBackgrounds}
+          workflows={workflows}
+          onSaved={(updated) => {
+            setPoseAssets((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+          }}
+          onClose={() => setEditingPoseAsset(null)}
+          toast={toast}
+        />
+      )}
+
+      {/* ── Map pose asset to garment type ── */}
+      {mappingPoseAsset &&
+        (() => {
+          const assetGender = mappingPoseAsset.genderSlug;
+          const gtOptions = garmentTypes.filter(
+            (g) => !assetGender || g.genderSlug === assetGender,
+          );
+          return (
+            <div className="modal-overlay" onClick={() => setMappingPoseAsset(null)}>
+              <div className="modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-head">
+                  <h3>Map pose to garment type</h3>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    {mappingPoseAsset.label}
+                  </p>
+                </div>
+                <div
+                  className="modal-body"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                >
+                  {/* Existing mappings */}
+                  <div>
+                    <label className="field-label" style={{ marginBottom: 6, display: 'block' }}>
+                      Existing mappings
+                    </label>
+                    {loadingMappings ? (
+                      <p style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</p>
+                    ) : existingMappings.length === 0 ? (
+                      <p style={{ fontSize: 12, color: 'var(--muted)' }}>None yet.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {existingMappings.map((m) => (
+                          <div
+                            key={m.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              padding: '6px 10px',
+                              background: 'var(--subtle)',
+                              borderRadius: 6,
+                              fontSize: 12,
+                            }}
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: 12 }}>
+                                {m.garmentTypeLabel ?? m.garmentTypeId}
+                              </div>
+                              <div
+                                style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}
+                              >
+                                {m.faceLabel && <span className="badge dot">{m.faceLabel}</span>}
+                                {m.backgroundLabel && (
+                                  <span className="badge dot">{m.backgroundLabel}</span>
+                                )}
+                                {m.workflowLabel && (
+                                  <span className="badge dot accent">{m.workflowLabel}</span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              className="btn sm danger ghost"
+                              style={{ flexShrink: 0, padding: '2px 6px', fontSize: 11 }}
+                              onClick={async () => {
+                                try {
+                                  await apiFetch(`/admin/assets/poses/${m.id}`, {
+                                    method: 'DELETE',
+                                  });
+                                  setExistingMappings((prev) => prev.filter((x) => x.id !== m.id));
+                                } catch (err: unknown) {
+                                  toast({
+                                    kind: 'error',
+                                    title: 'Delete mapping failed',
+                                    body: err instanceof Error ? err.message : String(err),
+                                  });
+                                }
+                              }}
+                            >
+                              <Icon.Trash />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <hr
+                    style={{
+                      border: 'none',
+                      borderTop: '1px solid var(--border)',
+                      margin: '2px 0',
+                    }}
+                  />
+
+                  {/* Asset tags preview */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {mappingPoseAsset.faceId ? (
+                      <span className="badge dot">
+                        {faces.find((f) => f.id === mappingPoseAsset.faceId)?.label ??
+                          mappingPoseAsset.faceId}
+                      </span>
+                    ) : (
+                      <span
+                        className="badge dot"
+                        style={{ background: '#fef3c7', color: '#92400e' }}
+                      >
+                        ⚠ no face
+                      </span>
+                    )}
+                    {mappingPoseAsset.backgroundId ? (
+                      <span className="badge dot">
+                        {allBackgrounds.find((b) => b.id === mappingPoseAsset.backgroundId)
+                          ?.label ?? mappingPoseAsset.backgroundId}
+                      </span>
+                    ) : (
+                      <span
+                        className="badge dot"
+                        style={{ background: '#fef3c7', color: '#92400e' }}
+                      >
+                        ⚠ no background
+                      </span>
+                    )}
+                    {mappingPoseAsset.workflowTemplateId ? (
+                      <span className="badge dot accent">
+                        {workflows.find((w) => w.id === mappingPoseAsset.workflowTemplateId)
+                          ?.label ?? mappingPoseAsset.workflowTemplateId}
+                      </span>
+                    ) : (
+                      <span
+                        className="badge dot"
+                        style={{ background: '#fef3c7', color: '#92400e' }}
+                      >
+                        ⚠ no workflow
+                      </span>
+                    )}
+                  </div>
+
+                  <label className="field-label" style={{ fontSize: 11 }}>
+                    Add mapping — garment type
+                  </label>
+                  <select
+                    className="input"
+                    value={mapGarmentTypeId}
+                    onChange={(e) => setMapGarmentTypeId(e.target.value)}
+                  >
+                    <option value="">— select —</option>
+                    {gtOptions.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.label} ({g.genderSlug})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="modal-foot">
+                  <button className="btn ghost" onClick={() => setMappingPoseAsset(null)}>
+                    Close
+                  </button>
+                  <button
+                    className="btn"
+                    disabled={
+                      mapping ||
+                      !mapGarmentTypeId ||
+                      !mappingPoseAsset.faceId ||
+                      !mappingPoseAsset.backgroundId ||
+                      !mappingPoseAsset.workflowTemplateId
+                    }
+                    onClick={async () => {
+                      if (!mappingPoseAsset || !mapGarmentTypeId) return;
+                      setMapping(true);
+                      try {
+                        await apiFetch(`/admin/assets/pose-assets/${mappingPoseAsset.id}/map`, {
+                          method: 'POST',
+                          body: JSON.stringify({ garmentTypeId: mapGarmentTypeId }),
+                        });
+                        const res = await apiFetch<{ items: typeof existingMappings }>(
+                          `/admin/assets/pose-assets/${mappingPoseAsset.id}/mappings`,
+                        );
+                        setExistingMappings(res.items);
+                        setMapGarmentTypeId('');
+                        toast({
+                          title: `Mapped to ${garmentTypes.find((g) => g.id === mapGarmentTypeId)?.label ?? 'garment type'}`,
+                        });
+                      } catch (err: unknown) {
+                        toast({
+                          kind: 'error',
+                          title: 'Mapping failed',
+                          body: err instanceof Error ? err.message : String(err),
+                        });
+                      } finally {
+                        setMapping(false);
+                      }
+                    }}
+                  >
+                    {mapping ? 'Mapping…' : 'Add mapping'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+      {confirmBulkDeletePoseAssetIds.length > 0 && (
+        <div className="modal-overlay" onClick={() => setConfirmBulkDeletePoseAssetIds([])}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete {confirmBulkDeletePoseAssetIds.length} pose assets</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Permanently delete{' '}
+                <strong>{confirmBulkDeletePoseAssetIds.length} selected pose assets</strong> and
+                their R2 images? This cannot be undone.
+              </p>
+              <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>
+                All garment-type mappings and associated jobs will also be removed.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmBulkDeletePoseAssetIds([])}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={doBulkDeletePoseAssets}>
+                <Icon.Trash /> Delete {confirmBulkDeletePoseAssetIds.length} assets
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bulk map selected pose assets ── */}
+      {showBulkMap && (
+        <div className="modal-overlay" onClick={() => !bulkMapping && setShowBulkMap(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Bulk map poses</h3>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Map {selectedPoseAssetIds.length} selected pose
+                {selectedPoseAssetIds.length !== 1 ? 's' : ''} to the same garment type
+              </p>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+            >
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                Each pose uses its own stored face / background / workflow.
+              </p>
+              <label className="field-label" style={{ fontSize: 11 }}>
+                Garment type
+              </label>
+              <select
+                className="input"
+                value={bulkMapGarmentTypeId}
+                disabled={bulkMapping}
+                onChange={(e) => setBulkMapGarmentTypeId(e.target.value)}
+              >
+                <option value="">— select —</option>
+                {garmentTypes.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.label} ({g.genderSlug})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                disabled={bulkMapping}
+                onClick={() => setShowBulkMap(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={bulkMapping || !bulkMapGarmentTypeId}
+                onClick={async () => {
+                  if (!bulkMapGarmentTypeId) return;
+                  setBulkMapping(true);
+                  let created = 0;
+                  let failed = 0;
+                  for (const assetId of selectedPoseAssetIds) {
+                    try {
+                      await apiFetch(`/admin/assets/pose-assets/${assetId}/map`, {
+                        method: 'POST',
+                        body: JSON.stringify({ garmentTypeId: bulkMapGarmentTypeId }),
+                      });
+                      created++;
+                    } catch {
+                      failed++;
+                    }
+                  }
+                  setBulkMapping(false);
+                  setShowBulkMap(false);
+                  setSelectedPoseAssetIds([]);
+                  toast({
+                    kind: failed > 0 ? 'error' : undefined,
+                    title:
+                      failed > 0
+                        ? `Mapped ${created}, failed ${failed}`
+                        : `Mapped ${created} pose${created !== 1 ? 's' : ''}`,
+                  });
+                }}
+              >
+                {bulkMapping ? 'Mapping…' : `Map ${selectedPoseAssetIds.length} poses`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeletePoseAssetId && (
+        <div className="modal-overlay" onClick={() => setConfirmDeletePoseAssetId(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete pose asset</h3>
+            </div>
+            <div className="modal-body">
+              <p>Permanently delete this pose asset and its R2 images? This cannot be undone.</p>
+              <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>
+                All garment-type mappings and any associated jobs for this asset will also be
+                removed.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmDeletePoseAssetId(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn danger"
+                onClick={async () => {
+                  const id = confirmDeletePoseAssetId;
+                  setConfirmDeletePoseAssetId(null);
+                  try {
+                    await apiFetch(`/admin/assets/pose-assets/${id}?force=true`, {
+                      method: 'DELETE',
+                    });
+                    setPoseAssets((prev) => prev.filter((a) => a.id !== id));
+                    toast({ title: 'Pose asset deleted' });
+                  } catch (e) {
+                    toast({ kind: 'error', title: 'Delete failed', body: (e as Error).message });
+                  }
+                }}
+              >
+                <Icon.Trash /> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showBgUpload && (
         <BackgroundUploadModal
           defaultGenderSlug={genderFilter === 'all' ? '' : genderFilter}
@@ -1528,40 +2552,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           toast={toast}
         />
       )}
-      {showPoseUpload && subView.kind === 'garment-type' && (
-        <PoseUploadModal
-          garmentTypeId={subView.sub.id}
-          garmentTypeGenderSlug={subView.sub.genderSlug}
-          faces={faces}
-          backgrounds={allBackgrounds}
-          onDone={(added) => {
-            setShowPoseUpload(false);
-            setPoses((prev) => [...prev, added]);
-            apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')
-              .then((r) => setFaces(r.items))
-              .catch(() => {});
-            apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds')
-              .then((r) => setAllBackgrounds(r.items))
-              .catch(() => {});
-          }}
-          onClose={() => setShowPoseUpload(false)}
-          toast={toast}
-        />
-      )}
-      {editingPose && (
-        <EditPoseModal
-          pose={editingPose}
-          faces={faces}
-          backgrounds={allBackgrounds}
-          workflows={workflows}
-          onSaved={(updated) => {
-            setPoses((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-            setEditingPose(null);
-          }}
-          onClose={() => setEditingPose(null)}
-          toast={toast}
-        />
-      )}
+
       {editingBackground && (
         <EditBackgroundModal
           background={editingBackground}
@@ -2352,155 +3343,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           toast={toast}
         />
       )}
-      {clonePoseIds.length > 0 && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.6)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => setClonePoseIds([])}
-        >
-          <div
-            style={{
-              background: 'var(--surface)',
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: '1.5rem',
-              width: 420,
-              maxWidth: '95vw',
-              maxHeight: '80vh',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontWeight: 600, fontSize: 15 }}>
-              {clonePoseIds.length === 1
-                ? `Clone "${poses.find((p) => p.id === clonePoseIds[0])?.label ?? '…'}" to garment types`
-                : `Clone ${clonePoseIds.length} poses to garment types`}
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Select garment types to clone to. Existing combos (same face + background) will be
-              skipped.
-            </div>
-            {(() => {
-              const cloneableIds = garmentTypes
-                .filter(
-                  (g) =>
-                    g.id !== (subView.kind === 'garment-type' ? subView.sub.id : '') &&
-                    (subView.kind !== 'garment-type' || g.genderSlug === subView.sub.genderSlug),
-                )
-                .map((g) => g.id);
-              const allSelected =
-                cloneableIds.length > 0 && cloneableIds.every((id) => cloneTargetIds.includes(id));
-              return (
-                <button
-                  className="btn sm ghost"
-                  style={{ alignSelf: 'flex-start' }}
-                  onClick={() => setCloneTargetIds(allSelected ? [] : cloneableIds)}
-                >
-                  {allSelected ? 'Deselect all' : 'Select all'}
-                </button>
-              );
-            })()}
-            <div
-              style={{
-                overflowY: 'auto',
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-              }}
-            >
-              {garmentTypes
-                .filter(
-                  (g) =>
-                    g.id !== (subView.kind === 'garment-type' ? subView.sub.id : '') &&
-                    (subView.kind !== 'garment-type' || g.genderSlug === subView.sub.genderSlug),
-                )
-                .map((g) => (
-                  <label
-                    key={g.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '8px 10px',
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      background: cloneTargetIds.includes(g.id)
-                        ? 'var(--surface-hover)'
-                        : 'transparent',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={cloneTargetIds.includes(g.id)}
-                      onChange={(e) =>
-                        setCloneTargetIds((prev) =>
-                          e.target.checked ? [...prev, g.id] : prev.filter((id) => id !== g.id),
-                        )
-                      }
-                    />
-                    <span style={{ fontSize: 13 }}>
-                      {g.label}
-                      <span style={{ color: 'var(--muted)', marginLeft: 6, fontSize: 11 }}>
-                        {g.genderSlug}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-            </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn sm ghost" onClick={() => setClonePoseIds([])}>
-                Cancel
-              </button>
-              <button
-                className="btn sm primary"
-                disabled={cloneTargetIds.length === 0 || cloning}
-                onClick={async () => {
-                  setCloning(true);
-                  try {
-                    const res = await apiFetch<{ created: number; skipped: number }>(
-                      clonePoseIds.length === 1
-                        ? `/admin/assets/poses/${clonePoseIds[0]}/clone`
-                        : '/admin/assets/poses/clone-bulk',
-                      {
-                        method: 'POST',
-                        body: JSON.stringify(
-                          clonePoseIds.length === 1
-                            ? { targetGarmentTypeIds: cloneTargetIds }
-                            : { poseIds: clonePoseIds, targetGarmentTypeIds: cloneTargetIds },
-                        ),
-                      },
-                    );
-                    toast({
-                      title: `Cloned to ${res.created} garment type${res.created !== 1 ? 's' : ''}${res.skipped > 0 ? ` (${res.skipped} skipped)` : ''}`,
-                    });
-                    setClonePoseIds([]);
-                    setCloneTargetIds([]);
-                    setSelectedPoseIds([]);
-                  } catch {
-                    toast({ kind: 'error', title: 'Clone failed' });
-                  } finally {
-                    setCloning(false);
-                  }
-                }}
-              >
-                {cloning
-                  ? 'Cloning…'
-                  : `Clone to ${cloneTargetIds.length} type${cloneTargetIds.length !== 1 ? 's' : ''}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
       {previewUrl && (
         <div
           onClick={() => setPreviewUrl(null)}

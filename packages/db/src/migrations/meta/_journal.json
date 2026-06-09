@@ -2,236 +2,42 @@
   "version": "7",
   "dialect": "postgresql",
   "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1779121514331,
-      "tag": "0000_hard_firebird",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1779273555303,
-      "tag": "0001_model_asset_tables_job_inputs_reshape",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1748822400000,
-      "tag": "0002_asset_schema_redesign",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1748908800000,
-      "tag": "0003_poses_add_face_bg",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1748995200000,
-      "tag": "0004_credit_requests",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1748081600000,
-      "tag": "0005_pose_istemplate_drop_templates",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1748167200000,
-      "tag": "0006_catalog_types_seed",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1779926400001,
-      "tag": "0007_catalogue_id",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1779926400002,
-      "tag": "0008_pose_workflow_columns",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1779926400003,
-      "tag": "0009_workflow_templates",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1779926400004,
-      "tag": "0010_subcategory_thumbnail",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1779926400005,
-      "tag": "0011_oauth_accounts",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1779926400006,
-      "tag": "0012_shoe_node_id",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1779926400007,
-      "tag": "0013_background_locations",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1779926400008,
-      "tag": "0014_flatten_backgrounds",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1779926400009,
-      "tag": "0015_pose_bg_comfy_key",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "7",
-      "when": 1779926400010,
-      "tag": "0016_workflow_face_front_node",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "7",
-      "when": 1779926400011,
-      "tag": "0017_workflow_size_node",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1779926400012,
-      "tag": "0018_drop_face_front_node",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "7",
-      "when": 1779926400013,
-      "tag": "0019_gender_slug_bg_catalog",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "7",
-      "when": 1779926400014,
-      "tag": "0020_category_gender_slug",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "7",
-      "when": 1779926400015,
-      "tag": "0021_catalog_item_direct_type",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1779926400016,
-      "tag": "0022_pose_catalog_items",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "7",
-      "when": 1779926400017,
-      "tag": "0023_size_node_ids",
-      "breakpoints": true
-    },
-    {
-      "idx": 24,
-      "version": "7",
-      "when": 1779926400018,
-      "tag": "0024_email_verified",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1779926400019,
-      "tag": "0025_drop_is_template",
-      "breakpoints": true
-    },
-    {
-      "idx": 26,
-      "version": "7",
-      "when": 1779926400020,
-      "tag": "0026_catalog_item_subcategories",
-      "breakpoints": true
-    },
-    {
-      "idx": 27,
-      "version": "7",
-      "when": 1779926400021,
-      "tag": "0027_payments",
-      "breakpoints": true
-    },
-    {
-      "idx": 28,
-      "version": "7",
-      "when": 1779926400022,
-      "tag": "0028_credit_plans",
-      "breakpoints": true
-    },
-    {
-      "idx": 29,
-      "version": "7",
-      "when": 1779926400023,
-      "tag": "0029_credit_plans_seed",
-      "breakpoints": true
-    },
-    {
-      "idx": 30,
-      "version": "7",
-      "when": 1779926400024,
-      "tag": "0030_requires_lower_upload",
-      "breakpoints": true
-    },
-    {
-      "idx": 31,
-      "version": "7",
-      "when": 1779926400025,
-      "tag": "0031_is_white_bg",
-      "breakpoints": true
-    },
-    {
-      "idx": 32,
-      "version": "7",
-      "when": 1779926400026,
-      "tag": "0032_refresh_token_family",
-      "breakpoints": true
-    }
+    { "idx": 0, "version": "7", "when": 1779121514331, "tag": "0000_hard_firebird", "breakpoints": true },
+    { "idx": 1, "version": "7", "when": 1779273555303, "tag": "0001_model_asset_tables_job_inputs_reshape", "breakpoints": true },
+    { "idx": 2, "version": "7", "when": 1748822400000, "tag": "0002_asset_schema_redesign", "breakpoints": true },
+    { "idx": 3, "version": "7", "when": 1748908800000, "tag": "0003_poses_add_face_bg", "breakpoints": true },
+    { "idx": 4, "version": "7", "when": 1748995200000, "tag": "0004_credit_requests", "breakpoints": true },
+    { "idx": 5, "version": "7", "when": 1748081600000, "tag": "0005_pose_istemplate_drop_templates", "breakpoints": true },
+    { "idx": 6, "version": "7", "when": 1748167200000, "tag": "0006_catalog_types_seed", "breakpoints": true },
+    { "idx": 7, "version": "7", "when": 1779926400001, "tag": "0007_catalogue_id", "breakpoints": true },
+    { "idx": 8, "version": "7", "when": 1779926400002, "tag": "0008_pose_workflow_columns", "breakpoints": true },
+    { "idx": 9, "version": "7", "when": 1779926400003, "tag": "0009_workflow_templates", "breakpoints": true },
+    { "idx": 10, "version": "7", "when": 1779926400004, "tag": "0010_subcategory_thumbnail", "breakpoints": true },
+    { "idx": 11, "version": "7", "when": 1779926400005, "tag": "0011_oauth_accounts", "breakpoints": true },
+    { "idx": 12, "version": "7", "when": 1779926400006, "tag": "0012_shoe_node_id", "breakpoints": true },
+    { "idx": 13, "version": "7", "when": 1779926400007, "tag": "0013_background_locations", "breakpoints": true },
+    { "idx": 14, "version": "7", "when": 1779926400008, "tag": "0014_flatten_backgrounds", "breakpoints": true },
+    { "idx": 15, "version": "7", "when": 1779926400009, "tag": "0015_pose_bg_comfy_key", "breakpoints": true },
+    { "idx": 16, "version": "7", "when": 1779926400010, "tag": "0016_workflow_face_front_node", "breakpoints": true },
+    { "idx": 17, "version": "7", "when": 1779926400011, "tag": "0017_workflow_size_node", "breakpoints": true },
+    { "idx": 18, "version": "7", "when": 1779926400012, "tag": "0018_drop_face_front_node", "breakpoints": true },
+    { "idx": 19, "version": "7", "when": 1779926400013, "tag": "0019_gender_slug_bg_catalog", "breakpoints": true },
+    { "idx": 20, "version": "7", "when": 1779926400014, "tag": "0020_category_gender_slug", "breakpoints": true },
+    { "idx": 21, "version": "7", "when": 1779926400015, "tag": "0021_catalog_item_direct_type", "breakpoints": true },
+    { "idx": 22, "version": "7", "when": 1779926400016, "tag": "0022_pose_catalog_items", "breakpoints": true },
+    { "idx": 23, "version": "7", "when": 1779926400017, "tag": "0023_size_node_ids", "breakpoints": true },
+    { "idx": 24, "version": "7", "when": 1779926400018, "tag": "0024_email_verified", "breakpoints": true },
+    { "idx": 25, "version": "7", "when": 1779926400019, "tag": "0025_drop_is_template", "breakpoints": true },
+    { "idx": 26, "version": "7", "when": 1779926400020, "tag": "0026_catalog_item_subcategories", "breakpoints": true },
+    { "idx": 27, "version": "7", "when": 1779926400021, "tag": "0027_payments", "breakpoints": true },
+    { "idx": 28, "version": "7", "when": 1779926400022, "tag": "0028_credit_plans", "breakpoints": true },
+    { "idx": 29, "version": "7", "when": 1779926400023, "tag": "0029_credit_plans_seed", "breakpoints": true },
+    { "idx": 30, "version": "7", "when": 1779926400024, "tag": "0030_requires_lower_upload", "breakpoints": true },
+    { "idx": 31, "version": "7", "when": 1779926400025, "tag": "0031_is_white_bg", "breakpoints": true },
+    { "idx": 32, "version": "7", "when": 1779926400026, "tag": "0032_refresh_token_family", "breakpoints": true },
+    { "idx": 33, "version": "7", "when": 1779926400027, "tag": "0033_model_pose_assets", "breakpoints": true },
+    { "idx": 34, "version": "7", "when": 1779926400028, "tag": "0034_backfill_pose_asset_gender", "breakpoints": true },
+    { "idx": 35, "version": "7", "when": 1779926400029, "tag": "0035_pose_asset_face_bg_workflow", "breakpoints": true },
+    { "idx": 36, "version": "7", "when": 1779926400030, "tag": "0036_pose_asset_display_name", "breakpoints": true }
   ]
 }

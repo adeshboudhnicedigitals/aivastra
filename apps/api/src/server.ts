@@ -2,6 +2,7 @@ import { createLogger } from '@aivastra/logger';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -56,6 +57,7 @@ export async function buildServer(env: Env) {
   await app.register(cookie, { secret: env.COOKIE_SECRET });
   await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
   await app.register(sensible);
+  await app.register(multipart, { limits: { fileSize: 2 * 1024 * 1024 * 1024 } });
   await app.register(metricsPlugin);
 
   app.decorate('env', env);

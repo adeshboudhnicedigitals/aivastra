@@ -62,6 +62,16 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
     deleteObject: async (key) => {
       await s3.send(new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key }));
     },
+    putObject: async (key, body, contentType) => {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: cfg.bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentType,
+        }),
+      );
+    },
     publicUrl: (key) => `${cfg.publicUrl.replace(/\/$/, '')}/${key}`,
   };
 }
