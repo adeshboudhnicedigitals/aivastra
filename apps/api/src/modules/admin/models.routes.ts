@@ -626,15 +626,14 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (validSubs.length !== targetGarmentTypeIds.length)
         throw new AppError('BAD_CATALOG', 400, 'one or more garment types not found');
 
-      // Find which targets already have a pose for the same (face × background) combo
+      // Find which targets already have this exact pose image (same r2Key)
       const existing = await app.db
         .select({ subcategoryId: schema.modelPoses.subcategoryId })
         .from(schema.modelPoses)
         .where(
           and(
             inArray(schema.modelPoses.subcategoryId, targetGarmentTypeIds),
-            eq(schema.modelPoses.faceId, source.faceId),
-            eq(schema.modelPoses.backgroundId, source.backgroundId),
+            eq(schema.modelPoses.r2Key, source.r2Key),
           ),
         );
       const existingIds = new Set(existing.map((r) => r.subcategoryId));
@@ -707,8 +706,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           .where(
             and(
               inArray(schema.modelPoses.subcategoryId, targetGarmentTypeIds),
-              eq(schema.modelPoses.faceId, source.faceId),
-              eq(schema.modelPoses.backgroundId, source.backgroundId),
+              eq(schema.modelPoses.r2Key, source.r2Key),
             ),
           );
         const existingIds = new Set(existing.map((r) => r.subcategoryId));
