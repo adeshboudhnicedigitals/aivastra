@@ -207,6 +207,22 @@ export interface CreditPlan {
   updatedAt: string;
 }
 
+export interface ModelPoseAsset {
+  id: string;
+  label: string;
+  displayName: string | null;
+  r2Key: string;
+  faceSideR2Key: string | null;
+  bgComfyR2Key: string | null;
+  thumbnailKey: string;
+  genderSlug: string | null;
+  faceId: string | null;
+  backgroundId: string | null;
+  workflowTemplateId: string | null;
+  promptGarmentPhase: string | null;
+  createdAt: string;
+}
+
 export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
 
 export interface ToastItem {

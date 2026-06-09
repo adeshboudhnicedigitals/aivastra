@@ -81,6 +81,28 @@ export const workflowTemplates = pgTable('workflow_templates', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Centralised pose image asset — R2 objects managed independently of garment type mappings.
+// Deleting this row removes the R2 object; model_poses rows are mappings that reference it.
+export const modelPoseAssets = pgTable('model_pose_assets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  label: text('label').notNull(),
+  displayName: text('display_name'),
+  r2Key: text('r2_key').notNull(),
+  faceSideR2Key: text('face_side_r2_key'),
+  bgComfyR2Key: text('bg_comfy_r2_key'),
+  thumbnailKey: text('thumbnail_key').notNull(),
+  genderSlug: text('gender_slug'),
+  faceId: uuid('face_id').references(() => modelFaces.id, { onDelete: 'set null' }),
+  backgroundId: uuid('background_id').references(() => modelBackgrounds.id, {
+    onDelete: 'set null',
+  }),
+  workflowTemplateId: uuid('workflow_template_id').references(() => workflowTemplates.id, {
+    onDelete: 'set null',
+  }),
+  promptGarmentPhase: text('prompt_garment_phase'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Poses belong to a garment subcategory AND are per (face × background) combo
 // e.g. m1bg1p1 → face=model1, background=bg1, pose variant 1
 export const modelPoses = pgTable(
@@ -110,6 +132,7 @@ export const modelPoses = pgTable(
     promptGarmentPhase: text('prompt_garment_phase'),
     faceSideR2Key: text('face_side_r2_key'),
     bgComfyR2Key: text('bg_comfy_r2_key'),
+    poseAssetId: uuid('pose_asset_id').references(() => modelPoseAssets.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

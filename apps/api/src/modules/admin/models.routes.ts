@@ -15,6 +15,7 @@ import {
   PresignModelFaceBody,
   PresignModelPoseBody,
 } from '@aivastra/types';
+import AdmZip from 'adm-zip';
 import { and, eq, getTableColumns, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -773,25 +774,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       }
 
       await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, ids));
-
-      // Only delete R2 objects not referenced by any surviving pose (clones share r2Key)
-      const keysToCheck = [...new Set(poses.flatMap((p) => [p.r2Key, p.thumbnailKey]))];
-      const survivors = await app.db
-        .select({ r2Key: schema.modelPoses.r2Key, thumbnailKey: schema.modelPoses.thumbnailKey })
-        .from(schema.modelPoses)
-        .where(
-          inArray(
-            schema.modelPoses.r2Key,
-            poses.map((p) => p.r2Key),
-          ),
-        );
-      const survivingKeys = new Set(survivors.flatMap((s) => [s.r2Key, s.thumbnailKey]));
-      const orphanKeys = keysToCheck.filter((k) => !survivingKeys.has(k));
-
-      if (orphanKeys.length > 0) {
-        void Promise.allSettled(orphanKeys.map((k) => app.storage.deleteObject(k)));
-      }
-
+      // R2 objects are owned by model_pose_assets rows — not deleted here.
       return { deleted: poses.length };
     },
   );
@@ -834,20 +817,827 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       }
 
       await app.db.delete(schema.modelPoses).where(eq(schema.modelPoses.id, id));
-
-      // Only delete R2 objects if no other pose shares the same key (clones reuse r2Key)
-      const siblings = await app.db
-        .select({ id: schema.modelPoses.id })
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.r2Key, pose.r2Key))
-        .limit(1);
-      if (siblings.length === 0) {
-        void Promise.allSettled([
-          app.storage.deleteObject(pose.r2Key),
-          app.storage.deleteObject(pose.thumbnailKey),
-        ]);
-      }
+      // R2 objects are owned by model_pose_assets rows — not deleted here.
       return { ok: true };
     },
   );
+
+  // ── Pose Assets (centralised R2 object management) ───────────────────────
+
+  app.get('/admin/assets/pose-assets', { preHandler: W }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.modelPoseAssets.id,
+        label: schema.modelPoseAssets.label,
+        r2Key: schema.modelPoseAssets.r2Key,
+        faceSideR2Key: schema.modelPoseAssets.faceSideR2Key,
+        bgComfyR2Key: schema.modelPoseAssets.bgComfyR2Key,
+        thumbnailKey: schema.modelPoseAssets.thumbnailKey,
+        genderSlug: schema.modelPoseAssets.genderSlug,
+        faceId: schema.modelPoseAssets.faceId,
+        backgroundId: schema.modelPoseAssets.backgroundId,
+        workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+        promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+        createdAt: schema.modelPoseAssets.createdAt,
+      })
+      .from(schema.modelPoseAssets)
+      .orderBy(schema.modelPoseAssets.label);
+    return { items: rows };
+  });
+
+  // Presign for a new pose asset image upload (full: pose + faceSide + bgComfy + optional new face/bg)
+  app.post(
+    '/admin/assets/pose-assets/presign',
+    {
+      preHandler: W,
+      schema: {
+        body: z.object({
+          contentType: AssetContentType,
+          faceSideContentType: AssetContentType.optional(),
+          bgComfyContentType: AssetContentType.optional(),
+          newFaceContentType: AssetContentType.optional(),
+          newBgContentType: AssetContentType.optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const body = req.body as {
+        contentType: string;
+        faceSideContentType?: string;
+        bgComfyContentType?: string;
+        newFaceContentType?: string;
+        newBgContentType?: string;
+      };
+      const newId = randomUUID();
+      const r2Key = keys.modelPose(newId);
+      const thumbKey = keys.modelPoseThumb(newId);
+      const faceSideKey = body.faceSideContentType ? keys.modelPoseFaceSide(newId) : null;
+      const bgComfyKey = body.bgComfyContentType ? keys.modelPoseBgComfy(newId) : null;
+
+      const presignTasks: Promise<{ url: string }>[] = [
+        app.storage.presignPut(r2Key, body.contentType, 10_000_000, 300),
+        app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
+      ];
+      if (faceSideKey && body.faceSideContentType)
+        presignTasks.push(
+          app.storage.presignPut(faceSideKey, body.faceSideContentType, 10_000_000, 300),
+        );
+      if (bgComfyKey && body.bgComfyContentType)
+        presignTasks.push(
+          app.storage.presignPut(bgComfyKey, body.bgComfyContentType, 10_000_000, 300),
+        );
+
+      const newFaceId = body.newFaceContentType ? randomUUID() : null;
+      const newFaceR2Key = newFaceId ? keys.modelFace(newFaceId) : null;
+      const newFaceThumbKey = newFaceId ? keys.modelFaceThumb(newFaceId) : null;
+      if (newFaceId && body.newFaceContentType && newFaceR2Key && newFaceThumbKey) {
+        presignTasks.push(
+          app.storage.presignPut(newFaceR2Key, body.newFaceContentType, 10_000_000, 300),
+        );
+        presignTasks.push(app.storage.presignPut(newFaceThumbKey, 'image/jpeg', 1_000_000, 300));
+      }
+
+      const newBgId = body.newBgContentType ? randomUUID() : null;
+      const newBgR2Key = newBgId ? keys.modelBackground(newBgId) : null;
+      const newBgThumbKey = newBgId ? keys.modelBackgroundThumb(newBgId) : null;
+      if (newBgId && body.newBgContentType && newBgR2Key && newBgThumbKey) {
+        presignTasks.push(
+          app.storage.presignPut(newBgR2Key, body.newBgContentType, 10_000_000, 300),
+        );
+        presignTasks.push(app.storage.presignPut(newBgThumbKey, 'image/jpeg', 1_000_000, 300));
+      }
+
+      const results = await Promise.all(presignTasks);
+      let idx = 0;
+      const response: Record<string, unknown> = {
+        r2Key,
+        uploadUrl: results[idx++]?.url,
+        thumbnailKey: thumbKey,
+        thumbnailUploadUrl: results[idx++]?.url,
+      };
+      if (faceSideKey && body.faceSideContentType) {
+        response.faceSideR2Key = faceSideKey;
+        response.faceSideUploadUrl = results[idx++]?.url;
+      }
+      if (bgComfyKey && body.bgComfyContentType) {
+        response.bgComfyR2Key = bgComfyKey;
+        response.bgComfyUploadUrl = results[idx++]?.url;
+      }
+      if (newFaceId && newFaceR2Key && newFaceThumbKey) {
+        response.newFaceUploadUrl = results[idx++]?.url;
+        response.newFaceR2Key = newFaceR2Key;
+        response.newFaceThumbnailUploadUrl = results[idx++]?.url;
+        response.newFaceThumbnailKey = newFaceThumbKey;
+      }
+      if (newBgId && newBgR2Key && newBgThumbKey) {
+        response.newBgUploadUrl = results[idx++]?.url;
+        response.newBgR2Key = newBgR2Key;
+        response.newBgThumbnailUploadUrl = results[idx++]?.url;
+        response.newBgThumbnailKey = newBgThumbKey;
+      }
+      return response;
+    },
+  );
+
+  // Confirm / create pose asset row after upload
+  app.post(
+    '/admin/assets/pose-assets',
+    {
+      preHandler: W,
+      schema: {
+        body: z.object({
+          label: z.string().min(1),
+          displayName: z.string().optional(),
+          genderSlug: z.string().optional(),
+          r2Key: z.string(),
+          thumbnailKey: z.string(),
+          faceSideR2Key: z.string().optional(),
+          bgComfyR2Key: z.string().optional(),
+          faceId: z.string().uuid().optional(),
+          backgroundId: z.string().uuid().optional(),
+          workflowTemplateId: z.string().uuid().optional(),
+          promptGarmentPhase: z.string().optional(),
+          newFace: z
+            .object({ r2Key: z.string(), thumbnailKey: z.string(), filename: z.string() })
+            .optional(),
+          newBackground: z
+            .object({ r2Key: z.string(), thumbnailKey: z.string(), filename: z.string() })
+            .optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const body = req.body as {
+        label: string;
+        displayName?: string;
+        genderSlug?: string;
+        r2Key: string;
+        thumbnailKey: string;
+        faceSideR2Key?: string;
+        bgComfyR2Key?: string;
+        faceId?: string;
+        backgroundId?: string;
+        workflowTemplateId?: string;
+        promptGarmentPhase?: string;
+        newFace?: { r2Key: string; thumbnailKey: string; filename: string };
+        newBackground?: { r2Key: string; thumbnailKey: string; filename: string };
+      };
+
+      const row = await app.db.transaction(async (tx) => {
+        let resolvedFaceId = body.faceId ?? null;
+        if (body.newFace) {
+          const autoLabel = body.newFace.filename.replace(/\.[^.]+$/, '');
+          const [newFaceRow] = await tx
+            .insert(schema.modelFaces)
+            .values({
+              label: autoLabel,
+              gender: body.genderSlug ?? 'men',
+              r2Key: body.newFace.r2Key,
+              thumbnailKey: body.newFace.thumbnailKey,
+              sortOrder: 0,
+            })
+            .returning({ id: schema.modelFaces.id });
+          resolvedFaceId = newFaceRow?.id ?? null;
+        }
+
+        let resolvedBgId = body.backgroundId ?? null;
+        if (body.newBackground) {
+          const autoLabel = body.newBackground.filename.replace(/\.[^.]+$/, '');
+          const [newBgRow] = await tx
+            .insert(schema.modelBackgrounds)
+            .values({
+              label: autoLabel,
+              genderSlug: body.genderSlug ?? 'men',
+              r2Key: body.newBackground.r2Key,
+              thumbnailKey: body.newBackground.thumbnailKey,
+              sortOrder: 0,
+            })
+            .returning({ id: schema.modelBackgrounds.id });
+          resolvedBgId = newBgRow?.id ?? null;
+        }
+
+        const [inserted] = await tx
+          .insert(schema.modelPoseAssets)
+          .values({
+            label: body.label,
+            displayName: body.displayName ?? null,
+            genderSlug: body.genderSlug ?? null,
+            r2Key: body.r2Key,
+            thumbnailKey: body.thumbnailKey,
+            faceSideR2Key: body.faceSideR2Key ?? null,
+            bgComfyR2Key: body.bgComfyR2Key ?? null,
+            faceId: resolvedFaceId,
+            backgroundId: resolvedBgId,
+            workflowTemplateId: body.workflowTemplateId ?? null,
+            promptGarmentPhase: body.promptGarmentPhase ?? null,
+          })
+          .returning();
+        return inserted;
+      });
+
+      return row;
+    },
+  );
+
+  // Presign pose-asset image replacements
+  app.post(
+    '/admin/assets/pose-assets/:id/presign-pose',
+    { preHandler: W, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { contentType } = req.body as { contentType: string };
+      const r2Key = keys.modelPose(id);
+      const thumbKey = keys.modelPoseThumb(id);
+      const [uploadRes, thumbRes] = await Promise.all([
+        app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
+        app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
+      ]);
+      return {
+        r2Key,
+        uploadUrl: uploadRes.url,
+        thumbnailKey: thumbKey,
+        thumbnailUploadUrl: thumbRes.url,
+      };
+    },
+  );
+
+  app.post(
+    '/admin/assets/pose-assets/:id/presign-faceside',
+    { preHandler: W, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { contentType } = req.body as { contentType: string };
+      const r2Key = keys.modelPoseFaceSide(id);
+      const res = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
+      return { r2Key, uploadUrl: res.url };
+    },
+  );
+
+  app.post(
+    '/admin/assets/pose-assets/:id/presign-bgcomfy',
+    { preHandler: W, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { contentType } = req.body as { contentType: string };
+      const r2Key = keys.modelPoseBgComfy(id);
+      const res = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
+      return { r2Key, uploadUrl: res.url };
+    },
+  );
+
+  // Edit pose asset
+  app.patch(
+    '/admin/assets/pose-assets/:id',
+    {
+      preHandler: W,
+      schema: {
+        params: uuidParam,
+        body: z.object({
+          label: z.string().min(1).optional(),
+          displayName: z.string().nullable().optional(),
+          genderSlug: z.string().nullable().optional(),
+          r2Key: z.string().optional(),
+          thumbnailKey: z.string().optional(),
+          faceSideR2Key: z.string().nullable().optional(),
+          bgComfyR2Key: z.string().nullable().optional(),
+          faceId: z.string().uuid().nullable().optional(),
+          backgroundId: z.string().uuid().nullable().optional(),
+          workflowTemplateId: z.string().uuid().nullable().optional(),
+          promptGarmentPhase: z.string().nullable().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as {
+        label?: string;
+        displayName?: string | null;
+        genderSlug?: string | null;
+        r2Key?: string;
+        thumbnailKey?: string;
+        faceSideR2Key?: string | null;
+        bgComfyR2Key?: string | null;
+        faceId?: string | null;
+        backgroundId?: string | null;
+        workflowTemplateId?: string | null;
+        promptGarmentPhase?: string | null;
+      };
+      // Validate FK references before update
+      if (body.backgroundId) {
+        const [bg] = await app.db
+          .select({ id: schema.modelBackgrounds.id })
+          .from(schema.modelBackgrounds)
+          .where(eq(schema.modelBackgrounds.id, body.backgroundId));
+        if (!bg) throw new AppError('NOT_FOUND', 404, `background not found: ${body.backgroundId}`);
+      }
+      if (body.faceId) {
+        const [face] = await app.db
+          .select({ id: schema.modelFaces.id })
+          .from(schema.modelFaces)
+          .where(eq(schema.modelFaces.id, body.faceId));
+        if (!face) throw new AppError('NOT_FOUND', 404, `face not found: ${body.faceId}`);
+      }
+
+      const set: Record<string, unknown> = {};
+      if (body.label !== undefined) set.label = body.label;
+      if (body.displayName !== undefined) set.displayName = body.displayName;
+      if (body.genderSlug !== undefined) set.genderSlug = body.genderSlug;
+      if (body.r2Key !== undefined) set.r2Key = body.r2Key;
+      if (body.thumbnailKey !== undefined) set.thumbnailKey = body.thumbnailKey;
+      if (body.faceSideR2Key !== undefined) set.faceSideR2Key = body.faceSideR2Key;
+      if (body.bgComfyR2Key !== undefined) set.bgComfyR2Key = body.bgComfyR2Key;
+      if (body.faceId !== undefined) set.faceId = body.faceId;
+      if (body.backgroundId !== undefined) set.backgroundId = body.backgroundId;
+      if (body.workflowTemplateId !== undefined) set.workflowTemplateId = body.workflowTemplateId;
+      if (body.promptGarmentPhase !== undefined)
+        set.promptGarmentPhase = body.promptGarmentPhase || null;
+      const [updated] = await app.db
+        .update(schema.modelPoseAssets)
+        .set(set)
+        .where(eq(schema.modelPoseAssets.id, id))
+        .returning();
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
+      return updated;
+    },
+  );
+
+  // Map a pose asset to a garment type (creates model_poses row)
+  // face/bg/workflow are optional — defaults to values stored on the pose asset itself
+  app.post(
+    '/admin/assets/pose-assets/:id/map',
+    {
+      preHandler: W,
+      schema: {
+        params: uuidParam,
+        body: z.object({
+          garmentTypeId: z.string().uuid(),
+          faceId: z.string().uuid().optional(),
+          backgroundId: z.string().uuid().optional(),
+          workflowTemplateId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as {
+        garmentTypeId: string;
+        faceId?: string;
+        backgroundId?: string;
+        workflowTemplateId?: string;
+      };
+
+      const [asset] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, id));
+      if (!asset) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
+
+      const resolvedFaceId = body.faceId ?? asset.faceId;
+      const resolvedBgId = body.backgroundId ?? asset.backgroundId;
+      const resolvedWfId = body.workflowTemplateId ?? asset.workflowTemplateId;
+
+      if (!resolvedFaceId)
+        throw new AppError('VALIDATION', 400, 'faceId required — set it on the pose asset first');
+      if (!resolvedBgId)
+        throw new AppError(
+          'VALIDATION',
+          400,
+          'backgroundId required — set it on the pose asset first',
+        );
+      if (!resolvedWfId)
+        throw new AppError(
+          'VALIDATION',
+          400,
+          'workflowTemplateId required — set it on the pose asset first',
+        );
+
+      const [wf] = await app.db
+        .select({
+          id: schema.workflowTemplates.id,
+          lowerNodeId: schema.workflowTemplates.lowerNodeId,
+          shoeNodeId: schema.workflowTemplates.shoeNodeId,
+        })
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, resolvedWfId));
+      if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
+
+      const [mapping] = await app.db
+        .insert(schema.modelPoses)
+        .values({
+          subcategoryId: body.garmentTypeId,
+          faceId: resolvedFaceId,
+          backgroundId: resolvedBgId,
+          workflowTemplateId: resolvedWfId,
+          poseAssetId: asset.id,
+          label: asset.displayName ?? asset.label,
+          r2Key: asset.r2Key,
+          thumbnailKey: asset.thumbnailKey,
+          faceSideR2Key: asset.faceSideR2Key,
+          bgComfyR2Key: asset.bgComfyR2Key,
+          showsLower: Boolean(wf.lowerNodeId),
+          showsShoes: Boolean(wf.shoeNodeId),
+          sortOrder: 0,
+        })
+        .returning();
+      return mapping;
+    },
+  );
+
+  // List garment-type mappings for a pose asset
+  app.get(
+    '/admin/assets/pose-assets/:id/mappings',
+    { preHandler: W, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const rows = await app.db
+        .select({
+          id: schema.modelPoses.id,
+          garmentTypeId: schema.modelPoses.subcategoryId,
+          garmentTypeLabel: schema.garmentSubcategories.label,
+          faceId: schema.modelPoses.faceId,
+          faceLabel: schema.modelFaces.label,
+          backgroundId: schema.modelPoses.backgroundId,
+          backgroundLabel: schema.modelBackgrounds.label,
+          workflowTemplateId: schema.modelPoses.workflowTemplateId,
+          workflowLabel: schema.workflowTemplates.label,
+          isActive: schema.modelPoses.isActive,
+          createdAt: schema.modelPoses.createdAt,
+        })
+        .from(schema.modelPoses)
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.modelPoses.subcategoryId, schema.garmentSubcategories.id),
+        )
+        .leftJoin(schema.modelFaces, eq(schema.modelPoses.faceId, schema.modelFaces.id))
+        .leftJoin(
+          schema.modelBackgrounds,
+          eq(schema.modelPoses.backgroundId, schema.modelBackgrounds.id),
+        )
+        .leftJoin(
+          schema.workflowTemplates,
+          eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
+        )
+        .where(eq(schema.modelPoses.poseAssetId, id))
+        .orderBy(schema.modelPoses.createdAt);
+      return { items: rows };
+    },
+  );
+
+  app.delete(
+    '/admin/assets/pose-assets/:id',
+    {
+      preHandler: W,
+      schema: {
+        params: uuidParam,
+        querystring: z.object({ force: z.coerce.boolean().optional().default(false) }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { force } = req.query as { force: boolean };
+      const [asset] = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, id));
+      if (!asset) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
+
+      const mappings = await app.db
+        .select({ id: schema.modelPoses.id })
+        .from(schema.modelPoses)
+        .where(eq(schema.modelPoses.poseAssetId, id));
+
+      if (mappings.length > 0 && !force) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          `pose asset has ${mappings.length} garment-type mapping(s) — delete with ?force=true to also remove mappings`,
+        );
+      }
+
+      if (mappings.length > 0 && force) {
+        const mappingIds = mappings.map((m) => m.id);
+        // Remove job refs first
+        const jobRefs = await app.db
+          .select({ jobId: schema.jobInputs.jobId })
+          .from(schema.jobInputs)
+          .where(inArray(schema.jobInputs.poseId, mappingIds));
+        if (jobRefs.length > 0) {
+          const jobIds = [...new Set(jobRefs.map((r) => r.jobId))];
+          await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
+        }
+        await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, mappingIds));
+      }
+
+      const keysToDelete = [asset.r2Key, asset.thumbnailKey];
+      if (asset.faceSideR2Key && asset.faceSideR2Key !== asset.r2Key)
+        keysToDelete.push(asset.faceSideR2Key);
+      if (asset.bgComfyR2Key && asset.bgComfyR2Key !== asset.r2Key)
+        keysToDelete.push(asset.bgComfyR2Key);
+
+      await app.db.delete(schema.modelPoseAssets).where(eq(schema.modelPoseAssets.id, id));
+      void Promise.allSettled(keysToDelete.map((k) => app.storage.deleteObject(k)));
+      return { ok: true };
+    },
+  );
+
+  // Bulk delete pose assets (force — removes mappings + jobs + R2)
+  app.delete(
+    '/admin/assets/pose-assets',
+    {
+      preHandler: W,
+      schema: { body: z.object({ ids: z.array(z.string().uuid()).min(1) }) },
+    },
+    async (req) => {
+      const { ids } = req.body as { ids: string[] };
+
+      const assets = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(inArray(schema.modelPoseAssets.id, ids));
+
+      const mappings = await app.db
+        .select({ id: schema.modelPoses.id })
+        .from(schema.modelPoses)
+        .where(inArray(schema.modelPoses.poseAssetId, ids));
+
+      if (mappings.length > 0) {
+        const mappingIds = mappings.map((m) => m.id);
+        const jobRefs = await app.db
+          .select({ jobId: schema.jobInputs.jobId })
+          .from(schema.jobInputs)
+          .where(inArray(schema.jobInputs.poseId, mappingIds));
+        if (jobRefs.length > 0) {
+          const jobIds = [...new Set(jobRefs.map((r) => r.jobId))];
+          await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
+        }
+        await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, mappingIds));
+      }
+
+      await app.db.delete(schema.modelPoseAssets).where(inArray(schema.modelPoseAssets.id, ids));
+
+      const r2Keys = assets.flatMap((a) => {
+        const ks = [a.r2Key, a.thumbnailKey];
+        if (a.faceSideR2Key && a.faceSideR2Key !== a.r2Key) ks.push(a.faceSideR2Key);
+        if (a.bgComfyR2Key && a.bgComfyR2Key !== a.r2Key) ks.push(a.bgComfyR2Key);
+        return ks;
+      });
+      void Promise.allSettled(r2Keys.map((k) => app.storage.deleteObject(k)));
+
+      return { deleted: assets.length };
+    },
+  );
+
+  // ── Bulk import from ZIP ──────────────────────────────────────────────────
+  app.post('/admin/assets/bulk-import', { preHandler: W }, async (req) => {
+    const data = await req.file();
+    if (!data) throw new AppError('VALIDATION', 400, 'no file uploaded');
+
+    // Read metadata fields from form
+    const fields = data.fields as Record<string, { value?: string }>;
+    const workflowTemplateId = fields['workflowTemplateId']?.value ?? null;
+    const genderSlug = fields['genderSlug']?.value ?? 'men';
+
+    if (workflowTemplateId) {
+      const [wf] = await app.db
+        .select({ id: schema.workflowTemplates.id })
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+      if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
+    }
+
+    // Buffer the ZIP
+    const zipBuffer = await data.toBuffer();
+    const zip = new AdmZip(zipBuffer);
+    const entries = zip.getEntries().filter((e) => !e.isDirectory);
+
+    const imageExts = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+    const extToMime: Record<string, string> = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.webp': 'image/webp',
+    };
+
+    const isImageEntry = (name: string) =>
+      imageExts.has(name.slice(name.lastIndexOf('.')).toLowerCase());
+
+    // Separate entries by folder type
+    const bgEntries = entries.filter(
+      (e) => /backgrounds?/i.test(e.entryName) && isImageEntry(e.name),
+    );
+    const faceEntries = entries.filter(
+      (e) => /faces?/i.test(e.entryName) && !/poses?/i.test(e.entryName) && isImageEntry(e.name),
+    );
+    const poseEntries = entries.filter((e) => /poses?/i.test(e.entryName) && isImageEntry(e.name));
+
+    const errors: string[] = [];
+    let createdFaces = 0;
+    let createdBackgrounds = 0;
+    let createdPoses = 0;
+
+    // Upload backgrounds — index by filename stem (bg1 → 1)
+    const bgIndexMap = new Map<number, { id: string; r2Key: string }>(); // bgNumber → { id, r2Key }
+    for (const entry of bgEntries) {
+      try {
+        const stem = entry.name.replace(/\.[^.]+$/, '');
+        const numMatch = stem.match(/(\d+)$/);
+        const bgNum = numMatch ? parseInt(numMatch[1], 10) : bgEntries.indexOf(entry) + 1;
+        // Skip if already exists (same label + gender)
+        const [existing] = await app.db
+          .select({ id: schema.modelBackgrounds.id, r2Key: schema.modelBackgrounds.r2Key })
+          .from(schema.modelBackgrounds)
+          .where(
+            and(
+              eq(schema.modelBackgrounds.label, stem),
+              eq(schema.modelBackgrounds.genderSlug, genderSlug),
+            ),
+          );
+        if (existing) {
+          bgIndexMap.set(bgNum, { id: existing.id, r2Key: existing.r2Key });
+          continue;
+        }
+        const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+        const mime = extToMime[ext] ?? 'image/jpeg';
+        const id = randomUUID();
+        const r2Key = keys.modelBackground(id);
+        const buf = entry.getData();
+        await app.storage.putObject(r2Key, buf, mime);
+        const [row] = await app.db
+          .insert(schema.modelBackgrounds)
+          .values({ label: stem, r2Key, thumbnailKey: r2Key, genderSlug, sortOrder: bgNum })
+          .returning({ id: schema.modelBackgrounds.id });
+        bgIndexMap.set(bgNum, { id: row.id, r2Key });
+        createdBackgrounds++;
+      } catch (err) {
+        errors.push(`bg ${entry.name}: ${(err as Error).message}`);
+      }
+    }
+
+    // Upload faces — index by filename number (face01 → 1)
+    const faceIndexMap = new Map<number, { id: string; r2Key: string }>(); // faceNumber → { id, r2Key }
+    for (const entry of faceEntries) {
+      try {
+        const stem = entry.name.replace(/\.[^.]+$/, '');
+        const numMatch = stem.match(/(\d+)$/);
+        const faceNum = numMatch ? parseInt(numMatch[1], 10) : faceEntries.indexOf(entry) + 1;
+        // Skip if already exists (same label + gender)
+        const [existing] = await app.db
+          .select({ id: schema.modelFaces.id, r2Key: schema.modelFaces.r2Key })
+          .from(schema.modelFaces)
+          .where(and(eq(schema.modelFaces.label, stem), eq(schema.modelFaces.gender, genderSlug)));
+        if (existing) {
+          faceIndexMap.set(faceNum, { id: existing.id, r2Key: existing.r2Key });
+          continue;
+        }
+        const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+        const mime = extToMime[ext] ?? 'image/jpeg';
+        const id = randomUUID();
+        const r2Key = keys.modelFace(id);
+        const buf = entry.getData();
+        await app.storage.putObject(r2Key, buf, mime);
+        const [row] = await app.db
+          .insert(schema.modelFaces)
+          .values({
+            label: stem,
+            gender: genderSlug,
+            r2Key,
+            thumbnailKey: r2Key,
+            sortOrder: faceNum,
+          })
+          .returning({ id: schema.modelFaces.id });
+        faceIndexMap.set(faceNum, { id: row.id, r2Key });
+        createdFaces++;
+      } catch (err) {
+        errors.push(`face ${entry.name}: ${(err as Error).message}`);
+      }
+    }
+
+    // Upload poses — parse faceXXbgYposeZZ pattern
+    const posePattern = /face(\d+)bg(\d+)pose(\d+)/i;
+    let sortOrder = 0;
+    for (const entry of poseEntries) {
+      try {
+        const stem = entry.name.replace(/\.[^.]+$/, '');
+        const m = stem.match(posePattern);
+        if (!m) {
+          errors.push(`pose ${entry.name}: filename doesn't match faceXXbgYposeZZ`);
+          continue;
+        }
+        const faceNum = parseInt(m[1], 10);
+        const bgNum = parseInt(m[2], 10);
+        let faceEntry = faceIndexMap.get(faceNum);
+        let bgEntry = bgIndexMap.get(bgNum);
+
+        // Fall back to DB lookup if face not in ZIP batch
+        if (!faceEntry) {
+          const [dbFace] = await app.db
+            .select({ id: schema.modelFaces.id, r2Key: schema.modelFaces.r2Key })
+            .from(schema.modelFaces)
+            .where(
+              and(
+                eq(schema.modelFaces.gender, genderSlug),
+                eq(schema.modelFaces.sortOrder, faceNum),
+              ),
+            );
+          if (dbFace) {
+            faceEntry = { id: dbFace.id, r2Key: dbFace.r2Key };
+            faceIndexMap.set(faceNum, faceEntry);
+          }
+        }
+        // Fall back to DB lookup if background not in ZIP batch
+        if (!bgEntry) {
+          const [dbBg] = await app.db
+            .select({ id: schema.modelBackgrounds.id, r2Key: schema.modelBackgrounds.r2Key })
+            .from(schema.modelBackgrounds)
+            .where(
+              and(
+                eq(schema.modelBackgrounds.genderSlug, genderSlug),
+                eq(schema.modelBackgrounds.sortOrder, bgNum),
+              ),
+            );
+          if (dbBg) {
+            bgEntry = { id: dbBg.id, r2Key: dbBg.r2Key };
+            bgIndexMap.set(bgNum, bgEntry);
+          }
+        }
+
+        if (!faceEntry) {
+          errors.push(
+            `pose ${entry.name}: face${m[1]} not found in ZIP or DB (gender=${genderSlug}, sortOrder=${faceNum})`,
+          );
+          continue;
+        }
+        if (!bgEntry) {
+          errors.push(
+            `pose ${entry.name}: bg${m[2]} not found in ZIP or DB (gender=${genderSlug}, sortOrder=${bgNum})`,
+          );
+          continue;
+        }
+        // Dedup by label + gender: skip create but patch null FK/key fields
+        const [existingAsset] = await app.db
+          .select({
+            id: schema.modelPoseAssets.id,
+            faceId: schema.modelPoseAssets.faceId,
+            backgroundId: schema.modelPoseAssets.backgroundId,
+            faceSideR2Key: schema.modelPoseAssets.faceSideR2Key,
+            bgComfyR2Key: schema.modelPoseAssets.bgComfyR2Key,
+          })
+          .from(schema.modelPoseAssets)
+          .where(
+            and(
+              eq(schema.modelPoseAssets.label, stem),
+              eq(schema.modelPoseAssets.genderSlug, genderSlug),
+            ),
+          );
+        if (existingAsset) {
+          // Backfill null FK/key columns that were absent on original import
+          const patch: Record<string, unknown> = {};
+          if (!existingAsset.faceId) patch.faceId = faceEntry.id;
+          if (!existingAsset.backgroundId) patch.backgroundId = bgEntry.id;
+          if (!existingAsset.faceSideR2Key) patch.faceSideR2Key = faceEntry.r2Key;
+          if (!existingAsset.bgComfyR2Key) patch.bgComfyR2Key = bgEntry.r2Key;
+          if (Object.keys(patch).length > 0) {
+            await app.db
+              .update(schema.modelPoseAssets)
+              .set(patch)
+              .where(eq(schema.modelPoseAssets.id, existingAsset.id));
+          }
+          sortOrder++;
+          continue;
+        }
+        const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+        const mime = extToMime[ext] ?? 'image/png';
+        const id = randomUUID();
+        const r2Key = keys.modelPose(id);
+        const buf = entry.getData();
+        await app.storage.putObject(r2Key, buf, mime);
+        await app.db.insert(schema.modelPoseAssets).values({
+          label: stem,
+          r2Key,
+          thumbnailKey: r2Key,
+          faceSideR2Key: faceEntry.r2Key,
+          bgComfyR2Key: bgEntry.r2Key,
+          faceId: faceEntry.id,
+          backgroundId: bgEntry.id,
+          workflowTemplateId: workflowTemplateId ?? null,
+          genderSlug,
+        });
+        sortOrder++;
+        createdPoses++;
+      } catch (err) {
+        errors.push(`pose ${entry.name}: ${(err as Error).message}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      app.log.warn(
+        { errors: errors.slice(0, 5), total: errors.length },
+        'bulk-import partial errors',
+      );
+    }
+    return {
+      created: { faces: createdFaces, backgrounds: createdBackgrounds, poses: createdPoses },
+      errors,
+    };
+  });
 }

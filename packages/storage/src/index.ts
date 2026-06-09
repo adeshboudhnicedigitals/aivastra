@@ -11,6 +11,7 @@ export interface StorageProvider {
   ): Promise<PresignResult>;
   presignGet(key: string, expiresInSec?: number): Promise<PresignResult>;
   deleteObject(key: string): Promise<void>;
+  putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   publicUrl(key: string): string;
 }
 export { keys } from './keys.js';

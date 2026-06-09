@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
+import type {
+  ModelBackground,
+  ModelFace,
+  ModelPose,
+  ModelPoseAsset,
+  WorkflowOption,
+} from '../types';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
 
@@ -11,10 +17,10 @@ interface PresignResult {
   r2Key: string;
   thumbnailUploadUrl: string;
   thumbnailKey: string;
-  faceSideUploadUrl: string;
-  faceSideR2Key: string;
-  bgComfyUploadUrl: string;
-  bgComfyR2Key: string;
+  faceSideUploadUrl?: string;
+  faceSideR2Key?: string;
+  bgComfyUploadUrl?: string;
+  bgComfyR2Key?: string;
   newFaceUploadUrl?: string;
   newFaceR2Key?: string;
   newFaceThumbnailUploadUrl?: string;
@@ -25,15 +31,23 @@ interface PresignResult {
   newBgThumbnailKey?: string;
 }
 
-interface Props {
+interface GarmentTypeModeProps {
   garmentTypeId: string;
   garmentTypeGenderSlug: string;
+  onDone: (added: ModelPose) => void;
+}
+interface AssetModeProps {
+  garmentTypeId?: undefined;
+  garmentTypeGenderSlug: string;
+  onDone: (added: ModelPoseAsset) => void;
+}
+
+type Props = (GarmentTypeModeProps | AssetModeProps) & {
   faces: ModelFace[];
   backgrounds: ModelBackground[];
-  onDone: (added: ModelPose) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
-}
+};
 
 async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -511,18 +525,23 @@ export function PoseUploadModal({
     setError(null);
 
     try {
+      const isAssetMode = !garmentTypeId;
+      const presignEndpoint = isAssetMode
+        ? '/admin/assets/pose-assets/presign'
+        : '/admin/assets/poses/presign';
+
       const presignBody: Record<string, unknown> = {
-        garmentTypeId,
         contentType: poseFile.type,
         faceSideContentType: faceSideFile.type,
         bgComfyContentType: bgComfyFile.type,
       };
+      if (!isAssetMode) presignBody.garmentTypeId = garmentTypeId;
       if (faceMode === 'existing') presignBody.faceId = faceId;
       else presignBody.newFaceContentType = newFaceFile?.type;
       if (bgMode === 'existing') presignBody.backgroundId = bgId;
       else presignBody.newBgContentType = newBgFile?.type;
 
-      const presign = await apiFetch<PresignResult>('/admin/assets/poses/presign', {
+      const presign = await apiFetch<PresignResult>(presignEndpoint, {
         method: 'POST',
         body: JSON.stringify(presignBody),
       });
@@ -530,66 +549,99 @@ export function PoseUploadModal({
       const uploads: Promise<void>[] = [
         putFile(presign.uploadUrl, poseFile),
         makeThumbnail(poseFile).then((t) => putFile(presign.thumbnailUploadUrl, t)),
-        putFile(presign.faceSideUploadUrl, faceSideFile),
-        putFile(presign.bgComfyUploadUrl, bgComfyFile),
       ];
+      if (presign.faceSideUploadUrl) uploads.push(putFile(presign.faceSideUploadUrl, faceSideFile));
+      if (presign.bgComfyUploadUrl) uploads.push(putFile(presign.bgComfyUploadUrl, bgComfyFile));
       if (faceMode === 'new') {
         if (!presign.newFaceUploadUrl || !presign.newFaceThumbnailUploadUrl)
           throw new Error('Server did not return face upload URLs');
+        // biome-ignore lint/style/noNonNullAssertion: guarded by faceMode === 'new' check above
         uploads.push(putFile(presign.newFaceUploadUrl, newFaceFile!));
         uploads.push(
+          // biome-ignore lint/style/noNonNullAssertion: guarded by faceMode === 'new' check above
           makeThumbnail(newFaceFile!).then((t) => putFile(presign.newFaceThumbnailUploadUrl!, t)),
         );
       }
       if (bgMode === 'new') {
         if (!presign.newBgUploadUrl || !presign.newBgThumbnailUploadUrl)
           throw new Error('Server did not return background upload URLs');
+        // biome-ignore lint/style/noNonNullAssertion: guarded by bgMode === 'new' check above
         uploads.push(putFile(presign.newBgUploadUrl, newBgFile!));
         uploads.push(
+          // biome-ignore lint/style/noNonNullAssertion: guarded by bgMode === 'new' check above
           makeThumbnail(newBgFile!).then((t) => putFile(presign.newBgThumbnailUploadUrl!, t)),
         );
       }
       await Promise.all(uploads);
 
-      const confirmBody: Record<string, unknown> = {
-        garmentTypeId,
-        label: label.trim(),
-        r2Key: presign.r2Key,
-        thumbnailKey: presign.thumbnailKey,
-        faceSideR2Key: presign.faceSideR2Key,
-        bgComfyR2Key: presign.bgComfyR2Key,
-        workflowTemplateId,
-        promptFacePhase: promptFacePhase.trim(),
-        promptGarmentPhase: promptGarmentPhase.trim(),
-        isTemplate,
-        sortOrder,
-      };
-      if (faceMode === 'existing') {
-        confirmBody.faceId = faceId;
-      } else {
-        confirmBody.newFace = {
-          r2Key: presign.newFaceR2Key,
-          thumbnailKey: presign.newFaceThumbnailKey,
-          filename: newFaceFile?.name,
+      if (isAssetMode) {
+        const assetBody: Record<string, unknown> = {
+          label: label.trim(),
+          genderSlug: garmentTypeGenderSlug,
+          r2Key: presign.r2Key,
+          thumbnailKey: presign.thumbnailKey,
+          faceSideR2Key: presign.faceSideR2Key,
+          bgComfyR2Key: presign.bgComfyR2Key,
+          workflowTemplateId,
+          promptGarmentPhase: promptGarmentPhase.trim(),
         };
-      }
-      if (bgMode === 'existing') {
-        confirmBody.backgroundId = bgId;
+        if (faceMode === 'existing') assetBody.faceId = faceId;
+        else
+          assetBody.newFace = {
+            r2Key: presign.newFaceR2Key,
+            thumbnailKey: presign.newFaceThumbnailKey,
+            filename: newFaceFile?.name,
+          };
+        if (bgMode === 'existing') assetBody.backgroundId = bgId;
+        else
+          assetBody.newBackground = {
+            r2Key: presign.newBgR2Key,
+            thumbnailKey: presign.newBgThumbnailKey,
+            filename: newBgFile?.name,
+          };
+
+        const asset = await apiFetch<ModelPoseAsset>('/admin/assets/pose-assets', {
+          method: 'POST',
+          body: JSON.stringify(assetBody),
+        });
+        toast({ title: `Pose asset "${asset.label}" uploaded` });
+        (onDone as (a: ModelPoseAsset) => void)(asset);
       } else {
-        confirmBody.newBackground = {
-          r2Key: presign.newBgR2Key,
-          thumbnailKey: presign.newBgThumbnailKey,
-          filename: newBgFile?.name,
+        const confirmBody: Record<string, unknown> = {
+          garmentTypeId,
+          label: label.trim(),
+          r2Key: presign.r2Key,
+          thumbnailKey: presign.thumbnailKey,
+          faceSideR2Key: presign.faceSideR2Key,
+          bgComfyR2Key: presign.bgComfyR2Key,
+          workflowTemplateId,
+          promptFacePhase: promptFacePhase.trim(),
+          promptGarmentPhase: promptGarmentPhase.trim(),
+          isTemplate,
+          sortOrder,
         };
+        if (faceMode === 'existing') confirmBody.faceId = faceId;
+        else
+          confirmBody.newFace = {
+            r2Key: presign.newFaceR2Key,
+            thumbnailKey: presign.newFaceThumbnailKey,
+            filename: newFaceFile?.name,
+          };
+        if (bgMode === 'existing') confirmBody.backgroundId = bgId;
+        else
+          confirmBody.newBackground = {
+            r2Key: presign.newBgR2Key,
+            thumbnailKey: presign.newBgThumbnailKey,
+            filename: newBgFile?.name,
+          };
+
+        const pose = await apiFetch<ModelPose>('/admin/assets/poses/confirm', {
+          method: 'POST',
+          body: JSON.stringify(confirmBody),
+        });
+        toast({ title: `Pose "${pose.label}" uploaded` });
+        (onDone as (p: ModelPose) => void)(pose);
       }
-
-      const pose = await apiFetch<ModelPose>('/admin/assets/poses/confirm', {
-        method: 'POST',
-        body: JSON.stringify(confirmBody),
-      });
-
-      toast({ title: `Pose "${pose.label}" uploaded` });
-      onDone(pose);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed');
     } finally {
