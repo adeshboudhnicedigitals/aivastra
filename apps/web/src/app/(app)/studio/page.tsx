@@ -548,8 +548,9 @@ export default function StudioPage(): React.ReactElement {
   async function handleSubmit() {
     if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0 || !resolution) return;
 
-    // Amazon requires a single pose — show picker popup for confirmation
-    if (platform === 'Amazon' && poseIds.length >= 1) {
+    // Amazon: if multiple poses selected, ask user to pick the main image pose.
+    // Single pose skips the modal — it's unambiguously the main image.
+    if (platform === 'Amazon' && poseIds.length > 1) {
       setAmazonPoseModalOpen(true);
       return;
     }
@@ -581,17 +582,18 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
-  async function submitAmazonPose(selectedPoseId: string) {
+  async function submitAmazonPose(mainPoseId: string) {
     setAmazonPoseModalOpen(false);
     setIsSubmitting(true);
     setSubmitError('');
     try {
+      // Main image: white Amazon-compliant background
       const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
         inputs: {
           upperGarmentKey: garmentKey,
           faceId,
           backgroundId,
-          poseIds: [selectedPoseId],
+          poseIds: [mainPoseId],
           lowerCatalogId: lowerCatalogId || undefined,
           lowerGarmentKey: lowerGarmentKey || undefined,
           shoeCatalogId: shoeCatalogId || undefined,
@@ -600,6 +602,26 @@ export default function StudioPage(): React.ReactElement {
         resolution,
         platform: 'Amazon',
       });
+
+      // Remaining poses: same catalogue, original background, no Amazon override
+      const remainingPoseIds = poseIds.filter((id) => id !== mainPoseId);
+      if (remainingPoseIds.length > 0) {
+        await api.post('/v1/jobs/tryon', {
+          catalogueId,
+          inputs: {
+            upperGarmentKey: garmentKey,
+            faceId,
+            backgroundId,
+            poseIds: remainingPoseIds,
+            lowerCatalogId: lowerCatalogId || undefined,
+            lowerGarmentKey: lowerGarmentKey || undefined,
+            shoeCatalogId: shoeCatalogId || undefined,
+          },
+          aspectRatio: aspect,
+          resolution,
+        });
+      }
+
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
       router.push(`/catalogues/${catalogueId}`);
@@ -2006,10 +2028,11 @@ export default function StudioPage(): React.ReactElement {
                 marginBottom: 6,
               }}
             >
-              Select one pose for Amazon
+              Select Amazon main image pose
             </h2>
             <p style={{ fontSize: 13, color: C.mid, marginBottom: 16 }}>
-              Amazon requires images with a white background. Choose one pose to generate.
+              All {selectedPoses.length} poses will be generated. Pick which one gets the white
+              Amazon-compliant background as the main listing image.
             </p>
 
             {whiteBg && (

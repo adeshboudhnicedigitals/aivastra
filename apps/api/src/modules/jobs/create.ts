@@ -114,7 +114,7 @@ export async function createJob(
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
   const priority = user.tier === 'PRO';
 
-  const catalogueId = randomUUID();
+  const catalogueId = body.catalogueId ?? randomUUID();
   const jobIds = await app.db.transaction(async (tx) => {
     const created: string[] = [];
     for (const poseId of poseIds) {

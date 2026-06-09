@@ -9,6 +9,7 @@ export const RESOLUTION_COSTS = {
 export type Resolution = keyof typeof RESOLUTION_COSTS;
 
 export const CreateTryOnJobRequest = z.object({
+  catalogueId: z.string().uuid().optional(),
   inputs: z.object({
     upperGarmentKey: z.string().min(1).max(512),
     faceId: z.string().uuid(),
