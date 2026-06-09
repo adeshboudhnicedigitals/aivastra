@@ -46,7 +46,7 @@ export async function middleware(request: NextRequest) {
   if (token) return NextResponse.next();
 
   // Access token expired/missing. Before bouncing to login, try a silent
-  // refresh using the (httpOnly, 7-day) refresh cookie. This is what stops the
+  // refresh using the (httpOnly, 1-hour) refresh cookie. This is what stops the
   // "logged out on reload/navigation after 15 min" problem — middleware runs on
   // server navigations where the client-side 401→refresh path never fires.
   const refresh = request.cookies.get('refresh')?.value;
@@ -60,7 +60,15 @@ export async function middleware(request: NextRequest) {
         const data = (await res.json()) as { accessToken?: string };
         if (data.accessToken) {
           const response = NextResponse.next();
-          setAuthCookies(response, data.accessToken, res.headers.get('set-cookie'));
+          // Edge Runtime treats 'set-cookie' as a forbidden response-header name,
+          // so res.headers.get('set-cookie') returns null there. Use getSetCookie()
+          // (WinterCG / Node 20 API) which bypasses the restriction, falling back
+          // to get() for environments that do expose it via the standard path.
+          const h = res.headers as Headers & { getSetCookie?: () => string[] };
+          const setCookieStr = h.getSetCookie
+            ? h.getSetCookie().join(', ') || null
+            : res.headers.get('set-cookie');
+          setAuthCookies(response, data.accessToken, setCookieStr);
           return response;
         }
       }

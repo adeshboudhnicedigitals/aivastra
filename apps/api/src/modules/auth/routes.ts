@@ -234,7 +234,7 @@ export async function authRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post('/v1/auth/logout', { preHandler: app.requireUser }, async (req, reply) => {
+  app.post('/v1/auth/logout', async (req) => {
     const plain = req.cookies.refresh;
     if (plain) {
       const tokenHash = hashRefresh(plain);
@@ -250,7 +250,6 @@ export async function authRoutes(app: FastifyInstance) {
           .where(eq(schema.refreshTokens.familyId, row.familyId));
       }
     }
-    reply.clearCookie('refresh', { path: '/v1/auth' });
     return { ok: true };
   });
 
