@@ -321,6 +321,8 @@ export default function StudioPage(): React.ReactElement {
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
   const [amazonPoseModalOpen, setAmazonPoseModalOpen] = useState(false);
+  const [amazonMainPoseId, setAmazonMainPoseId] = useState('');
+  const [amazonUseWhiteBg, setAmazonUseWhiteBg] = useState(true);
 
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
 
@@ -328,6 +330,7 @@ export default function StudioPage(): React.ReactElement {
     setPlatform(p);
     const cfg = BRAND_CONFIG[p];
     if (cfg) setAspect(cfg.default);
+    if (p === 'Amazon') setAmazonUseWhiteBg(true);
   };
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
   const [garmentKey, setGarmentKey] = useState('');
@@ -548,9 +551,10 @@ export default function StudioPage(): React.ReactElement {
   async function handleSubmit() {
     if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0 || !resolution) return;
 
-    // Amazon: if multiple poses selected, ask user to pick the main image pose.
-    // Single pose skips the modal — it's unambiguously the main image.
-    if (platform === 'Amazon' && poseIds.length > 1) {
+    // Amazon main listing + multiple poses → show picker modal to choose main image.
+    // Lifestyle mode or single pose → submit directly.
+    if (platform === 'Amazon' && amazonUseWhiteBg && poseIds.length > 1) {
+      setAmazonMainPoseId('');
       setAmazonPoseModalOpen(true);
       return;
     }
@@ -558,6 +562,11 @@ export default function StudioPage(): React.ReactElement {
     setIsSubmitting(true);
     setSubmitError('');
     try {
+      // Send platform:'Amazon' only when white bg override is wanted (main listing).
+      // Lifestyle mode: omit platform so the API doesn't force white bg.
+      // The aspectRatio (1:1) is already captured in `aspect` independently.
+      const effectivePlatform =
+        platform === 'Amazon' ? (amazonUseWhiteBg ? 'Amazon' : undefined) : platform;
       const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
         inputs: {
           upperGarmentKey: garmentKey,
@@ -570,7 +579,7 @@ export default function StudioPage(): React.ReactElement {
         },
         aspectRatio: aspect,
         resolution,
-        platform,
+        ...(effectivePlatform ? { platform: effectivePlatform } : {}),
       });
       // Credits were deducted server-side — refresh balance + catalogues list.
       qc.invalidateQueries({ queryKey: ['credits'] });
@@ -646,7 +655,13 @@ export default function StudioPage(): React.ReactElement {
   };
   const creditCost = resolution ? RESOLUTION_COSTS[resolution] * poseIds.length : 0;
   const canGenerate =
-    poseIds.length > 0 && !!garmentKey && !!resolution && !isUploading && !isSubmitting;
+    poseIds.length > 0 &&
+    !!garmentKey &&
+    !!faceId &&
+    !!backgroundId &&
+    !!resolution &&
+    !isUploading &&
+    !isSubmitting;
 
   const nextBlocker =
     step === 0
@@ -877,6 +892,22 @@ export default function StudioPage(): React.ReactElement {
                     </button>
                   ))}
                 </div>
+                {platform === 'Amazon' && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button
+                      onClick={() => setAmazonUseWhiteBg(true)}
+                      style={pill(amazonUseWhiteBg)}
+                    >
+                      Main listing
+                    </button>
+                    <button
+                      onClick={() => setAmazonUseWhiteBg(false)}
+                      style={pill(!amazonUseWhiteBg)}
+                    >
+                      Lifestyle
+                    </button>
+                  </div>
+                )}
               </section>
               <section style={{ flex: 1, minWidth: 200 }}>
                 <SectionHead title="Aspect Ratio" />
@@ -1712,21 +1743,6 @@ export default function StudioPage(): React.ReactElement {
             </div>
           </section>
         )}
-
-        {step === 3 && submitError && (
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: 10,
-              border: `1px solid ${C.pink}`,
-              background: 'rgba(245,92,122,0.06)',
-              fontSize: 14,
-              color: C.pink,
-            }}
-          >
-            {submitError}
-          </div>
-        )}
       </div>
 
       {/* Garment Type Modal */}
@@ -1903,94 +1919,114 @@ export default function StudioPage(): React.ReactElement {
           borderTop: `1px solid ${C.border}`,
           padding: '16px 28px',
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
+          flexDirection: 'column',
+          gap: 10,
           background: C.white,
           flexShrink: 0,
         }}
       >
-        {/* Left: credit cost indicator */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {step === 3 && creditCost > 0 && (
-            <>
-              <span style={{ color: C.pink, display: 'flex' }}>
-                <SparkleIcon />
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
-                {creditCost} Credits Required to Generate
-              </span>
-            </>
-          )}
-        </div>
-
-        {/* Right: action buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {step > 0 && (
-            <button
-              onClick={reset}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                width: 85,
-                height: 44,
-                borderRadius: 8,
-                border: `1px solid ${C.border}`,
-                background: C.field,
-                padding: '12px 20px',
-                fontFamily: 'var(--font-poppins), Poppins, sans-serif',
-                fontWeight: 600,
-                fontSize: 16,
-                lineHeight: '20px',
-                color: C.mid,
-                cursor: 'pointer',
-                textAlign: 'center',
-              }}
-            >
-              Reset
-            </button>
-          )}
-          <button
-            onClick={goBack}
-            disabled={step === 0}
-            style={{ ...ghostBtn, opacity: step === 0 ? 0.3 : 1 }}
+        {/* Error banner — always visible above the nav row */}
+        {step === 3 && submitError && (
+          <div
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: `1px solid ${C.pink}`,
+              background: 'rgba(245,92,122,0.06)',
+              fontSize: 13,
+              color: C.pink,
+            }}
           >
-            <ArrowLeft /> Back
-          </button>
-          {step < 3 ? (
-            <Tooltip tip={nextBlocker || undefined}>
-              <DarkBtn
-                onClick={goNext}
-                disabled={!canNext()}
-                style={{ padding: '10px 24px', gap: 8 }}
+            {submitError}
+          </div>
+        )}
+
+        {/* Nav row */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Left: credit cost indicator */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {step === 3 && creditCost > 0 && (
+              <>
+                <span style={{ color: C.pink, display: 'flex' }}>
+                  <SparkleIcon />
+                </span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
+                  {creditCost} Credits Required to Generate
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* Right: action buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {step > 0 && (
+              <button
+                onClick={reset}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  width: 85,
+                  height: 44,
+                  borderRadius: 8,
+                  border: `1px solid ${C.border}`,
+                  background: C.field,
+                  padding: '12px 20px',
+                  fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                  fontWeight: 600,
+                  fontSize: 16,
+                  lineHeight: '20px',
+                  color: C.mid,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                }}
               >
-                Next Step <ChevronRight />
-              </DarkBtn>
-            </Tooltip>
-          ) : (
-            <Tooltip tip={generateBlocker || undefined}>
-              <GradBtn
-                onClick={handleSubmit}
-                disabled={!canGenerate}
-                style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}
-              >
-                {isSubmitting ? (
-                  <>
-                    <SpinnerIcon size={16} /> Generating…
-                  </>
-                ) : isUploading ? (
-                  <>
-                    <SpinnerIcon size={16} /> Uploading…
-                  </>
-                ) : (
-                  <>
-                    <SparkleIcon /> Create Catalogue
-                  </>
-                )}
-              </GradBtn>
-            </Tooltip>
-          )}
+                Reset
+              </button>
+            )}
+            <button
+              onClick={goBack}
+              disabled={step === 0}
+              style={{ ...ghostBtn, opacity: step === 0 ? 0.3 : 1 }}
+            >
+              <ArrowLeft /> Back
+            </button>
+            {step < 3 ? (
+              <Tooltip tip={nextBlocker || undefined}>
+                <DarkBtn
+                  onClick={goNext}
+                  disabled={!canNext()}
+                  style={{ padding: '10px 24px', gap: 8 }}
+                >
+                  Next Step <ChevronRight />
+                </DarkBtn>
+              </Tooltip>
+            ) : (
+              <Tooltip tip={generateBlocker || undefined}>
+                <GradBtn
+                  onClick={handleSubmit}
+                  disabled={!canGenerate}
+                  style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <SpinnerIcon size={16} /> Generating…
+                    </>
+                  ) : isUploading ? (
+                    <>
+                      <SpinnerIcon size={16} /> Uploading…
+                    </>
+                  ) : (
+                    <>
+                      <SparkleIcon /> Create Catalogue
+                    </>
+                  )}
+                </GradBtn>
+              </Tooltip>
+            )}
+          </div>
         </div>
+        {/* end Nav row */}
       </div>
 
       {/* Amazon Pose Picker Modal */}
@@ -2085,8 +2121,8 @@ export default function StudioPage(): React.ReactElement {
               {selectedPoses.map((p) => (
                 <SelCard
                   key={p.id}
-                  selected={false}
-                  onClick={() => submitAmazonPose(p.id)}
+                  selected={amazonMainPoseId === p.id}
+                  onClick={() => setAmazonMainPoseId(p.id)}
                   imageUrl={p.thumbnailUrl}
                   label={p.label}
                   w={152.57}
@@ -2094,11 +2130,11 @@ export default function StudioPage(): React.ReactElement {
                 />
               ))}
             </div>
-            <div style={{ marginTop: 20, textAlign: 'center' }}>
+            <div style={{ marginTop: 24, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setAmazonPoseModalOpen(false)}
                 style={{
-                  padding: '8px 24px',
+                  padding: '10px 24px',
                   borderRadius: 8,
                   border: `1px solid ${C.border2}`,
                   background: C.white,
@@ -2110,6 +2146,21 @@ export default function StudioPage(): React.ReactElement {
               >
                 Cancel
               </button>
+              <GradBtn
+                onClick={() => submitAmazonPose(amazonMainPoseId)}
+                disabled={!amazonMainPoseId || isSubmitting}
+                style={{ padding: '10px 28px', gap: 8 }}
+              >
+                {isSubmitting ? (
+                  <>
+                    <SpinnerIcon size={16} /> Generating…
+                  </>
+                ) : (
+                  <>
+                    <SparkleIcon /> Generate
+                  </>
+                )}
+              </GradBtn>
             </div>
           </div>
         </div>
