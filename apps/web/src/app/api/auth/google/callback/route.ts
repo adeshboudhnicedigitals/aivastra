@@ -39,7 +39,10 @@ export async function GET(req: NextRequest) {
     }
 
     data = (await res.json()) as { accessToken?: string };
-    setCookieHeader = res.headers.get('set-cookie');
+    const h = res.headers as Headers & { getSetCookie?: () => string[] };
+    setCookieHeader = h.getSetCookie
+      ? h.getSetCookie().join(', ') || null
+      : res.headers.get('set-cookie');
   } catch {
     const url = new URL(`${BASE_PATH}/login`, webOrigin);
     url.searchParams.set('error', 'oauth_failed');

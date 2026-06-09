@@ -15,6 +15,10 @@ export async function POST(req: NextRequest) {
   if (!res.ok) return NextResponse.json(data, { status: res.status });
 
   const response = NextResponse.json({ ok: true });
-  setAuthCookies(response, data.accessToken!, res.headers.get('set-cookie'));
+  const h = res.headers as Headers & { getSetCookie?: () => string[] };
+  const setCookieStr = h.getSetCookie
+    ? h.getSetCookie().join(', ') || null
+    : res.headers.get('set-cookie');
+  setAuthCookies(response, data.accessToken!, setCookieStr);
   return response;
 }

@@ -22,10 +22,10 @@ export function setAuthCookies(
         // Path '/' (not '/api/auth') so the browser sends it on protected-page
         // navigations too — lets middleware silently refresh before redirecting.
         path: '/',
-        // 1h idle timeout: each refresh rotates the token with a fresh 1h
-        // window (see tokens.ts), so an active user stays logged in but ~1h of
-        // no requests lets both the access and refresh cookies lapse → logout.
-        maxAge: 60 * 60,
+        // 7-day lifetime matches REFRESH_TOKEN_EXPIRY in the API. Each refresh
+        // rotates the token with a fresh 7-day window, so an active user stays
+        // logged in. The DB token itself enforces the true expiry.
+        maxAge: 7 * 24 * 60 * 60,
         secure: process.env.NODE_ENV === 'production',
       });
     }
