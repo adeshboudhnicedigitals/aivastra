@@ -142,15 +142,27 @@ async function getObjectBytes(key: string): Promise<Buffer> {
   return Buffer.from(bytes);
 }
 
+function renderBar(done: number, total: number, ok: number, failed: number): void {
+  const pct = total === 0 ? 100 : Math.floor((done / total) * 100);
+  const filled = Math.floor(pct / 2);
+  const bar = '█'.repeat(filled) + '░'.repeat(50 - filled);
+  process.stderr.write(`\r  [${bar}] ${pct}%  ${done}/${total}  ✓${ok} ✗${failed}  `);
+}
+
 async function processTable(spec: TableSpec, db: DB) {
   const rows = await spec.load(db);
   let ok = 0;
   let skipped = 0;
   let failed = 0;
+  const total = rows.length;
 
-  for (const row of rows) {
+  process.stderr.write(`\n${spec.name} (${total} rows)\n`);
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     if (!row.src || !row.dst) {
       skipped++;
+      renderBar(i + 1, total, ok, failed);
       continue;
     }
     const finalDst = spec.deriveDst ? spec.deriveDst(row.src) : row.dst;
@@ -163,8 +175,8 @@ async function processTable(spec: TableSpec, db: DB) {
         .toBuffer();
 
       if (DRY_RUN) {
-        console.log(
-          `[dry] ${spec.name} ${row.id}: ${row.src} (${(full.length / 1024).toFixed(0)}KB) -> ${finalDst} (${(thumb.length / 1024).toFixed(0)}KB)`,
+        process.stderr.write(
+          `\r[dry] ${spec.name} ${row.id}: ${row.src} (${(full.length / 1024).toFixed(0)}KB) -> ${finalDst} (${(thumb.length / 1024).toFixed(0)}KB)\n`,
         );
       } else {
         await s3.send(
@@ -182,14 +194,16 @@ async function processTable(spec: TableSpec, db: DB) {
       ok++;
     } catch (err) {
       failed++;
-      console.warn(
-        `[skip] ${spec.name} ${row.id}: ${row.src} — ${err instanceof Error ? err.message : String(err)}`,
+      process.stderr.write(
+        `\n[skip] ${spec.name} ${row.id}: ${row.src} — ${err instanceof Error ? err.message : String(err)}\n`,
       );
     }
+    renderBar(i + 1, total, ok, failed);
   }
 
+  process.stderr.write('\n');
   console.log(
-    `${spec.name}: ${ok} ok, ${skipped} skipped (no key), ${failed} failed (${rows.length} total)`,
+    `${spec.name}: ${ok} ok, ${skipped} skipped (no key), ${failed} failed (${total} total)`,
   );
   return { ok, skipped, failed };
 }
