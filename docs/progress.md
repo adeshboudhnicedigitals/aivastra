@@ -7,6 +7,93 @@
 
 ## Log
 
+### 2026-06-09 — Production deployment & nginx fixes
+
+**Done**
+- Ran `pnpm db:migrate` manually on VPS — migrations 0033–0036 applied (`model_pose_assets`, backfill, face/bg/workflow FKs, `display_name` column)
+- Raised nginx `client_max_body_size` from 50m → 300m → 2500m on VPS to unblock ZIP bulk import (242MB+ uploads)
+- Raised Fastify multipart `fileSize` limit to 2.5 GB (`chore(api): 487c9d5`)
+- Identified CI auto-deploy was broken (git pull prompting for credentials); manual pull + deploy performed
+
+**Open Questions**
+- Fix CI auto-deploy: VPS `git pull` fails without credentials — likely `VPS_SSH_KEY` / GitHub token secret issue in GitHub Actions
+
+---
+
+### 2026-06-09 — Pose assets separation
+
+**Done**
+- `feat(db): model_pose_assets table` — migration 0033; centralised R2 object ownership; `model_poses.poseAssetId FK` added; backfill creates one asset row per distinct `r2_key` from existing poses
+- `feat(api): pose-assets endpoints` — `GET /admin/assets/pose-assets`, `DELETE /admin/assets/pose-assets/:id` (blocked if mappings exist; deletes R2 on success)
+- `feat(admin): bulk delete poses removes mappings only` — no R2 cleanup on pose mapping delete; single pose delete same
+- `feat(admin): Pose Assets tab` — grid view of all `model_pose_assets` rows with delete confirmation; gender filter applies
+- `feat(admin): bulk-import creates asset rows` — each imported pose file gets a `model_pose_assets` row with correct `faceSideR2Key`/`bgComfyR2Key` before mapping row insert
+
+---
+
+### 2026-06-09 — Bulk ZIP asset import
+
+**Done**
+- `feat(admin): bulk ZIP asset import endpoint + UI` — admin can upload a ZIP containing `backgrounds/`, `faces/`, and `poses/` folders; server extracts with `adm-zip`, uploads each image directly to R2 via new `putObject` storage method, inserts DB rows for faces/backgrounds/poses; pose filenames `faceXXbgYposeZZ.png` parsed to link to correct face+bg rows; returns `{ created, errors }` summary
+- `feat(storage): add putObject to StorageProvider interface + R2 impl` — server-side direct R2 upload without presigned URL flow
+- `feat(api): register @fastify/multipart with 250MB limit` for ZIP upload handling
+- `feat(admin): Bulk Import ZIP button in garment-type subview header` — modal with ZIP picker, gender select, garment type + workflow dropdowns, progress spinner, result toast on success
+
+---
+
+### 2026-06-09 — Admin pose management improvements
+
+**Done**
+- `fix(admin): dedup pose clone by r2Key instead of face+bg combo` — clone skip condition changed from `(subcategoryId, faceId, backgroundId)` to `(subcategoryId, r2Key)`; multiple poses sharing same face+bg but different images now all clone correctly (ab56b07, 17c7a4a)
+- `fix(admin): add BrowserRouter basename so /panel/ prefix is preserved on navigation` — admin SPA navigation no longer drops the `/panel/` prefix on route changes (e16b281)
+- `feat(admin): bulk delete poses + cascading filter options` — "Delete selected (N)" danger button with warning modal; face/background filter dropdowns now cascade (selecting face narrows bg options to only those paired with that face, and vice versa) (ab56b07)
+
+---
+
+### 2026-06-07 — Admin improvements
+
+**Done**
+- `feat(admin): show ComfyUI input images in job detail + refresh button` — job detail view now shows all ComfyUI input images (face, pose, background, garment, lower, shoes); refresh button reloads job state without full page reload (20ed37d)
+- `feat(admin): guard admin accounts from suspension/deletion + show Admin badge` — admin users cannot be banned or deleted from the users panel; Admin badge shown on their row (578ca42)
+- `fix(ci): pass GITHUB_TOKEN to VPS git pull to fix HTTPS auth failure` — deploy pipeline was failing on git pull due to missing auth token (7d4a687)
+
+---
+
+### 2026-06-05 — Payments, credit plans, admin routing, web production pass
+
+**Done**
+
+*Payments & credits*
+- `feat(payments): admin-controlled credit plans via DB` — credit plans stored in `credit_plans` table (migration 0028/0029); admin UI to create/edit/delete plans; plans drive pricing page (9648f93)
+- `feat: Razorpay payments, resolution pricing, UX polish & production hardening` — server-side Razorpay order creation + HMAC-SHA256 signature verification; `payments` table (migration 0027) with GST breakdown (18%); HD=25cr / 2K=35cr / 4K=40cr per pose; resolution selector redesigned as radio pills; credit cost shown in studio footer (7b6f3a6)
+- `fix(db): register credit_plans migrations in drizzle journal` — migrations 0028/0029 missing from journal (353b27a)
+
+*Admin routing*
+- `feat(admin): URL-based routing + pricing GST layout fix` — admin SPA switched to URL-based routing (React Router); pricing GST layout corrected (7c6a8ed)
+- `feat(admin): set prod base path to /panel/` — avoids conflict with `/admin/*` API routes in production nginx (ae73677)
+- `fix(web): clear NEXT_PUBLIC_BASE_PATH runtime default, update domain refs` (d74a39b)
+
+*Web production pass*
+- `feat(web): production-readiness + perceived-performance pass` — error boundaries + not-found page; ConfirmDialog replaces native confirm(); loading skeletons on all routes; React Query tuning (staleTime 5m); prefetch on hover; server-side cover URL presigning in `/v1/catalogues` to kill N+1; Download All wired; responsive to 768px (f7a966c)
+- `feat(web): redesign auth pages with centered black-bg card layout` (b286a5d)
+- `fix(api): cast req.body to CreateTryOnJobRequest in tryon route` (f5f5b0b)
+- `fix(web): guard ResizeObserver entry width against undefined` (ae50eb7)
+
+---
+
+### 2026-06-04 — Observability, workflow size patching, CI/deploy fixes
+
+**Done**
+- `feat(observability): add M1 metrics + logs pipeline to Grafana Cloud` — new `packages/observability` with prom-client registry; domain metrics (http_request_duration, jobs_created, credits_deducted/refunded, job_processing_duration, queue_depth, workers_healthy); GET /metrics on API + dispatcher; Grafana Alloy agent container in docker-compose.prod.yml; dashboard JSON; docs/observability.md (ad16793)
+- `feat(workflow): PrimitiveInt size patching, wider modal, 1:1 → 2048px` — dispatcher patcher supports PrimitiveInt size nodes (sizeNodeIds[0]=width, sizeNodeIds[1]=height); 1:1 ratio changed to 2048×2048 (8b1284f)
+- `fix(workflow): revert 1:1 aspect ratio back to 1536×1536` — 2048 caused OOM on GPU; reverted (cc15ebf)
+- `fix(api): filter backgrounds by garment type in /v1/models/backgrounds` (ecafa01)
+- `fix(docker): build @aivastra/observability in api and dispatcher images` (57f54ea)
+- `fix(ci): build @aivastra/observability before typecheck and tests` (48c38f0)
+- `fix(ci): add safe.directory before git pull on VPS` (9b8085d)
+
+---
+
 ### 2026-06-08 — Auth refresh token family fix (logout race condition)
 
 **Done**

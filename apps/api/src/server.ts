@@ -55,7 +55,11 @@ export async function buildServer(env: Env) {
   });
   await app.register(cors, { origin: env.CORS_ORIGIN, credentials: true });
   await app.register(cookie, { secret: env.COOKIE_SECRET });
-  await app.register(rateLimit, { max: 200, timeWindow: '1 minute' });
+  await app.register(rateLimit, {
+    max: 200,
+    timeWindow: '1 minute',
+    allowList: (req) => req.url.startsWith('/admin/'),
+  });
   await app.register(sensible);
   await app.register(multipart, { limits: { fileSize: 2.5 * 1024 * 1024 * 1024 } });
   await app.register(metricsPlugin);
@@ -71,6 +75,7 @@ export async function buildServer(env: Env) {
       return reply.code(err.statusCode).send({ error: { code: err.code, message: err.message } });
     }
     if ((err as { validation?: unknown }).validation) {
+      app.log.warn({ err, url: _req.url, body: _req.body }, 'validation error');
       return reply
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });

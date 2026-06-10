@@ -77,7 +77,7 @@ function ResetPasswordInner(): React.ReactElement {
       <div
         style={{
           minHeight: '100vh',
-          background: C.white,
+          background: C.bg,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -106,7 +106,7 @@ function ResetPasswordInner(): React.ReactElement {
     <div
       style={{
         minHeight: '100vh',
-        background: C.white,
+        background: C.bg,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -217,7 +217,7 @@ function ResetPasswordInner(): React.ReactElement {
                 border: 'none',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 background: C.dark,
-                color: C.white,
+                color: C.onDark,
                 fontFamily: 'inherit',
                 fontWeight: 600,
                 fontSize: 14,
@@ -235,7 +235,7 @@ function ResetPasswordInner(): React.ReactElement {
 
 export default function ResetPasswordPage(): React.ReactElement {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.white }} />}>
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.bg }} />}>
       <ResetPasswordInner />
     </Suspense>
   );

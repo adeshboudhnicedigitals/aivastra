@@ -125,6 +125,29 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.delete(
+    '/admin/assets/faces',
+    {
+      preHandler: W,
+      schema: { body: z.object({ ids: z.array(z.string().uuid()).min(1) }) },
+    },
+    async (req) => {
+      const { ids } = req.body as { ids: string[] };
+      const faces = await app.db
+        .select()
+        .from(schema.modelFaces)
+        .where(inArray(schema.modelFaces.id, ids));
+      await Promise.allSettled(
+        faces.flatMap((f) => [
+          app.storage.deleteObject(f.r2Key),
+          app.storage.deleteObject(f.thumbnailKey),
+        ]),
+      );
+      await app.db.delete(schema.modelFaces).where(inArray(schema.modelFaces.id, ids));
+      return { deleted: faces.length };
+    },
+  );
+
   // ── Backgrounds (global) ──────────────────────────────────────────────────
 
   app.get(
@@ -257,6 +280,29 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       ]);
       await app.db.delete(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, id));
       return { ok: true };
+    },
+  );
+
+  app.delete(
+    '/admin/assets/backgrounds',
+    {
+      preHandler: W,
+      schema: { body: z.object({ ids: z.array(z.string().uuid()).min(1) }) },
+    },
+    async (req) => {
+      const { ids } = req.body as { ids: string[] };
+      const bgs = await app.db
+        .select()
+        .from(schema.modelBackgrounds)
+        .where(inArray(schema.modelBackgrounds.id, ids));
+      await Promise.allSettled(
+        bgs.flatMap((b) => [
+          app.storage.deleteObject(b.r2Key),
+          app.storage.deleteObject(b.thumbnailKey),
+        ]),
+      );
+      await app.db.delete(schema.modelBackgrounds).where(inArray(schema.modelBackgrounds.id, ids));
+      return { deleted: bgs.length };
     },
   );
 
@@ -1240,6 +1286,119 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         })
         .returning();
       return mapping;
+    },
+  );
+
+  // Bulk-map many pose assets to one garment type in a single transaction
+  app.post(
+    '/admin/assets/pose-assets/bulk-map',
+    {
+      preHandler: W,
+      schema: {
+        body: z.object({
+          assetIds: z.array(z.string().uuid()).min(1).max(2000),
+          garmentTypeId: z.string().uuid(),
+        }),
+      },
+    },
+    async (req) => {
+      const { assetIds, garmentTypeId } = req.body as {
+        assetIds: string[];
+        garmentTypeId: string;
+      };
+
+      // Fetch all requested assets in one query
+      const assets = await app.db
+        .select()
+        .from(schema.modelPoseAssets)
+        .where(inArray(schema.modelPoseAssets.id, assetIds));
+
+      if (assets.length === 0) return { created: 0, skipped: 0, errors: [] };
+
+      // Collect unique workflow IDs to fetch showsLower/showsShoes flags
+      const wfIds = [
+        ...new Set(assets.map((a) => a.workflowTemplateId).filter(Boolean) as string[]),
+      ];
+      const wfRows = wfIds.length
+        ? await app.db
+            .select({
+              id: schema.workflowTemplates.id,
+              lowerNodeId: schema.workflowTemplates.lowerNodeId,
+              shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            })
+            .from(schema.workflowTemplates)
+            .where(inArray(schema.workflowTemplates.id, wfIds))
+        : [];
+      const wfMap = new Map(wfRows.map((w) => [w.id, w]));
+
+      // Find already-mapped asset IDs for this garment type (skip duplicates)
+      const existingRows = await app.db
+        .select({ poseAssetId: schema.modelPoses.poseAssetId })
+        .from(schema.modelPoses)
+        .where(
+          and(
+            eq(schema.modelPoses.subcategoryId, garmentTypeId),
+            inArray(
+              schema.modelPoses.poseAssetId,
+              assets.map((a) => a.id),
+            ),
+          ),
+        );
+      const alreadyMapped = new Set(
+        existingRows.map((r) => r.poseAssetId).filter(Boolean) as string[],
+      );
+
+      const errors: string[] = [];
+      const rows = assets
+        .filter((a) => {
+          if (alreadyMapped.has(a.id)) return false;
+          if (!a.faceId) {
+            errors.push(`${a.id}: missing faceId`);
+            return false;
+          }
+          if (!a.backgroundId) {
+            errors.push(`${a.id}: missing backgroundId`);
+            return false;
+          }
+          if (!a.workflowTemplateId) {
+            errors.push(`${a.id}: missing workflowTemplateId`);
+            return false;
+          }
+          if (!wfMap.has(a.workflowTemplateId)) {
+            errors.push(`${a.id}: workflow not found`);
+            return false;
+          }
+          return true;
+        })
+        .map((a) => {
+          const wf = wfMap.get(a.workflowTemplateId!)!;
+          return {
+            subcategoryId: garmentTypeId,
+            faceId: a.faceId!,
+            backgroundId: a.backgroundId!,
+            workflowTemplateId: a.workflowTemplateId!,
+            poseAssetId: a.id,
+            label: a.displayName ?? a.label,
+            r2Key: a.r2Key,
+            thumbnailKey: a.thumbnailKey,
+            faceSideR2Key: a.faceSideR2Key,
+            bgComfyR2Key: a.bgComfyR2Key,
+            showsLower: Boolean(wf.lowerNodeId),
+            showsShoes: Boolean(wf.shoeNodeId),
+            sortOrder: 0,
+          };
+        });
+
+      const skipped = alreadyMapped.size;
+      if (rows.length === 0) return { created: 0, skipped, errors };
+
+      // Insert all rows in one statement (chunk to stay under Postgres param limit)
+      const CHUNK = 500;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        await app.db.insert(schema.modelPoses).values(rows.slice(i, i + CHUNK));
+      }
+
+      return { created: rows.length, skipped, errors };
     },
   );
 

@@ -53,7 +53,7 @@ export default function ForgotPasswordPage(): React.ReactElement {
     <div
       style={{
         minHeight: '100vh',
-        background: C.white,
+        background: C.bg,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -144,7 +144,7 @@ export default function ForgotPasswordPage(): React.ReactElement {
                 border: 'none',
                 cursor: loading || !email ? 'not-allowed' : 'pointer',
                 background: C.dark,
-                color: C.white,
+                color: C.onDark,
                 fontFamily: 'inherit',
                 fontWeight: 600,
                 fontSize: 14,
