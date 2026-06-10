@@ -6,10 +6,12 @@ export function Tooltip({
   tip,
   children,
   position = 'top',
+  containerStyle,
 }: {
   tip?: string;
   children: React.ReactNode;
   position?: 'top' | 'bottom';
+  containerStyle?: React.CSSProperties;
 }) {
   const [visible, setVisible] = useState(false);
 
@@ -17,8 +19,7 @@ export function Tooltip({
 
   return (
     <div
-      role="presentation"
-      style={{ position: 'relative', display: 'inline-flex' }}
+      style={{ position: 'relative', display: 'inline-flex', ...containerStyle }}
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
     >

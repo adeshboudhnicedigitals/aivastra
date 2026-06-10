@@ -97,10 +97,13 @@ export async function jobsRoutes(app: FastifyInstance) {
         .orderBy(schema.jobs.createdAt);
       if (jobs.length === 0) throw new AppError('NOT_FOUND', 404, 'catalogue not found');
 
-      // All jobs in a catalogue share the same aspectRatio (set once at creation).
-      // Pull it from any one job's inputs so the preview can size its image slot.
+      // All jobs in a catalogue share the same aspectRatio and garment (set once at creation).
+      // Pull both from any one job's inputs.
       const [anyInput] = await app.db
-        .select({ params: schema.jobInputs.params })
+        .select({
+          params: schema.jobInputs.params,
+          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+        })
         .from(schema.jobInputs)
         .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
         .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
@@ -108,7 +111,17 @@ export async function jobsRoutes(app: FastifyInstance) {
       const aspectRatio =
         (anyInput?.params as { aspectRatio?: string } | null)?.aspectRatio ?? null;
 
-      return { catalogueId: id, jobs, aspectRatio };
+      let garmentUrl: string | null = null;
+      if (anyInput?.upperGarmentKey) {
+        try {
+          const { url } = await app.storage.presignGet(anyInput.upperGarmentKey, 3600);
+          garmentUrl = url;
+        } catch {
+          // non-fatal
+        }
+      }
+
+      return { catalogueId: id, jobs, aspectRatio, garmentUrl };
     },
   );
 

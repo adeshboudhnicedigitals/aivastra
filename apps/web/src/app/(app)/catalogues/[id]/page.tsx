@@ -1,7 +1,7 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   DownloadIcon,
@@ -15,7 +15,6 @@ import {
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
 interface Job {
@@ -27,27 +26,114 @@ interface Job {
 interface CatalogueDetail {
   catalogueId: string;
   jobs: Job[];
+  garmentUrl?: string | null;
 }
 
 const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
 
+// [min%, max%, durationMs] for each non-terminal stage
+const STAGE_RANGES: Record<string, [number, number, number]> = {
+  QUEUED: [0, 5, 0],
+  PREPROCESSING: [5, 25, 30_000],
+  GENERATING: [25, 88, 240_000],
+  UPLOADING: [88, 96, 20_000],
+};
+
+function useAnimatedProgress(status: string): number {
+  const range = STAGE_RANGES[status];
+  const [pct, setPct] = useState(range?.[0] ?? 100);
+
+  useEffect(() => {
+    if (!range || range[2] === 0) {
+      setPct(range?.[0] ?? 100);
+      return;
+    }
+    const [min, max, dur] = range;
+    setPct(min);
+    const start = Date.now();
+    const id = setInterval(() => {
+      const t = Math.min((Date.now() - start) / dur, 1);
+      // ease-out: slows as it approaches the ceiling
+      setPct(min + (max - min) * (1 - (1 - t) ** 2));
+    }, 800);
+    return () => clearInterval(id);
+  }, [range]);
+
+  return Math.round(pct);
+}
+
+function ProgressRing({
+  pct,
+  size = 56,
+  stroke = 4,
+}: {
+  pct: number;
+  size?: number;
+  stroke?: number;
+}) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const filled = (pct / 100) * circ;
+  return (
+    <svg
+      width={size}
+      height={size}
+      aria-hidden="true"
+      style={{ transform: 'rotate(-90deg)', flexShrink: 0 }}
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="rgba(255,255,255,0.15)"
+        strokeWidth={stroke}
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="#F55C7A"
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        strokeDasharray={`${filled} ${circ - filled}`}
+      />
+    </svg>
+  );
+}
+
+function ordinal(n: number): string {
+  if (n === 1) return '1st';
+  if (n === 2) return '2nd';
+  if (n === 3) return '3rd';
+  return `${n}th`;
+}
+
 function ImageCard({
   job,
   catalogueId,
-  tint,
+  queuePosition,
+  garmentUrl,
   onZoom,
 }: {
   job: Job;
   catalogueId: string;
-  tint: string;
+  queuePosition: number;
+  garmentUrl?: string | null;
   onZoom: (url: string) => void;
 }) {
   const isCompleted = job.status === 'COMPLETED';
   const isFailed = job.status === 'FAILED';
+  const isQueued = job.status === 'QUEUED';
+  const isActive = !TERMINAL.includes(job.status) && !isQueued;
+
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const qc = useQueryClient();
+
+  const pct = useAnimatedProgress(job.status);
 
   const { data: result } = useQuery<{ url: string }>({
     queryKey: ['job-result', job.id],
@@ -71,25 +157,26 @@ function ImageCard({
     }
   }
 
+  const cardBg = isCompleted ? '#f5f5f5' : '#111';
+
+  const stageLabel =
+    job.status === 'PREPROCESSING'
+      ? 'Preparing…'
+      : job.status === 'UPLOADING'
+        ? 'Saving…'
+        : 'Generating…';
+
   return (
     <>
       <div style={{ width: '100%', height: 316, display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <Tooltip
-          tip={
-            !(isCompleted && result?.url)
-              ? isFailed
-                ? 'Generation failed'
-                : 'Image is still generating…'
-              : undefined
-          }
-          position="top"
-        >
+        <div style={{ flex: 1, minHeight: 0 }}>
           <button
             type="button"
             disabled={!(isCompleted && result?.url)}
             style={{
-              flex: 1,
-              background: tint,
+              width: '100%',
+              height: '100%',
+              background: cardBg,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -104,6 +191,27 @@ function ImageCard({
               if (isCompleted && result?.url) onZoom(result.url);
             }}
           >
+            {/* Garment preview as blurred background for in-progress states */}
+            {!isCompleted && !isFailed && garmentUrl && (
+              <>
+                {/* biome-ignore lint/performance/noImgElement: presigned R2 URL */}
+                <img
+                  src={garmentUrl}
+                  alt=""
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    objectPosition: 'center top',
+                    filter: 'blur(2px) brightness(0.35)',
+                    transform: 'scale(1.05)',
+                  }}
+                />
+              </>
+            )}
             {isCompleted && result?.url ? (
               // eslint-disable-next-line @next/next/no-img-element
               // biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible
@@ -117,24 +225,126 @@ function ImageCard({
                   objectPosition: 'center',
                 }}
               />
-            ) : isFailed ? (
-              <span style={{ color: C.mid, fontSize: 13 }}>Failed</span>
             ) : (
+              // Overlay sits above the absolute-positioned garment bg image
               <div
                 style={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 1,
                   display: 'flex',
-                  flexDirection: 'column',
                   alignItems: 'center',
-                  gap: 8,
-                  color: C.mid,
+                  justifyContent: 'center',
                 }}
               >
-                <SpinnerIcon />
-                <span style={{ fontSize: 13 }}>{job.status.toLowerCase().replace('_', ' ')}</span>
+                {isFailed ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 8,
+                      color: '#F55C7A',
+                    }}
+                  >
+                    <XIcon size={22} />
+                    <span style={{ fontSize: 12, color: 'rgba(245,92,122,0.8)' }}>
+                      Generation failed
+                    </span>
+                  </div>
+                ) : isQueued ? (
+                  // ── Queue position state ──
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '0 20px',
+                      textAlign: 'center',
+                      width: '100%',
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 15,
+                        fontWeight: 700,
+                        color: C.white,
+                        letterSpacing: '-0.01em',
+                      }}
+                    >
+                      {ordinal(queuePosition)} in Queue
+                    </span>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 1.4 }}>
+                      {queuePosition === 1
+                        ? 'Starting soon…'
+                        : `Starts in ~${queuePosition * 2} mins`}
+                    </span>
+                    {/* Shimmer bar */}
+                    <div
+                      style={{
+                        width: '72%',
+                        height: 3,
+                        borderRadius: 2,
+                        background: 'rgba(255,255,255,0.1)',
+                        overflow: 'hidden',
+                        marginTop: 6,
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: '100%',
+                          width: '40%',
+                          borderRadius: 2,
+                          background: 'linear-gradient(90deg,#F55C7A,#F6B553)',
+                          animation: 'cardShimmer 1.8s ease-in-out infinite',
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : isActive ? (
+                  // ── Active generation state (PREPROCESSING / GENERATING / UPLOADING) ──
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '0 16px',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <div style={{ position: 'relative', width: 56, height: 56 }}>
+                      <ProgressRing pct={pct} />
+                      <span
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: C.white,
+                        }}
+                      >
+                        {pct}%
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: C.white }}>
+                      {stageLabel}
+                    </span>
+                    <span
+                      style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4 }}
+                    >
+                      This may take a few minutes
+                    </span>
+                  </div>
+                ) : null}
               </div>
             )}
           </button>
-        </Tooltip>
+        </div>
         <div
           style={{
             height: 28,
@@ -268,6 +478,16 @@ export default function CataloguePage({
     },
   });
 
+  // Ordered queue positions — oldest QUEUED job = position 1
+  const queuedIds = useMemo(
+    () =>
+      (data?.jobs ?? [])
+        .filter((j) => j.status === 'QUEUED')
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .map((j) => j.id),
+    [data?.jobs],
+  );
+
   const completedCount = data?.jobs.filter((j) => j.status === 'COMPLETED').length ?? 0;
   const total = data?.jobs.length ?? 0;
 
@@ -310,6 +530,12 @@ export default function CataloguePage({
 
   return (
     <>
+      <style>{`
+        @keyframes cardShimmer {
+          0%   { transform: translateX(-150%); }
+          100% { transform: translateX(400%); }
+        }
+      `}</style>
       <TopBar
         lead={
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -417,7 +643,14 @@ export default function CataloguePage({
             }}
           >
             {data.jobs.map((job) => (
-              <ImageCard key={job.id} job={job} catalogueId={id} tint="#f5f5f5" onZoom={setZoom} />
+              <ImageCard
+                key={job.id}
+                job={job}
+                catalogueId={id}
+                queuePosition={queuedIds.indexOf(job.id) + 1}
+                garmentUrl={data.garmentUrl}
+                onZoom={setZoom}
+              />
             ))}
           </div>
         )}
