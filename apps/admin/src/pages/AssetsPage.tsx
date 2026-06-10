@@ -187,8 +187,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   // Map pose asset state
   const [mappingPoseAsset, setMappingPoseAsset] = useState<ModelPoseAsset | null>(null);
-  const [mapGarmentTypeId, setMapGarmentTypeId] = useState('');
-  const [mapping, setMapping] = useState(false);
   const [existingMappings, setExistingMappings] = useState<
     {
       id: string;
@@ -1805,7 +1803,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                         style={{ flex: 1, fontSize: 10, padding: '3px 0' }}
                         onClick={async () => {
                           setMappingPoseAsset(a);
-                          setMapGarmentTypeId('');
                           setExistingMappings([]);
                           setLoadingMappings(true);
                           try {
@@ -1820,7 +1817,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                           }
                         }}
                       >
-                        <Icon.Add /> Map
+                        <Icon.Eye /> Mappings
                       </button>
                     </div>
                     <button
@@ -2386,15 +2383,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       {/* ── Map pose asset to garment type ── */}
       {mappingPoseAsset &&
         (() => {
-          const assetGender = mappingPoseAsset.genderSlug;
-          const gtOptions = garmentTypes.filter(
-            (g) => !assetGender || g.genderSlug === assetGender,
-          );
           return (
             <div className="modal-overlay" onClick={() => setMappingPoseAsset(null)}>
               <div className="modal" onClick={(e) => e.stopPropagation()}>
                 <div className="modal-head">
-                  <h3>Map pose to garment type</h3>
+                  <h3>Pose mappings</h3>
                   <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
                     {mappingPoseAsset.label}
                   </p>
@@ -2468,114 +2461,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       </div>
                     )}
                   </div>
-                  <hr
-                    style={{
-                      border: 'none',
-                      borderTop: '1px solid var(--border)',
-                      margin: '2px 0',
-                    }}
-                  />
-
-                  {/* Asset tags preview */}
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {mappingPoseAsset.faceId ? (
-                      <span className="badge dot">
-                        {faces.find((f) => f.id === mappingPoseAsset.faceId)?.label ??
-                          mappingPoseAsset.faceId}
-                      </span>
-                    ) : (
-                      <span
-                        className="badge dot"
-                        style={{ background: '#fef3c7', color: '#92400e' }}
-                      >
-                        ⚠ no face
-                      </span>
-                    )}
-                    {mappingPoseAsset.backgroundId ? (
-                      <span className="badge dot">
-                        {allBackgrounds.find((b) => b.id === mappingPoseAsset.backgroundId)
-                          ?.label ?? mappingPoseAsset.backgroundId}
-                      </span>
-                    ) : (
-                      <span
-                        className="badge dot"
-                        style={{ background: '#fef3c7', color: '#92400e' }}
-                      >
-                        ⚠ no background
-                      </span>
-                    )}
-                    {mappingPoseAsset.workflowTemplateId ? (
-                      <span className="badge dot accent">
-                        {workflows.find((w) => w.id === mappingPoseAsset.workflowTemplateId)
-                          ?.label ?? mappingPoseAsset.workflowTemplateId}
-                      </span>
-                    ) : (
-                      <span
-                        className="badge dot"
-                        style={{ background: '#fef3c7', color: '#92400e' }}
-                      >
-                        ⚠ no workflow
-                      </span>
-                    )}
-                  </div>
-
-                  <label className="field-label" style={{ fontSize: 11 }}>
-                    Add mapping — garment type
-                  </label>
-                  <select
-                    className="input"
-                    value={mapGarmentTypeId}
-                    onChange={(e) => setMapGarmentTypeId(e.target.value)}
-                  >
-                    <option value="">— select —</option>
-                    {gtOptions.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.label} ({g.genderSlug})
-                      </option>
-                    ))}
-                  </select>
                 </div>
                 <div className="modal-foot">
                   <button className="btn ghost" onClick={() => setMappingPoseAsset(null)}>
                     Close
-                  </button>
-                  <button
-                    className="btn"
-                    disabled={
-                      mapping ||
-                      !mapGarmentTypeId ||
-                      !mappingPoseAsset.faceId ||
-                      !mappingPoseAsset.backgroundId ||
-                      !mappingPoseAsset.workflowTemplateId
-                    }
-                    onClick={async () => {
-                      if (!mappingPoseAsset || !mapGarmentTypeId) return;
-                      setMapping(true);
-                      try {
-                        await apiFetch(`/admin/assets/pose-assets/${mappingPoseAsset.id}/map`, {
-                          method: 'POST',
-                          body: JSON.stringify({ garmentTypeId: mapGarmentTypeId }),
-                        });
-                        const res = await apiFetch<{ items: typeof existingMappings }>(
-                          `/admin/assets/pose-assets/${mappingPoseAsset.id}/mappings`,
-                        );
-                        setExistingMappings(res.items);
-                        setMapGarmentTypeId('');
-                        toast({
-                          title: `Mapped to ${garmentTypes.find((g) => g.id === mapGarmentTypeId)?.label ?? 'garment type'}`,
-                        });
-                      } catch (err: unknown) {
-                        toast({
-                          kind: 'error',
-                          title: 'Mapping failed',
-                          body: err instanceof Error ? err.message : String(err),
-                        });
-                      } finally {
-                        setMapping(false);
-                      }
-                    }}
-                  >
-                    {mapping ? 'Mapping…' : 'Add mapping'}
                   </button>
                 </div>
               </div>
