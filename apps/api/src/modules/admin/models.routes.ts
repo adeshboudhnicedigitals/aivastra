@@ -18,6 +18,7 @@ import {
 import AdmZip from 'adm-zip';
 import { and, eq, getTableColumns, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
@@ -1546,6 +1547,14 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
+  async function makeThumb(buf: Buffer): Promise<Buffer> {
+    return sharp(buf)
+      .rotate()
+      .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 78 })
+      .toBuffer();
+  }
+
   // ── Bulk import from ZIP ──────────────────────────────────────────────────
   app.post('/admin/assets/bulk-import', { preHandler: W }, async (req) => {
     const data = await req.file();
@@ -1619,11 +1628,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const mime = extToMime[ext] ?? 'image/jpeg';
         const id = randomUUID();
         const r2Key = keys.modelBackground(id);
+        const thumbKey = keys.modelBackgroundThumb(id);
         const buf = entry.getData();
-        await app.storage.putObject(r2Key, buf, mime);
+        const thumb = await makeThumb(buf);
+        await Promise.all([
+          app.storage.putObject(r2Key, buf, mime),
+          app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
+        ]);
         const [row] = await app.db
           .insert(schema.modelBackgrounds)
-          .values({ label: stem, r2Key, thumbnailKey: r2Key, genderSlug, sortOrder: bgNum })
+          .values({ label: stem, r2Key, thumbnailKey: thumbKey, genderSlug, sortOrder: bgNum })
           .returning({ id: schema.modelBackgrounds.id });
         bgIndexMap.set(bgNum, { id: row.id, r2Key });
         createdBackgrounds++;
@@ -1652,15 +1666,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const mime = extToMime[ext] ?? 'image/jpeg';
         const id = randomUUID();
         const r2Key = keys.modelFace(id);
+        const thumbKey = keys.modelFaceThumb(id);
         const buf = entry.getData();
-        await app.storage.putObject(r2Key, buf, mime);
+        const thumb = await makeThumb(buf);
+        await Promise.all([
+          app.storage.putObject(r2Key, buf, mime),
+          app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
+        ]);
         const [row] = await app.db
           .insert(schema.modelFaces)
           .values({
             label: stem,
             gender: genderSlug,
             r2Key,
-            thumbnailKey: r2Key,
+            thumbnailKey: thumbKey,
             sortOrder: faceNum,
           })
           .returning({ id: schema.modelFaces.id });
@@ -1768,12 +1787,17 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const mime = extToMime[ext] ?? 'image/png';
         const id = randomUUID();
         const r2Key = keys.modelPose(id);
+        const thumbKey = keys.modelPoseThumb(id);
         const buf = entry.getData();
-        await app.storage.putObject(r2Key, buf, mime);
+        const thumb = await makeThumb(buf);
+        await Promise.all([
+          app.storage.putObject(r2Key, buf, mime),
+          app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
+        ]);
         await app.db.insert(schema.modelPoseAssets).values({
           label: stem,
           r2Key,
-          thumbnailKey: r2Key,
+          thumbnailKey: thumbKey,
           faceSideR2Key: faceEntry.r2Key,
           bgComfyR2Key: bgEntry.r2Key,
           faceId: faceEntry.id,

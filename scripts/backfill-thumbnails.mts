@@ -77,6 +77,13 @@ const SPECS: TableSpec[] = [
         src: r.r2Key,
         dst: r.thumbnailKey,
       })),
+    deriveDst: (src) => src.replace(/(\.[^.]+)?$/, '.thumb.jpg'),
+    updateRow: async (db, id, newDst) => {
+      await db
+        .update(schema.modelFaces)
+        .set({ thumbnailKey: newDst })
+        .where(eq(schema.modelFaces.id, id));
+    },
   },
   {
     name: 'backgrounds',
@@ -86,6 +93,13 @@ const SPECS: TableSpec[] = [
         src: r.r2Key,
         dst: r.thumbnailKey,
       })),
+    deriveDst: (src) => src.replace(/(\.[^.]+)?$/, '.thumb.jpg'),
+    updateRow: async (db, id, newDst) => {
+      await db
+        .update(schema.modelBackgrounds)
+        .set({ thumbnailKey: newDst })
+        .where(eq(schema.modelBackgrounds.id, id));
+    },
   },
   {
     name: 'poses',
