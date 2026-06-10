@@ -1279,14 +1279,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               gap: 10,
               alignItems: 'center',
               marginTop: 8,
-              marginBottom: 14,
+              marginBottom: 4,
               flexWrap: 'wrap',
             }}
           >
-            <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-              {visiblePoses.length}/{poses.length} poses
-              {poseTotalPages > 1 && ` · page ${poseClampedPage}/${poseTotalPages}`}
-            </span>
             <input
               className="input"
               style={{ minWidth: 160, maxWidth: 220 }}
@@ -1404,6 +1400,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               )}
             </div>
           </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
+            {visiblePoses.length}/{poses.length} poses
+            {poseTotalPages > 1 && ` · page ${poseClampedPage}/${poseTotalPages}`}
+          </p>
 
           {/* Pose grid */}
           <div
