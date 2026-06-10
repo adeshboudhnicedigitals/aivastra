@@ -90,6 +90,15 @@ const SPECS: TableSpec[] = [
       })),
   },
   {
+    name: 'pose-assets',
+    load: async (db) =>
+      (await db.select().from(schema.modelPoseAssets)).map((r) => ({
+        id: r.id,
+        src: r.r2Key,
+        dst: r.thumbnailKey,
+      })),
+  },
+  {
     name: 'catalog',
     load: async (db) =>
       (await db.select().from(schema.catalogItems)).map((r) => ({
