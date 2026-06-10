@@ -220,6 +220,7 @@ export interface ModelPoseAsset {
   backgroundId: string | null;
   workflowTemplateId: string | null;
   promptGarmentPhase: string | null;
+  poseVariant: string | null;
   createdAt: string;
 }
 

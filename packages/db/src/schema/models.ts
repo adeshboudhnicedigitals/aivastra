@@ -87,6 +87,7 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   id: uuid('id').primaryKey().defaultRandom(),
   label: text('label').notNull(),
   displayName: text('display_name'),
+  poseVariant: text('pose_variant'),
   r2Key: text('r2_key').notNull(),
   faceSideR2Key: text('face_side_r2_key'),
   bgComfyR2Key: text('bg_comfy_r2_key'),

@@ -885,6 +885,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         backgroundId: schema.modelPoseAssets.backgroundId,
         workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
         promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+        poseVariant: schema.modelPoseAssets.poseVariant,
+        displayName: schema.modelPoseAssets.displayName,
         createdAt: schema.modelPoseAssets.createdAt,
       })
       .from(schema.modelPoseAssets)
@@ -1794,6 +1796,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           app.storage.putObject(r2Key, buf, mime),
           app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
         ]);
+        const poseVariantMatch = stem.match(/pose(\d+)/i);
+        const poseVariant = poseVariantMatch ? `pose${poseVariantMatch[1].padStart(2, '0')}` : null;
         await app.db.insert(schema.modelPoseAssets).values({
           label: stem,
           r2Key,
@@ -1804,6 +1808,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           backgroundId: bgEntry.id,
           workflowTemplateId: workflowTemplateId ?? null,
           genderSlug,
+          poseVariant,
         });
         sortOrder++;
         createdPoses++;

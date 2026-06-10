@@ -38,6 +38,7 @@
     { "idx": 33, "version": "7", "when": 1779926400027, "tag": "0033_model_pose_assets", "breakpoints": true },
     { "idx": 34, "version": "7", "when": 1779926400028, "tag": "0034_backfill_pose_asset_gender", "breakpoints": true },
     { "idx": 35, "version": "7", "when": 1779926400029, "tag": "0035_pose_asset_face_bg_workflow", "breakpoints": true },
-    { "idx": 36, "version": "7", "when": 1779926400030, "tag": "0036_pose_asset_display_name", "breakpoints": true }
+    { "idx": 36, "version": "7", "when": 1779926400030, "tag": "0036_pose_asset_display_name", "breakpoints": true },
+    { "idx": 37, "version": "7", "when": 1780012800000, "tag": "0037_pose_asset_variant", "breakpoints": true }
   ]
 }

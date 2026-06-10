@@ -640,7 +640,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       if (paFilterFace && a.faceId !== paFilterFace) return false;
       if (paFilterBg && a.backgroundId !== paFilterBg) return false;
       if (paFilterWorkflow && a.workflowTemplateId !== paFilterWorkflow) return false;
-      if (paFilterPose && a.id !== paFilterPose) return false;
+      if (paFilterPose && a.poseVariant !== paFilterPose) return false;
       if (paSearch) {
         const q = paSearch.toLowerCase();
         const matchLabel = a.label.toLowerCase().includes(q);
@@ -675,9 +675,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const paWorkflowOptions = workflows.filter((w) =>
     genderSlicedAssets.some((a) => a.workflowTemplateId === w.id),
   );
-  const paPoseOptions = genderSlicedAssets
-    .slice()
-    .sort((a, b) => (a.displayName ?? a.label).localeCompare(b.displayName ?? b.label));
+  const paPoseVariants = Array.from(
+    new Set(genderSlicedAssets.map((a) => a.poseVariant).filter(Boolean) as string[]),
+  ).sort();
 
   // Poses available in current face×bg cell (for 3rd-dimension selector)
   const posesInCell = poses.filter(
@@ -1662,14 +1662,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             </select>
             <select
               className="select"
-              style={{ minWidth: 160 }}
+              style={{ minWidth: 130 }}
               value={paFilterPose}
               onChange={(e) => setPaFilterPose(e.target.value)}
             >
               <option value="">All poses</option>
-              {paPoseOptions.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.displayName ?? a.label}
+              {paPoseVariants.map((v) => (
+                <option key={v} value={v}>
+                  {v}
                 </option>
               ))}
             </select>
