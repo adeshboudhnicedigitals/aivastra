@@ -96,6 +96,7 @@ function AssetThumb({
       <img
         src={src}
         alt={label}
+        loading="lazy"
         style={{
           width: w,
           height: h,
@@ -217,6 +218,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [poseSearch, setPoseSearch] = useState('');
   const [poseSortKey, setPoseSortKey] = useState<'label' | 'sortOrder' | 'createdAt'>('label');
   const [poseSortDir, setPoseSortDir] = useState<'asc' | 'desc'>('asc');
+  const [posePage, setPosePage] = useState(1);
 
   // Pose-asset tab filters
   const [paFilterFace, setPaFilterFace] = useState('');
@@ -226,6 +228,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [paSearch, setPaSearch] = useState('');
   const [paSortKey, setPaSortKey] = useState<'label' | 'createdAt'>('label');
   const [paSortDir, setPaSortDir] = useState<'asc' | 'desc'>('asc');
+  const [paPage, setPaPage] = useState(1);
   const [showSubcatModal, setShowSubcatModal] = useState(false);
   const [subcatForm, setSubcatForm] = useState({
     slug: '',
@@ -410,6 +413,24 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       .then((r) => setGarmentTypes(r.items))
       .catch(() => {});
   }, []);
+
+  // Reset to page 1 whenever filters or sort change
+  useEffect(() => {
+    setPaPage(1);
+  }, [
+    paFilterFace,
+    paFilterBg,
+    paFilterWorkflow,
+    paFilterPose,
+    paSearch,
+    paSortKey,
+    paSortDir,
+    genderFilter,
+  ]);
+
+  useEffect(() => {
+    setPosePage(1);
+  }, [filterFace, filterBg, filterPose, poseSearch, poseSortKey, poseSortDir]);
 
   const toggleBg = async (id: string) => {
     const item = backgrounds.find((b) => b.id === id);
@@ -635,6 +656,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       return paSortDir === 'asc' ? cmp : -cmp;
     });
 
+  const PA_PAGE_SIZE = 50;
+  const paTotalPages = Math.max(1, Math.ceil(filteredPoseAssets.length / PA_PAGE_SIZE));
+  const paClampedPage = Math.min(paPage, paTotalPages);
+  const pagedPoseAssets = filteredPoseAssets.slice(
+    (paClampedPage - 1) * PA_PAGE_SIZE,
+    paClampedPage * PA_PAGE_SIZE,
+  );
+
   // Face / bg / workflow options for pose-asset filters (only IDs that appear in current gender slice)
   const genderSlicedAssets = poseAssets.filter(
     (a) => genderFilter === 'all' || a.genderSlug === genderFilter,
@@ -666,6 +695,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       else cmp = a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
       return poseSortDir === 'asc' ? cmp : -cmp;
     });
+
+  const POSE_PAGE_SIZE = 50;
+  const poseTotalPages = Math.max(1, Math.ceil(visiblePoses.length / POSE_PAGE_SIZE));
+  const poseClampedPage = Math.min(posePage, poseTotalPages);
+  const pagedPoses = visiblePoses.slice(
+    (poseClampedPage - 1) * POSE_PAGE_SIZE,
+    poseClampedPage * POSE_PAGE_SIZE,
+  );
 
   // Faces valid given current bg filter; backgrounds valid given current face filter
   const usedFaceIds = new Set(
@@ -1138,6 +1175,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       setFilterBg('');
                       setFilterPose('');
                       setPoseSearch('');
+                      setPosePage(1);
                       setSubView({ kind: 'garment-type', sub });
                     }}
                   >
@@ -1247,6 +1285,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           >
             <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
               {visiblePoses.length}/{poses.length} poses
+              {poseTotalPages > 1 && ` · page ${poseClampedPage}/${poseTotalPages}`}
             </span>
             <input
               className="input"
@@ -1374,7 +1413,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               gap: 14,
             }}
           >
-            {visiblePoses.map((pose) => {
+            {pagedPoses.map((pose) => {
               const faceName = faces.find((f) => f.id === pose.faceId)?.label ?? '?';
               const bgName = allBackgrounds.find((b) => b.id === pose.backgroundId)?.label ?? '?';
               const wf = workflows.find((w) => w.id === pose.workflowTemplateId);
@@ -1512,6 +1551,35 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </div>
             )}
           </div>
+          {poseTotalPages > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 16,
+                justifyContent: 'center',
+              }}
+            >
+              <button
+                className="btn sm ghost"
+                disabled={poseClampedPage <= 1}
+                onClick={() => setPosePage((p) => Math.max(1, p - 1))}
+              >
+                ← Prev
+              </button>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Page {poseClampedPage} / {poseTotalPages}
+              </span>
+              <button
+                className="btn sm ghost"
+                disabled={poseClampedPage >= poseTotalPages}
+                onClick={() => setPosePage((p) => Math.min(poseTotalPages, p + 1))}
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -1647,6 +1715,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           >
             <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
               {filteredPoseAssets.length} asset{filteredPoseAssets.length !== 1 ? 's' : ''}
+              {paTotalPages > 1 && ` · page ${paClampedPage}/${paTotalPages}`}
               {genderFilter !== 'all' && ` · ${poseAssets.length} total`}
             </p>
             {filteredPoseAssets.length > 0 && (
@@ -1696,7 +1765,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 marginTop: 12,
               }}
             >
-              {filteredPoseAssets.map((a) => (
+              {pagedPoseAssets.map((a) => (
                 <div
                   key={a.id}
                   className="card"
@@ -1830,6 +1899,35 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {paTotalPages > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                marginTop: 16,
+                justifyContent: 'center',
+              }}
+            >
+              <button
+                className="btn sm ghost"
+                disabled={paClampedPage <= 1}
+                onClick={() => setPaPage((p) => Math.max(1, p - 1))}
+              >
+                ← Prev
+              </button>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Page {paClampedPage} / {paTotalPages}
+              </span>
+              <button
+                className="btn sm ghost"
+                disabled={paClampedPage >= paTotalPages}
+                onClick={() => setPaPage((p) => Math.min(paTotalPages, p + 1))}
+              >
+                Next →
+              </button>
             </div>
           )}
         </>
