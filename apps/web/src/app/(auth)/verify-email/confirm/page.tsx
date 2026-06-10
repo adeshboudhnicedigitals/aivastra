@@ -43,7 +43,7 @@ function ConfirmInner(): React.ReactElement {
     <div
       style={{
         minHeight: '100vh',
-        background: C.white,
+        background: C.bg,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -102,7 +102,7 @@ function ConfirmInner(): React.ReactElement {
                 border: 'none',
                 cursor: 'pointer',
                 background: C.dark,
-                color: C.white,
+                color: C.onDark,
                 fontFamily: 'inherit',
                 fontWeight: 600,
                 fontSize: 14,
@@ -119,7 +119,7 @@ function ConfirmInner(): React.ReactElement {
 
 export default function VerifyEmailConfirmPage(): React.ReactElement {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.white }} />}>
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: C.bg }} />}>
       <ConfirmInner />
     </Suspense>
   );

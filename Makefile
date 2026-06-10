@@ -47,13 +47,13 @@ lint:
 	pnpm lint
 
 docker-up:
-	docker compose -f infra/docker-compose.yml up -d
+	docker compose -f infra/docker-compose.yml --profile apps --profile observability up -d
 
 docker-down:
-	docker compose -f infra/docker-compose.yml down
+	docker compose -f infra/docker-compose.yml --profile apps --profile observability down
 
 docker-reset:
-	docker compose -f infra/docker-compose.yml down -v
+	docker compose -f infra/docker-compose.yml --profile apps --profile observability down -v
 
 db-generate:
 	pnpm --filter @aivastra/db run generate

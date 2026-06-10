@@ -40,7 +40,7 @@ export default function VerifyEmailPage(): React.ReactElement {
     <div
       style={{
         minHeight: '100vh',
-        background: C.white,
+        background: C.bg,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

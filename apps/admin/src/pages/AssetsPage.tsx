@@ -174,6 +174,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [confirmDeletePoseAssetId, setConfirmDeletePoseAssetId] = useState<string | null>(null);
   const [selectedPoseAssetIds, setSelectedPoseAssetIds] = useState<string[]>([]);
   const [confirmBulkDeletePoseAssetIds, setConfirmBulkDeletePoseAssetIds] = useState<string[]>([]);
+  const [selectedBgIds, setSelectedBgIds] = useState<string[]>([]);
+  const [confirmBulkDeleteBgIds, setConfirmBulkDeleteBgIds] = useState<string[]>([]);
+  const [selectedFaceIds, setSelectedFaceIds] = useState<string[]>([]);
+  const [confirmBulkDeleteFaceIds, setConfirmBulkDeleteFaceIds] = useState<string[]>([]);
 
   // Upload pose asset state
   const [showPoseAssetUpload, setShowPoseAssetUpload] = useState(false);
@@ -206,6 +210,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [showBulkMap, setShowBulkMap] = useState(false);
   const [bulkMapGarmentTypeId, setBulkMapGarmentTypeId] = useState('');
   const [bulkMapping, setBulkMapping] = useState(false);
+  const [bulkMapProgress, setBulkMapProgress] = useState(0);
+  const [bulkMapTotal, setBulkMapTotal] = useState(0);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [filterFace, setFilterFace] = useState('');
   const [filterBg, setFilterBg] = useState('');
@@ -518,6 +524,40 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
+  const doBulkDeleteFaces = async () => {
+    const ids = confirmBulkDeleteFaceIds;
+    setConfirmBulkDeleteFaceIds([]);
+    if (ids.length === 0) return;
+    try {
+      const res = await apiFetch<{ deleted: number }>('/admin/assets/faces', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids }),
+      });
+      setFaces((prev) => prev.filter((f) => !ids.includes(f.id)));
+      setSelectedFaceIds((prev) => prev.filter((id) => !ids.includes(id)));
+      toast({ title: `Deleted ${res.deleted} face${res.deleted !== 1 ? 's' : ''}` });
+    } catch {
+      toast({ kind: 'error', title: 'Bulk delete failed' });
+    }
+  };
+
+  const doBulkDeleteBackgrounds = async () => {
+    const ids = confirmBulkDeleteBgIds;
+    setConfirmBulkDeleteBgIds([]);
+    if (ids.length === 0) return;
+    try {
+      const res = await apiFetch<{ deleted: number }>('/admin/assets/backgrounds', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids }),
+      });
+      setBackgrounds((prev) => prev.filter((b) => !ids.includes(b.id)));
+      setSelectedBgIds((prev) => prev.filter((id) => !ids.includes(id)));
+      toast({ title: `Deleted ${res.deleted} background${res.deleted !== 1 ? 's' : ''}` });
+    } catch {
+      toast({ kind: 'error', title: 'Bulk delete failed' });
+    }
+  };
+
   const setAmazonWhiteBg = async (id: string) => {
     const prev = backgrounds.find((b) => b.isWhiteBg);
     // Optimistic update: set the selected one as white, unset all others
@@ -799,10 +839,47 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </button>
             ))}
           </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: 4,
+              marginBottom: 8,
+              flexWrap: 'wrap',
+            }}
+          >
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+              {backgrounds.length} background{backgrounds.length !== 1 ? 's' : ''}
+            </p>
+            {backgrounds.length > 0 && (
+              <button
+                className="btn sm ghost"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => {
+                  const allSelected = backgrounds.every((b) => selectedBgIds.includes(b.id));
+                  setSelectedBgIds(allSelected ? [] : backgrounds.map((b) => b.id));
+                }}
+              >
+                {backgrounds.every((b) => selectedBgIds.includes(b.id))
+                  ? 'Deselect all'
+                  : 'Select all'}
+              </button>
+            )}
+            {selectedBgIds.length > 0 && (
+              <button
+                className="btn sm danger"
+                onClick={() => setConfirmBulkDeleteBgIds([...selectedBgIds])}
+              >
+                <Icon.Trash /> Delete selected ({selectedBgIds.length})
+              </button>
+            )}
+          </div>
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 32 }}></th>
                   <th>Label</th>
                   <th>Gender</th>
                   <th>Amazon</th>
@@ -813,6 +890,18 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               <tbody>
                 {backgrounds.map((bg) => (
                   <tr key={bg.id} style={{ opacity: bg.isActive ? 1 : 0.6 }}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedBgIds.includes(bg.id)}
+                        onChange={(e) =>
+                          setSelectedBgIds((prev) =>
+                            e.target.checked ? [...prev, bg.id] : prev.filter((id) => id !== bg.id),
+                          )
+                        }
+                        style={{ accentColor: 'var(--pink)', cursor: 'pointer' }}
+                      />
+                    </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {T(bg, 40, 30)}
@@ -898,19 +987,74 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           </div>
           <div
             style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginTop: 4,
+              marginBottom: 4,
+              flexWrap: 'wrap',
+            }}
+          >
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+              {filteredFaces.length} face{filteredFaces.length !== 1 ? 's' : ''}
+            </p>
+            {filteredFaces.length > 0 && (
+              <button
+                className="btn sm ghost"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => {
+                  const allSelected = filteredFaces.every((f) => selectedFaceIds.includes(f.id));
+                  setSelectedFaceIds(allSelected ? [] : filteredFaces.map((f) => f.id));
+                }}
+              >
+                {filteredFaces.every((f) => selectedFaceIds.includes(f.id))
+                  ? 'Deselect all'
+                  : 'Select all'}
+              </button>
+            )}
+            {selectedFaceIds.length > 0 && (
+              <button
+                className="btn sm danger"
+                onClick={() => setConfirmBulkDeleteFaceIds([...selectedFaceIds])}
+              >
+                <Icon.Trash /> Delete selected ({selectedFaceIds.length})
+              </button>
+            )}
+          </div>
+          <div
+            style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
               gap: 14,
-              marginTop: 14,
+              marginTop: 10,
             }}
           >
             {filteredFaces.map((face) => (
               <div
                 key={face.id}
                 className="card"
-                style={{ opacity: face.isActive ? 1 : 0.6, padding: 14 }}
+                style={{
+                  opacity: face.isActive ? 1 : 0.6,
+                  padding: 14,
+                  outline: selectedFaceIds.includes(face.id) ? '2px solid var(--pink)' : undefined,
+                }}
               >
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedFaceIds.includes(face.id)}
+                    onChange={(e) =>
+                      setSelectedFaceIds((prev) =>
+                        e.target.checked ? [...prev, face.id] : prev.filter((id) => id !== face.id),
+                      )
+                    }
+                    style={{
+                      accentColor: 'var(--pink)',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                      marginTop: 2,
+                    }}
+                  />
                   {T(face, 48, 64)}
                   <div style={{ marginTop: 4 }}>
                     <span className="semi">{face.label}</span>
@@ -1934,6 +2078,68 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         </div>
       )}
 
+      {confirmBulkDeleteBgIds.length > 0 && (
+        <div className="modal-overlay" onClick={() => setConfirmBulkDeleteBgIds([])}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>
+                Delete {confirmBulkDeleteBgIds.length} background
+                {confirmBulkDeleteBgIds.length !== 1 ? 's' : ''}
+              </h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Permanently delete{' '}
+                <strong>
+                  {confirmBulkDeleteBgIds.length} selected background
+                  {confirmBulkDeleteBgIds.length !== 1 ? 's' : ''}
+                </strong>{' '}
+                and their R2 images? This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmBulkDeleteBgIds([])}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={doBulkDeleteBackgrounds}>
+                <Icon.Trash /> Delete {confirmBulkDeleteBgIds.length}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmBulkDeleteFaceIds.length > 0 && (
+        <div className="modal-overlay" onClick={() => setConfirmBulkDeleteFaceIds([])}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>
+                Delete {confirmBulkDeleteFaceIds.length} face
+                {confirmBulkDeleteFaceIds.length !== 1 ? 's' : ''}
+              </h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Permanently delete{' '}
+                <strong>
+                  {confirmBulkDeleteFaceIds.length} selected face
+                  {confirmBulkDeleteFaceIds.length !== 1 ? 's' : ''}
+                </strong>{' '}
+                and their R2 images? This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmBulkDeleteFaceIds([])}>
+                Cancel
+              </button>
+              <button className="btn danger" onClick={doBulkDeleteFaces}>
+                <Icon.Trash /> Delete {confirmBulkDeleteFaceIds.length}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmBulkDeletePoseIds.length > 0 && (
         <div className="modal-overlay" onClick={() => setConfirmBulkDeletePoseIds([])}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -2423,6 +2629,46 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
                 Each pose uses its own stored face / background / workflow.
               </p>
+              {bulkMapping && (
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 12,
+                      color: 'var(--muted)',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span>Mapping…</span>
+                    <span>
+                      {bulkMapProgress} / {bulkMapTotal}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      height: 6,
+                      background: 'var(--border)',
+                      borderRadius: 3,
+                      overflow: 'hidden',
+                      width: '100%',
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: '100%',
+                        background: 'var(--accent)',
+                        borderRadius: 3,
+                        width:
+                          bulkMapTotal > 0
+                            ? `${Math.round((bulkMapProgress / bulkMapTotal) * 100)}%`
+                            : '0%',
+                        transition: 'width 0.15s ease',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
               <label className="field-label" style={{ fontSize: 11 }}>
                 Garment type
               </label>
@@ -2454,29 +2700,35 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 onClick={async () => {
                   if (!bulkMapGarmentTypeId) return;
                   setBulkMapping(true);
-                  let created = 0;
-                  let failed = 0;
-                  for (const assetId of selectedPoseAssetIds) {
-                    try {
-                      await apiFetch(`/admin/assets/pose-assets/${assetId}/map`, {
-                        method: 'POST',
-                        body: JSON.stringify({ garmentTypeId: bulkMapGarmentTypeId }),
-                      });
-                      created++;
-                    } catch {
-                      failed++;
-                    }
+                  setBulkMapProgress(0);
+                  setBulkMapTotal(selectedPoseAssetIds.length);
+                  try {
+                    const res = await apiFetch<{
+                      created: number;
+                      skipped: number;
+                      errors: string[];
+                    }>('/admin/assets/pose-assets/bulk-map', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        assetIds: selectedPoseAssetIds,
+                        garmentTypeId: bulkMapGarmentTypeId,
+                      }),
+                    });
+                    setBulkMapProgress(selectedPoseAssetIds.length);
+                    const parts = [];
+                    if (res.created > 0) parts.push(`mapped ${res.created}`);
+                    if (res.skipped > 0) parts.push(`skipped ${res.skipped} already mapped`);
+                    if (res.errors.length > 0) parts.push(`${res.errors.length} errors`);
+                    toast({
+                      kind: res.errors.length > 0 ? 'error' : undefined,
+                      title: parts.join(', ') || 'nothing to map',
+                    });
+                  } catch {
+                    toast({ kind: 'error', title: 'Bulk map failed' });
                   }
                   setBulkMapping(false);
                   setShowBulkMap(false);
                   setSelectedPoseAssetIds([]);
-                  toast({
-                    kind: failed > 0 ? 'error' : undefined,
-                    title:
-                      failed > 0
-                        ? `Mapped ${created}, failed ${failed}`
-                        : `Mapped ${created} pose${created !== 1 ? 's' : ''}`,
-                  });
                 }}
               >
                 {bulkMapping ? 'Mapping…' : `Map ${selectedPoseAssetIds.length} poses`}
