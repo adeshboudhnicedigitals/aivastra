@@ -22,9 +22,8 @@
  *               R2_BUCKET, (optional) R2_FORCE_PATH_STYLE (default true).
  */
 
-import { createDb, schema } from '@aivastra/db';
+import { createDb, eq, schema } from '@aivastra/db';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 
 const THUMB_MAX = 512;
