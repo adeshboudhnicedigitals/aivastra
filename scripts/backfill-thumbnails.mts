@@ -5,14 +5,18 @@
  * stored thumb objects are full-size copies — nothing ever resized them. This script
  * reads each full image, downscales it with sharp, and overwrites ONLY the thumb key.
  *
- * SAFETY: never writes r2_key / face_side_r2_key / bg_comfy_r2_key, never writes the DB.
+ * pose-assets special case: thumbnailKey was set equal to r2Key at import time.
+ * This script derives dst = src.replace(ext, '.thumb.jpg'), writes the thumbnail
+ * there, then updates model_pose_assets.thumbnail_key in the DB to the new key.
+ *
+ * SAFETY: never writes r2_key / face_side_r2_key / bg_comfy_r2_key.
  *         Missing/unreadable source objects are skipped + logged (re-upload those).
  *         Idempotent + re-runnable (withoutEnlargement → no-op once small enough).
  *
  * Usage (run on the VPS where MinIO binds 127.0.0.1, with the prod .env loaded):
- *   DRY_RUN=1 pnpm tsx scripts/backfill-thumbnails.ts        # log only, no writes
- *   pnpm tsx scripts/backfill-thumbnails.ts                  # real run
- *   ONLY=poses,faces pnpm tsx scripts/backfill-thumbnails.ts # subset of tables
+ *   DRY_RUN=1 pnpm tsx scripts/backfill-thumbnails.mts        # log only, no writes
+ *   pnpm tsx scripts/backfill-thumbnails.mts                  # real run
+ *   ONLY=poses,faces pnpm tsx scripts/backfill-thumbnails.mts # subset of tables
  *
  * Requires env: DATABASE_URL, R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
  *               R2_BUCKET, (optional) R2_FORCE_PATH_STYLE (default true).
@@ -20,6 +24,7 @@
 
 import { createDb, schema } from '@aivastra/db';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 
 const THUMB_MAX = 512;
@@ -52,13 +57,16 @@ const s3 = new S3Client({
   responseChecksumValidation: 'WHEN_REQUIRED',
 });
 
+type DB = ReturnType<typeof createDb>['db'];
+
 /** Each table maps source-key column → destination (thumb) key column. */
 interface TableSpec {
   name: string;
-  // returns rows of { id, src, dst } — src may be undefined/null (skip)
-  load: (
-    db: ReturnType<typeof createDb>['db'],
-  ) => Promise<{ id: string; src: string | null; dst: string | null }[]>;
+  load: (db: DB) => Promise<{ id: string; src: string | null; dst: string | null }[]>;
+  /** Derive a new dst key from src (used when dst must differ from DB value). */
+  deriveDst?: (src: string) => string;
+  /** Update the DB row with the final dst key written (only called when deriveDst present). */
+  updateRow?: (db: DB, id: string, newDst: string) => Promise<void>;
 }
 
 const SPECS: TableSpec[] = [
@@ -97,6 +105,14 @@ const SPECS: TableSpec[] = [
         src: r.r2Key,
         dst: r.thumbnailKey,
       })),
+    // thumbnailKey was set equal to r2Key at import time — derive a separate thumb key
+    deriveDst: (src) => src.replace(/(\.[^.]+)?$/, '.thumb.jpg'),
+    updateRow: async (db, id, newDst) => {
+      await db
+        .update(schema.modelPoseAssets)
+        .set({ thumbnailKey: newDst })
+        .where(eq(schema.modelPoseAssets.id, id));
+    },
   },
   {
     name: 'catalog',
@@ -127,7 +143,7 @@ async function getObjectBytes(key: string): Promise<Buffer> {
   return Buffer.from(bytes);
 }
 
-async function processTable(spec: TableSpec, db: ReturnType<typeof createDb>['db']) {
+async function processTable(spec: TableSpec, db: DB) {
   const rows = await spec.load(db);
   let ok = 0;
   let skipped = 0;
@@ -138,6 +154,7 @@ async function processTable(spec: TableSpec, db: ReturnType<typeof createDb>['db
       skipped++;
       continue;
     }
+    const finalDst = spec.deriveDst ? spec.deriveDst(row.src) : row.dst;
     try {
       const full = await getObjectBytes(row.src);
       const thumb = await sharp(full)
@@ -148,17 +165,20 @@ async function processTable(spec: TableSpec, db: ReturnType<typeof createDb>['db
 
       if (DRY_RUN) {
         console.log(
-          `[dry] ${spec.name} ${row.id}: ${row.src} (${(full.length / 1024).toFixed(0)}KB) -> ${row.dst} (${(thumb.length / 1024).toFixed(0)}KB)`,
+          `[dry] ${spec.name} ${row.id}: ${row.src} (${(full.length / 1024).toFixed(0)}KB) -> ${finalDst} (${(thumb.length / 1024).toFixed(0)}KB)`,
         );
       } else {
         await s3.send(
           new PutObjectCommand({
             Bucket: BUCKET,
-            Key: row.dst,
+            Key: finalDst,
             Body: thumb,
             ContentType: 'image/jpeg',
           }),
         );
+        if (spec.updateRow) {
+          await spec.updateRow(db, row.id, finalDst);
+        }
       }
       ok++;
     } catch (err) {
