@@ -1292,7 +1292,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
-  // Bulk-map many pose assets to one garment type in a single transaction
+  // Bulk-map many pose assets to multiple garment types in a single transaction
   app.post(
     '/admin/assets/pose-assets/bulk-map',
     {
@@ -1300,14 +1300,14 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       schema: {
         body: z.object({
           assetIds: z.array(z.string().uuid()).min(1).max(2000),
-          garmentTypeId: z.string().uuid(),
+          garmentTypeIds: z.array(z.string().uuid()).min(1).max(100),
         }),
       },
     },
     async (req) => {
-      const { assetIds, garmentTypeId } = req.body as {
+      const { assetIds, garmentTypeIds } = req.body as {
         assetIds: string[];
-        garmentTypeId: string;
+        garmentTypeIds: string[];
       };
 
       // Fetch all requested assets in one query
@@ -1334,52 +1334,57 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         : [];
       const wfMap = new Map(wfRows.map((w) => [w.id, w]));
 
-      // Find already-mapped asset IDs for this garment type (skip duplicates)
+      // Find already-mapped (assetId, garmentTypeId) pairs to skip duplicates
       const existingRows = await app.db
-        .select({ poseAssetId: schema.modelPoses.poseAssetId })
+        .select({
+          poseAssetId: schema.modelPoses.poseAssetId,
+          subcategoryId: schema.modelPoses.subcategoryId,
+        })
         .from(schema.modelPoses)
         .where(
           and(
-            eq(schema.modelPoses.subcategoryId, garmentTypeId),
+            inArray(schema.modelPoses.subcategoryId, garmentTypeIds),
             inArray(
               schema.modelPoses.poseAssetId,
               assets.map((a) => a.id),
             ),
           ),
         );
+      // Key: `${assetId}:${garmentTypeId}`
       const alreadyMapped = new Set(
-        existingRows.map((r) => r.poseAssetId).filter(Boolean) as string[],
+        existingRows
+          .filter((r) => r.poseAssetId && r.subcategoryId)
+          .map((r) => `${r.poseAssetId}:${r.subcategoryId}`),
       );
 
       const errors: string[] = [];
-      const rows = assets
-        .filter((a) => {
-          if (alreadyMapped.has(a.id)) return false;
+      const rows: (typeof schema.modelPoses.$inferInsert)[] = [];
+
+      for (const garmentTypeId of garmentTypeIds) {
+        for (const a of assets) {
+          if (alreadyMapped.has(`${a.id}:${garmentTypeId}`)) continue;
           if (!a.faceId) {
             errors.push(`${a.id}: missing faceId`);
-            return false;
+            continue;
           }
           if (!a.backgroundId) {
             errors.push(`${a.id}: missing backgroundId`);
-            return false;
+            continue;
           }
           if (!a.workflowTemplateId) {
             errors.push(`${a.id}: missing workflowTemplateId`);
-            return false;
+            continue;
           }
           if (!wfMap.has(a.workflowTemplateId)) {
             errors.push(`${a.id}: workflow not found`);
-            return false;
+            continue;
           }
-          return true;
-        })
-        .map((a) => {
-          const wf = wfMap.get(a.workflowTemplateId!)!;
-          return {
+          const wf = wfMap.get(a.workflowTemplateId)!;
+          rows.push({
             subcategoryId: garmentTypeId,
-            faceId: a.faceId!,
-            backgroundId: a.backgroundId!,
-            workflowTemplateId: a.workflowTemplateId!,
+            faceId: a.faceId,
+            backgroundId: a.backgroundId,
+            workflowTemplateId: a.workflowTemplateId,
             poseAssetId: a.id,
             label: a.displayName ?? a.label,
             r2Key: a.r2Key,
@@ -1389,13 +1394,14 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             showsLower: Boolean(wf.lowerNodeId),
             showsShoes: Boolean(wf.shoeNodeId),
             sortOrder: 0,
-          };
-        });
+          });
+        }
+      }
 
       const skipped = alreadyMapped.size;
       if (rows.length === 0) return { created: 0, skipped, errors };
 
-      // Insert all rows in one statement (chunk to stay under Postgres param limit)
+      // Insert all rows in chunks to stay under Postgres param limit
       const CHUNK = 500;
       for (let i = 0; i < rows.length; i += CHUNK) {
         await app.db.insert(schema.modelPoses).values(rows.slice(i, i + CHUNK));

@@ -207,7 +207,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   // Bulk-map selected pose assets
   const [showBulkMap, setShowBulkMap] = useState(false);
-  const [bulkMapGarmentTypeId, setBulkMapGarmentTypeId] = useState('');
+  const [bulkMapGarmentTypeIds, setBulkMapGarmentTypeIds] = useState<Set<string>>(new Set());
   const [bulkMapping, setBulkMapping] = useState(false);
   const [bulkMapProgress, setBulkMapProgress] = useState(0);
   const [bulkMapTotal, setBulkMapTotal] = useState(0);
@@ -1739,7 +1739,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 <button
                   className="btn sm"
                   onClick={() => {
-                    setBulkMapGarmentTypeId('');
+                    setBulkMapGarmentTypeIds(new Set());
                     setShowBulkMap(true);
                   }}
                 >
@@ -2599,131 +2599,231 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {/* ── Bulk map selected pose assets ── */}
-      {showBulkMap && (
-        <div className="modal-overlay" onClick={() => !bulkMapping && setShowBulkMap(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Bulk map poses</h3>
-              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                Map {selectedPoseAssetIds.length} selected pose
-                {selectedPoseAssetIds.length !== 1 ? 's' : ''} to the same garment type
-              </p>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
-            >
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                Each pose uses its own stored face / background / workflow.
-              </p>
-              {bulkMapping && (
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: 12,
-                      color: 'var(--muted)',
-                      marginBottom: 6,
-                    }}
-                  >
-                    <span>Mapping…</span>
-                    <span>
-                      {bulkMapProgress} / {bulkMapTotal}
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      height: 6,
-                      background: 'var(--border)',
-                      borderRadius: 3,
-                      overflow: 'hidden',
-                      width: '100%',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        background: 'var(--accent)',
-                        borderRadius: 3,
-                        width:
-                          bulkMapTotal > 0
-                            ? `${Math.round((bulkMapProgress / bulkMapTotal) * 100)}%`
-                            : '0%',
-                        transition: 'width 0.15s ease',
-                      }}
-                    />
-                  </div>
+      {showBulkMap &&
+        (() => {
+          // Group garment types by gender for the checkbox list
+          const genderOrder: GenderSlug[] = ['men', 'women', 'boys', 'girls'];
+          const byGender = genderOrder
+            .map((g) => ({ gender: g, types: garmentTypes.filter((t) => t.genderSlug === g) }))
+            .filter((group) => group.types.length > 0);
+
+          const toggleId = (id: string) => {
+            setBulkMapGarmentTypeIds((prev) => {
+              const next = new Set(prev);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            });
+          };
+
+          const toggleGender = (ids: string[]) => {
+            const allChecked = ids.every((id) => bulkMapGarmentTypeIds.has(id));
+            setBulkMapGarmentTypeIds((prev) => {
+              const next = new Set(prev);
+              if (allChecked)
+                ids.forEach((id) => {
+                  next.delete(id);
+                });
+              else
+                ids.forEach((id) => {
+                  next.add(id);
+                });
+              return next;
+            });
+          };
+
+          return (
+            <div className="modal-overlay" onClick={() => !bulkMapping && setShowBulkMap(false)}>
+              <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
+                <div className="modal-head">
+                  <h3>Bulk map poses</h3>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    Map {selectedPoseAssetIds.length} selected pose
+                    {selectedPoseAssetIds.length !== 1 ? 's' : ''} to one or more subcategories
+                  </p>
                 </div>
-              )}
-              <label className="field-label" style={{ fontSize: 11 }}>
-                Garment type
-              </label>
-              <select
-                className="input"
-                value={bulkMapGarmentTypeId}
-                disabled={bulkMapping}
-                onChange={(e) => setBulkMapGarmentTypeId(e.target.value)}
-              >
-                <option value="">— select —</option>
-                {garmentTypes.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.label} ({g.genderSlug})
-                  </option>
-                ))}
-              </select>
+                <div
+                  className="modal-body"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+                >
+                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                    Each pose uses its own stored face / background / workflow. Select all
+                    subcategories you want to map to — duplicates are skipped automatically.
+                  </p>
+                  {bulkMapping && (
+                    <div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          fontSize: 12,
+                          color: 'var(--muted)',
+                          marginBottom: 6,
+                        }}
+                      >
+                        <span>Mapping…</span>
+                        <span>
+                          {bulkMapProgress} / {bulkMapTotal}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          height: 6,
+                          background: 'var(--border)',
+                          borderRadius: 3,
+                          overflow: 'hidden',
+                          width: '100%',
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: '100%',
+                            background: 'var(--accent)',
+                            borderRadius: 3,
+                            width:
+                              bulkMapTotal > 0
+                                ? `${Math.round((bulkMapProgress / bulkMapTotal) * 100)}%`
+                                : '0%',
+                            transition: 'width 0.15s ease',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {byGender.map(({ gender, types }) => {
+                      const typeIds = types.map((t) => t.id);
+                      const allChecked = typeIds.every((id) => bulkMapGarmentTypeIds.has(id));
+                      const someChecked = typeIds.some((id) => bulkMapGarmentTypeIds.has(id));
+                      return (
+                        <div key={gender}>
+                          {/* Gender header with select-all toggle */}
+                          <label
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              cursor: bulkMapping ? 'default' : 'pointer',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.08em',
+                              color: 'var(--muted)',
+                              marginBottom: 6,
+                              userSelect: 'none',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={bulkMapping}
+                              checked={allChecked}
+                              ref={(el) => {
+                                if (el) el.indeterminate = someChecked && !allChecked;
+                              }}
+                              onChange={() => !bulkMapping && toggleGender(typeIds)}
+                            />
+                            {gender.charAt(0).toUpperCase() + gender.slice(1)}
+                          </label>
+                          <div
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                              gap: '4px 12px',
+                              paddingLeft: 4,
+                            }}
+                          >
+                            {types.map((gt) => (
+                              <label
+                                key={gt.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  cursor: bulkMapping ? 'default' : 'pointer',
+                                  fontSize: 13,
+                                  padding: '4px 0',
+                                  userSelect: 'none',
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  disabled={bulkMapping}
+                                  checked={bulkMapGarmentTypeIds.has(gt.id)}
+                                  onChange={() => !bulkMapping && toggleId(gt.id)}
+                                />
+                                {gt.label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {bulkMapGarmentTypeIds.size > 0 && (
+                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                      {bulkMapGarmentTypeIds.size} subcategor
+                      {bulkMapGarmentTypeIds.size === 1 ? 'y' : 'ies'} selected →{' '}
+                      {selectedPoseAssetIds.length * bulkMapGarmentTypeIds.size} mappings to create
+                    </p>
+                  )}
+                </div>
+                <div className="modal-foot">
+                  <button
+                    className="btn ghost"
+                    disabled={bulkMapping}
+                    onClick={() => setShowBulkMap(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn"
+                    disabled={bulkMapping || bulkMapGarmentTypeIds.size === 0}
+                    onClick={async () => {
+                      if (bulkMapGarmentTypeIds.size === 0) return;
+                      setBulkMapping(true);
+                      setBulkMapProgress(0);
+                      setBulkMapTotal(selectedPoseAssetIds.length * bulkMapGarmentTypeIds.size);
+                      try {
+                        const res = await apiFetch<{
+                          created: number;
+                          skipped: number;
+                          errors: string[];
+                        }>('/admin/assets/pose-assets/bulk-map', {
+                          method: 'POST',
+                          body: JSON.stringify({
+                            assetIds: selectedPoseAssetIds,
+                            garmentTypeIds: [...bulkMapGarmentTypeIds],
+                          }),
+                        });
+                        setBulkMapProgress(
+                          selectedPoseAssetIds.length * bulkMapGarmentTypeIds.size,
+                        );
+                        const parts = [];
+                        if (res.created > 0) parts.push(`mapped ${res.created}`);
+                        if (res.skipped > 0) parts.push(`skipped ${res.skipped} already mapped`);
+                        if (res.errors.length > 0) parts.push(`${res.errors.length} errors`);
+                        toast({
+                          kind: res.errors.length > 0 ? 'error' : undefined,
+                          title: parts.join(', ') || 'nothing to map',
+                        });
+                      } catch {
+                        toast({ kind: 'error', title: 'Bulk map failed' });
+                      }
+                      setBulkMapping(false);
+                      setShowBulkMap(false);
+                      setSelectedPoseAssetIds([]);
+                      setBulkMapGarmentTypeIds(new Set());
+                    }}
+                  >
+                    {bulkMapping
+                      ? 'Mapping…'
+                      : `Map to ${bulkMapGarmentTypeIds.size} subcategor${bulkMapGarmentTypeIds.size === 1 ? 'y' : 'ies'}`}
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="modal-foot">
-              <button
-                className="btn ghost"
-                disabled={bulkMapping}
-                onClick={() => setShowBulkMap(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn"
-                disabled={bulkMapping || !bulkMapGarmentTypeId}
-                onClick={async () => {
-                  if (!bulkMapGarmentTypeId) return;
-                  setBulkMapping(true);
-                  setBulkMapProgress(0);
-                  setBulkMapTotal(selectedPoseAssetIds.length);
-                  try {
-                    const res = await apiFetch<{
-                      created: number;
-                      skipped: number;
-                      errors: string[];
-                    }>('/admin/assets/pose-assets/bulk-map', {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        assetIds: selectedPoseAssetIds,
-                        garmentTypeId: bulkMapGarmentTypeId,
-                      }),
-                    });
-                    setBulkMapProgress(selectedPoseAssetIds.length);
-                    const parts = [];
-                    if (res.created > 0) parts.push(`mapped ${res.created}`);
-                    if (res.skipped > 0) parts.push(`skipped ${res.skipped} already mapped`);
-                    if (res.errors.length > 0) parts.push(`${res.errors.length} errors`);
-                    toast({
-                      kind: res.errors.length > 0 ? 'error' : undefined,
-                      title: parts.join(', ') || 'nothing to map',
-                    });
-                  } catch {
-                    toast({ kind: 'error', title: 'Bulk map failed' });
-                  }
-                  setBulkMapping(false);
-                  setShowBulkMap(false);
-                  setSelectedPoseAssetIds([]);
-                }}
-              >
-                {bulkMapping ? 'Mapping…' : `Map ${selectedPoseAssetIds.length} poses`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
 
       {confirmDeletePoseAssetId && (
         <div className="modal-overlay" onClick={() => setConfirmDeletePoseAssetId(null)}>
