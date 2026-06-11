@@ -384,4 +384,35 @@ export async function authRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  // Admin request
+  app.post('/v1/auth/request-admin', { preHandler: app.requireUser }, async (req, reply) => {
+    const [existing] = await app.db
+      .select()
+      .from(schema.adminUsers)
+      .where(eq(schema.adminUsers.userId, req.userId));
+
+    if (existing) {
+      if (existing.status === 'active') {
+        throw new AppError('CONFLICT', 409, 'already an active admin');
+      }
+      if (existing.status === 'pending') {
+        return { status: 'pending', role: existing.role };
+      }
+      await app.db
+        .update(schema.adminUsers)
+        .set({ status: 'pending' })
+        .where(eq(schema.adminUsers.userId, req.userId));
+      reply.code(200);
+      return { status: 'pending', role: existing.role };
+    }
+
+    await app.db.insert(schema.adminUsers).values({
+      userId: req.userId,
+      role: 'ADMIN',
+      status: 'pending',
+    });
+    reply.code(201);
+    return { status: 'pending', role: 'ADMIN' };
+  });
 }
