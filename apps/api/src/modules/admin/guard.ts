@@ -9,7 +9,7 @@ declare module 'fastify' {
   }
 }
 
-export function requireAdmin(roles: ('SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT')[]) {
+export function requireAdmin(roles: ('SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT' | 'ADMIN')[]) {
   return async (req: FastifyRequest) => {
     const app = req.server as FastifyInstance;
     await app.requireUser(req as any, undefined as any);
@@ -18,6 +18,7 @@ export function requireAdmin(roles: ('SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT')[])
       .from(schema.adminUsers)
       .where(eq(schema.adminUsers.userId, req.userId));
     if (!a) throw new AppError('FORBIDDEN', 403, 'admin required');
+    if (a.status !== 'active') throw new AppError('FORBIDDEN', 403, 'admin account not active');
     if (!roles.includes(a.role as any))
       throw new AppError('FORBIDDEN', 403, 'insufficient admin role');
     req.adminRole = a.role;
