@@ -401,6 +401,8 @@ export default function StudioPage(): React.ReactElement {
       return api.get(`/v1/models/faces?${p}`);
     },
     enabled: !!gender && step >= 1,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
   const filteredFaces = useMemo(() => {
     if (!faces?.items) return [];
@@ -427,6 +429,8 @@ export default function StudioPage(): React.ReactElement {
       return api.get(`/v1/models/backgrounds?${p}`);
     },
     enabled: !!faceId && step >= 2,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
   useEffect(() => {
     if (backgrounds?.items?.length && !backgroundId) {
@@ -444,6 +448,8 @@ export default function StudioPage(): React.ReactElement {
         `/v1/models/poses?garmentTypeId=${garmentTypeId}&faceId=${faceId}&backgroundId=${backgroundId}`,
       ),
     enabled: !!(garmentTypeId && faceId && backgroundId && step >= 3),
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
 
   const selectedPoses = poses?.items.filter((p) => poseIds.includes(p.id)) ?? [];

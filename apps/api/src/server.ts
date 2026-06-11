@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
+import * as Sentry from '@sentry/node';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   serializerCompiler,
@@ -37,6 +38,7 @@ import { authPlugin } from './plugins/auth.js';
 import { dbPlugin } from './plugins/db.js';
 import { metricsPlugin } from './plugins/metrics.js';
 import { redisPlugin } from './plugins/redis.js';
+import { sentryPlugin } from './plugins/sentry.js';
 import { storagePlugin } from './plugins/storage.js';
 
 export async function buildServer(env: Env) {
@@ -58,13 +60,14 @@ export async function buildServer(env: Env) {
   await app.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
-    allowList: (req) => req.url.startsWith('/admin/'),
+    allowList: (req) => req.url.startsWith('/admin/') || req.url === '/v1/payments/webhook',
   });
   await app.register(sensible);
   await app.register(multipart, { limits: { fileSize: 2.5 * 1024 * 1024 * 1024 } });
   await app.register(metricsPlugin);
 
   app.decorate('env', env);
+  await app.register(sentryPlugin);
   await app.register(dbPlugin);
   await app.register(redisPlugin);
   await app.register(storagePlugin);
@@ -80,6 +83,7 @@ export async function buildServer(env: Env) {
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
+    Sentry.captureException(err);
     app.log.error({ err }, 'unhandled');
     return reply.code(500).send({ error: { code: 'INTERNAL', message: 'internal error' } });
   });

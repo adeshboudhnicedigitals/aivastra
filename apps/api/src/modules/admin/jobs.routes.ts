@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { refund } from '../credits/ledger.js';
+import { adminStreamHandler } from '../jobs/sse.js';
 import { requireAdmin } from './guard.js';
 
 const JobsQuery = z.object({
@@ -236,4 +237,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  // Admin real-time job event stream — delivers all job transitions across all users
+  app.get('/admin/jobs/stream', { preHandler: R }, adminStreamHandler);
 }

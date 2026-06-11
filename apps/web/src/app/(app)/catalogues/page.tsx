@@ -1,7 +1,7 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDaysIcon,
   CheckSquareIcon,
@@ -21,6 +21,7 @@ import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -187,12 +188,46 @@ export default function CataloguesPage(): React.ReactElement {
   const { data: catalogues, isLoading } = useQuery<Catalogue[]>({
     queryKey: ['catalogues'],
     queryFn: () => api.get('/v1/catalogues'),
-    refetchInterval: (query) => {
-      const d = query.state.data;
-      if (!d) return false;
-      return d.some((c) => c.jobs.some((j) => !TERMINAL.includes(j.status))) ? 3000 : false;
-    },
+    // Long-interval fallback in case SSE drops. Real-time updates come from useJobStream below.
+    refetchInterval: 5 * 60 * 1000,
   });
+
+  useJobStream(
+    useCallback(
+      (evt) => {
+        qc.setQueryData<Catalogue[]>(['catalogues'], (old) => {
+          if (!old) return old;
+          const updated = old.map((cat) => {
+            const jobIdx = cat.jobs.findIndex((j) => j.id === evt.jobId);
+            if (jobIdx === -1) return cat;
+            const prevStatus = cat.jobs[jobIdx]!.status;
+            const updatedJobs = cat.jobs.map((j) =>
+              j.id === evt.jobId ? { ...j, status: evt.status } : j,
+            );
+            const justCompleted = evt.status === 'COMPLETED' && prevStatus !== 'COMPLETED';
+            if (justCompleted) {
+              // Refetch to get the server-presigned coverUrl for this catalogue
+              setTimeout(() => qc.invalidateQueries({ queryKey: ['catalogues'] }), 0);
+            }
+            return { ...cat, jobs: updatedJobs };
+          });
+          return updated;
+        });
+        // Also keep the detail view in sync if it's mounted
+        qc.setQueryData<{ catalogueId: string; jobs: { id: string; status: string }[] }>(
+          ['catalogue'],
+          (old) => {
+            if (!old) return old;
+            return {
+              ...old,
+              jobs: old.jobs.map((j) => (j.id === evt.jobId ? { ...j, status: evt.status } : j)),
+            };
+          },
+        );
+      },
+      [qc],
+    ),
+  );
 
   // ── derived state ────────────────────────────────────────────────────────────
 

@@ -59,7 +59,6 @@ export async function middleware(request: NextRequest) {
       if (res.ok) {
         const data = (await res.json()) as { accessToken?: string };
         if (data.accessToken) {
-          const response = NextResponse.next();
           // Edge Runtime treats 'set-cookie' as a forbidden response-header name,
           // so res.headers.get('set-cookie') returns null there. Use getSetCookie()
           // (WinterCG / Node 20 API) which bypasses the restriction, falling back
@@ -68,6 +67,18 @@ export async function middleware(request: NextRequest) {
           const setCookieStr = h.getSetCookie
             ? h.getSetCookie().join(', ') || null
             : res.headers.get('set-cookie');
+
+          // If we got a new access token but couldn't extract the rotated refresh
+          // cookie, do NOT proceed — the browser would keep the old consumed refresh
+          // token and be silently logged out on the next navigation after 15 minutes.
+          // Redirect to login instead so the user gets a clean session.
+          if (!setCookieStr) {
+            const loginUrl = new URL(`${BASE_PATH}/login`, request.url);
+            loginUrl.searchParams.set('next', path);
+            return NextResponse.redirect(loginUrl);
+          }
+
+          const response = NextResponse.next();
           setAuthCookies(response, data.accessToken, setCookieStr);
           return response;
         }

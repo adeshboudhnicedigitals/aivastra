@@ -29,6 +29,8 @@ const Env = z.object({
   EMAIL_FROM: z.string().min(1).default('noreply@aivastra.com'),
   RAZORPAY_KEY_ID: z.string().min(1).optional(),
   RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
+  RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
+  SENTRY_DSN: z.string().url().optional(),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {

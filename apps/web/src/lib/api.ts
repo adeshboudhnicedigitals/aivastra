@@ -71,20 +71,29 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (options.body != null && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   let res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
 
   if (res.status === 401) {
     const refreshed = await tryRefresh();
     if (refreshed) {
-      headers['Authorization'] = `Bearer ${refreshed}`;
+      headers.Authorization = `Bearer ${refreshed}`;
       res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
       // Notify other tabs of the new token (best-effort UX optimization)
       AUTH_CHANNEL?.postMessage({ type: 'token-refreshed', accessToken: refreshed });
     } else {
-      if (typeof window !== 'undefined') window.location.href = `${BASE}/login`;
-      throw new Error('Unauthorized');
+      // Refresh failed (e.g. another tab already rotated the token).
+      // Check if a token arrived via BroadcastChannel or was set by the
+      // middleware while we were waiting — if so, retry rather than logging out.
+      const fallback = getToken();
+      if (fallback) {
+        headers.Authorization = `Bearer ${fallback}`;
+        res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+      } else {
+        if (typeof window !== 'undefined') window.location.href = `${BASE}/login`;
+        throw new Error('Unauthorized');
+      }
     }
   }
 

@@ -125,8 +125,17 @@ export async function processJob(
   const isAmazon = params.platform === 'Amazon';
   jobLog.info({ platform: params.platform, isAmazon }, 'platform check');
   const bgKey = isAmazon ? bgRow.r2Key : (poseRow.bgComfyR2Key ?? bgRow.r2Key);
+  const bgSource = isAmazon
+    ? 'amazon-override'
+    : poseRow.bgComfyR2Key
+      ? 'comfy-specific'
+      : 'display-fallback';
   const poseKey = poseRow.r2Key;
   const workflowTemplateId = poseRow.workflowTemplateId;
+  jobLog.info(
+    { faceSideKey, bgKeyResolved: bgKey, bgSource, poseKey, workflowTemplateId },
+    'resolved R2 keys for ComfyUI upload',
+  );
 
   // Resolve lower garment: user-uploaded key takes priority over catalog ID
   let lowerKey: string | null = null;
@@ -276,6 +285,15 @@ export async function processJob(
           promptFacePhase: poseRow.promptFacePhase ?? null,
           promptGarmentPhase: poseRow.promptGarmentPhase ?? null,
           aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio ?? null,
+          _r2Keys: {
+            upperGarmentKey: inputs.upperGarmentKey,
+            faceSideKey,
+            poseKey,
+            bgKey,
+            bgSource,
+            lowerKey,
+            shoeKey,
+          },
         },
         prompt,
       },

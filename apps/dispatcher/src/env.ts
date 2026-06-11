@@ -18,6 +18,7 @@ const Env = z.object({
   WORKER_API_KEY: z.string().min(1),
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
+  SENTRY_DSN: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof Env>;

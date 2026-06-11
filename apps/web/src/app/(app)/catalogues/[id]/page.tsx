@@ -1,7 +1,7 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { use, useEffect, useMemo, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   DownloadIcon,
@@ -15,6 +15,7 @@ import {
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 
 interface Job {
@@ -471,12 +472,35 @@ export default function CataloguePage({
   const { data, isLoading } = useQuery<CatalogueDetail>({
     queryKey: ['catalogue', id],
     queryFn: () => api.get(`/v1/catalogues/${id}`),
-    refetchInterval: (query) => {
-      const d = query.state.data;
-      if (!d) return false;
-      return d.jobs.some((j) => !TERMINAL.includes(j.status)) ? 3000 : false;
-    },
+    // Long-interval fallback; real-time updates come from useJobStream below.
+    refetchInterval: 5 * 60 * 1000,
   });
+
+  useJobStream(
+    useCallback(
+      (evt) => {
+        qc.setQueryData<CatalogueDetail>(['catalogue', id], (old) => {
+          if (!old) return old;
+          const belongs = old.jobs.some((j) => j.id === evt.jobId);
+          if (!belongs) return old;
+          return {
+            ...old,
+            jobs: old.jobs.map((j) => (j.id === evt.jobId ? { ...j, status: evt.status } : j)),
+          };
+        });
+
+        if (evt.status === 'COMPLETED') {
+          // Eagerly prime the result cache so ImageCard renders immediately
+          qc.prefetchQuery({
+            queryKey: ['job-result', evt.jobId],
+            queryFn: () => api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/result`),
+            staleTime: 4 * 60 * 1000,
+          });
+        }
+      },
+      [id, qc],
+    ),
+  );
 
   // Ordered queue positions — oldest QUEUED job = position 1
   const queuedIds = useMemo(

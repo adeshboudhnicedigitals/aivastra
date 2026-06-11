@@ -15,8 +15,6 @@ import {
 } from './service.js';
 import { createSessionTokens, parseDuration } from './tokens.js';
 
-const REFRESH_GRACE_MS = 3_000;
-
 function makeToken(): string {
   return randomBytes(32).toString('hex');
 }
@@ -85,18 +83,12 @@ export async function authRoutes(app: FastifyInstance) {
       if (!row || row.expiresAt < new Date() || row.revokedAt) return { kind: 'invalid' } as const;
 
       if (row.usedAt) {
-        const age = Date.now() - row.usedAt.getTime();
-        if (age > REFRESH_GRACE_MS) {
-          return {
-            kind: 'stale',
-            familyId: row.familyId,
-            userId: row.userId,
-            generation: row.generation,
-            tokenId: row.id,
-            age,
-          } as const;
-        }
-        // Grace window: find latest active generation in family (future-proof vs gaps)
+        // Token already rotated. Find the latest active successor in this family.
+        // This covers both the concurrent-tab race and the middleware+client race
+        // (both can legitimately fire with the same token within seconds of each other).
+        // Only treat it as invalid if the whole family has been consumed/revoked,
+        // which is the sign of a genuine replay attack or a fully expired session.
+        const ageMs = Date.now() - row.usedAt.getTime();
         const [successor] = await tx
           .select({ userId: schema.refreshTokens.userId })
           .from(schema.refreshTokens)
@@ -109,7 +101,18 @@ export async function authRoutes(app: FastifyInstance) {
           )
           .orderBy(desc(schema.refreshTokens.generation))
           .limit(1);
-        if (successor) return { kind: 'reissue', userId: successor.userId } as const;
+        if (successor) {
+          app.log.info(
+            { familyId: row.familyId, generation: row.generation, ageMs },
+            'concurrent refresh: reissuing from active successor',
+          );
+          return { kind: 'reissue', userId: successor.userId } as const;
+        }
+        // No active successor — family fully consumed or revoked. Genuine stale replay.
+        app.log.warn(
+          { familyId: row.familyId, generation: row.generation, ageMs },
+          'stale refresh token with no active successor — possible replay attack',
+        );
         return { kind: 'invalid' } as const;
       }
 
@@ -144,20 +147,6 @@ export async function authRoutes(app: FastifyInstance) {
 
     switch (result.kind) {
       case 'invalid':
-        throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
-
-      case 'stale':
-        app.log.warn(
-          {
-            event: 'REFRESH_TOKEN_STALE',
-            familyId: result.familyId,
-            userId: result.userId,
-            generation: result.generation,
-            tokenId: result.tokenId,
-            ageMs: result.age,
-          },
-          'Stale refresh token denied without family revocation',
-        );
         throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
 
       case 'reissue':
