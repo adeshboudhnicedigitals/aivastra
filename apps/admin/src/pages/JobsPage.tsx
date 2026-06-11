@@ -5,6 +5,7 @@ import { Pager } from '../components/Pager';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
+import { useAdminJobStream } from '../hooks/use-admin-job-stream';
 import { apiFetch } from '../lib/data';
 import type { Job } from '../types';
 
@@ -170,6 +171,14 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useAdminJobStream(
+    useCallback((evt) => {
+      const status = evt.status as Job['status'];
+      setJobs((prev) => prev.map((j) => (j.id === evt.jobId ? { ...j, status } : j)));
+      setDetail((d) => (d?.id === evt.jobId ? { ...d, status } : d));
+    }, []),
+  );
 
   const handleFilter = (k: FilterKey) => {
     setFilter(k);

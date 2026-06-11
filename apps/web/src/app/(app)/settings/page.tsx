@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, Eye, EyeOff, LogOutIcon, MoonIcon, SunIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
-import { ComingSoon } from '@/components/ui/coming-soon';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
@@ -21,6 +20,23 @@ interface MeResponse {
 interface CreditsResponse {
   balance: number;
   recent: { id: string; delta: number; reason: string; createdAt: string }[];
+}
+interface PaymentRow {
+  id: string;
+  planId: string;
+  planName: string | null;
+  credits: number;
+  basePaise: number;
+  gstPaise: number;
+  totalPaise: number;
+  razorpayOrderId: string;
+  razorpayPaymentId: string | null;
+  status: string;
+  createdAt: string;
+  paidAt: string | null;
+}
+interface PaymentHistoryResponse {
+  payments: PaymentRow[];
 }
 
 // ── Field ────────────────────────────────────────────────
@@ -183,6 +199,10 @@ export default function SettingsPage(): React.ReactElement {
   const { data: credits } = useQuery<CreditsResponse>({
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/credits'),
+  });
+  const { data: paymentHistory } = useQuery<PaymentHistoryResponse>({
+    queryKey: ['payments-history'],
+    queryFn: () => api.get('/v1/payments/history'),
   });
 
   const email = me?.email ?? '';
@@ -450,10 +470,30 @@ export default function SettingsPage(): React.ReactElement {
         )}
 
         {tab === 'Billing' && (
-          <ComingSoon
-            title="Billing & payment methods"
-            message="Saved billing details and payment methods are on the way. For now, purchases are completed securely at checkout on the Pricing page."
-          />
+          <div style={cardWrap}>
+            <Section title="Payment Method" noBorder>
+              <p style={{ fontSize: 14, color: C.mid, margin: 0 }}>
+                Payments are processed securely via Razorpay at checkout. No card details are stored
+                on Aivastra servers.
+              </p>
+              <a
+                href="/pricing"
+                style={{
+                  display: 'inline-block',
+                  padding: '10px 20px',
+                  borderRadius: 8,
+                  background: grad,
+                  color: C.white,
+                  fontWeight: 600,
+                  fontSize: 14,
+                  textDecoration: 'none',
+                  alignSelf: 'flex-start',
+                }}
+              >
+                Buy Credits
+              </a>
+            </Section>
+          </div>
         )}
 
         {tab === 'Credit History' && (
@@ -567,12 +607,137 @@ export default function SettingsPage(): React.ReactElement {
           </div>
         )}
 
-        {tab === 'Invoices' && (
-          <ComingSoon
-            title="Invoices"
-            message="Downloadable GST invoices for your credit purchases will appear here once billing is live."
-          />
-        )}
+        {tab === 'Invoices' &&
+          (() => {
+            const rows = paymentHistory?.payments ?? [];
+            const fmt = (paise: number) =>
+              `₹${(paise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+            return (
+              <div
+                style={{
+                  background: C.white,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 12,
+                  overflow: 'hidden',
+                }}
+              >
+                <div style={{ padding: '18px 24px', borderBottom: `1px solid ${C.border}` }}>
+                  <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
+                    Payment Receipts
+                  </h3>
+                  <p style={{ fontSize: 13, color: C.mid, margin: '4px 0 0' }}>
+                    A receipt email is sent to your address after every successful purchase.
+                  </p>
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr',
+                    background: C.field,
+                    borderBottom: `1px solid ${C.border}`,
+                    padding: '12px 20px',
+                  }}
+                >
+                  {['Date', 'Plan', 'Credits', 'Amount (incl. GST)', 'Payment ID', 'Status'].map(
+                    (h) => (
+                      <span key={h} style={{ fontSize: 12, fontWeight: 600, color: C.mid }}>
+                        {h}
+                      </span>
+                    ),
+                  )}
+                </div>
+                {rows.length === 0 ? (
+                  <div
+                    style={{
+                      padding: '48px 24px',
+                      textAlign: 'center',
+                      color: C.mid,
+                      fontSize: 14,
+                    }}
+                  >
+                    No purchases yet.{' '}
+                    <a
+                      href="/pricing"
+                      style={{ color: C.pink, textDecoration: 'none', fontWeight: 600 }}
+                    >
+                      Buy credits
+                    </a>
+                  </div>
+                ) : (
+                  rows.map((p, i) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1.4fr 1.2fr 0.8fr 1fr 1fr 0.7fr',
+                        padding: '14px 20px',
+                        borderBottom: i < rows.length - 1 ? `1px solid ${C.border}` : 'none',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
+                          {fmtDate(p.paidAt ?? p.createdAt)}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.light }}>
+                          {fmtTime(p.paidAt ?? p.createdAt)}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 13, color: C.text }}>{p.planName ?? p.planId}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: C.mint }}>
+                        +{p.credits.toLocaleString('en-IN')}
+                      </span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+                          {fmt(p.totalPaise)}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.light }}>
+                          incl. GST {fmt(p.gstPaise)}
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: C.light,
+                          fontFamily: 'monospace',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {p.razorpayPaymentId ?? '—'}
+                      </span>
+                      <span>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '3px 10px',
+                            borderRadius: 20,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            background:
+                              p.status === 'paid'
+                                ? 'rgba(32,158,70,0.1)'
+                                : p.status === 'failed'
+                                  ? 'rgba(245,92,122,0.1)'
+                                  : 'rgba(180,180,180,0.15)',
+                            color:
+                              p.status === 'paid' ? C.mint : p.status === 'failed' ? C.pink : C.mid,
+                          }}
+                        >
+                          {p.status === 'paid'
+                            ? 'Paid'
+                            : p.status === 'failed'
+                              ? 'Failed'
+                              : 'Pending'}
+                        </span>
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            );
+          })()}
       </div>
     </>
   );

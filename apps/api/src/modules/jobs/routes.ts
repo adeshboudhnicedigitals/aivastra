@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createJob } from './create.js';
-import { sseHandler } from './sse.js';
+import { sseHandler, userStreamHandler } from './sse.js';
 
 export async function jobsRoutes(app: FastifyInstance) {
   app.post(
@@ -242,6 +242,10 @@ export async function jobsRoutes(app: FastifyInstance) {
     },
   );
 
+  // User-level stream: all job events for the authenticated user (single connection replaces per-job SSE)
+  app.get('/v1/jobs/stream', { preHandler: app.requireUser }, userStreamHandler);
+
+  // Per-job SSE kept for backward compatibility
   app.get(
     '/v1/jobs/:id/events',
     {

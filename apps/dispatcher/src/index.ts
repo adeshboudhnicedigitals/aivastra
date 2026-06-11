@@ -1,12 +1,13 @@
 import { hostname } from 'node:os';
 import { createLogger } from '@aivastra/logger';
 import { S3Client } from '@aws-sdk/client-s3';
+import * as Sentry from '@sentry/node';
 import { Agent, setGlobalDispatcher } from 'undici';
 
 // Node's built-in fetch (undici) ignores NODE_TLS_REJECT_UNAUTHORIZED set via dotenv
 // because undici is initialised before env vars load. Override the global dispatcher
 // at the earliest possible moment so all subsequent fetch() calls inherit it.
-if (process.env['NODE_TLS_REJECT_UNAUTHORIZED'] === '0') {
+if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   setGlobalDispatcher(new Agent({ connect: { rejectUnauthorized: false } }));
 }
 
@@ -24,6 +25,14 @@ const log = createLogger('dispatcher', { hostname: hostname() });
 
 async function main(): Promise<void> {
   const env = loadEnv();
+
+  if (env.SENTRY_DSN) {
+    Sentry.init({
+      dsn: env.SENTRY_DSN,
+      environment: env.NODE_ENV,
+      tracesSampleRate: env.NODE_ENV === 'production' ? 0.1 : 0,
+    });
+  }
   log.info({ NODE_ENV: env.NODE_ENV }, 'dispatcher starting');
 
   const { db, close: closeDb } = makeDb(env);
@@ -105,9 +114,16 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => {
     shutdown('SIGINT').catch((err) => log.error({ err }, 'shutdown error'));
   });
+
+  process.on('unhandledRejection', (reason) => {
+    log.error({ reason }, 'unhandled rejection');
+    Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)));
+  });
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   log.error({ err }, 'dispatcher crashed');
+  Sentry.captureException(err);
+  await Sentry.close(2000).catch(() => {});
   process.exit(1);
 });

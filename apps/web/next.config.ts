@@ -1,3 +1,4 @@
+import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
@@ -24,4 +25,17 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  // Upload source maps to Sentry only when SENTRY_AUTH_TOKEN is set (CI/prod build).
+  // In local dev this is a no-op so the build stays fast.
+  silent: !process.env.SENTRY_AUTH_TOKEN,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  widenClientFileUpload: true,
+  // Don't instrument server components with Sentry's auto-wrapping (avoids bundle bloat).
+  autoInstrumentServerFunctions: false,
+  // Disable tunnel route — we're not worried about ad-blocker interference.
+  tunnelRoute: undefined,
+  disableLogger: true,
+});

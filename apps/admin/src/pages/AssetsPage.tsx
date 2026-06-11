@@ -398,6 +398,42 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     loadPoseAssets,
   ]);
 
+  // Poll every 30 s + refetch on tab focus so concurrent admin sessions stay in sync
+  useEffect(() => {
+    const reload = () => {
+      const g = genderFilter === 'all' ? undefined : genderFilter;
+      if (activeTab === 'backgrounds') loadBackgrounds(g);
+      else if (activeTab === 'faces') loadFaces();
+      else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog(g);
+      else if (activeTab === 'pose-assets') {
+        loadPoseAssets();
+        loadGarmentTypes();
+      } else if (activeTab === 'garment-types') {
+        if (subView.kind === 'list') loadGarmentTypes();
+        else loadGarmentTypeAssets(subView.sub.id);
+      }
+    };
+    const id = setInterval(reload, 30_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') reload();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [
+    activeTab,
+    genderFilter,
+    subView,
+    loadBackgrounds,
+    loadFaces,
+    loadGarmentTypes,
+    loadGarmentTypeAssets,
+    loadCatalog,
+    loadPoseAssets,
+  ]);
+
   // Preload faces + backgrounds silently so upload selects + filters are populated
   useEffect(() => {
     apiFetch<{ items: ModelFace[] }>('/admin/assets/faces')

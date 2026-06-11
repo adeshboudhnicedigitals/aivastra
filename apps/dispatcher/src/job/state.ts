@@ -28,10 +28,10 @@ export async function transitionJob(
 ): Promise<void> {
   const now = new Date();
   const patch: Record<string, unknown> = { status };
-  if (opts.workerId !== undefined) patch['workerId'] = opts.workerId;
-  if (opts.errorCode !== undefined) patch['errorCode'] = opts.errorCode;
-  if (status === 'GENERATING') patch['startedAt'] = now;
-  if (status === 'COMPLETED' || status === 'FAILED') patch['completedAt'] = now;
+  if (opts.workerId !== undefined) patch.workerId = opts.workerId;
+  if (opts.errorCode !== undefined) patch.errorCode = opts.errorCode;
+  if (status === 'GENERATING') patch.startedAt = now;
+  if (status === 'COMPLETED' || status === 'FAILED') patch.completedAt = now;
 
   await db
     .update(schema.jobs)
@@ -51,7 +51,10 @@ export async function transitionJob(
     payload: opts as Record<string, unknown>,
   });
 
-  const ssePayload = JSON.stringify({ jobId, type: 'STATUS', status, ...opts });
-  await pub.publish(`sse:events:${userId}`, ssePayload);
+  const ssePayload = JSON.stringify({ jobId, userId, type: 'STATUS', status, ...opts });
+  await Promise.all([
+    pub.publish(`sse:events:${userId}`, ssePayload),
+    pub.publish('sse:events:admin', ssePayload),
+  ]);
   log.info({ jobId, userId, status }, 'job state transition');
 }
