@@ -1206,6 +1206,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(eq(schema.modelPoseAssets.id, id))
         .returning();
       if (!updated) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
+
+      if (body.label !== undefined || body.displayName !== undefined) {
+        const newLabel = updated.displayName ?? updated.label;
+        await app.db
+          .update(schema.modelPoses)
+          .set({ label: newLabel })
+          .where(eq(schema.modelPoses.poseAssetId, id));
+      }
+
       return updated;
     },
   );
