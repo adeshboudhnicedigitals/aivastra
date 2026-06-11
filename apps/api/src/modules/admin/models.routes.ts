@@ -16,7 +16,7 @@ import {
   PresignModelPoseBody,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
-import { and, eq, getTableColumns, inArray } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -30,7 +30,10 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   // ── Faces ─────────────────────────────────────────────────────────────────
 
   app.get('/admin/assets/faces', { preHandler: W }, async () => {
-    const rows = await app.db.select().from(schema.modelFaces);
+    const rows = await app.db
+      .select()
+      .from(schema.modelFaces)
+      .where(isNull(schema.modelFaces.deletedAt));
     return { items: rows };
   });
 
@@ -117,11 +120,10 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (jobRef.length > 0)
         throw new AppError('CONFLICT', 409, 'face is referenced by existing jobs');
 
-      await Promise.allSettled([
-        app.storage.deleteObject(face.r2Key),
-        app.storage.deleteObject(face.thumbnailKey),
-      ]);
-      await app.db.delete(schema.modelFaces).where(eq(schema.modelFaces.id, id));
+      await app.db
+        .update(schema.modelFaces)
+        .set({ deletedAt: new Date() })
+        .where(eq(schema.modelFaces.id, id));
       return { ok: true };
     },
   );
@@ -134,18 +136,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { ids } = req.body as { ids: string[] };
-      const faces = await app.db
-        .select()
-        .from(schema.modelFaces)
+      await app.db
+        .update(schema.modelFaces)
+        .set({ deletedAt: new Date() })
         .where(inArray(schema.modelFaces.id, ids));
-      await Promise.allSettled(
-        faces.flatMap((f) => [
-          app.storage.deleteObject(f.r2Key),
-          app.storage.deleteObject(f.thumbnailKey),
-        ]),
-      );
-      await app.db.delete(schema.modelFaces).where(inArray(schema.modelFaces.id, ids));
-      return { deleted: faces.length };
+      return { deleted: ids.length };
     },
   );
 
@@ -162,7 +157,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const rows = await app.db
         .select()
         .from(schema.modelBackgrounds)
-        .where(genderSlug ? eq(schema.modelBackgrounds.genderSlug, genderSlug) : undefined);
+        .where(
+          and(
+            isNull(schema.modelBackgrounds.deletedAt),
+            genderSlug ? eq(schema.modelBackgrounds.genderSlug, genderSlug) : undefined,
+          ),
+        );
       return { items: rows };
     },
   );
@@ -275,11 +275,10 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (jobRef.length > 0)
         throw new AppError('CONFLICT', 409, 'background is referenced by existing jobs');
 
-      await Promise.allSettled([
-        app.storage.deleteObject(bg.r2Key),
-        app.storage.deleteObject(bg.thumbnailKey),
-      ]);
-      await app.db.delete(schema.modelBackgrounds).where(eq(schema.modelBackgrounds.id, id));
+      await app.db
+        .update(schema.modelBackgrounds)
+        .set({ deletedAt: new Date() })
+        .where(eq(schema.modelBackgrounds.id, id));
       return { ok: true };
     },
   );
@@ -292,18 +291,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { ids } = req.body as { ids: string[] };
-      const bgs = await app.db
-        .select()
-        .from(schema.modelBackgrounds)
+      await app.db
+        .update(schema.modelBackgrounds)
+        .set({ deletedAt: new Date() })
         .where(inArray(schema.modelBackgrounds.id, ids));
-      await Promise.allSettled(
-        bgs.flatMap((b) => [
-          app.storage.deleteObject(b.r2Key),
-          app.storage.deleteObject(b.thumbnailKey),
-        ]),
-      );
-      await app.db.delete(schema.modelBackgrounds).where(inArray(schema.modelBackgrounds.id, ids));
-      return { deleted: bgs.length };
+      return { deleted: ids.length };
     },
   );
 
@@ -890,6 +882,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         createdAt: schema.modelPoseAssets.createdAt,
       })
       .from(schema.modelPoseAssets)
+      .where(isNull(schema.modelPoseAssets.deletedAt))
       .orderBy(schema.modelPoseAssets.label);
     return { items: rows };
   });
@@ -1388,6 +1381,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             errors.push(`${a.id}: workflow not found`);
             continue;
           }
+          // biome-ignore lint/style/noNonNullAssertion: checked via wfMap.has above
           const wf = wfMap.get(a.workflowTemplateId)!;
           rows.push({
             subcategoryId: garmentTypeId,
@@ -1491,30 +1485,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         );
       }
 
-      if (mappings.length > 0 && force) {
-        const mappingIds = mappings.map((m) => m.id);
-        // Remove job refs first
-        const jobRefs = await app.db
-          .select({ jobId: schema.jobInputs.jobId })
-          .from(schema.jobInputs)
-          .where(inArray(schema.jobInputs.poseId, mappingIds));
-        if (jobRefs.length > 0) {
-          const jobIds = [...new Set(jobRefs.map((r) => r.jobId))];
-          await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
-        }
-        await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, mappingIds));
-      }
-
-      // faceSideR2Key/bgComfyR2Key point to shared model_faces/model_backgrounds files — do not delete
-      const keysToDelete = [asset.r2Key, asset.thumbnailKey];
-
-      await app.db.delete(schema.modelPoseAssets).where(eq(schema.modelPoseAssets.id, id));
-      void Promise.allSettled(keysToDelete.map((k) => app.storage.deleteObject(k)));
+      // Soft delete — keep mappings and R2 intact for potential restore
+      await app.db
+        .update(schema.modelPoseAssets)
+        .set({ deletedAt: new Date() })
+        .where(eq(schema.modelPoseAssets.id, id));
       return { ok: true };
     },
   );
 
-  // Bulk delete pose assets (force — removes mappings + jobs + R2)
+  // Bulk soft-delete pose assets
   app.delete(
     '/admin/assets/pose-assets',
     {
@@ -1523,37 +1503,162 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { ids } = req.body as { ids: string[] };
-
-      const assets = await app.db
-        .select()
-        .from(schema.modelPoseAssets)
+      await app.db
+        .update(schema.modelPoseAssets)
+        .set({ deletedAt: new Date() })
         .where(inArray(schema.modelPoseAssets.id, ids));
+      return { deleted: ids.length };
+    },
+  );
 
-      const mappings = await app.db
-        .select({ id: schema.modelPoses.id })
-        .from(schema.modelPoses)
-        .where(inArray(schema.modelPoses.poseAssetId, ids));
+  // ── Recycle bin ──────────────────────────────────────────────────────────
 
-      if (mappings.length > 0) {
-        const mappingIds = mappings.map((m) => m.id);
-        const jobRefs = await app.db
-          .select({ jobId: schema.jobInputs.jobId })
-          .from(schema.jobInputs)
-          .where(inArray(schema.jobInputs.poseId, mappingIds));
-        if (jobRefs.length > 0) {
-          const jobIds = [...new Set(jobRefs.map((r) => r.jobId))];
-          await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
-        }
-        await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, mappingIds));
+  app.get('/admin/assets/recycle-bin', { preHandler: W }, async () => {
+    const [faces, backgrounds, poseAssets] = await Promise.all([
+      app.db
+        .select()
+        .from(schema.modelFaces)
+        .where(sql`${schema.modelFaces.deletedAt} IS NOT NULL`)
+        .orderBy(schema.modelFaces.deletedAt),
+      app.db
+        .select()
+        .from(schema.modelBackgrounds)
+        .where(sql`${schema.modelBackgrounds.deletedAt} IS NOT NULL`)
+        .orderBy(schema.modelBackgrounds.deletedAt),
+      app.db
+        .select({
+          id: schema.modelPoseAssets.id,
+          label: schema.modelPoseAssets.label,
+          displayName: schema.modelPoseAssets.displayName,
+          r2Key: schema.modelPoseAssets.r2Key,
+          thumbnailKey: schema.modelPoseAssets.thumbnailKey,
+          genderSlug: schema.modelPoseAssets.genderSlug,
+          poseVariant: schema.modelPoseAssets.poseVariant,
+          deletedAt: schema.modelPoseAssets.deletedAt,
+        })
+        .from(schema.modelPoseAssets)
+        .where(sql`${schema.modelPoseAssets.deletedAt} IS NOT NULL`)
+        .orderBy(schema.modelPoseAssets.deletedAt),
+    ]);
+    return { faces, backgrounds, poseAssets };
+  });
+
+  app.post(
+    '/admin/assets/recycle-bin/restore',
+    {
+      preHandler: W,
+      schema: {
+        body: z.object({
+          type: z.enum(['face', 'background', 'poseAsset']),
+          ids: z.array(z.string().uuid()).min(1),
+        }),
+      },
+    },
+    async (req) => {
+      const { type, ids } = req.body as {
+        type: 'face' | 'background' | 'poseAsset';
+        ids: string[];
+      };
+      if (type === 'face') {
+        await app.db
+          .update(schema.modelFaces)
+          .set({ deletedAt: null })
+          .where(inArray(schema.modelFaces.id, ids));
+      } else if (type === 'background') {
+        await app.db
+          .update(schema.modelBackgrounds)
+          .set({ deletedAt: null })
+          .where(inArray(schema.modelBackgrounds.id, ids));
+      } else {
+        await app.db
+          .update(schema.modelPoseAssets)
+          .set({ deletedAt: null })
+          .where(inArray(schema.modelPoseAssets.id, ids));
       }
+      return { restored: ids.length };
+    },
+  );
 
-      await app.db.delete(schema.modelPoseAssets).where(inArray(schema.modelPoseAssets.id, ids));
-
-      // faceSideR2Key/bgComfyR2Key point to shared model_faces/model_backgrounds files — do not delete
-      const r2Keys = assets.flatMap((a) => [a.r2Key, a.thumbnailKey]);
-      void Promise.allSettled(r2Keys.map((k) => app.storage.deleteObject(k)));
-
-      return { deleted: assets.length };
+  app.delete(
+    '/admin/assets/recycle-bin',
+    {
+      preHandler: W,
+      schema: {
+        body: z.object({
+          type: z.enum(['face', 'background', 'poseAsset']),
+          ids: z.array(z.string().uuid()).min(1),
+        }),
+      },
+    },
+    async (req) => {
+      const { type, ids } = req.body as {
+        type: 'face' | 'background' | 'poseAsset';
+        ids: string[];
+      };
+      if (type === 'face') {
+        const rows = await app.db
+          .select({ r2Key: schema.modelFaces.r2Key, thumbnailKey: schema.modelFaces.thumbnailKey })
+          .from(schema.modelFaces)
+          .where(inArray(schema.modelFaces.id, ids));
+        await app.db.delete(schema.modelFaces).where(inArray(schema.modelFaces.id, ids));
+        void Promise.allSettled(
+          rows.flatMap((r) => [
+            app.storage.deleteObject(r.r2Key),
+            app.storage.deleteObject(r.thumbnailKey),
+          ]),
+        );
+      } else if (type === 'background') {
+        const rows = await app.db
+          .select({
+            r2Key: schema.modelBackgrounds.r2Key,
+            thumbnailKey: schema.modelBackgrounds.thumbnailKey,
+          })
+          .from(schema.modelBackgrounds)
+          .where(inArray(schema.modelBackgrounds.id, ids));
+        await app.db
+          .delete(schema.modelBackgrounds)
+          .where(inArray(schema.modelBackgrounds.id, ids));
+        void Promise.allSettled(
+          rows.flatMap((r) => [
+            app.storage.deleteObject(r.r2Key),
+            app.storage.deleteObject(r.thumbnailKey),
+          ]),
+        );
+      } else {
+        const rows = await app.db
+          .select({
+            r2Key: schema.modelPoseAssets.r2Key,
+            thumbnailKey: schema.modelPoseAssets.thumbnailKey,
+          })
+          .from(schema.modelPoseAssets)
+          .where(inArray(schema.modelPoseAssets.id, ids));
+        // Remove mappings and jobs before hard delete
+        const mappings = await app.db
+          .select({ id: schema.modelPoses.id })
+          .from(schema.modelPoses)
+          .where(inArray(schema.modelPoses.poseAssetId, ids));
+        if (mappings.length > 0) {
+          const mappingIds = mappings.map((m) => m.id);
+          const jobRefs = await app.db
+            .select({ jobId: schema.jobInputs.jobId })
+            .from(schema.jobInputs)
+            .where(inArray(schema.jobInputs.poseId, mappingIds));
+          if (jobRefs.length > 0) {
+            await app.db
+              .delete(schema.jobs)
+              .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
+          }
+          await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, mappingIds));
+        }
+        await app.db.delete(schema.modelPoseAssets).where(inArray(schema.modelPoseAssets.id, ids));
+        void Promise.allSettled(
+          rows.flatMap((r) => [
+            app.storage.deleteObject(r.r2Key),
+            app.storage.deleteObject(r.thumbnailKey),
+          ]),
+        );
+      }
+      return { deleted: ids.length };
     },
   );
 

@@ -8,6 +8,7 @@ export interface ModelFace {
   r2Key: string;
   isActive: boolean;
   sortOrder: number;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,6 +23,7 @@ export interface ModelBackground {
   isWhiteBg: boolean;
   sortOrder: number;
   genderSlug: string | null;
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -221,6 +223,7 @@ export interface ModelPoseAsset {
   workflowTemplateId: string | null;
   promptGarmentPhase: string | null;
   poseVariant: string | null;
+  deletedAt: string | null;
   createdAt: string;
 }
 

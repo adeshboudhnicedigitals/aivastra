@@ -30,6 +30,7 @@ const items: NavItem[] = [
   { k: 'workflows', label: 'Workflows', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT'] },
   { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR'] },
+  { k: 'recycle-bin', label: 'Recycle bin', icon: Icon.Trash, roles: ['SUPER_ADMIN', 'MODERATOR'] },
 ];
 
 export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: SidebarProps) {

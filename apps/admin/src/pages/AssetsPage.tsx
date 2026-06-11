@@ -175,6 +175,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [confirmDeletePoseAssetId, setConfirmDeletePoseAssetId] = useState<string | null>(null);
   const [selectedPoseAssetIds, setSelectedPoseAssetIds] = useState<string[]>([]);
   const [confirmBulkDeletePoseAssetIds, setConfirmBulkDeletePoseAssetIds] = useState<string[]>([]);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteBgConfirmText, setDeleteBgConfirmText] = useState('');
+  const [deleteFaceConfirmText, setDeleteFaceConfirmText] = useState('');
   const [selectedBgIds, setSelectedBgIds] = useState<string[]>([]);
   const [confirmBulkDeleteBgIds, setConfirmBulkDeleteBgIds] = useState<string[]>([]);
   const [selectedFaceIds, setSelectedFaceIds] = useState<string[]>([]);
@@ -539,7 +542,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
         setSubView({ kind: 'list' });
       } else if (type === 'pose') setPoses((prev) => prev.filter((p) => p.id !== id));
-      toast({ title: `${label} deleted` });
+      toast({
+        title:
+          type === 'background' || type === 'face'
+            ? `${label} moved to recycle bin`
+            : `${label} deleted`,
+      });
     } catch {
       toast({ kind: 'error', title: `Failed to delete ${type}` });
     }
@@ -563,8 +571,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   };
 
   const doBulkDeletePoseAssets = async () => {
+    if (deleteConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeletePoseAssetIds;
     setConfirmBulkDeletePoseAssetIds([]);
+    setDeleteConfirmText('');
     if (ids.length === 0) return;
     try {
       const res = await apiFetch<{ deleted: number }>('/admin/assets/pose-assets', {
@@ -573,15 +583,19 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       });
       setPoseAssets((prev) => prev.filter((a) => !ids.includes(a.id)));
       setSelectedPoseAssetIds((prev) => prev.filter((id) => !ids.includes(id)));
-      toast({ title: `Deleted ${res.deleted} pose asset${res.deleted !== 1 ? 's' : ''}` });
+      toast({
+        title: `${res.deleted} pose asset${res.deleted !== 1 ? 's' : ''} moved to recycle bin`,
+      });
     } catch {
       toast({ kind: 'error', title: 'Bulk delete failed' });
     }
   };
 
   const doBulkDeleteFaces = async () => {
+    if (deleteFaceConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeleteFaceIds;
     setConfirmBulkDeleteFaceIds([]);
+    setDeleteFaceConfirmText('');
     if (ids.length === 0) return;
     try {
       const res = await apiFetch<{ deleted: number }>('/admin/assets/faces', {
@@ -590,15 +604,17 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       });
       setFaces((prev) => prev.filter((f) => !ids.includes(f.id)));
       setSelectedFaceIds((prev) => prev.filter((id) => !ids.includes(id)));
-      toast({ title: `Deleted ${res.deleted} face${res.deleted !== 1 ? 's' : ''}` });
+      toast({ title: `${res.deleted} face${res.deleted !== 1 ? 's' : ''} moved to recycle bin` });
     } catch {
       toast({ kind: 'error', title: 'Bulk delete failed' });
     }
   };
 
   const doBulkDeleteBackgrounds = async () => {
+    if (deleteBgConfirmText !== 'move to recycle bin') return;
     const ids = confirmBulkDeleteBgIds;
     setConfirmBulkDeleteBgIds([]);
+    setDeleteBgConfirmText('');
     if (ids.length === 0) return;
     try {
       const res = await apiFetch<{ deleted: number }>('/admin/assets/backgrounds', {
@@ -607,7 +623,9 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       });
       setBackgrounds((prev) => prev.filter((b) => !ids.includes(b.id)));
       setSelectedBgIds((prev) => prev.filter((id) => !ids.includes(id)));
-      toast({ title: `Deleted ${res.deleted} background${res.deleted !== 1 ? 's' : ''}` });
+      toast({
+        title: `${res.deleted} background${res.deleted !== 1 ? 's' : ''} moved to recycle bin`,
+      });
     } catch {
       toast({ kind: 'error', title: 'Bulk delete failed' });
     }
@@ -950,7 +968,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 className="btn sm danger"
                 onClick={() => setConfirmBulkDeleteBgIds([...selectedBgIds])}
               >
-                <Icon.Trash /> Delete selected ({selectedBgIds.length})
+                <Icon.Trash /> Move to recycle bin ({selectedBgIds.length})
               </button>
             )}
           </div>
@@ -1096,7 +1114,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 className="btn sm danger"
                 onClick={() => setConfirmBulkDeleteFaceIds([...selectedFaceIds])}
               >
-                <Icon.Trash /> Delete selected ({selectedFaceIds.length})
+                <Icon.Trash /> Move to recycle bin ({selectedFaceIds.length})
               </button>
             )}
           </div>
@@ -1593,33 +1611,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             )}
           </div>
           {poseTotalPages > 1 && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginTop: 16,
-                justifyContent: 'center',
-              }}
-            >
-              <button
-                className="btn sm ghost"
-                disabled={poseClampedPage <= 1}
-                onClick={() => setPosePage((p) => Math.max(1, p - 1))}
-              >
-                ← Prev
-              </button>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                Page {poseClampedPage} / {poseTotalPages}
-              </span>
-              <button
-                className="btn sm ghost"
-                disabled={poseClampedPage >= poseTotalPages}
-                onClick={() => setPosePage((p) => Math.min(poseTotalPages, p + 1))}
-              >
-                Next →
-              </button>
-            </div>
+            <Pager
+              page={poseClampedPage - 1}
+              totalPages={poseTotalPages}
+              onPage={(n) => setPosePage(n + 1)}
+              totalItems={visiblePoses.length}
+              pageSize={POSE_PAGE_SIZE}
+            />
           )}
         </>
       )}
@@ -1790,7 +1788,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   className="btn sm danger"
                   onClick={() => setConfirmBulkDeletePoseAssetIds([...selectedPoseAssetIds])}
                 >
-                  <Icon.Trash /> Delete selected ({selectedPoseAssetIds.length})
+                  <Icon.Trash /> Move to recycle bin ({selectedPoseAssetIds.length})
                 </button>
               </>
             )}
@@ -1935,7 +1933,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       style={{ width: '100%', marginTop: 4, fontSize: 11, padding: '3px 0' }}
                       onClick={() => setConfirmDeletePoseAssetId(a.id)}
                     >
-                      <Icon.Trash /> Delete
+                      <Icon.Trash /> Move to recycle bin
                     </button>
                   </div>
                 </div>
@@ -1943,33 +1941,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
             </div>
           )}
           {paTotalPages > 1 && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginTop: 16,
-                justifyContent: 'center',
-              }}
-            >
-              <button
-                className="btn sm ghost"
-                disabled={paClampedPage <= 1}
-                onClick={() => setPaPage((p) => Math.max(1, p - 1))}
-              >
-                ← Prev
-              </button>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                Page {paClampedPage} / {paTotalPages}
-              </span>
-              <button
-                className="btn sm ghost"
-                disabled={paClampedPage >= paTotalPages}
-                onClick={() => setPaPage((p) => Math.min(paTotalPages, p + 1))}
-              >
-                Next →
-              </button>
-            </div>
+            <Pager
+              page={paClampedPage - 1}
+              totalPages={paTotalPages}
+              onPage={(n) => setPaPage(n + 1)}
+              totalItems={filteredPoseAssets.length}
+              pageSize={PA_PAGE_SIZE}
+            />
           )}
         </>
       )}
@@ -2190,11 +2168,24 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <h3>Delete {confirmDelete.type}</h3>
+              <h3>
+                {confirmDelete.type === 'background' || confirmDelete.type === 'face'
+                  ? 'Move to recycle bin'
+                  : `Delete ${confirmDelete.type}`}
+              </h3>
             </div>
             <div className="modal-body">
               <p>
-                Delete <strong>{confirmDelete.label}</strong>? This cannot be undone.
+                {confirmDelete.type === 'background' || confirmDelete.type === 'face' ? (
+                  <>
+                    Move <strong>{confirmDelete.label}</strong> to the recycle bin? You can restore
+                    it later.
+                  </>
+                ) : (
+                  <>
+                    Delete <strong>{confirmDelete.label}</strong>? This cannot be undone.
+                  </>
+                )}
               </p>
               {confirmDelete.type === 'garment-type' && (
                 <p style={{ color: 'var(--danger)', marginTop: 8 }}>
@@ -2207,7 +2198,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 Cancel
               </button>
               <button className="btn danger" onClick={doDelete}>
-                <Icon.Trash /> Delete
+                <Icon.Trash />{' '}
+                {confirmDelete &&
+                (confirmDelete.type === 'background' || confirmDelete.type === 'face')
+                  ? 'Move to recycle bin'
+                  : 'Delete'}
               </button>
             </div>
           </div>
@@ -2215,30 +2210,63 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {confirmBulkDeleteBgIds.length > 0 && (
-        <div className="modal-overlay" onClick={() => setConfirmBulkDeleteBgIds([])}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setConfirmBulkDeleteBgIds([]);
+            setDeleteBgConfirmText('');
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>
-                Delete {confirmBulkDeleteBgIds.length} background
-                {confirmBulkDeleteBgIds.length !== 1 ? 's' : ''}
+                Move {confirmBulkDeleteBgIds.length} background
+                {confirmBulkDeleteBgIds.length !== 1 ? 's' : ''} to recycle bin
               </h3>
             </div>
             <div className="modal-body">
               <p>
-                Permanently delete{' '}
+                Move{' '}
                 <strong>
                   {confirmBulkDeleteBgIds.length} selected background
                   {confirmBulkDeleteBgIds.length !== 1 ? 's' : ''}
                 </strong>{' '}
-                and their R2 images? This cannot be undone.
+                to the recycle bin? You can restore them later.
               </p>
+              <div className="field" style={{ marginTop: 16 }}>
+                <label style={{ fontSize: 13 }}>
+                  Type{' '}
+                  <strong style={{ fontFamily: 'monospace', color: 'var(--danger)' }}>
+                    move to recycle bin
+                  </strong>{' '}
+                  to confirm
+                </label>
+                <input
+                  className="input"
+                  type="text"
+                  value={deleteBgConfirmText}
+                  onChange={(e) => setDeleteBgConfirmText(e.target.value)}
+                  placeholder="move to recycle bin"
+                  autoFocus
+                />
+              </div>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmBulkDeleteBgIds([])}>
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  setConfirmBulkDeleteBgIds([]);
+                  setDeleteBgConfirmText('');
+                }}
+              >
                 Cancel
               </button>
-              <button className="btn danger" onClick={doBulkDeleteBackgrounds}>
-                <Icon.Trash /> Delete {confirmBulkDeleteBgIds.length}
+              <button
+                className="btn danger"
+                onClick={doBulkDeleteBackgrounds}
+                disabled={deleteBgConfirmText !== 'move to recycle bin'}
+              >
+                <Icon.Trash /> Move to recycle bin ({confirmBulkDeleteBgIds.length})
               </button>
             </div>
           </div>
@@ -2246,30 +2274,63 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       )}
 
       {confirmBulkDeleteFaceIds.length > 0 && (
-        <div className="modal-overlay" onClick={() => setConfirmBulkDeleteFaceIds([])}>
+        <div
+          className="modal-overlay"
+          onClick={() => {
+            setConfirmBulkDeleteFaceIds([]);
+            setDeleteFaceConfirmText('');
+          }}
+        >
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>
-                Delete {confirmBulkDeleteFaceIds.length} face
-                {confirmBulkDeleteFaceIds.length !== 1 ? 's' : ''}
+                Move {confirmBulkDeleteFaceIds.length} face
+                {confirmBulkDeleteFaceIds.length !== 1 ? 's' : ''} to recycle bin
               </h3>
             </div>
             <div className="modal-body">
               <p>
-                Permanently delete{' '}
+                Move{' '}
                 <strong>
                   {confirmBulkDeleteFaceIds.length} selected face
                   {confirmBulkDeleteFaceIds.length !== 1 ? 's' : ''}
                 </strong>{' '}
-                and their R2 images? This cannot be undone.
+                to the recycle bin? You can restore them later.
               </p>
+              <div className="field" style={{ marginTop: 16 }}>
+                <label style={{ fontSize: 13 }}>
+                  Type{' '}
+                  <strong style={{ fontFamily: 'monospace', color: 'var(--danger)' }}>
+                    move to recycle bin
+                  </strong>{' '}
+                  to confirm
+                </label>
+                <input
+                  className="input"
+                  type="text"
+                  value={deleteFaceConfirmText}
+                  onChange={(e) => setDeleteFaceConfirmText(e.target.value)}
+                  placeholder="move to recycle bin"
+                  autoFocus
+                />
+              </div>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmBulkDeleteFaceIds([])}>
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  setConfirmBulkDeleteFaceIds([]);
+                  setDeleteFaceConfirmText('');
+                }}
+              >
                 Cancel
               </button>
-              <button className="btn danger" onClick={doBulkDeleteFaces}>
-                <Icon.Trash /> Delete {confirmBulkDeleteFaceIds.length}
+              <button
+                className="btn danger"
+                onClick={doBulkDeleteFaces}
+                disabled={deleteFaceConfirmText !== 'move to recycle bin'}
+              >
+                <Icon.Trash /> Move to recycle bin ({confirmBulkDeleteFaceIds.length})
               </button>
             </div>
           </div>
@@ -2615,24 +2676,47 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         <div className="modal-overlay" onClick={() => setConfirmBulkDeletePoseAssetIds([])}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <h3>Delete {confirmBulkDeletePoseAssetIds.length} pose assets</h3>
+              <h3>Move {confirmBulkDeletePoseAssetIds.length} pose assets to recycle bin</h3>
             </div>
             <div className="modal-body">
               <p>
-                Permanently delete{' '}
-                <strong>{confirmBulkDeletePoseAssetIds.length} selected pose assets</strong> and
-                their R2 images? This cannot be undone.
+                Move <strong>{confirmBulkDeletePoseAssetIds.length} selected pose assets</strong> to
+                the recycle bin? You can restore them later.
               </p>
-              <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>
-                All garment-type mappings and associated jobs will also be removed.
-              </p>
+              <div className="field" style={{ marginTop: 16 }}>
+                <label style={{ fontSize: 13 }}>
+                  Type{' '}
+                  <strong style={{ fontFamily: 'monospace', color: 'var(--danger)' }}>
+                    move to recycle bin
+                  </strong>{' '}
+                  to confirm
+                </label>
+                <input
+                  className="input"
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="move to recycle bin"
+                  autoFocus
+                />
+              </div>
             </div>
             <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmBulkDeletePoseAssetIds([])}>
+              <button
+                className="btn ghost"
+                onClick={() => {
+                  setConfirmBulkDeletePoseAssetIds([]);
+                  setDeleteConfirmText('');
+                }}
+              >
                 Cancel
               </button>
-              <button className="btn danger" onClick={doBulkDeletePoseAssets}>
-                <Icon.Trash /> Delete {confirmBulkDeletePoseAssetIds.length} assets
+              <button
+                className="btn danger"
+                onClick={doBulkDeletePoseAssets}
+                disabled={deleteConfirmText !== 'move to recycle bin'}
+              >
+                <Icon.Trash /> Move to recycle bin ({confirmBulkDeletePoseAssetIds.length})
               </button>
             </div>
           </div>
@@ -2870,14 +2954,10 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         <div className="modal-overlay" onClick={() => setConfirmDeletePoseAssetId(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <h3>Delete pose asset</h3>
+              <h3>Move to recycle bin</h3>
             </div>
             <div className="modal-body">
-              <p>Permanently delete this pose asset and its R2 images? This cannot be undone.</p>
-              <p style={{ color: 'var(--danger)', fontSize: 13, marginTop: 8 }}>
-                All garment-type mappings and any associated jobs for this asset will also be
-                removed.
-              </p>
+              <p>Move this pose asset to the recycle bin? You can restore it later.</p>
             </div>
             <div className="modal-foot">
               <button className="btn ghost" onClick={() => setConfirmDeletePoseAssetId(null)}>
@@ -2893,13 +2973,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       method: 'DELETE',
                     });
                     setPoseAssets((prev) => prev.filter((a) => a.id !== id));
-                    toast({ title: 'Pose asset deleted' });
+                    toast({ title: 'Pose asset moved to recycle bin' });
                   } catch (e) {
                     toast({ kind: 'error', title: 'Delete failed', body: (e as Error).message });
                   }
                 }}
               >
-                <Icon.Trash /> Delete
+                <Icon.Trash /> Move to recycle bin
               </button>
             </div>
           </div>
