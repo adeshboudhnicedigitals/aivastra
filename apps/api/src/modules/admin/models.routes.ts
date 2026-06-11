@@ -24,12 +24,13 @@ import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
 
 export async function adminAssetsRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // ── Faces ─────────────────────────────────────────────────────────────────
 
-  app.get('/admin/assets/faces', { preHandler: W }, async () => {
+  app.get('/admin/assets/faces', { preHandler: RW }, async () => {
     const rows = await app.db
       .select()
       .from(schema.modelFaces)
@@ -40,7 +41,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/faces/presign',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { body: PresignModelFaceBody },
     },
     async (req) => {
@@ -61,7 +62,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/faces/confirm',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { body: ConfirmModelFaceBody },
     },
     async (req) => {
@@ -83,7 +84,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/assets/faces/:id',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { params: uuidParam, body: PatchModelFaceBody },
     },
     async (req) => {
@@ -101,7 +102,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/faces/:id',
     {
-      preHandler: W,
+      preHandler: D,
       schema: { params: uuidParam },
     },
     async (req) => {
@@ -131,7 +132,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/faces',
     {
-      preHandler: W,
+      preHandler: D,
       schema: { body: z.object({ ids: z.array(z.string().uuid()).min(1) }) },
     },
     async (req) => {
@@ -149,7 +150,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.get(
     '/admin/assets/backgrounds',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { querystring: z.object({ genderSlug: z.string().optional() }) },
     },
     async (req) => {
@@ -170,7 +171,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/backgrounds/presign',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { body: PresignModelBackgroundBody },
     },
     async (req) => {
@@ -193,7 +194,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/backgrounds/confirm',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { body: ConfirmModelBackgroundBody },
     },
     async (req) => {
@@ -230,7 +231,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/assets/backgrounds/:id',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { params: uuidParam, body: PatchModelBackgroundBody },
     },
     async (req) => {
@@ -256,7 +257,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/backgrounds/:id',
     {
-      preHandler: W,
+      preHandler: D,
       schema: { params: uuidParam },
     },
     async (req) => {
@@ -286,7 +287,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/backgrounds',
     {
-      preHandler: W,
+      preHandler: D,
       schema: { body: z.object({ ids: z.array(z.string().uuid()).min(1) }) },
     },
     async (req) => {
@@ -302,7 +303,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.get(
     '/admin/assets/poses',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         querystring: z.object({
           garmentTypeId: z.string().uuid(),
@@ -338,7 +339,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/poses/presign',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { body: PresignModelPoseBody },
     },
     async (req) => {
@@ -448,7 +449,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/poses/confirm',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { body: ConfirmModelPoseBody },
     },
     async (req) => {
@@ -538,7 +539,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/poses/:id/presign-faceside',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { params: uuidParam, body: z.object({ contentType: AssetContentType }) },
     },
     async (req) => {
@@ -559,7 +560,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/poses/:id/presign-pose',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { params: uuidParam, body: z.object({ contentType: AssetContentType }) },
     },
     async (req) => {
@@ -585,7 +586,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/poses/:id/presign-bgcomfy',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { params: uuidParam, body: z.object({ contentType: AssetContentType }) },
     },
     async (req) => {
@@ -605,7 +606,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/assets/poses/:id',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { params: uuidParam, body: PatchModelPoseBody },
     },
     async (req) => {
@@ -646,7 +647,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
-  app.patch('/admin/assets/poses/bulk-workflow', { preHandler: W }, async (req) => {
+  app.patch('/admin/assets/poses/bulk-workflow', { preHandler: RW }, async (req) => {
     const { ids, workflowTemplateId } = req.body as {
       ids: string[];
       workflowTemplateId: string;
@@ -679,7 +680,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   app.post(
     '/admin/assets/poses/:id/clone',
-    { preHandler: W, schema: { params: uuidParam, body: ClonePoseBody } },
+    { preHandler: RW, schema: { params: uuidParam, body: ClonePoseBody } },
     async (req) => {
       const { id } = req.params as { id: string };
       const { targetGarmentTypeIds } = req.body as { targetGarmentTypeIds: string[] };
@@ -746,7 +747,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   app.post(
     '/admin/assets/poses/clone-bulk',
-    { preHandler: W, schema: { body: ClonePosesBulkBody } },
+    { preHandler: RW, schema: { body: ClonePosesBulkBody } },
     async (req) => {
       const { poseIds, targetGarmentTypeIds } = req.body as {
         poseIds: string[];
@@ -820,7 +821,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/poses',
     {
-      preHandler: W,
+      preHandler: D,
       schema: {
         body: z.object({ ids: z.array(z.string().uuid()).min(1).max(1000) }),
       },
@@ -852,7 +853,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/poses/:id',
     {
-      preHandler: W,
+      preHandler: D,
       schema: {
         params: uuidParam,
         querystring: z.object({ force: z.coerce.boolean().optional().default(false) }),
@@ -894,7 +895,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   // ── Pose Assets (centralised R2 object management) ───────────────────────
 
-  app.get('/admin/assets/pose-assets', { preHandler: W }, async () => {
+  app.get('/admin/assets/pose-assets', { preHandler: RW }, async () => {
     const rows = await app.db
       .select({
         id: schema.modelPoseAssets.id,
@@ -922,7 +923,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/pose-assets/presign',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         body: z.object({
           contentType: AssetContentType,
@@ -1016,7 +1017,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/pose-assets',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         body: z.object({
           label: z.string().min(1),
@@ -1115,7 +1116,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   // Presign pose-asset image replacements
   app.post(
     '/admin/assets/pose-assets/:id/presign-pose',
-    { preHandler: W, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
+    { preHandler: RW, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
     async (req) => {
       const { id } = req.params as { id: string };
       const { contentType } = req.body as { contentType: string };
@@ -1136,7 +1137,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   app.post(
     '/admin/assets/pose-assets/:id/presign-faceside',
-    { preHandler: W, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
+    { preHandler: RW, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
     async (req) => {
       const { id } = req.params as { id: string };
       const { contentType } = req.body as { contentType: string };
@@ -1148,7 +1149,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   app.post(
     '/admin/assets/pose-assets/:id/presign-bgcomfy',
-    { preHandler: W, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
+    { preHandler: RW, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
     async (req) => {
       const { id } = req.params as { id: string };
       const { contentType } = req.body as { contentType: string };
@@ -1162,7 +1163,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/assets/pose-assets/:id',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         params: uuidParam,
         body: z.object({
@@ -1248,7 +1249,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/pose-assets/:id/map',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         params: uuidParam,
         body: z.object({
@@ -1329,7 +1330,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/pose-assets/bulk-map',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         body: z.object({
           assetIds: z.array(z.string().uuid()).min(1).max(2000),
@@ -1448,7 +1449,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   // List garment-type mappings for a pose asset
   app.get(
     '/admin/assets/pose-assets/:id/mappings',
-    { preHandler: W, schema: { params: uuidParam } },
+    { preHandler: RW, schema: { params: uuidParam } },
     async (req) => {
       const { id } = req.params as { id: string };
       const rows = await app.db
@@ -1488,7 +1489,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/pose-assets/:id',
     {
-      preHandler: W,
+      preHandler: D,
       schema: {
         params: uuidParam,
         querystring: z.object({ force: z.coerce.boolean().optional().default(false) }),
@@ -1529,7 +1530,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/pose-assets',
     {
-      preHandler: W,
+      preHandler: D,
       schema: { body: z.object({ ids: z.array(z.string().uuid()).min(1) }) },
     },
     async (req) => {
@@ -1544,7 +1545,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   // ── Recycle bin ──────────────────────────────────────────────────────────
 
-  app.get('/admin/assets/recycle-bin', { preHandler: W }, async () => {
+  app.get('/admin/assets/recycle-bin', { preHandler: RW }, async () => {
     const [faces, backgrounds, poseAssets] = await Promise.all([
       app.db
         .select()
@@ -1577,7 +1578,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/recycle-bin/restore',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         body: z.object({
           type: z.enum(['face', 'background', 'poseAsset']),
@@ -1613,7 +1614,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/recycle-bin',
     {
-      preHandler: W,
+      preHandler: D,
       schema: {
         body: z.object({
           type: z.enum(['face', 'background', 'poseAsset']),
@@ -1702,7 +1703,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   }
 
   // ── Bulk import from ZIP ──────────────────────────────────────────────────
-  app.post('/admin/assets/bulk-import', { preHandler: W }, async (req) => {
+  app.post('/admin/assets/bulk-import', { preHandler: RW }, async (req) => {
     const data = await req.file();
     if (!data) throw new AppError('VALIDATION', 400, 'no file uploaded');
 
