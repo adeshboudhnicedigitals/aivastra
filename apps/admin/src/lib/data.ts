@@ -65,6 +65,7 @@ export const MOCK_FACES: ModelFace[] = [
     sortOrder: 0,
     createdAt: '2026-05-01T10:00:00Z',
     updatedAt: '2026-05-01T10:00:00Z',
+    deletedAt: null,
   },
   {
     id: 'face_men_02',
@@ -76,6 +77,7 @@ export const MOCK_FACES: ModelFace[] = [
     sortOrder: 1,
     createdAt: '2026-05-02T10:00:00Z',
     updatedAt: '2026-05-02T10:00:00Z',
+    deletedAt: null,
   },
   {
     id: 'face_women_01',
@@ -87,6 +89,7 @@ export const MOCK_FACES: ModelFace[] = [
     sortOrder: 0,
     createdAt: '2026-05-03T10:00:00Z',
     updatedAt: '2026-05-03T10:00:00Z',
+    deletedAt: null,
   },
   {
     id: 'face_women_02',
@@ -98,6 +101,7 @@ export const MOCK_FACES: ModelFace[] = [
     sortOrder: 1,
     createdAt: '2026-05-04T10:00:00Z',
     updatedAt: '2026-05-04T10:00:00Z',
+    deletedAt: null,
   },
   {
     id: 'face_boys_01',
@@ -109,6 +113,7 @@ export const MOCK_FACES: ModelFace[] = [
     sortOrder: 0,
     createdAt: '2026-05-05T10:00:00Z',
     updatedAt: '2026-05-05T10:00:00Z',
+    deletedAt: null,
   },
   {
     id: 'face_girls_01',
@@ -120,6 +125,7 @@ export const MOCK_FACES: ModelFace[] = [
     sortOrder: 0,
     createdAt: '2026-05-05T10:00:00Z',
     updatedAt: '2026-05-05T10:00:00Z',
+    deletedAt: null,
   },
 ];
 
@@ -135,6 +141,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     genderSlug: null,
     createdAt: '2026-05-06T10:00:00Z',
     updatedAt: '2026-05-06T10:00:00Z',
+    deletedAt: null,
   },
   {
     id: 'bg_002',
@@ -147,6 +154,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     genderSlug: 'men',
     createdAt: '2026-05-06T11:00:00Z',
     updatedAt: '2026-05-06T11:00:00Z',
+    deletedAt: null,
   },
   {
     id: 'bg_003',
@@ -159,6 +167,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     genderSlug: null,
     createdAt: '2026-05-07T10:00:00Z',
     updatedAt: '2026-05-07T10:00:00Z',
+    deletedAt: null,
   },
   {
     id: 'bg_004',
@@ -171,6 +180,7 @@ export const MOCK_BACKGROUNDS: ModelBackground[] = [
     genderSlug: null,
     createdAt: '2026-05-06T10:00:00Z',
     updatedAt: '2026-05-06T10:00:00Z',
+    deletedAt: null,
   },
 ];
 
