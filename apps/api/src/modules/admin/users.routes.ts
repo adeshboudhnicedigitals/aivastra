@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { UpdateUserBody } from '@aivastra/types';
-import { count, desc, eq, ilike, isNotNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, isNotNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -163,6 +163,73 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .update(schema.refreshTokens)
         .set({ revokedAt: new Date() })
         .where(eq(schema.refreshTokens.userId, id));
+      return { ok: true };
+    },
+  );
+
+  // Admin request management (SUPER_ADMIN only)
+  const SUPER = requireAdmin(['SUPER_ADMIN']);
+
+  app.get('/admin/admin-requests', { preHandler: SUPER }, async () => {
+    const rows = await app.db
+      .select({
+        userId: schema.adminUsers.userId,
+        email: schema.users.email,
+        displayName: schema.users.displayName,
+        requestedAt: schema.adminUsers.createdAt,
+      })
+      .from(schema.adminUsers)
+      .innerJoin(schema.users, eq(schema.adminUsers.userId, schema.users.id))
+      .where(eq(schema.adminUsers.status, 'pending'))
+      .orderBy(schema.adminUsers.createdAt);
+    return { items: rows };
+  });
+
+  app.post(
+    '/admin/admin-requests/:userId/approve',
+    {
+      preHandler: SUPER,
+      schema: { params: z.object({ userId: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { userId } = req.params as { userId: string };
+      const [row] = await app.db
+        .update(schema.adminUsers)
+        .set({ status: 'active' })
+        .where(and(eq(schema.adminUsers.userId, userId), eq(schema.adminUsers.status, 'pending')))
+        .returning({ userId: schema.adminUsers.userId });
+      if (!row) throw new AppError('NOT_FOUND', 404, 'no pending admin request for this user');
+      return { ok: true, status: 'active' };
+    },
+  );
+
+  app.post(
+    '/admin/admin-requests/:userId/reject',
+    {
+      preHandler: SUPER,
+      schema: { params: z.object({ userId: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { userId } = req.params as { userId: string };
+      const [row] = await app.db
+        .update(schema.adminUsers)
+        .set({ status: 'rejected' })
+        .where(and(eq(schema.adminUsers.userId, userId), eq(schema.adminUsers.status, 'pending')))
+        .returning({ userId: schema.adminUsers.userId });
+      if (!row) throw new AppError('NOT_FOUND', 404, 'no pending admin request for this user');
+      return { ok: true, status: 'rejected' };
+    },
+  );
+
+  app.delete(
+    '/admin/admin-users/:userId',
+    {
+      preHandler: SUPER,
+      schema: { params: z.object({ userId: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { userId } = req.params as { userId: string };
+      await app.db.delete(schema.adminUsers).where(eq(schema.adminUsers.userId, userId));
       return { ok: true };
     },
   );
