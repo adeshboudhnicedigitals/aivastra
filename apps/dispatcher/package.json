@@ -20,6 +20,7 @@
     "@aivastra/types": "workspace:*",
     "@aws-sdk/client-s3": "^3.600.0",
     "@sentry/node": "^10.57.0",
+    "sharp": "^0.33.5",
     "drizzle-orm": "^0.36.0",
     "ioredis": "^5.3.2",
     "undici": "^8.3.0",

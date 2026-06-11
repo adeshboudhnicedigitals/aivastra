@@ -13,6 +13,7 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
+import sharp from 'sharp';
 import {
   downloadOutputImage,
   fetchHistory,
@@ -316,7 +317,7 @@ export async function processJob(
     const outputImages = await fetchHistory(w.url, workerApiKey, promptId, jobLog);
     if (!outputImages.length) throw new Error('ComfyUI returned no output images');
 
-    const imageBytes = await downloadOutputImage(w.url, workerApiKey, outputImages[0]!.filename);
+    const imageBytes = await downloadOutputImage(w.url, workerApiKey, outputImages[0]?.filename);
 
     // 9. Upload result to R2
     const resultKey = keys.output(jobId);
@@ -329,8 +330,31 @@ export async function processJob(
       }),
     );
 
+    // Generate and upload thumbnail (512px, JPEG) — non-blocking for the COMPLETED transition
+    let thumbnailKey: string | undefined;
+    try {
+      const thumbBytes = await sharp(imageBytes)
+        .rotate()
+        .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+      thumbnailKey = keys.outputThumb(jobId);
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: r2Bucket,
+          Key: thumbnailKey,
+          Body: thumbBytes,
+          ContentType: 'image/jpeg',
+        }),
+      );
+      jobLog.info({ thumbnailKey }, 'thumbnail uploaded');
+    } catch (thumbErr) {
+      jobLog.warn({ err: thumbErr }, 'thumbnail generation failed — proceeding without thumbnail');
+      thumbnailKey = undefined;
+    }
+
     // 10. Mark COMPLETED
-    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
+    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey, thumbnailKey }, jobLog);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt);

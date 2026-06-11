@@ -38,6 +38,7 @@ interface Catalogue {
   createdAt: string;
   genderSlug: string | null;
   coverUrl: string | null;
+  coverThumbUrl: string | null;
 }
 
 // ─── constants (outside component — stable references) ────────────────────────
@@ -78,15 +79,24 @@ async function concurrentPool<T>(
 
 // ─── catalogue cover ──────────────────────────────────────────────────────────
 
-function Cover({ jobs, coverUrl }: { jobs: JobSummary[]; coverUrl: string | null }) {
+function Cover({
+  jobs,
+  coverUrl,
+  coverThumbUrl,
+}: {
+  jobs: JobSummary[];
+  coverUrl: string | null;
+  coverThumbUrl: string | null;
+}) {
   const hasActive = jobs.some((j) => !TERMINAL.includes(j.status));
   const allFailed = jobs.length > 0 && jobs.every((j) => j.status === 'FAILED');
 
-  if (coverUrl) {
+  const displayUrl = coverThumbUrl ?? coverUrl;
+  if (displayUrl) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
       <img
-        src={coverUrl}
+        src={displayUrl}
         alt=""
         style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center' }}
       />
@@ -200,7 +210,7 @@ export default function CataloguesPage(): React.ReactElement {
           const updated = old.map((cat) => {
             const jobIdx = cat.jobs.findIndex((j) => j.id === evt.jobId);
             if (jobIdx === -1) return cat;
-            const prevStatus = cat.jobs[jobIdx]!.status;
+            const prevStatus = cat.jobs[jobIdx]?.status;
             const updatedJobs = cat.jobs.map((j) =>
               j.id === evt.jobId ? { ...j, status: evt.status } : j,
             );
@@ -1464,7 +1474,11 @@ export default function CataloguesPage(): React.ReactElement {
                           data-scale=""
                           style={{ width: '100%', height: '100%', transition: 'transform .3s' }}
                         >
-                          <Cover jobs={cat.jobs} coverUrl={cat.coverUrl} />
+                          <Cover
+                            jobs={cat.jobs}
+                            coverUrl={cat.coverUrl}
+                            coverThumbUrl={cat.coverThumbUrl}
+                          />
                         </div>
                       </div>
 

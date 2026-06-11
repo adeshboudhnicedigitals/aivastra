@@ -62,21 +62,31 @@ export async function jobsRoutes(app: FastifyInstance) {
       createdAt: cJobs[cJobs.length - 1].createdAt,
     }));
 
-    // Presign a cover URL per catalogue server-side (fast local crypto, no network)
-    // so the client renders covers from one response instead of one request per card.
+    // Presign cover + cover thumbnail per catalogue server-side (fast local crypto, no network).
+    // coverThumbUrl uses the 512px JPEG thumbnail; coverUrl is the full-size fallback.
     return Promise.all(
       groups.map(async (g) => {
         const cover = g.jobs.find((j) => j.status === 'COMPLETED');
         let coverUrl: string | null = null;
+        let coverThumbUrl: string | null = null;
         if (cover) {
           try {
-            const { url } = await app.storage.presignGet(keys.output(cover.id), 3600);
-            coverUrl = url;
+            const [output] = await app.db
+              .select({ thumbnailKey: schema.jobOutputs.thumbnailKey })
+              .from(schema.jobOutputs)
+              .where(eq(schema.jobOutputs.jobId, cover.id));
+            const thumbKey = output?.thumbnailKey;
+            const [full, thumb] = await Promise.all([
+              app.storage.presignGet(keys.output(cover.id), 3600),
+              thumbKey ? app.storage.presignGet(thumbKey, 3600) : null,
+            ]);
+            coverUrl = full.url;
+            coverThumbUrl = thumb?.url ?? null;
           } catch {
             /* missing object — leave null, client shows placeholder */
           }
         }
-        return { ...g, coverUrl };
+        return { ...g, coverUrl, coverThumbUrl };
       }),
     );
   });
@@ -203,6 +213,33 @@ export async function jobsRoutes(app: FastifyInstance) {
       if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
       const { url, expiresIn } = await app.storage.presignGet(keys.output(id), 300);
+      return { url, expiresIn };
+    },
+  );
+
+  app.get(
+    '/v1/jobs/:id/thumbnail',
+    {
+      preHandler: app.requireUser,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [job] = await app.db
+        .select()
+        .from(schema.jobs)
+        .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
+      if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+      if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
+
+      const [output] = await app.db
+        .select({ thumbnailKey: schema.jobOutputs.thumbnailKey })
+        .from(schema.jobOutputs)
+        .where(eq(schema.jobOutputs.jobId, id));
+
+      // Fall back to full result if no thumbnail generated yet (e.g. backfill pending)
+      const r2Key = output?.thumbnailKey ?? keys.output(id);
+      const { url, expiresIn } = await app.storage.presignGet(r2Key, 300);
       return { url, expiresIn };
     },
   );

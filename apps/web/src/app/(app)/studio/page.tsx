@@ -1649,7 +1649,7 @@ export default function StudioPage(): React.ReactElement {
 
             {needsShoes && (
               <section>
-                <SectionHead title="Shoes" />
+                <SectionHead title="Footwear" />
                 <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>
                   Optional — select if your pose shows feet
                 </p>
