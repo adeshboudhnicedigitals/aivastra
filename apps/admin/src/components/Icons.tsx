@@ -54,6 +54,17 @@ export const Icon: Record<string, () => JSX.Element> = {
       <path d="M8 3v10M3 8h10" />
     </svg>
   ),
+  Back: () => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      height="20px"
+      viewBox="0 -960 960 960"
+      width="20px"
+      fill="currentColor"
+    >
+      <path d="M400-80 0-480l400-400 71 71-329 329 329 329-71 71Z" />
+    </svg>
+  ),
   Close: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" />

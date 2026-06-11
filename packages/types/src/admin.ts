@@ -25,6 +25,16 @@ export const CreateCategoryBody = z.object({
   genderSlug: z.enum(['men', 'women', 'boys', 'girls']).optional(),
   sortOrder: z.number().int().default(0),
 });
+export const PatchCategoryBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
+  sortOrder: z.number().int().optional(),
+  isActive: z.boolean().optional(),
+});
+export const BulkCatalogSubcatsBody = z.object({
+  ids: z.array(z.string().uuid()).min(1),
+  subcategoryIds: z.array(z.string().uuid()),
+});
 const CoercedPositiveInt = z.union([
   z.number().int().positive(),
   z.string().regex(/^\d+$/).transform(Number),
@@ -46,7 +56,6 @@ export const ConfirmCatalogItemBody = z.object({
   thumbnailKey: z.string().min(1),
   sortOrder: z.number().int().default(0),
   subcategoryIds: z.array(z.string().uuid()).optional(),
-  // Legacy — still accepted but ignored
   categoryId: CoercedPositiveInt.optional(),
 });
 export const SystemConfigBody = z.object({
