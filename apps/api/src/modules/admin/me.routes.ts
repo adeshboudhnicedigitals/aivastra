@@ -7,7 +7,7 @@ import { requireAdmin } from './guard.js';
 export async function adminMeRoutes(app: FastifyInstance) {
   app.get(
     '/admin/me',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']) },
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
     async (req) => {
       const [user] = await app.db
         .select({ email: schema.users.email })

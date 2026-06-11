@@ -13,8 +13,8 @@ const PaginatedSearch = z.object({
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
-  const ALL = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']);
-  const WRITE = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const ALL = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']);
+  const WRITE = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
 
   app.get(
     '/admin/users',

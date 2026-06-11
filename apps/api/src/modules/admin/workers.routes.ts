@@ -5,7 +5,7 @@ import { requireAdmin } from './guard.js';
 export async function adminWorkersRoutes(app: FastifyInstance) {
   app.get(
     '/admin/workers',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']) },
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
     async () => {
       const raw = await app.redis.hgetall('worker:registry');
       const out: Record<string, unknown> = {};
@@ -24,7 +24,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
   app.post(
     '/admin/workers/:id/drain',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR']),
+      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']),
       schema: { params: z.object({ id: z.string() }) },
     },
     async (req) => {

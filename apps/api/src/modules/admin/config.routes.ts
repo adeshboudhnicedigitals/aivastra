@@ -9,7 +9,7 @@ const KEY = 'config:system';
 export async function adminConfigRoutes(app: FastifyInstance) {
   app.get(
     '/admin/config',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']) },
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
     async () => {
       const raw = await app.redis.get(KEY);
       return raw ? JSON.parse(raw) : { creditCostPerJob: 1, maxJobsPerDay: 50 };
@@ -32,7 +32,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
 
   app.get(
     '/admin/stats',
-    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']) },
+    { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
     async () => {
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
