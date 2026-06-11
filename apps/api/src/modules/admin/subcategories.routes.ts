@@ -13,10 +13,11 @@ import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
 
 export async function adminGarmentTypesRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
   const uuidParam = z.object({ id: z.string().uuid() });
 
-  app.get('/admin/assets/garment-types', { preHandler: W }, async () => {
+  app.get('/admin/assets/garment-types', { preHandler: RW }, async () => {
     const rows = await app.db.select().from(schema.garmentSubcategories);
     const poseCounts = await app.db
       .select({ subcategoryId: schema.modelPoses.subcategoryId, cnt: count() })
@@ -34,7 +35,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/garment-types/presign',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { body: PresignGarmentTypeBody },
     },
     async (_req) => {
@@ -50,7 +51,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
   app.post(
     '/admin/assets/garment-types',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { body: CreateGarmentTypeBody },
     },
     async (req) => {
@@ -81,7 +82,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/assets/garment-types/:id',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: { params: uuidParam, body: PatchGarmentTypeBody },
     },
     async (req) => {
@@ -115,7 +116,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/garment-types/:id',
     {
-      preHandler: W,
+      preHandler: D,
       schema: { params: uuidParam },
     },
     async (req) => {
