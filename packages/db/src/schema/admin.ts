@@ -7,6 +7,7 @@ export const adminUsers = pgTable('admin_users', {
     .notNull()
     .unique()
     .references(() => users.id, { onDelete: 'cascade' }),
-  role: text('role').notNull().default('SUPPORT'), // SUPER_ADMIN | MODERATOR | SUPPORT
+  role: text('role').notNull().default('SUPPORT'), // SUPER_ADMIN | MODERATOR | SUPPORT | ADMIN
+  status: text('status').notNull().default('active'), // pending | active | rejected
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
