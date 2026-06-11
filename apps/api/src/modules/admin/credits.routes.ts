@@ -8,7 +8,7 @@ import { adminGrant } from '../credits/ledger.js';
 import { requireAdmin } from './guard.js';
 
 export async function adminCreditsRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
 
   app.post(
     '/admin/credits/grant',
@@ -59,7 +59,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
   app.get(
     '/admin/credits/ledger/:userId',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']),
+      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']),
       schema: { params: z.object({ userId: z.string().uuid() }) },
     },
     async (req) => {
@@ -76,7 +76,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
   app.get(
     '/admin/credits/stats',
     {
-      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']),
+      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']),
     },
     async () => {
       const [issued] = await app.db

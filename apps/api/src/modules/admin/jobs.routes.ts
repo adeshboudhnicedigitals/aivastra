@@ -25,8 +25,8 @@ const JobsQuery = z.object({
 });
 
 export async function adminJobsRoutes(app: FastifyInstance) {
-  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT']);
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']);
+  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
 
   app.get('/admin/jobs', { preHandler: R, schema: { querystring: JobsQuery } }, async (req) => {
     // biome-ignore lint/suspicious/noExplicitAny: Fastify typed-provider workaround
