@@ -15,6 +15,7 @@ export interface TransitionOptions {
   workerId?: string;
   errorCode?: string;
   resultKey?: string;
+  thumbnailKey?: string;
 }
 
 export async function transitionJob(
@@ -41,8 +42,11 @@ export async function transitionJob(
   if (opts.resultKey && status === 'COMPLETED') {
     await db
       .insert(schema.jobOutputs)
-      .values({ jobId, resultKey: opts.resultKey })
-      .onConflictDoUpdate({ target: schema.jobOutputs.jobId, set: { resultKey: opts.resultKey } });
+      .values({ jobId, resultKey: opts.resultKey, thumbnailKey: opts.thumbnailKey ?? null })
+      .onConflictDoUpdate({
+        target: schema.jobOutputs.jobId,
+        set: { resultKey: opts.resultKey, thumbnailKey: opts.thumbnailKey ?? null },
+      });
   }
 
   await db.insert(schema.jobEvents).values({

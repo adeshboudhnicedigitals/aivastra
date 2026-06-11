@@ -46,6 +46,7 @@ export const jobOutputs = pgTable('job_outputs', {
     .primaryKey()
     .references(() => jobs.id, { onDelete: 'cascade' }),
   resultKey: text('result_key'),
+  thumbnailKey: text('thumbnail_key'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

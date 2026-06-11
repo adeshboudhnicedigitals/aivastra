@@ -1,6 +1,7 @@
 export const keys = {
   inputGarment: (jobId: string) => `inputs/${jobId}/garment.jpg`,
   output: (jobId: string) => `outputs/${jobId}/result.png`,
+  outputThumb: (jobId: string) => `outputs/${jobId}/result.thumb.jpg`,
   catalogItem: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.jpg`,
   catalogThumb: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.thumb.jpg`,
   modelFace: (id: string) => `models/faces/${id}.jpg`,

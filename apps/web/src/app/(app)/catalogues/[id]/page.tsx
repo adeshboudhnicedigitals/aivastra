@@ -143,6 +143,15 @@ function ImageCard({
     staleTime: 4 * 60 * 1000,
   });
 
+  // Thumbnail for card display — smaller file, faster grid load.
+  // Falls back to full result URL on API side if thumbnail not yet generated.
+  const { data: thumb } = useQuery<{ url: string }>({
+    queryKey: ['job-thumb', job.id],
+    queryFn: () => api.get(`/v1/jobs/${job.id}/thumbnail`),
+    enabled: isCompleted,
+    staleTime: 4 * 60 * 1000,
+  });
+
   async function handleDelete() {
     setDeleting(true);
     setDeleteError(null);
@@ -189,6 +198,7 @@ function ImageCard({
               padding: 0,
             }}
             onClick={() => {
+              // Always zoom into full-resolution image even when card shows thumbnail
               if (isCompleted && result?.url) onZoom(result.url);
             }}
           >
@@ -213,11 +223,11 @@ function ImageCard({
                 />
               </>
             )}
-            {isCompleted && result?.url ? (
+            {isCompleted && (thumb?.url ?? result?.url) ? (
               // eslint-disable-next-line @next/next/no-img-element
               // biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible
               <img
-                src={result.url}
+                src={thumb?.url ?? result?.url}
                 alt={`#${job.id.slice(0, 8)}`}
                 style={{
                   width: '100%',
@@ -490,10 +500,15 @@ export default function CataloguePage({
         });
 
         if (evt.status === 'COMPLETED') {
-          // Eagerly prime the result cache so ImageCard renders immediately
+          // Eagerly prime both caches so ImageCard renders immediately
           qc.prefetchQuery({
             queryKey: ['job-result', evt.jobId],
             queryFn: () => api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/result`),
+            staleTime: 4 * 60 * 1000,
+          });
+          qc.prefetchQuery({
+            queryKey: ['job-thumb', evt.jobId],
+            queryFn: () => api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/thumbnail`),
             staleTime: 4 * 60 * 1000,
           });
         }

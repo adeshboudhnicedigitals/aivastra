@@ -117,7 +117,7 @@ function AssetThumb({
         style={{ flexShrink: 0 }}
         onClick={(e) => {
           e.preventDefault();
-          onPreview?.(src);
+          onPreview?.(fullUrl);
         }}
       >
         {img}
@@ -439,10 +439,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     loadFaces,
     loadGarmentTypes,
     loadGarmentTypeAssets,
-    loadCatalog,
     loadPoseAssets,
     loadCatalogCategoriesAndTypes,
-    loadGarmentTypes,
   ]);
 
   // Poll every 30 s + refetch on tab focus so concurrent admin sessions stay in sync
@@ -478,8 +476,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     loadFaces,
     loadGarmentTypes,
     loadGarmentTypeAssets,
-    loadCatalog,
     loadPoseAssets,
+    loadCatalogCategoriesAndTypes,
   ]);
 
   // Preload faces + backgrounds silently so upload selects + filters are populated
@@ -501,20 +499,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   // Reset to page 1 whenever filters or sort change
   useEffect(() => {
     setPaPage(1);
-  }, [
-    paFilterFace,
-    paFilterBg,
-    paFilterWorkflow,
-    paFilterPose,
-    paSearch,
-    paSortKey,
-    paSortDir,
-    genderFilter,
-  ]);
+  }, []);
 
   useEffect(() => {
     setPosePage(1);
-  }, [filterFace, filterBg, filterPose, poseSearch, poseSortKey, poseSortDir]);
+  }, []);
 
   const toggleBg = async (id: string) => {
     const item = backgrounds.find((b) => b.id === id);
@@ -2477,7 +2466,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   value={deleteBgConfirmText}
                   onChange={(e) => setDeleteBgConfirmText(e.target.value)}
                   placeholder="move to recycle bin"
-                  autoFocus
                 />
               </div>
             </div>
@@ -2541,7 +2529,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   value={deleteFaceConfirmText}
                   onChange={(e) => setDeleteFaceConfirmText(e.target.value)}
                   placeholder="move to recycle bin"
-                  autoFocus
                 />
               </div>
             </div>
@@ -2927,7 +2914,6 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   value={deleteConfirmText}
                   onChange={(e) => setDeleteConfirmText(e.target.value)}
                   placeholder="move to recycle bin"
-                  autoFocus
                 />
               </div>
             </div>

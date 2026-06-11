@@ -24,6 +24,7 @@
 
 import { createDb, eq, schema } from '@aivastra/db';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { isNull } from 'drizzle-orm';
 import sharp from 'sharp';
 
 const THUMB_MAX = 512;
@@ -146,6 +147,35 @@ const SPECS: TableSpec[] = [
         src: r.thumbnailKey,
         dst: r.thumbnailKey,
       })),
+  },
+  {
+    // Backfill thumbnails for completed job outputs that pre-date the thumbnail feature.
+    // New jobs generate thumbnails automatically in the dispatcher.
+    // Only processes rows where thumbnail_key IS NULL (skips already-done rows).
+    name: 'outputs',
+    load: async (db) => {
+      const rows = await db
+        .select({
+          jobId: schema.jobOutputs.jobId,
+          resultKey: schema.jobOutputs.resultKey,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+        })
+        .from(schema.jobOutputs)
+        .where(isNull(schema.jobOutputs.thumbnailKey));
+      return rows.map((r) => ({
+        id: r.jobId,
+        src: r.resultKey,
+        dst: r.thumbnailKey,
+      }));
+    },
+    deriveDst: (src) =>
+      src.replace(/outputs\/([^/]+)\/result\.[^.]+$/, 'outputs/$1/result.thumb.jpg'),
+    updateRow: async (db, id, newDst) => {
+      await db
+        .update(schema.jobOutputs)
+        .set({ thumbnailKey: newDst })
+        .where(eq(schema.jobOutputs.jobId, id));
+    },
   },
 ];
 
