@@ -868,9 +868,9 @@ svg {
 }
 
 .pager {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 12px;
   padding: 12px 18px;
   border-top: 1px solid var(--border);
   font-size: 12.5px;
@@ -879,7 +879,6 @@ svg {
 .pager .pages {
   display: flex;
   gap: 2px;
-  margin-left: auto;
 }
 .pager .pages button {
   min-width: 28px;

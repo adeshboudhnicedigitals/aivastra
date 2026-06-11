@@ -8,6 +8,7 @@ import AssetsPage from './pages/AssetsPage';
 import DashboardPage from './pages/DashboardPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
+import RecycleBinPage from './pages/RecycleBinPage';
 import SettingsPage from './pages/SettingsPage';
 import UsersPage from './pages/UsersPage';
 import WorkflowsPage from './pages/WorkflowsPage';
@@ -21,6 +22,7 @@ const PATH_LABELS: Record<string, string> = {
   users: 'Users',
   jobs: 'Jobs',
   workflows: 'Workflows',
+  'recycle-bin': 'Recycle bin',
   settings: 'Settings',
 };
 
@@ -121,6 +123,7 @@ export default function App() {
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
+            <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
             <Route path="*" element={<DashboardPage {...pageProps} />} />
           </Routes>

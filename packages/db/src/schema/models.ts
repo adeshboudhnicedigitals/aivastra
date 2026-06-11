@@ -19,6 +19,7 @@ export const modelFaces = pgTable('model_faces', {
   thumbnailKey: text('thumbnail_key').notNull(),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -33,6 +34,7 @@ export const modelBackgrounds = pgTable('model_backgrounds', {
   isActive: boolean('is_active').notNull().default(true),
   isWhiteBg: boolean('is_white_bg').notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -101,6 +103,7 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
     onDelete: 'set null',
   }),
   promptGarmentPhase: text('prompt_garment_phase'),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
