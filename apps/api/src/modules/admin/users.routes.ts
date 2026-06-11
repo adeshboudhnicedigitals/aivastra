@@ -176,6 +176,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         userId: schema.adminUsers.userId,
         email: schema.users.email,
         displayName: schema.users.displayName,
+        role: schema.adminUsers.role,
         requestedAt: schema.adminUsers.createdAt,
       })
       .from(schema.adminUsers)
@@ -229,6 +230,9 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { userId } = req.params as { userId: string };
+      if (userId === req.userId) {
+        throw new AppError('FORBIDDEN', 403, 'cannot revoke your own admin access');
+      }
       await app.db.delete(schema.adminUsers).where(eq(schema.adminUsers.userId, userId));
       return { ok: true };
     },
