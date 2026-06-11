@@ -1826,7 +1826,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           genderSlug,
           poseVariant,
         });
-        sortOrder++;
+        _sortOrder++;
         createdPoses++;
       } catch (err) {
         errors.push(`pose ${entry.name}: ${(err as Error).message}`);
