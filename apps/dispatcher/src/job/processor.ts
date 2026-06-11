@@ -315,9 +315,10 @@ export async function processJob(
     // 8. Fetch output metadata + download image
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
     const outputImages = await fetchHistory(w.url, workerApiKey, promptId, jobLog);
-    if (!outputImages.length) throw new Error('ComfyUI returned no output images');
+    const [firstImage] = outputImages;
+    if (!firstImage) throw new Error('ComfyUI returned no output images');
 
-    const imageBytes = await downloadOutputImage(w.url, workerApiKey, outputImages[0].filename);
+    const imageBytes = await downloadOutputImage(w.url, workerApiKey, firstImage.filename);
 
     // 9. Upload result to R2
     const resultKey = keys.output(jobId);
