@@ -1496,11 +1496,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, mappingIds));
       }
 
+      // faceSideR2Key/bgComfyR2Key point to shared model_faces/model_backgrounds files — do not delete
       const keysToDelete = [asset.r2Key, asset.thumbnailKey];
-      if (asset.faceSideR2Key && asset.faceSideR2Key !== asset.r2Key)
-        keysToDelete.push(asset.faceSideR2Key);
-      if (asset.bgComfyR2Key && asset.bgComfyR2Key !== asset.r2Key)
-        keysToDelete.push(asset.bgComfyR2Key);
 
       await app.db.delete(schema.modelPoseAssets).where(eq(schema.modelPoseAssets.id, id));
       void Promise.allSettled(keysToDelete.map((k) => app.storage.deleteObject(k)));
@@ -1543,12 +1540,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
       await app.db.delete(schema.modelPoseAssets).where(inArray(schema.modelPoseAssets.id, ids));
 
-      const r2Keys = assets.flatMap((a) => {
-        const ks = [a.r2Key, a.thumbnailKey];
-        if (a.faceSideR2Key && a.faceSideR2Key !== a.r2Key) ks.push(a.faceSideR2Key);
-        if (a.bgComfyR2Key && a.bgComfyR2Key !== a.r2Key) ks.push(a.bgComfyR2Key);
-        return ks;
-      });
+      // faceSideR2Key/bgComfyR2Key point to shared model_faces/model_backgrounds files — do not delete
+      const r2Keys = assets.flatMap((a) => [a.r2Key, a.thumbnailKey]);
       void Promise.allSettled(r2Keys.map((k) => app.storage.deleteObject(k)));
 
       return { deleted: assets.length };
@@ -1570,8 +1563,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
     // Read metadata fields from form
     const fields = data.fields as Record<string, { value?: string }>;
-    const workflowTemplateId = fields['workflowTemplateId']?.value ?? null;
-    const genderSlug = fields['genderSlug']?.value ?? 'men';
+    const workflowTemplateId = fields.workflowTemplateId?.value ?? null;
+    const genderSlug = fields.genderSlug?.value ?? 'men';
 
     if (workflowTemplateId) {
       const [wf] = await app.db
@@ -1618,7 +1611,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const stem = entry.name.replace(/\.[^.]+$/, '');
         const numMatch = stem.match(/(\d+)$/);
         const bgNum = numMatch ? parseInt(numMatch[1], 10) : bgEntries.indexOf(entry) + 1;
-        // Skip if already exists (same label + gender)
         const [existing] = await app.db
           .select({ id: schema.modelBackgrounds.id, r2Key: schema.modelBackgrounds.r2Key })
           .from(schema.modelBackgrounds)
@@ -1628,17 +1620,26 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
               eq(schema.modelBackgrounds.genderSlug, genderSlug),
             ),
           );
+        const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+        const mime = extToMime[ext] ?? 'image/jpeg';
+        const buf = entry.getData();
+        const thumb = await makeThumb(buf);
         if (existing) {
+          // Re-upload files in case MinIO was reset after DB was populated
+          await Promise.all([
+            app.storage.putObject(existing.r2Key, buf, mime),
+            app.storage.putObject(
+              existing.r2Key.replace(/(\.[^.]+)?$/, '.thumb.jpg'),
+              thumb,
+              'image/jpeg',
+            ),
+          ]);
           bgIndexMap.set(bgNum, { id: existing.id, r2Key: existing.r2Key });
           continue;
         }
-        const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
-        const mime = extToMime[ext] ?? 'image/jpeg';
         const id = randomUUID();
         const r2Key = keys.modelBackground(id);
         const thumbKey = keys.modelBackgroundThumb(id);
-        const buf = entry.getData();
-        const thumb = await makeThumb(buf);
         await Promise.all([
           app.storage.putObject(r2Key, buf, mime),
           app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
@@ -1661,22 +1662,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const stem = entry.name.replace(/\.[^.]+$/, '');
         const numMatch = stem.match(/(\d+)$/);
         const faceNum = numMatch ? parseInt(numMatch[1], 10) : faceEntries.indexOf(entry) + 1;
-        // Skip if already exists (same label + gender)
         const [existing] = await app.db
           .select({ id: schema.modelFaces.id, r2Key: schema.modelFaces.r2Key })
           .from(schema.modelFaces)
           .where(and(eq(schema.modelFaces.label, stem), eq(schema.modelFaces.gender, genderSlug)));
+        const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+        const mime = extToMime[ext] ?? 'image/jpeg';
+        const buf = entry.getData();
+        const thumb = await makeThumb(buf);
         if (existing) {
+          // Re-upload files in case MinIO was reset after DB was populated
+          await Promise.all([
+            app.storage.putObject(existing.r2Key, buf, mime),
+            app.storage.putObject(
+              existing.r2Key.replace(/(\.[^.]+)?$/, '.thumb.jpg'),
+              thumb,
+              'image/jpeg',
+            ),
+          ]);
           faceIndexMap.set(faceNum, { id: existing.id, r2Key: existing.r2Key });
           continue;
         }
-        const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
-        const mime = extToMime[ext] ?? 'image/jpeg';
         const id = randomUUID();
         const r2Key = keys.modelFace(id);
         const thumbKey = keys.modelFaceThumb(id);
-        const buf = entry.getData();
-        const thumb = await makeThumb(buf);
         await Promise.all([
           app.storage.putObject(r2Key, buf, mime),
           app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
@@ -1700,7 +1709,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
     // Upload poses — parse faceXXbgYposeZZ pattern
     const posePattern = /face(\d+)bg(\d+)pose(\d+)/i;
-    let sortOrder = 0;
+    let _sortOrder = 0;
     for (const entry of poseEntries) {
       try {
         const stem = entry.name.replace(/\.[^.]+$/, '');
@@ -1776,19 +1785,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             ),
           );
         if (existingAsset) {
-          // Backfill null FK/key columns that were absent on original import
-          const patch: Record<string, unknown> = {};
+          // Always overwrite derived keys; only skip FK backfill if already set
+          const patch: Record<string, unknown> = {
+            faceSideR2Key: faceEntry.r2Key,
+            bgComfyR2Key: bgEntry.r2Key,
+          };
           if (!existingAsset.faceId) patch.faceId = faceEntry.id;
           if (!existingAsset.backgroundId) patch.backgroundId = bgEntry.id;
-          if (!existingAsset.faceSideR2Key) patch.faceSideR2Key = faceEntry.r2Key;
-          if (!existingAsset.bgComfyR2Key) patch.bgComfyR2Key = bgEntry.r2Key;
           if (Object.keys(patch).length > 0) {
             await app.db
               .update(schema.modelPoseAssets)
               .set(patch)
               .where(eq(schema.modelPoseAssets.id, existingAsset.id));
           }
-          sortOrder++;
+          _sortOrder++;
           continue;
         }
         const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();

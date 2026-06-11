@@ -684,9 +684,17 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     (p) => (!filterFace || p.faceId === filterFace) && (!filterBg || p.backgroundId === filterBg),
   );
 
+  const poseVariantsInCell = Array.from(
+    new Set(
+      posesInCell
+        .map((p) => p.label.match(/pose(\d+)/i)?.[0]?.toLowerCase())
+        .filter(Boolean) as string[],
+    ),
+  ).sort();
+
   // Filtered poses for grid
   const visiblePoses = posesInCell
-    .filter((p) => !filterPose || p.id === filterPose)
+    .filter((p) => !filterPose || p.label.match(/pose(\d+)/i)?.[0]?.toLowerCase() === filterPose)
     .filter((p) => !poseSearch || p.label.toLowerCase().includes(poseSearch.toLowerCase()))
     .sort((a, b) => {
       let cmp = 0;
@@ -1333,14 +1341,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               onChange={(e) => setFilterPose(e.target.value)}
             >
               <option value="">All poses ({posesInCell.length})</option>
-              {posesInCell
-                .slice()
-                .sort((a, b) => a.label.localeCompare(b.label))
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
+              {poseVariantsInCell.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
             </select>
             {(filterFace || filterBg || filterPose || poseSearch) && (
               <button
