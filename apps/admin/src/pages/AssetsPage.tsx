@@ -10,14 +10,13 @@ import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
 import { PoseUploadModal } from '../components/PoseUploadModal';
 import { Switch } from '../components/Switch';
-import type { SortDir } from '../components/Th';
-import { Th } from '../components/Th';
 import type { FieldDef } from '../components/UploadModal';
 import { UploadModal } from '../components/UploadModal';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch, getToken } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type {
+  CatalogCategory,
   CatalogItem,
   GarmentType,
   GenderSlug,
@@ -270,12 +269,30 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   // Catalog (lower / shoe) state
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
-  const [catalogQuery, setCatalogQuery] = useState('');
-  const [catalogPage, setCatalogPage] = useState(0);
-  const [catalogSortKey, setCatalogSortKey] = useState<keyof CatalogItem>('sortOrder');
-  const [catalogSortDir, setCatalogSortDir] = useState<SortDir>('asc');
   const [confirmDeleteCatalog, setConfirmDeleteCatalog] = useState<string | null>(null);
+  const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<CatalogCategory | null>(null);
+  const [confirmBulkDeleteCatalogIds, setConfirmBulkDeleteCatalogIds] = useState<string[]>([]);
   const [showCatalogUpload, setShowCatalogUpload] = useState(false);
+  const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
+  const [catalogTypeIds, setCatalogTypeIds] = useState<Record<string, number>>({});
+  const [lowerCatView, setLowerCatView] = useState<
+    { kind: 'list' } | { kind: 'category'; cat: CatalogCategory }
+  >({ kind: 'list' });
+  const [selectedCatalogItemIds, setSelectedCatalogItemIds] = useState<string[]>([]);
+  const [showBulkMapCatalog, setShowBulkMapCatalog] = useState(false);
+  const [bulkMapCatalogSubcatIds, setBulkMapCatalogSubcatIds] = useState<Set<string>>(new Set());
+  const [bulkMappingCatalog, setBulkMappingCatalog] = useState(false);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [catForm, setCatForm] = useState<{
+    label: string;
+    slug: string;
+    genderSlug: GenderSlug;
+    sortOrder: number;
+  }>({ label: '', slug: '', genderSlug: 'men', sortOrder: 0 });
+  const [catSaving, setCatSaving] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<CatalogCategory | null>(null);
+  const [editCatLabel, setEditCatLabel] = useState('');
+  const [editCatSaving, setEditCatSaving] = useState(false);
   const [editingCatalogItem, setEditingCatalogItem] = useState<CatalogItem | null>(null);
   const [editCatalogGender, setEditCatalogGender] = useState<string>('men');
   const [editCatalogSubcatIds, setEditCatalogSubcatIds] = useState<string[]>([]);
@@ -363,10 +380,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   );
 
   const loadCatalog = useCallback(
-    async (genderSlug?: string) => {
+    async (genderSlug?: string, categoryId?: number) => {
       setLoading(true);
       try {
-        const qs = genderSlug ? `?genderSlug=${genderSlug}` : '';
+        const params = new URLSearchParams();
+        if (genderSlug) params.set('genderSlug', genderSlug);
+        if (categoryId !== undefined) params.set('categoryId', String(categoryId));
+        const qs = params.toString() ? `?${params.toString()}` : '';
         const items = await apiFetch<CatalogItem[]>(`/admin/catalog/items${qs}`);
         setCatalogItems(items);
       } catch {
@@ -378,13 +398,33 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     [toast],
   );
 
+  const loadCatalogCategoriesAndTypes = useCallback(
+    async (typeSlug: 'lower' | 'shoe') => {
+      try {
+        const [cats, types] = await Promise.all([
+          apiFetch<CatalogCategory[]>('/admin/catalog/categories'),
+          apiFetch<{ id: number; slug: string; label: string }[]>('/admin/catalog/types'),
+        ]);
+        setCatalogCategories(cats.filter((c) => c.typeSlug === typeSlug));
+        setCatalogTypeIds(Object.fromEntries(types.map((t) => [t.slug, t.id])));
+      } catch {
+        toast({ kind: 'error', title: 'Failed to load categories' });
+      }
+    },
+    [toast],
+  );
+
   useEffect(() => {
     const g = genderFilter === 'all' ? undefined : genderFilter;
     if (activeTab === 'backgrounds') {
       loadBackgrounds(g);
     } else if (activeTab === 'faces') loadFaces();
-    else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog(g);
-    else if (activeTab === 'pose-assets') {
+    else if (activeTab === 'lower' || activeTab === 'shoe') {
+      setLowerCatView({ kind: 'list' });
+      setSelectedCatalogItemIds([]);
+      void loadCatalogCategoriesAndTypes(activeTab);
+      loadGarmentTypes();
+    } else if (activeTab === 'pose-assets') {
       loadPoseAssets();
       loadGarmentTypes();
     } else if (activeTab === 'garment-types') {
@@ -401,6 +441,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     loadGarmentTypeAssets,
     loadCatalog,
     loadPoseAssets,
+    loadCatalogCategoriesAndTypes,
+    loadGarmentTypes,
   ]);
 
   // Poll every 30 s + refetch on tab focus so concurrent admin sessions stay in sync
@@ -409,7 +451,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       const g = genderFilter === 'all' ? undefined : genderFilter;
       if (activeTab === 'backgrounds') loadBackgrounds(g);
       else if (activeTab === 'faces') loadFaces();
-      else if (activeTab === 'lower' || activeTab === 'shoe') loadCatalog(g);
+      else if (activeTab === 'lower' || activeTab === 'shoe')
+        void loadCatalogCategoriesAndTypes(activeTab);
       else if (activeTab === 'pose-assets') {
         loadPoseAssets();
         loadGarmentTypes();
@@ -853,6 +896,32 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               <span>{subView.sub.label}</span>
             </div>
           )}
+          {(activeTab === 'lower' || activeTab === 'shoe') && lowerCatView.kind === 'category' && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                marginBottom: 6,
+                fontSize: 13,
+                color: 'var(--muted)',
+              }}
+            >
+              <button
+                className="btn sm ghost"
+                onClick={() => {
+                  setLowerCatView({ kind: 'list' });
+                  setSelectedCatalogItemIds([]);
+                  setCatalogItems([]);
+                }}
+                style={{ padding: '2px 8px', fontSize: 13 }}
+              >
+                {activeTab === 'lower' ? 'Lower garments' : 'Shoes'}
+              </button>
+              <Icon.Chevron />
+              <span>{lowerCatView.cat.label}</span>
+            </div>
+          )}
           <h1>
             {activeTab === 'backgrounds'
               ? 'Backgrounds'
@@ -861,9 +930,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 : activeTab === 'pose-assets'
                   ? 'Pose Assets'
                   : activeTab === 'lower'
-                    ? 'Lower garments'
+                    ? lowerCatView.kind === 'category'
+                      ? lowerCatView.cat.label
+                      : 'Lower garments'
                     : activeTab === 'shoe'
-                      ? 'Shoes'
+                      ? lowerCatView.kind === 'category'
+                        ? lowerCatView.cat.label
+                        : 'Shoes'
                       : subView.kind === 'garment-type'
                         ? subView.sub.label
                         : 'Garment Types'}
@@ -881,7 +954,11 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               subView.kind === 'garment-type' &&
               `Assets for ${subView.sub.genderSlug} / ${subView.sub.slug}. Filter by face or background to slice the tensor.`}
             {(activeTab === 'lower' || activeTab === 'shoe') &&
-              'Optional add-ons shown when pose permits.'}
+              lowerCatView.kind === 'list' &&
+              'Categories of lower garments / shoes. Click to manage items inside each category.'}
+            {(activeTab === 'lower' || activeTab === 'shoe') &&
+              lowerCatView.kind === 'category' &&
+              `${lowerCatView.cat.genderSlug ?? 'all'} · batch upload items, then map to garment types.`}
           </p>
         </div>
         <div className="head-tools">
@@ -930,9 +1007,20 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               </button>
             </>
           )}
-          {(activeTab === 'lower' || activeTab === 'shoe') && (
+          {(activeTab === 'lower' || activeTab === 'shoe') && lowerCatView.kind === 'list' && (
+            <button
+              className="btn"
+              onClick={() => {
+                setCatForm({ label: '', slug: '', genderSlug: 'men', sortOrder: 0 });
+                setShowAddCategory(true);
+              }}
+            >
+              <Icon.Add /> Add {activeTab === 'lower' ? 'lower' : 'shoe'} category
+            </button>
+          )}
+          {(activeTab === 'lower' || activeTab === 'shoe') && lowerCatView.kind === 'category' && (
             <button className="btn" onClick={() => setShowCatalogUpload(true)}>
-              <Icon.Add /> Add item
+              <Icon.Upload /> Batch upload
             </button>
           )}
         </div>
@@ -1369,7 +1457,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
       {!loading && activeTab === 'garment-types' && subView.kind === 'garment-type' && (
         <>
-          {/* Face × background × pose filter bar */}
+          {/* Back + filter bar */}
           <div
             style={{
               display: 'flex',
@@ -1380,6 +1468,14 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               flexWrap: 'wrap',
             }}
           >
+            <button
+              className="btn sm ghost"
+              onClick={() => setSubView({ kind: 'list' })}
+              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              <Icon.Back />
+            </button>
+            <div style={{ width: 1, height: 16, background: 'var(--border)' }} />
             <input
               className="input"
               style={{ minWidth: 160, maxWidth: 220 }}
@@ -2009,217 +2105,294 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         </>
       )}
 
+      {/* ── Lower / Shoe — category list ─────────────────────────────────── */}
       {!loading &&
         (activeTab === 'lower' || activeTab === 'shoe') &&
-        (() => {
-          const filtered = catalogItems.filter(
-            (c) =>
-              c.type === activeTab &&
-              (!catalogQuery ||
-                c.label.toLowerCase().includes(catalogQuery.toLowerCase()) ||
-                c.id.toLowerCase().includes(catalogQuery.toLowerCase())),
-          );
-          const sorted = [...filtered].sort((a, b) => {
-            const aVal = a[catalogSortKey] ?? '';
-            const bVal = b[catalogSortKey] ?? '';
-            let cmp: number;
-            if (typeof aVal === 'boolean') cmp = Number(bVal as boolean) - Number(aVal);
-            else if (typeof aVal === 'string') cmp = aVal.localeCompare(bVal as string);
-            else cmp = (aVal as number) - (bVal as number);
-            return catalogSortDir === 'asc' ? cmp : -cmp;
-          });
-          const PAGE_SIZE = 25;
-          const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
-          const paged = sorted.slice(catalogPage * PAGE_SIZE, (catalogPage + 1) * PAGE_SIZE);
-          return (
-            <>
-              <div className="tabs" style={{ marginTop: -8, marginBottom: 4 }}>
-                {GENDER_TABS.map((t) => (
-                  <button
-                    key={t.k}
-                    className={`tab ${genderFilter === t.k ? 'active' : ''}`}
-                    onClick={() => setGenderFilter(t.k)}
+        lowerCatView.kind === 'list' && (
+          <div className="tabs" style={{ marginTop: -8 }}>
+            {GENDER_TABS.map((t) => (
+              <button
+                key={t.k}
+                className={`tab ${genderFilter === t.k ? 'active' : ''}`}
+                onClick={() => setGenderFilter(t.k)}
+              >
+                {t.l}
+              </button>
+            ))}
+          </div>
+        )}
+      {!loading &&
+        (activeTab === 'lower' || activeTab === 'shoe') &&
+        lowerCatView.kind === 'list' && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+              gap: 14,
+              marginTop: 8,
+            }}
+          >
+            {catalogCategories.filter(
+              (c) => genderFilter === 'all' || c.genderSlug === genderFilter,
+            ).length === 0 && (
+              <p style={{ color: 'var(--muted)', fontSize: 13, gridColumn: '1/-1' }}>
+                No categories yet. Click "Add {activeTab === 'lower' ? 'lower' : 'shoe'} category"
+                to create one.
+              </p>
+            )}
+            {catalogCategories
+              .filter((c) => genderFilter === 'all' || c.genderSlug === genderFilter)
+              .map((cat) => (
+                <div
+                  key={cat.id}
+                  className="card"
+                  style={{
+                    padding: 14,
+                    cursor: 'pointer',
+                    opacity: cat.isActive ? 1 : 0.55,
+                  }}
+                  onClick={() => {
+                    setLowerCatView({ kind: 'category', cat });
+                    setSelectedCatalogItemIds([]);
+                    setCatalogItems([]);
+                    void loadCatalog(undefined, cat.id);
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'start',
+                    }}
                   >
-                    {t.l}
+                    <span className="semi" style={{ fontSize: 14 }}>
+                      {cat.label}
+                    </span>
+                    <span className="badge dot">{cat.genderSlug ?? 'all'}</span>
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>
+                    slug: {cat.slug}
+                  </p>
+                  <div
+                    style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Switch
+                      checked={cat.isActive}
+                      onChange={async () => {
+                        const next = !cat.isActive;
+                        setCatalogCategories((prev) =>
+                          prev.map((c) => (c.id === cat.id ? { ...c, isActive: next } : c)),
+                        );
+                        try {
+                          await apiFetch(`/admin/catalog/categories/${cat.id}`, {
+                            method: 'PATCH',
+                            body: JSON.stringify({ isActive: next }),
+                          });
+                        } catch {
+                          setCatalogCategories((prev) =>
+                            prev.map((c) =>
+                              c.id === cat.id ? { ...c, isActive: cat.isActive } : c,
+                            ),
+                          );
+                          toast({ kind: 'error', title: 'Failed to update' });
+                        }
+                      }}
+                    />
+                    <button
+                      className="btn sm ghost"
+                      style={{ marginLeft: 'auto' }}
+                      onClick={() => {
+                        setEditingCategory(cat);
+                        setEditCatLabel(cat.label);
+                      }}
+                    >
+                      <Icon.Edit />
+                    </button>
+                    <button className="btn sm ghost" onClick={() => setConfirmDeleteCategory(cat)}>
+                      <Icon.Trash />
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+      {/* ── Lower / Shoe — items inside category ─────────────────────────── */}
+      {!loading &&
+        (activeTab === 'lower' || activeTab === 'shoe') &&
+        lowerCatView.kind === 'category' && (
+          <>
+            {/* Toolbar */}
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'center',
+                marginBottom: 10,
+                flexWrap: 'wrap',
+              }}
+            >
+              <button
+                className="btn sm ghost"
+                onClick={() => {
+                  setLowerCatView({ kind: 'list' });
+                  setSelectedCatalogItemIds([]);
+                  setCatalogItems([]);
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                <Icon.Back />
+              </button>
+              <div style={{ width: 1, height: 16, background: 'var(--border)', marginRight: 2 }} />
+              <button
+                className="btn sm ghost"
+                onClick={() => {
+                  const allIds = catalogItems.map((c) => c.id);
+                  const allSel = allIds.every((id) => selectedCatalogItemIds.includes(id));
+                  setSelectedCatalogItemIds(allSel ? [] : allIds);
+                }}
+              >
+                {catalogItems.length > 0 &&
+                catalogItems.every((c) => selectedCatalogItemIds.includes(c.id))
+                  ? 'Deselect all'
+                  : 'Select all'}
+              </button>
+              {selectedCatalogItemIds.length > 0 && (
+                <>
+                  <button
+                    className="btn sm"
+                    onClick={() => {
+                      setBulkMapCatalogSubcatIds(new Set());
+                      setShowBulkMapCatalog(true);
+                    }}
+                  >
+                    Map to garment types ({selectedCatalogItemIds.length})
                   </button>
+                  <button
+                    className="btn sm danger"
+                    onClick={() => setConfirmBulkDeleteCatalogIds([...selectedCatalogItemIds])}
+                  >
+                    <Icon.Trash /> Delete ({selectedCatalogItemIds.length})
+                  </button>
+                </>
+              )}
+              <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>
+                {catalogItems.length} item{catalogItems.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Items grid */}
+            {catalogItems.length === 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+                No items yet. Click "Batch upload" to add images.
+              </p>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                  gap: 10,
+                }}
+              >
+                {catalogItems.map((c) => (
+                  <div
+                    key={c.id}
+                    className="card"
+                    style={{
+                      padding: 10,
+                      opacity: c.isActive ? 1 : 0.55,
+                      outline: selectedCatalogItemIds.includes(c.id)
+                        ? '2px solid var(--pink)'
+                        : undefined,
+                      cursor: 'pointer',
+                    }}
+                    onClick={() =>
+                      setSelectedCatalogItemIds((prev) =>
+                        prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id],
+                      )
+                    }
+                  >
+                    <div style={{ position: 'relative' }}>
+                      {T(c, 120, 120)}
+                      <input
+                        type="checkbox"
+                        checked={selectedCatalogItemIds.includes(c.id)}
+                        onChange={() => {}}
+                        style={{
+                          position: 'absolute',
+                          top: 4,
+                          left: 4,
+                          accentColor: 'var(--pink)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+                    <div style={{ marginTop: 6 }}>
+                      <span className="semi" style={{ fontSize: 12, display: 'block' }}>
+                        {c.label}
+                      </span>
+                      <div
+                        style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Switch
+                          checked={c.isActive}
+                          onChange={async () => {
+                            const next = !c.isActive;
+                            setCatalogItems((prev) =>
+                              prev.map((x) => (x.id === c.id ? { ...x, isActive: next } : x)),
+                            );
+                            try {
+                              await apiFetch(`/admin/catalog/items/${c.id}`, {
+                                method: 'PATCH',
+                                body: JSON.stringify({ isActive: next }),
+                              });
+                            } catch {
+                              setCatalogItems((prev) =>
+                                prev.map((x) =>
+                                  x.id === c.id ? { ...x, isActive: c.isActive } : x,
+                                ),
+                              );
+                              toast({ kind: 'error', title: 'Failed' });
+                            }
+                          }}
+                        />
+                        <button
+                          className="btn sm ghost"
+                          style={{ marginLeft: 'auto', padding: '2px 4px' }}
+                          onClick={() => {
+                            setEditingCatalogItem(c);
+                            setEditCatalogLabel(c.label);
+                            setEditCatalogGender(c.genderSlug ?? 'men');
+                            setEditCatalogSubcatIds(c.subcategoryIds ?? []);
+                            setCatalogReplaceFile(null);
+                            setCatalogReplacePreview(null);
+                          }}
+                        >
+                          <Icon.Edit />
+                        </button>
+                        <button
+                          className="btn sm ghost"
+                          style={{ padding: '2px 4px' }}
+                          onClick={() => setConfirmDeleteCatalog(c.id)}
+                        >
+                          <Icon.Trash />
+                        </button>
+                      </div>
+                      {(c.subcategoryIds ?? []).length > 0 && (
+                        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>
+                          {c.subcategoryIds.length} garment type
+                          {c.subcategoryIds.length !== 1 ? 's' : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
-              <div style={{ marginBottom: 12 }}>
-                <input
-                  className="input"
-                  placeholder="Search by label or ID…"
-                  value={catalogQuery}
-                  onChange={(e) => {
-                    setCatalogQuery(e.target.value);
-                    setCatalogPage(0);
-                  }}
-                  style={{ maxWidth: 320 }}
-                />
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <Th
-                        k="label"
-                        sortKey={catalogSortKey}
-                        sortDir={catalogSortDir}
-                        onSort={(k) => {
-                          if (k === catalogSortKey)
-                            setCatalogSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-                          else {
-                            setCatalogSortKey(k as keyof CatalogItem);
-                            setCatalogSortDir('asc');
-                          }
-                        }}
-                      >
-                        Label
-                      </Th>
-                      <th>Gender</th>
-                      <Th
-                        k="sortOrder"
-                        sortKey={catalogSortKey}
-                        sortDir={catalogSortDir}
-                        onSort={(k) => {
-                          if (k === catalogSortKey)
-                            setCatalogSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-                          else {
-                            setCatalogSortKey(k as keyof CatalogItem);
-                            setCatalogSortDir('asc');
-                          }
-                        }}
-                      >
-                        Order
-                      </Th>
-                      <Th
-                        k="isActive"
-                        sortKey={catalogSortKey}
-                        sortDir={catalogSortDir}
-                        onSort={(k) => {
-                          if (k === catalogSortKey)
-                            setCatalogSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-                          else {
-                            setCatalogSortKey(k as keyof CatalogItem);
-                            setCatalogSortDir('asc');
-                          }
-                        }}
-                      >
-                        Active
-                      </Th>
-                      <Th
-                        k="updatedAt"
-                        sortKey={catalogSortKey}
-                        sortDir={catalogSortDir}
-                        onSort={(k) => {
-                          if (k === catalogSortKey)
-                            setCatalogSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-                          else {
-                            setCatalogSortKey(k as keyof CatalogItem);
-                            setCatalogSortDir('asc');
-                          }
-                        }}
-                      >
-                        Updated
-                      </Th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paged.map((c) => (
-                      <tr key={c.id}>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            {T(c, 40, 40)}
-                            <div>
-                              <span className="semi">{c.label}</span>
-                              <span className="sub mono" style={{ display: 'block' }}>
-                                {c.id.slice(0, 8)}…
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span className="badge dot">{c.genderSlug ?? 'all'}</span>
-                        </td>
-                        <td>
-                          <span className="mono">{c.sortOrder}</span>
-                        </td>
-                        <td>
-                          <Switch
-                            checked={c.isActive}
-                            onChange={async () => {
-                              const next = !c.isActive;
-                              setCatalogItems((prev) =>
-                                prev.map((x) => (x.id === c.id ? { ...x, isActive: next } : x)),
-                              );
-                              try {
-                                await apiFetch(`/admin/catalog/items/${c.id}`, {
-                                  method: 'PATCH',
-                                  body: JSON.stringify({ isActive: next }),
-                                });
-                                toast({
-                                  title: `${c.label} ${c.isActive ? 'deactivated' : 'activated'}`,
-                                });
-                              } catch {
-                                setCatalogItems((prev) =>
-                                  prev.map((x) =>
-                                    x.id === c.id ? { ...x, isActive: c.isActive } : x,
-                                  ),
-                                );
-                                toast({ kind: 'error', title: 'Failed to update item' });
-                              }
-                            }}
-                          />
-                        </td>
-                        <td>
-                          <span className="mono">{c.updatedAt.slice(0, 10)}</span>
-                        </td>
-                        <td>
-                          <button
-                            className="btn sm ghost"
-                            onClick={() => {
-                              setEditingCatalogItem(c);
-                              setEditCatalogLabel(c.label);
-                              setEditCatalogGender(c.genderSlug ?? 'men');
-                              setEditCatalogSubcatIds(c.subcategoryIds ?? []);
-                              setCatalogReplaceFile(null);
-                              setCatalogReplacePreview(null);
-                            }}
-                          >
-                            <Icon.Edit />
-                          </button>
-                          <button
-                            className="btn sm ghost"
-                            onClick={() => setConfirmDeleteCatalog(c.id)}
-                          >
-                            <Icon.Trash />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                    {paged.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
-                        >
-                          No items found.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <Pager
-                page={catalogPage}
-                totalPages={totalPages}
-                onPage={setCatalogPage}
-                totalItems={sorted.length}
-                pageSize={PAGE_SIZE}
-              />
-            </>
-          );
-        })()}
+            )}
+          </>
+        )}
 
       {confirmDelete && (
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
@@ -3842,23 +4015,445 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
           </div>
         </div>
       )}
+      {confirmDeleteCategory && (
+        <div className="modal-overlay" onClick={() => setConfirmDeleteCategory(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete category</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Delete category <strong>{confirmDeleteCategory.label}</strong>? Items inside will
+                not be deleted but will lose their category association.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmDeleteCategory(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn danger"
+                onClick={async () => {
+                  const cat = confirmDeleteCategory;
+                  setConfirmDeleteCategory(null);
+                  try {
+                    await apiFetch(`/admin/catalog/categories/${cat.id}`, { method: 'DELETE' });
+                    setCatalogCategories((prev) => prev.filter((c) => c.id !== cat.id));
+                    toast({ title: `${cat.label} deleted` });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: e instanceof Error ? e.message : 'Delete failed',
+                    });
+                  }
+                }}
+              >
+                <Icon.Trash /> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmBulkDeleteCatalogIds.length > 0 && (
+        <div className="modal-overlay" onClick={() => setConfirmBulkDeleteCatalogIds([])}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Delete items</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Delete <strong>{confirmBulkDeleteCatalogIds.length}</strong> selected item
+                {confirmBulkDeleteCatalogIds.length !== 1 ? 's' : ''}? This cannot be undone.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmBulkDeleteCatalogIds([])}>
+                Cancel
+              </button>
+              <button
+                className="btn danger"
+                onClick={async () => {
+                  const ids = confirmBulkDeleteCatalogIds;
+                  setConfirmBulkDeleteCatalogIds([]);
+                  try {
+                    await Promise.all(
+                      ids.map((id) => apiFetch(`/admin/catalog/items/${id}`, { method: 'DELETE' })),
+                    );
+                    setCatalogItems((prev) => prev.filter((c) => !ids.includes(c.id)));
+                    setSelectedCatalogItemIds([]);
+                    toast({ title: `${ids.length} item${ids.length !== 1 ? 's' : ''} deleted` });
+                  } catch {
+                    toast({ kind: 'error', title: 'Delete failed' });
+                  }
+                }}
+              >
+                <Icon.Trash /> Delete {confirmBulkDeleteCatalogIds.length}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showCatalogUpload && (
         <BatchCatalogUploadModal
           typeSlug={activeTab === 'shoe' ? 'shoe' : 'lower'}
-          garmentTypes={garmentTypes}
-          defaultGenderSlug={genderFilter === 'all' ? '' : genderFilter}
+          categoryId={lowerCatView.kind === 'category' ? lowerCatView.cat.id : undefined}
+          lockedGenderSlug={
+            lowerCatView.kind === 'category'
+              ? (lowerCatView.cat.genderSlug ?? undefined)
+              : undefined
+          }
+          defaultGenderSlug={genderFilter === 'all' ? 'men' : genderFilter}
           onDone={(added) => {
             setShowCatalogUpload(false);
             setCatalogItems((prev) => [...prev, ...(added as unknown as CatalogItem[])]);
-            apiFetch<CatalogItem[]>('/admin/catalog/items')
-              .then(setCatalogItems)
-              .catch(() => {
-                toast({ kind: 'error', title: 'Items added but failed to refresh list' });
-              });
           }}
           onClose={() => setShowCatalogUpload(false)}
           toast={toast}
         />
+      )}
+
+      {/* Add category modal */}
+      {showAddCategory && (
+        <div
+          className="modal-overlay"
+          onClick={catSaving ? undefined : () => setShowAddCategory(false)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(420px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>Add {activeTab === 'lower' ? 'lower garment' : 'shoe'} category</h3>
+              <button
+                className="btn sm ghost"
+                onClick={() => setShowAddCategory(false)}
+                disabled={catSaving}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icon.Close />
+              </button>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+            >
+              <div className="field">
+                <label>Label</label>
+                <input
+                  className="input"
+                  value={catForm.label}
+                  placeholder="e.g. Jeans"
+                  onChange={(e) => {
+                    const label = e.target.value;
+                    setCatForm((f) => ({
+                      ...f,
+                      label,
+                      slug: label
+                        .toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '-')
+                        .replace(/^-|-$/g, ''),
+                    }));
+                  }}
+                />
+              </div>
+              <div className="field">
+                <label>Slug</label>
+                <input
+                  className="input"
+                  value={catForm.slug}
+                  placeholder="e.g. jeans"
+                  onChange={(e) => setCatForm((f) => ({ ...f, slug: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label>Gender</label>
+                <select
+                  className="select"
+                  value={catForm.genderSlug}
+                  onChange={(e) =>
+                    setCatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug }))
+                  }
+                >
+                  <option value="men">Men</option>
+                  <option value="women">Women</option>
+                  <option value="boys">Boys</option>
+                  <option value="girls">Girls</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Sort order</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  value={catForm.sortOrder}
+                  onChange={(e) => setCatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
+                  style={{ width: 100 }}
+                />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setShowAddCategory(false)}
+                disabled={catSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                disabled={catSaving || !catForm.label.trim() || !catForm.slug.trim()}
+                onClick={async () => {
+                  const typeId = catalogTypeIds[activeTab];
+                  if (!typeId) {
+                    toast({ kind: 'error', title: 'Catalog type not found — check DB seeds' });
+                    return;
+                  }
+                  setCatSaving(true);
+                  try {
+                    const cat = await apiFetch<CatalogCategory>('/admin/catalog/categories', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        typeId,
+                        parentId: null,
+                        slug: catForm.slug,
+                        label: catForm.label,
+                        genderSlug: catForm.genderSlug,
+                        sortOrder: catForm.sortOrder,
+                      }),
+                    });
+                    setCatalogCategories((prev) => [...prev, cat]);
+                    setShowAddCategory(false);
+                    toast({ title: `Category "${cat.label}" created` });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: e instanceof Error ? e.message : 'Create failed',
+                    });
+                  } finally {
+                    setCatSaving(false);
+                  }
+                }}
+              >
+                Create category
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit category modal */}
+      {editingCategory && (
+        <div
+          className="modal-overlay"
+          onClick={editCatSaving ? undefined : () => setEditingCategory(null)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(380px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>Edit category</h3>
+              <button
+                className="btn sm ghost"
+                onClick={() => setEditingCategory(null)}
+                disabled={editCatSaving}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icon.Close />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="field">
+                <label>Label</label>
+                <input
+                  className="input"
+                  value={editCatLabel}
+                  onChange={(e) => setEditCatLabel(e.target.value)}
+                  disabled={editCatSaving}
+                />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setEditingCategory(null)}
+                disabled={editCatSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                disabled={editCatSaving || !editCatLabel.trim()}
+                onClick={async () => {
+                  setEditCatSaving(true);
+                  try {
+                    await apiFetch(`/admin/catalog/categories/${editingCategory.id}`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ label: editCatLabel.trim() }),
+                    });
+                    setCatalogCategories((prev) =>
+                      prev.map((c) =>
+                        c.id === editingCategory.id ? { ...c, label: editCatLabel.trim() } : c,
+                      ),
+                    );
+                    if (
+                      lowerCatView.kind === 'category' &&
+                      lowerCatView.cat.id === editingCategory.id
+                    ) {
+                      setLowerCatView({
+                        kind: 'category',
+                        cat: { ...lowerCatView.cat, label: editCatLabel.trim() },
+                      });
+                    }
+                    setEditingCategory(null);
+                    toast({ title: 'Category updated' });
+                  } catch {
+                    toast({ kind: 'error', title: 'Update failed' });
+                  } finally {
+                    setEditCatSaving(false);
+                  }
+                }}
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk map catalog items to garment types */}
+      {showBulkMapCatalog && lowerCatView.kind === 'category' && (
+        <div
+          className="modal-overlay"
+          onClick={bulkMappingCatalog ? undefined : () => setShowBulkMapCatalog(false)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(480px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>
+                Map {selectedCatalogItemIds.length} item
+                {selectedCatalogItemIds.length !== 1 ? 's' : ''} to garment types
+              </h3>
+              <button
+                className="btn sm ghost"
+                onClick={() => setShowBulkMapCatalog(false)}
+                disabled={bulkMappingCatalog}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icon.Close />
+              </button>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+            >
+              <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+                Replaces existing mappings on all selected items.
+              </p>
+              <div
+                style={{
+                  padding: '8px 12px',
+                  background: 'var(--subtle)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  maxHeight: 240,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                }}
+              >
+                {garmentTypes
+                  .filter(
+                    (g) =>
+                      !lowerCatView.cat.genderSlug || g.genderSlug === lowerCatView.cat.genderSlug,
+                  )
+                  .map((gt) => (
+                    <label
+                      key={gt.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '4px 0',
+                        cursor: bulkMappingCatalog ? 'default' : 'pointer',
+                        fontSize: 12.5,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={bulkMapCatalogSubcatIds.has(gt.id)}
+                        disabled={bulkMappingCatalog}
+                        onChange={(e) =>
+                          setBulkMapCatalogSubcatIds((prev) => {
+                            const next = new Set(prev);
+                            e.target.checked ? next.add(gt.id) : next.delete(gt.id);
+                            return next;
+                          })
+                        }
+                      />
+                      <span>{gt.label}</span>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>{gt.slug}</span>
+                    </label>
+                  ))}
+                {garmentTypes.filter(
+                  (g) =>
+                    !lowerCatView.cat.genderSlug || g.genderSlug === lowerCatView.cat.genderSlug,
+                ).length === 0 && (
+                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                    No garment types for {lowerCatView.cat.genderSlug ?? 'this gender'} yet.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setShowBulkMapCatalog(false)}
+                disabled={bulkMappingCatalog}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                disabled={bulkMappingCatalog}
+                onClick={async () => {
+                  setBulkMappingCatalog(true);
+                  try {
+                    const subcategoryIds = [...bulkMapCatalogSubcatIds];
+                    await apiFetch('/admin/catalog/items/bulk-subcategories', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ ids: selectedCatalogItemIds, subcategoryIds }),
+                    });
+                    setCatalogItems((prev) =>
+                      prev.map((c) =>
+                        selectedCatalogItemIds.includes(c.id) ? { ...c, subcategoryIds } : c,
+                      ),
+                    );
+                    setShowBulkMapCatalog(false);
+                    toast({
+                      title: `Mapped ${selectedCatalogItemIds.length} items to ${subcategoryIds.length} garment type${subcategoryIds.length !== 1 ? 's' : ''}`,
+                    });
+                  } catch {
+                    toast({ kind: 'error', title: 'Mapping failed' });
+                  } finally {
+                    setBulkMappingCatalog(false);
+                  }
+                }}
+              >
+                Apply to {selectedCatalogItemIds.length}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {previewUrl && (

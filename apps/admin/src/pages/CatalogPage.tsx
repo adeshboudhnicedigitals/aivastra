@@ -8,7 +8,7 @@ import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type { CatalogItem, GarmentType } from '../types';
+import type { CatalogItem } from '../types';
 
 async function uploadFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -63,19 +63,15 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
   const replaceFileRef = useRef<HTMLInputElement>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [garmentTypes, setGarmentTypes] = useState<GarmentType[]>([]);
-
   useEffect(() => {
     setLoading(true);
     Promise.all([
       apiFetch<CatalogItem[]>('/admin/catalog/items'),
       apiFetch<CategoryRow[]>('/admin/catalog/categories'),
-      apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types'),
     ])
-      .then(([itemsRes, catsRes, gtRes]) => {
+      .then(([itemsRes, catsRes]) => {
         setItems(itemsRes);
         setCategories(catsRes);
-        setGarmentTypes(gtRes.items);
       })
       .catch(() => {
         toast({ kind: 'error', title: 'Failed to load catalog' });
@@ -558,7 +554,6 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       {showUpload && (
         <BatchCatalogUploadModal
           typeSlug={tab === 'shoe' ? 'shoe' : 'lower'}
-          garmentTypes={garmentTypes}
           onDone={(added) => {
             setShowUpload(false);
             setItems((prev) => [...prev, ...(added as any)]);

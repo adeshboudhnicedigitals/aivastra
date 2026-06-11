@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  BulkCatalogSubcatsBody,
   ConfirmCatalogItemBody,
   CreateCategoryBody,
+  PatchCategoryBody,
   PresignCatalogItemBody,
 } from '@aivastra/types';
 import { and, count, eq, inArray } from 'drizzle-orm';
@@ -20,17 +22,27 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     {
       preHandler: W,
       schema: {
-        querystring: z.object({ genderSlug: z.string().optional(), type: z.string().optional() }),
+        querystring: z.object({
+          genderSlug: z.string().optional(),
+          type: z.string().optional(),
+          categoryId: z.coerce.number().int().optional(),
+        }),
       },
     },
     async (req) => {
-      const { genderSlug, type } = req.query as { genderSlug?: string; type?: string };
+      const { genderSlug, type, categoryId } = req.query as {
+        genderSlug?: string;
+        type?: string;
+        categoryId?: number;
+      };
       const conditions = [];
       if (genderSlug) conditions.push(eq(schema.catalogItems.genderSlug, genderSlug));
       if (type) conditions.push(eq(schema.catalogItems.type, type));
+      if (categoryId) conditions.push(eq(schema.catalogItems.categoryId, categoryId));
       const rows = await app.db
         .select({
           id: schema.catalogItems.id,
+          categoryId: schema.catalogItems.categoryId,
           type: schema.catalogItems.type,
           genderSlug: schema.catalogItems.genderSlug,
           label: schema.catalogItems.label,
@@ -97,8 +109,16 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     '/admin/catalog/items/confirm',
     { preHandler: W, schema: { body: ConfirmCatalogItemBody } },
     async (req) => {
-      const { typeSlug, genderSlug, label, r2Key, thumbnailKey, sortOrder, subcategoryIds } =
-        req.body as any;
+      const {
+        typeSlug,
+        genderSlug,
+        label,
+        r2Key,
+        thumbnailKey,
+        sortOrder,
+        subcategoryIds,
+        categoryId,
+      } = req.body as any;
       const row = await app.db.transaction(async (tx) => {
         const [inserted] = await tx
           .insert(schema.catalogItems)
@@ -109,6 +129,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
             r2Key,
             thumbnailKey,
             sortOrder,
+            categoryId: categoryId ?? null,
           })
           .returning();
         if (subcategoryIds && subcategoryIds.length > 0) {
@@ -227,6 +248,52 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       if (value > 0) throw new AppError('IN_USE', 409, 'category has active items');
       await app.db.delete(schema.catalogCategories).where(eq(schema.catalogCategories.id, id));
       return { ok: true };
+    },
+  );
+
+  app.patch(
+    '/admin/catalog/categories/:id',
+    {
+      preHandler: W,
+      schema: {
+        params: z.object({ id: z.coerce.number().int() }),
+        body: PatchCategoryBody,
+      },
+    },
+    async (req) => {
+      const { id } = req.params as any;
+      await app.db
+        .update(schema.catalogCategories)
+        .set(req.body as object)
+        .where(eq(schema.catalogCategories.id, id));
+      return { ok: true };
+    },
+  );
+
+  app.get('/admin/catalog/types', { preHandler: W }, async () => {
+    return app.db.select().from(schema.catalogTypes);
+  });
+
+  app.patch(
+    '/admin/catalog/items/bulk-subcategories',
+    { preHandler: W, schema: { body: BulkCatalogSubcatsBody } },
+    async (req) => {
+      const { ids, subcategoryIds } = req.body as { ids: string[]; subcategoryIds: string[] };
+      await app.db.transaction(async (tx) => {
+        await tx
+          .delete(schema.catalogItemSubcategories)
+          .where(inArray(schema.catalogItemSubcategories.catalogItemId, ids));
+        if (subcategoryIds.length > 0) {
+          await tx
+            .insert(schema.catalogItemSubcategories)
+            .values(
+              ids.flatMap((itemId) =>
+                subcategoryIds.map((subcategoryId) => ({ catalogItemId: itemId, subcategoryId })),
+              ),
+            );
+        }
+      });
+      return { ok: true, updated: ids.length };
     },
   );
 }

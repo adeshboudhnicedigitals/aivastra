@@ -79,12 +79,26 @@ export interface ModelPose {
   updatedAt: string;
 }
 
+export interface CatalogCategory {
+  id: number;
+  typeId: number;
+  typeSlug: string;
+  parentId: number | null;
+  slug: string;
+  label: string;
+  genderSlug: string | null;
+  sortOrder: number;
+  isActive: boolean;
+}
+
 export interface CatalogItem {
   id: string;
+  categoryId: number | null;
   type: 'lower' | 'shoe';
   genderSlug: string | null;
   label: string;
   thumbnailKey: string;
+  r2Key: string;
   isActive: boolean;
   sortOrder: number;
   subcategoryIds: string[];

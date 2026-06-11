@@ -273,7 +273,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         <div className="page-head">
           <div>
             <button className="btn ghost" onClick={() => setDetail(null)}>
-              <Icon.Chevron /> Back to jobs
+              <Icon.Back /> Back to jobs
             </button>
             <h1 style={{ marginTop: 8, fontFamily: 'var(--mono)', fontSize: 18 }}>{j.id}</h1>
             <p className="lede">
