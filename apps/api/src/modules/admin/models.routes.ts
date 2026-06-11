@@ -646,6 +646,37 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.patch('/admin/assets/poses/bulk-workflow', { preHandler: W }, async (req) => {
+    const { ids, workflowTemplateId } = req.body as {
+      ids: string[];
+      workflowTemplateId: string;
+    };
+    if (!Array.isArray(ids) || ids.length === 0)
+      throw new AppError('VALIDATION', 400, 'ids required');
+
+    const [wf] = await app.db
+      .select({
+        id: schema.workflowTemplates.id,
+        lowerNodeId: schema.workflowTemplates.lowerNodeId,
+        shoeNodeId: schema.workflowTemplates.shoeNodeId,
+      })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+    if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
+
+    await app.db
+      .update(schema.modelPoses)
+      .set({
+        workflowTemplateId,
+        showsLower: wf.lowerNodeId != null,
+        showsShoes: wf.shoeNodeId != null,
+        updatedAt: new Date(),
+      })
+      .where(inArray(schema.modelPoses.id, ids));
+
+    return { ok: true, updated: ids.length };
+  });
+
   app.post(
     '/admin/assets/poses/:id/clone',
     { preHandler: W, schema: { params: uuidParam, body: ClonePoseBody } },

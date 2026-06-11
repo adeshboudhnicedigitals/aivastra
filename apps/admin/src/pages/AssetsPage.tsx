@@ -256,6 +256,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   const [selectedPoseIds, setSelectedPoseIds] = useState<string[]>([]);
   const [confirmBulkDeletePoseIds, setConfirmBulkDeletePoseIds] = useState<string[]>([]);
+  const [bulkWorkflowId, setBulkWorkflowId] = useState('');
+  const [bulkWorkflowing, setBulkWorkflowing] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkImportGender, setBulkImportGender] = useState<GenderSlug>('men');
   const [bulkImportWorkflowId, setBulkImportWorkflowId] = useState('');
@@ -567,6 +569,39 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
       toast({ title: `Deleted ${res.deleted} pose${res.deleted !== 1 ? 's' : ''}` });
     } catch {
       toast({ kind: 'error', title: 'Bulk delete failed' });
+    }
+  };
+
+  const doBulkWorkflow = async () => {
+    if (!bulkWorkflowId || selectedPoseIds.length === 0) return;
+    setBulkWorkflowing(true);
+    try {
+      await apiFetch('/admin/assets/poses/bulk-workflow', {
+        method: 'PATCH',
+        body: JSON.stringify({ ids: selectedPoseIds, workflowTemplateId: bulkWorkflowId }),
+      });
+      const wf = workflows.find((w) => w.id === bulkWorkflowId);
+      setPoses((prev) =>
+        prev.map((p) =>
+          selectedPoseIds.includes(p.id)
+            ? {
+                ...p,
+                workflowTemplateId: bulkWorkflowId,
+                workflowLabel: wf?.label ?? null,
+                showsLower: wf?.lowerNodeId != null,
+                showsShoes: wf?.shoeNodeId != null,
+              }
+            : p,
+        ),
+      );
+      toast({
+        title: `Workflow updated for ${selectedPoseIds.length} pose${selectedPoseIds.length !== 1 ? 's' : ''}`,
+      });
+      setBulkWorkflowId('');
+    } catch {
+      toast({ kind: 'error', title: 'Bulk workflow update failed' });
+    } finally {
+      setBulkWorkflowing(false);
     }
   };
 
@@ -1450,12 +1485,34 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   : 'Select all'}
               </button>
               {selectedPoseIds.length > 0 && (
-                <button
-                  className="btn sm danger"
-                  onClick={() => setConfirmBulkDeletePoseIds([...selectedPoseIds])}
-                >
-                  <Icon.Trash /> Delete selected ({selectedPoseIds.length})
-                </button>
+                <>
+                  <select
+                    className="select"
+                    style={{ minWidth: 140 }}
+                    value={bulkWorkflowId}
+                    onChange={(e) => setBulkWorkflowId(e.target.value)}
+                  >
+                    <option value="">Change workflow…</option>
+                    {workflows.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn sm"
+                    disabled={!bulkWorkflowId || bulkWorkflowing}
+                    onClick={() => void doBulkWorkflow()}
+                  >
+                    Apply to {selectedPoseIds.length}
+                  </button>
+                  <button
+                    className="btn sm danger"
+                    onClick={() => setConfirmBulkDeletePoseIds([...selectedPoseIds])}
+                  >
+                    <Icon.Trash /> Delete selected ({selectedPoseIds.length})
+                  </button>
+                </>
               )}
             </div>
           </div>
