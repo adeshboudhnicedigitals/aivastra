@@ -15,12 +15,13 @@ import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
 
 export async function adminCatalogRoutes(app: FastifyInstance) {
-  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const D = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
 
   app.get(
     '/admin/catalog/items',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         querystring: z.object({
           genderSlug: z.string().optional(),
@@ -71,7 +72,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get('/admin/catalog/categories', { preHandler: W }, async () => {
+  app.get('/admin/catalog/categories', { preHandler: RW }, async () => {
     const rows = await app.db
       .select({
         id: schema.catalogCategories.id,
@@ -92,7 +93,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/admin/catalog/items/presign',
-    { preHandler: W, schema: { body: PresignCatalogItemBody } },
+    { preHandler: RW, schema: { body: PresignCatalogItemBody } },
     async (req) => {
       const { contentType, typeSlug } = req.body as any;
       const newId = randomUUID();
@@ -107,7 +108,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/admin/catalog/items/confirm',
-    { preHandler: W, schema: { body: ConfirmCatalogItemBody } },
+    { preHandler: RW, schema: { body: ConfirmCatalogItemBody } },
     async (req) => {
       const {
         typeSlug,
@@ -149,7 +150,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/catalog/items/:id',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         params: z.object({ id: z.string().uuid() }),
         body: z.object({
@@ -193,7 +194,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/catalog/items/:id',
     {
-      preHandler: W,
+      preHandler: D,
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req) => {
@@ -223,7 +224,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
 
   app.post(
     '/admin/catalog/categories',
-    { preHandler: W, schema: { body: CreateCategoryBody } },
+    { preHandler: RW, schema: { body: CreateCategoryBody } },
     async (req) => {
       const [row] = await app.db
         .insert(schema.catalogCategories)
@@ -236,7 +237,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/catalog/categories/:id',
     {
-      preHandler: W,
+      preHandler: D,
       schema: { params: z.object({ id: z.coerce.number().int() }) },
     },
     async (req) => {
@@ -254,7 +255,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
   app.patch(
     '/admin/catalog/categories/:id',
     {
-      preHandler: W,
+      preHandler: RW,
       schema: {
         params: z.object({ id: z.coerce.number().int() }),
         body: PatchCategoryBody,
@@ -270,13 +271,13 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get('/admin/catalog/types', { preHandler: W }, async () => {
+  app.get('/admin/catalog/types', { preHandler: RW }, async () => {
     return app.db.select().from(schema.catalogTypes);
   });
 
   app.patch(
     '/admin/catalog/items/bulk-subcategories',
-    { preHandler: W, schema: { body: BulkCatalogSubcatsBody } },
+    { preHandler: RW, schema: { body: BulkCatalogSubcatsBody } },
     async (req) => {
       const { ids, subcategoryIds } = req.body as { ids: string[]; subcategoryIds: string[] };
       await app.db.transaction(async (tx) => {
