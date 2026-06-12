@@ -5,6 +5,7 @@ import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import { EditBackgroundModal } from '../components/EditBackgroundModal';
 import { EditFaceModal } from '../components/EditFaceModal';
 import { EditPoseAssetModal } from '../components/EditPoseAssetModal';
+import { EditPoseModal } from '../components/EditPoseModal';
 
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
@@ -187,6 +188,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
 
   // Edit pose asset state
   const [editingPoseAsset, setEditingPoseAsset] = useState<ModelPoseAsset | null>(null);
+  const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
 
   // Map pose asset state
   const [mappingPoseAsset, setMappingPoseAsset] = useState<ModelPoseAsset | null>(null);
@@ -1724,6 +1726,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       <div style={{ display: 'flex', gap: 4 }}>
                         <button
                           className="btn sm ghost"
+                          title="Edit prompt &amp; workflow"
+                          onClick={() => setEditingPose(pose)}
+                        >
+                          <Icon.Edit />
+                        </button>
+                        <button
+                          className="btn sm ghost"
                           onClick={() =>
                             setConfirmDelete({ type: 'pose', id: pose.id, label: pose.label })
                           }
@@ -2778,6 +2787,21 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
               .catch(() => {});
           }}
           onClose={() => setShowPoseAssetUpload(false)}
+          toast={toast}
+        />
+      )}
+
+      {/* ── Edit pose (canvas) ── */}
+      {editingPose && (
+        <EditPoseModal
+          pose={editingPose}
+          faces={faces}
+          backgrounds={allBackgrounds}
+          workflows={workflows}
+          onSaved={(updated) => {
+            setPoses((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+          }}
+          onClose={() => setEditingPose(null)}
           toast={toast}
         />
       )}
