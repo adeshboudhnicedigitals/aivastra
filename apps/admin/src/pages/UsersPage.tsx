@@ -6,6 +6,7 @@ import { Pager } from '../components/Pager';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
+import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import type { User } from '../types';
 
@@ -17,6 +18,8 @@ interface Props {
 }
 
 export default function UsersPage({ onNav: _onNav, toast }: Props) {
+  const { role: myRole } = useAuth();
+  const isSuperAdmin = myRole === 'SUPER_ADMIN';
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof User>('createdAt');
@@ -31,6 +34,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
   const [grantAmount, setGrantAmount] = useState('');
   const [grantReason, setGrantReason] = useState('');
   const [granting, setGranting] = useState(false);
+  const [adminActioning, setAdminActioning] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -142,7 +146,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
         <div className="page-head">
           <div>
             <button className="btn ghost" onClick={() => setDetail(null)}>
-              <Icon.Chevron /> Back to users
+              <Icon.Back /> Back to users
             </button>
             <h1 style={{ marginTop: 8 }}>{u.displayName ?? u.email}</h1>
             <p className="lede">
@@ -152,7 +156,13 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
           <div className="head-tools">
             {u.isAdmin && (
               <span className="badge dot" style={{ background: 'var(--pink)', color: '#fff' }}>
-                Admin
+                {u.adminRole === 'SUPER_ADMIN'
+                  ? 'Super Admin'
+                  : u.adminRole === 'MODERATOR'
+                    ? 'Moderator'
+                    : u.adminRole === 'SUPPORT'
+                      ? 'Support'
+                      : 'Admin'}
               </span>
             )}
             <StatusBadge status={u.isBanned ? 'FAILED' : 'active'} />
@@ -166,6 +176,60 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
             >
               <Icon.Plus /> Grant Credits
             </button>
+            {isSuperAdmin && !u.isAdmin && (
+              <button
+                className="btn"
+                disabled={adminActioning || !u.hasPassword}
+                title={
+                  !u.hasPassword
+                    ? 'User must set a password before being granted admin access'
+                    : undefined
+                }
+                onClick={async () => {
+                  setAdminActioning(true);
+                  try {
+                    await apiFetch('/admin/admin-users', {
+                      method: 'POST',
+                      body: JSON.stringify({ userId: u.id, role: 'ADMIN' }),
+                    });
+                    setDetail((prev) => prev && { ...prev, isAdmin: true });
+                    setUsers((prev) =>
+                      prev.map((x) => (x.id === u.id ? { ...x, isAdmin: true } : x)),
+                    );
+                    toast({ title: `${u.displayName ?? u.email} granted admin access` });
+                  } catch {
+                    toast({ kind: 'error', title: 'Failed to grant admin access' });
+                  } finally {
+                    setAdminActioning(false);
+                  }
+                }}
+              >
+                <Icon.Check /> Grant Admin
+              </button>
+            )}
+            {isSuperAdmin && u.isAdmin && (
+              <button
+                className="btn danger"
+                disabled={adminActioning}
+                onClick={async () => {
+                  setAdminActioning(true);
+                  try {
+                    await apiFetch(`/admin/admin-users/${u.id}`, { method: 'DELETE' });
+                    setDetail((prev) => prev && { ...prev, isAdmin: false });
+                    setUsers((prev) =>
+                      prev.map((x) => (x.id === u.id ? { ...x, isAdmin: false } : x)),
+                    );
+                    toast({ title: `${u.displayName ?? u.email} admin access revoked` });
+                  } catch {
+                    toast({ kind: 'error', title: 'Failed to revoke admin access' });
+                  } finally {
+                    setAdminActioning(false);
+                  }
+                }}
+              >
+                <Icon.Ban /> Revoke Admin
+              </button>
+            )}
             {!u.isAdmin && (
               <button className="btn danger" onClick={() => setConfirmSuspend(u.id)}>
                 <Icon.Ban /> {u.isBanned ? 'Unsuspend' : 'Suspend'}
@@ -187,6 +251,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
               <KV k="Total jobs" v={(u.totalJobs ?? 0).toLocaleString()} />
               <KV k="Last job" v={u.lastJobAt ? new Date(u.lastJobAt).toLocaleString() : '—'} />
               <KV k="Joined" v={new Date(u.createdAt).toLocaleDateString()} />
+              <KV k="Auth" v={u.hasPassword ? 'Email + Password' : 'Google (no password)'} />
               <KV
                 k="Banned"
                 v={u.isBanned ? `Yes${u.banReason ? ` — ${u.banReason}` : ''}` : 'No'}
@@ -386,7 +451,26 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                                 className="badge dot"
                                 style={{ background: 'var(--pink)', color: '#fff', fontSize: 10 }}
                               >
-                                Admin
+                                {u.adminRole === 'SUPER_ADMIN'
+                                  ? 'Super Admin'
+                                  : u.adminRole === 'MODERATOR'
+                                    ? 'Moderator'
+                                    : u.adminRole === 'SUPPORT'
+                                      ? 'Support'
+                                      : 'Admin'}
+                              </span>
+                            )}
+                            {!u.hasPassword && (
+                              <span
+                                className="badge dot"
+                                style={{
+                                  background: 'var(--muted-2)',
+                                  color: 'var(--muted)',
+                                  fontSize: 10,
+                                }}
+                                title="Google account — no password set"
+                              >
+                                Google
                               </span>
                             )}
                           </span>

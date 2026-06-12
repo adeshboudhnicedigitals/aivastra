@@ -67,10 +67,11 @@ function extractDefaultPrompts(
 
 export async function adminWorkflowsRoutes(app: FastifyInstance) {
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
   const uuidParam = z.object({ id: z.string().uuid() });
 
   // GET /admin/workflows
-  app.get('/admin/workflows', { preHandler: W }, async () => {
+  app.get('/admin/workflows', { preHandler: R }, async () => {
     const rows = await app.db.select().from(schema.workflowTemplates);
 
     const poseCounts = await app.db
@@ -223,7 +224,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
   app.get(
     '/admin/workflows/:id',
     {
-      preHandler: W,
+      preHandler: R,
       schema: { params: uuidParam },
     },
     async (req) => {

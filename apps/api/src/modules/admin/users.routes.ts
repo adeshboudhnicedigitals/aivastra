@@ -45,6 +45,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           totalJobs: sql<number>`COUNT(${schema.jobs.id})::int`,
           lastJobAt: sql<string | null>`MAX(${schema.jobs.createdAt})`,
           isAdmin: isNotNull(schema.adminUsers.id),
+          adminRole: schema.adminUsers.role,
+          hasPassword: isNotNull(schema.users.passwordHash),
         })
         .from(schema.users)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
@@ -79,6 +81,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           createdAt: schema.users.createdAt,
           updatedAt: schema.users.updatedAt,
           isAdmin: isNotNull(schema.adminUsers.id),
+          adminRole: schema.adminUsers.role,
+          hasPassword: isNotNull(schema.users.passwordHash),
         })
         .from(schema.users)
         .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
@@ -219,6 +223,35 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .returning({ userId: schema.adminUsers.userId });
       if (!row) throw new AppError('NOT_FOUND', 404, 'no pending admin request for this user');
       return { ok: true, status: 'rejected' };
+    },
+  );
+
+  app.post(
+    '/admin/admin-users',
+    {
+      preHandler: SUPER,
+      schema: {
+        body: z.object({
+          userId: z.string().uuid(),
+          role: z.enum(['ADMIN', 'MODERATOR', 'SUPPORT']).default('ADMIN'),
+        }),
+      },
+    },
+    async (req) => {
+      const { userId, role } = req.body as { userId: string; role: string };
+      const [user] = await app.db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId));
+      if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
+      await app.db
+        .insert(schema.adminUsers)
+        .values({ userId, role, status: 'active' })
+        .onConflictDoUpdate({
+          target: schema.adminUsers.userId,
+          set: { role, status: 'active' },
+        });
+      return { ok: true, role, status: 'active' };
     },
   );
 

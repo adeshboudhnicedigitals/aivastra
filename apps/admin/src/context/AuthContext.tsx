@@ -1,7 +1,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import { apiFetch, initAuthFailureHandler, setToken } from '../lib/data';
 
-export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
+export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT' | 'ADMIN';
 
 interface AuthState {
   token: string | null;
@@ -68,8 +68,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ email, password }),
       });
       setToken(accessToken);
-      setTokenState(accessToken);
-      await fetchRole();
+      try {
+        await fetchRole();
+        setTokenState(accessToken);
+      } catch (err) {
+        setToken(null);
+        throw err;
+      }
     },
     [fetchRole],
   );
