@@ -274,6 +274,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [confirmDeleteCatalog, setConfirmDeleteCatalog] = useState<string | null>(null);
   const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<CatalogCategory | null>(null);
   const [confirmBulkDeleteCatalogIds, setConfirmBulkDeleteCatalogIds] = useState<string[]>([]);
+  const [confirmUnmapCatalogIds, setConfirmUnmapCatalogIds] = useState<string[]>([]);
   const [showCatalogUpload, setShowCatalogUpload] = useState(false);
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
   const [catalogTypeIds, setCatalogTypeIds] = useState<Record<string, number>>({});
@@ -284,6 +285,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
   const [showBulkMapCatalog, setShowBulkMapCatalog] = useState(false);
   const [bulkMapCatalogSubcatIds, setBulkMapCatalogSubcatIds] = useState<Set<string>>(new Set());
   const [bulkMappingCatalog, setBulkMappingCatalog] = useState(false);
+  const [bulkUnmappingCatalog, setBulkUnmappingCatalog] = useState(false);
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [catForm, setCatForm] = useState<{
     label: string;
@@ -291,6 +293,8 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
     genderSlug: GenderSlug;
     sortOrder: number;
   }>({ label: '', slug: '', genderSlug: 'men', sortOrder: 0 });
+  const [catImageFile, setCatImageFile] = useState<File | null>(null);
+  const [editCatImageFile, setEditCatImageFile] = useState<File | null>(null);
   const [catSaving, setCatSaving] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CatalogCategory | null>(null);
   const [editCatLabel, setEditCatLabel] = useState('');
@@ -2156,6 +2160,39 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     void loadCatalog(undefined, cat.id);
                   }}
                 >
+                  {cat.thumbnailUrl ? (
+                    <img
+                      src={cat.thumbnailUrl}
+                      alt={cat.label}
+                      loading="lazy"
+                      style={{
+                        width: '100%',
+                        aspectRatio: '3 / 4',
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        display: 'block',
+                        marginBottom: 10,
+                      }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: '100%',
+                        aspectRatio: '3 / 4',
+                        borderRadius: 6,
+                        background: 'var(--subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: 10,
+                      }}
+                    >
+                      <Icon.Image />
+                    </div>
+                  )}
                   <div
                     style={{
                       display: 'flex',
@@ -2266,6 +2303,13 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                     }}
                   >
                     Map to garment types ({selectedCatalogItemIds.length})
+                  </button>
+                  <button
+                    className="btn sm ghost"
+                    disabled={bulkUnmappingCatalog}
+                    onClick={() => setConfirmUnmapCatalogIds([...selectedCatalogItemIds])}
+                  >
+                    Unmap from all
                   </button>
                   <button
                     className="btn sm danger"
@@ -4065,6 +4109,56 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
         </div>
       )}
 
+      {confirmUnmapCatalogIds.length > 0 && (
+        <div className="modal-overlay" onClick={() => setConfirmUnmapCatalogIds([])}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Unmap from all garment types</h3>
+            </div>
+            <div className="modal-body">
+              <p>
+                Remove garment type mappings from <strong>{confirmUnmapCatalogIds.length}</strong>{' '}
+                selected item
+                {confirmUnmapCatalogIds.length !== 1 ? 's' : ''}? The items will remain in the
+                catalogue but will not be assigned to any garment type.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setConfirmUnmapCatalogIds([])}>
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={bulkUnmappingCatalog}
+                onClick={async () => {
+                  const ids = confirmUnmapCatalogIds;
+                  setConfirmUnmapCatalogIds([]);
+                  setBulkUnmappingCatalog(true);
+                  try {
+                    await apiFetch('/admin/catalog/items/bulk-subcategories', {
+                      method: 'PATCH',
+                      body: JSON.stringify({ ids, subcategoryIds: [] }),
+                    });
+                    setCatalogItems((prev) =>
+                      prev.map((c) => (ids.includes(c.id) ? { ...c, subcategoryIds: [] } : c)),
+                    );
+                    toast({
+                      title: `Unmapped ${ids.length} item${ids.length !== 1 ? 's' : ''} from all garment types`,
+                    });
+                  } catch {
+                    toast({ kind: 'error', title: 'Unmap failed' });
+                  } finally {
+                    setBulkUnmappingCatalog(false);
+                  }
+                }}
+              >
+                Unmap {confirmUnmapCatalogIds.length}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmBulkDeleteCatalogIds.length > 0 && (
         <div className="modal-overlay" onClick={() => setConfirmBulkDeleteCatalogIds([])}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -4204,11 +4298,67 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   style={{ width: 100 }}
                 />
               </div>
+              <div className="field">
+                <label>
+                  Thumbnail image{' '}
+                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {catImageFile ? (
+                    <img
+                      src={URL.createObjectURL(catImageFile)}
+                      alt="preview"
+                      style={{
+                        width: 48,
+                        height: 48,
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 6,
+                        background: 'var(--subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon.Image />
+                    </div>
+                  )}
+                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                    {catImageFile ? 'Change image' : 'Upload image'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setCatImageFile(f);
+                      }}
+                    />
+                  </label>
+                  {catImageFile && (
+                    <button className="btn sm ghost" onClick={() => setCatImageFile(null)}>
+                      <Icon.Close />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="modal-foot">
               <button
                 className="btn ghost"
-                onClick={() => setShowAddCategory(false)}
+                onClick={() => {
+                  setShowAddCategory(false);
+                  setCatImageFile(null);
+                }}
                 disabled={catSaving}
               >
                 Cancel
@@ -4224,6 +4374,23 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   }
                   setCatSaving(true);
                   try {
+                    let thumbnailKey: string | undefined;
+                    if (catImageFile) {
+                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
+                        '/admin/catalog/categories/presign',
+                        {
+                          method: 'POST',
+                          body: JSON.stringify({ typeSlug: activeTab }),
+                        },
+                      );
+                      const thumb = await makeThumbnail(catImageFile);
+                      await fetch(presign.uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': thumb.type },
+                        body: thumb,
+                      });
+                      thumbnailKey = presign.thumbnailKey;
+                    }
                     const cat = await apiFetch<CatalogCategory>('/admin/catalog/categories', {
                       method: 'POST',
                       body: JSON.stringify({
@@ -4233,10 +4400,12 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                         label: catForm.label,
                         genderSlug: catForm.genderSlug,
                         sortOrder: catForm.sortOrder,
+                        ...(thumbnailKey ? { thumbnailKey } : {}),
                       }),
                     });
                     setCatalogCategories((prev) => [...prev, cat]);
                     setShowAddCategory(false);
+                    setCatImageFile(null);
                     toast({ title: `Category "${cat.label}" created` });
                   } catch (e) {
                     toast({
@@ -4287,11 +4456,81 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                   disabled={editCatSaving}
                 />
               </div>
+              <div className="field">
+                <label>
+                  Thumbnail image{' '}
+                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {editCatImageFile ? (
+                    <img
+                      src={URL.createObjectURL(editCatImageFile)}
+                      alt="preview"
+                      style={{
+                        width: 48,
+                        height: 48,
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : editingCategory.thumbnailUrl ? (
+                    <img
+                      src={editingCategory.thumbnailUrl}
+                      alt="current"
+                      style={{
+                        width: 48,
+                        height: 48,
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 6,
+                        background: 'var(--subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon.Image />
+                    </div>
+                  )}
+                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                    {editCatImageFile || editingCategory.thumbnailUrl
+                      ? 'Change image'
+                      : 'Upload image'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setEditCatImageFile(f);
+                      }}
+                    />
+                  </label>
+                  {(editCatImageFile || editingCategory.thumbnailUrl) && (
+                    <button className="btn sm ghost" onClick={() => setEditCatImageFile(null)}>
+                      <Icon.Close />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="modal-foot">
               <button
                 className="btn ghost"
-                onClick={() => setEditingCategory(null)}
+                onClick={() => {
+                  setEditingCategory(null);
+                  setEditCatImageFile(null);
+                }}
                 disabled={editCatSaving}
               >
                 Cancel
@@ -4302,13 +4541,43 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                 onClick={async () => {
                   setEditCatSaving(true);
                   try {
+                    let thumbnailKey: string | null | undefined;
+                    if (editCatImageFile) {
+                      const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
+                        '/admin/catalog/categories/presign',
+                        {
+                          method: 'POST',
+                          body: JSON.stringify({ typeSlug: editingCategory.typeSlug }),
+                        },
+                      );
+                      const thumb = await makeThumbnail(editCatImageFile);
+                      await fetch(presign.uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': thumb.type },
+                        body: thumb,
+                      });
+                      thumbnailKey = presign.thumbnailKey;
+                    }
+                    const patch: Record<string, unknown> = { label: editCatLabel.trim() };
+                    if (thumbnailKey !== undefined) patch.thumbnailKey = thumbnailKey;
                     await apiFetch(`/admin/catalog/categories/${editingCategory.id}`, {
                       method: 'PATCH',
-                      body: JSON.stringify({ label: editCatLabel.trim() }),
+                      body: JSON.stringify(patch),
                     });
+                    const newThumbUrl = thumbnailKey
+                      ? URL.createObjectURL(editCatImageFile!)
+                      : editingCategory.thumbnailUrl;
                     setCatalogCategories((prev) =>
                       prev.map((c) =>
-                        c.id === editingCategory.id ? { ...c, label: editCatLabel.trim() } : c,
+                        c.id === editingCategory.id
+                          ? {
+                              ...c,
+                              label: editCatLabel.trim(),
+                              ...(thumbnailKey !== undefined
+                                ? { thumbnailKey, thumbnailUrl: newThumbUrl }
+                                : {}),
+                            }
+                          : c,
                       ),
                     );
                     if (
@@ -4321,6 +4590,7 @@ export default function AssetsPage({ onNav: _onNav, toast }: Props) {
                       });
                     }
                     setEditingCategory(null);
+                    setEditCatImageFile(null);
                     toast({ title: 'Category updated' });
                   } catch {
                     toast({ kind: 'error', title: 'Update failed' });

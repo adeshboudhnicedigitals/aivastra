@@ -23,11 +23,13 @@ export const CreateCategoryBody = z.object({
   slug: z.string().min(1).max(80),
   label: z.string().min(1).max(120),
   genderSlug: z.enum(['men', 'women', 'boys', 'girls']).optional(),
+  thumbnailKey: z.string().optional(),
   sortOrder: z.number().int().default(0),
 });
 export const PatchCategoryBody = z.object({
   label: z.string().min(1).max(120).optional(),
   genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
+  thumbnailKey: z.string().nullable().optional(),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
 });

@@ -81,6 +81,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         slug: schema.catalogCategories.slug,
         label: schema.catalogCategories.label,
         genderSlug: schema.catalogCategories.genderSlug,
+        thumbnailKey: schema.catalogCategories.thumbnailKey,
         sortOrder: schema.catalogCategories.sortOrder,
         isActive: schema.catalogCategories.isActive,
         typeSlug: schema.catalogTypes.slug,
@@ -88,8 +89,23 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       .from(schema.catalogCategories)
       .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id))
       .orderBy(schema.catalogCategories.sortOrder);
-    return rows;
+    return rows.map((r) => ({
+      ...r,
+      thumbnailUrl: r.thumbnailKey ? app.storage.publicUrl(r.thumbnailKey) : null,
+    }));
   });
+
+  app.post(
+    '/admin/catalog/categories/presign',
+    { preHandler: RW, schema: { body: z.object({ typeSlug: z.string() }) } },
+    async (req) => {
+      const { typeSlug } = req.body as { typeSlug: string };
+      const id = randomUUID();
+      const thumbKey = keys.catalogCategoryThumb(typeSlug, id);
+      const result = await app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300);
+      return { uploadUrl: result.url, thumbnailKey: thumbKey };
+    },
+  );
 
   app.post(
     '/admin/catalog/items/presign',
@@ -230,7 +246,16 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         .insert(schema.catalogCategories)
         .values(req.body as any)
         .returning();
-      return row;
+      const typeRow = await app.db
+        .select({ slug: schema.catalogTypes.slug })
+        .from(schema.catalogTypes)
+        .where(eq(schema.catalogTypes.id, row!.typeId))
+        .then((r) => r[0]);
+      return {
+        ...row!,
+        typeSlug: typeRow?.slug ?? '',
+        thumbnailUrl: row!.thumbnailKey ? app.storage.publicUrl(row!.thumbnailKey) : null,
+      };
     },
   );
 

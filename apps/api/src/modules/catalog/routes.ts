@@ -67,7 +67,43 @@ export async function catalogRoutes(app: FastifyInstance) {
           ...i,
           thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
         }));
-        return { type, tree: [{ id: 0, slug: type, label: type, children: [], items: enriched }] };
+
+        const catIds = [
+          ...new Set(items.map((i) => i.categoryId).filter((id): id is number => id != null)),
+        ];
+        const cats =
+          catIds.length > 0
+            ? await app.db
+                .select()
+                .from(schema.catalogCategories)
+                .where(
+                  and(
+                    inArray(schema.catalogCategories.id, catIds),
+                    eq(schema.catalogCategories.isActive, true),
+                  ),
+                )
+            : [];
+
+        const catIdSet = new Set(cats.map((c) => c.id));
+        const categorized = enriched.filter(
+          (i) => i.categoryId != null && catIdSet.has(i.categoryId),
+        );
+        const uncategorized = enriched.filter(
+          (i) => i.categoryId == null || !catIdSet.has(i.categoryId),
+        );
+
+        const tree = buildTree(cats, categorized, (key) => app.storage.publicUrl(key));
+        if (uncategorized.length > 0) {
+          (tree as any[]).push({
+            id: 0,
+            slug: 'other',
+            label: 'Other',
+            thumbnailUrl: null,
+            children: [],
+            items: uncategorized,
+          });
+        }
+        return { type, tree };
       }
 
       // Legacy tree path — for backwards compat with items that still have categoryId
@@ -110,12 +146,13 @@ export async function catalogRoutes(app: FastifyInstance) {
         thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
       }));
 
-      const tree = buildTree(cats, enrichedCat);
+      const tree = buildTree(cats, enrichedCat, (key) => app.storage.publicUrl(key));
       if (enrichedUncat.length > 0) {
         (tree as any[]).push({
           id: 0,
           slug: 'other',
           label: 'Other',
+          thumbnailUrl: null,
           children: [],
           items: enrichedUncat,
         });

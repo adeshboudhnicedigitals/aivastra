@@ -87,6 +87,8 @@ export interface CatalogCategory {
   slug: string;
   label: string;
   genderSlug: string | null;
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
   sortOrder: number;
   isActive: boolean;
 }

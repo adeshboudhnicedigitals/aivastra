@@ -309,6 +309,13 @@
       "when": 1780358400001,
       "tag": "0043_backfill_admin_password_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1780444800000,
+      "tag": "0044_catalog_category_thumbnail",
+      "breakpoints": true
     }
   ]
 }

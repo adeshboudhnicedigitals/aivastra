@@ -3,7 +3,7 @@ import type { schema } from '@aivastra/db';
 type Cat = typeof schema.catalogCategories.$inferSelect;
 type Item = typeof schema.catalogItems.$inferSelect & { thumbnailUrl: string };
 
-export function buildTree(cats: Cat[], items: Item[]) {
+export function buildTree(cats: Cat[], items: Item[], getUrl?: (key: string) => string) {
   const byParent = new Map<number | null, Cat[]>();
   for (const c of cats) {
     const k = c.parentId ?? null;
@@ -23,6 +23,7 @@ export function buildTree(cats: Cat[], items: Item[]) {
         id: c.id,
         slug: c.slug,
         label: c.label,
+        thumbnailUrl: c.thumbnailKey && getUrl ? getUrl(c.thumbnailKey) : null,
         children: walk(c.id),
         items: (itemsByCat.get(c.id) ?? []).map((i) => ({
           id: i.id,

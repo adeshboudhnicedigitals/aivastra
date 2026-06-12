@@ -4,6 +4,7 @@ export const keys = {
   outputThumb: (jobId: string) => `outputs/${jobId}/result.thumb.jpg`,
   catalogItem: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.jpg`,
   catalogThumb: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.thumb.jpg`,
+  catalogCategoryThumb: (typeSlug: string, id: string) => `catalog/${typeSlug}/cat-${id}.thumb.jpg`,
   modelFace: (id: string) => `models/faces/${id}.jpg`,
   modelFaceThumb: (id: string) => `models/faces/${id}.thumb.jpg`,
   modelBackground: (id: string) => `models/backgrounds/${id}.jpg`,
