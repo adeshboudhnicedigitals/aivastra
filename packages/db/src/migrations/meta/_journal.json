@@ -295,6 +295,20 @@
       "when": 1780272000001,
       "tag": "0041_job_output_thumbnail_key",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1780358400000,
+      "tag": "0042_admin_portal_credentials",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1780358400001,
+      "tag": "0043_backfill_admin_password_hash",
+      "breakpoints": true
     }
   ]
 }

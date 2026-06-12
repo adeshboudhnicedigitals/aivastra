@@ -14,6 +14,7 @@ import {
 } from 'fastify-type-provider-zod';
 import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
+import { adminAuthRoutes } from './modules/admin/auth.routes.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
 import { adminConfigRoutes } from './modules/admin/config.routes.js';
 import { adminCreditPlansRoutes } from './modules/admin/creditPlans.routes.js';
@@ -60,7 +61,9 @@ export async function buildServer(env: Env) {
   await app.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
-    allowList: (req) => req.url.startsWith('/admin/') || req.url === '/v1/payments/webhook',
+    allowList: (req) =>
+      (req.url.startsWith('/admin/') && !req.url.startsWith('/admin/auth/')) ||
+      req.url === '/v1/payments/webhook',
   });
   await app.register(sensible);
   await app.register(multipart, { limits: { fileSize: 2.5 * 1024 * 1024 * 1024 } });
@@ -95,6 +98,7 @@ export async function buildServer(env: Env) {
   await app.register(uploadsRoutes);
   await app.register(jobsRoutes);
   await app.register(modelsRoutes);
+  await app.register(adminAuthRoutes);
   await app.register(adminUsersRoutes);
   await app.register(adminCreditsRoutes);
   await app.register(adminCreditPlansRoutes);

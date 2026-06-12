@@ -25,16 +25,21 @@ export async function signAccess(
   sub: string,
   claims: Record<string, unknown>,
   exp: string,
+  audience?: string,
 ) {
-  return new SignJWT({ ...claims })
+  let jwt = new SignJWT({ ...claims })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(sub)
     .setIssuedAt()
-    .setExpirationTime(exp)
-    .sign(secret);
+    .setExpirationTime(exp);
+  if (audience) jwt = jwt.setAudience(audience);
+  return jwt.sign(secret);
 }
 export async function verifyAccess(secret: Uint8Array, token: string) {
   return (await jwtVerify(token, secret)).payload;
+}
+export async function verifyAdminAccess(secret: Uint8Array, token: string) {
+  return (await jwtVerify(token, secret, { audience: 'admin' })).payload;
 }
 
 export function newRefreshToken(): { plain: string; hash: string } {

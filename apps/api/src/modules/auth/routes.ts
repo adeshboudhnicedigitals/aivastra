@@ -64,6 +64,13 @@ export async function authRoutes(app: FastifyInstance) {
       if (!(await verifyPassword(user.passwordHash, password)))
         throw new AppError('INVALID', 401, 'invalid credentials');
       if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+      const [adminRow] = await app.db
+        .select({ role: schema.adminUsers.role, status: schema.adminUsers.status })
+        .from(schema.adminUsers)
+        .where(eq(schema.adminUsers.userId, user.id));
+      if (adminRow?.status === 'active' && adminRow.role === 'SUPER_ADMIN') {
+        throw new AppError('FORBIDDEN', 403, 'Super admin accounts must use the admin panel.');
+      }
       return createSessionTokens(app, user.id, reply, 200);
     },
   );
@@ -81,6 +88,7 @@ export async function authRoutes(app: FastifyInstance) {
         .for('update');
 
       if (!row || row.expiresAt < new Date() || row.revokedAt) return { kind: 'invalid' } as const;
+      if (row.portal !== 'web') return { kind: 'invalid' } as const;
 
       if (row.usedAt) {
         // Token already rotated. Find the latest active successor in this family.
