@@ -1,25 +1,30 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { setAuthCookies } from '@/lib/auth-cookies';
+import { safeJson } from '@/lib/bff';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const res = await fetch(`${API_URL}/v1/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  try {
+    const body = await req.json();
+    const res = await fetch(`${API_URL}/v1/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
-  const data = (await res.json()) as { accessToken?: string; requiresEmailVerification?: boolean };
-  if (!res.ok) return NextResponse.json(data, { status: res.status });
+    const [data, ok] = await safeJson(res);
+    if (!ok) return NextResponse.json(data, { status: res.status });
 
-  // Email signup — redirect to verification; no tokens yet
-  if (data.requiresEmailVerification) {
-    return NextResponse.json({ requiresEmailVerification: true }, { status: 201 });
+    const typed = data as { accessToken?: string; requiresEmailVerification?: boolean };
+    if (typed.requiresEmailVerification) {
+      return NextResponse.json({ requiresEmailVerification: true }, { status: 201 });
+    }
+
+    const response = NextResponse.json({ ok: true });
+    setAuthCookies(response, typed.accessToken!, res.headers.get('set-cookie'));
+    return response;
+  } catch {
+    return NextResponse.json({ error: { message: 'Service unavailable' } }, { status: 503 });
   }
-
-  const response = NextResponse.json({ ok: true });
-  setAuthCookies(response, data.accessToken!, res.headers.get('set-cookie'));
-  return response;
 }
