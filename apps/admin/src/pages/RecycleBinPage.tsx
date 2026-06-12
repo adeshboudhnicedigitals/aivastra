@@ -179,46 +179,105 @@ export default function RecycleBinPage({ toast }: Props) {
         </div>
       ) : (
         <>
-          {selectedIds.length > 0 && (
-            <div
-              style={{
-                display: 'flex',
-                gap: 8,
-                alignItems: 'center',
-                padding: '10px 0',
-                marginBottom: 4,
-              }}
-            >
-              <span style={{ fontSize: 13, color: 'var(--muted)', flex: 1 }}>
-                {selectedIds.length} selected
-              </span>
-              <button
-                className="btn sm ghost"
-                disabled={working}
-                onClick={() =>
-                  void restore(
-                    currentType,
-                    selectedIds,
-                    `${selectedIds.length} ${pluralLabel(currentType, selectedIds.length)}`,
-                  )
-                }
-              >
-                Restore {selectedIds.length}
-              </button>
-              {canHardDelete && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              padding: '10px 0',
+              marginBottom: 4,
+              flexWrap: 'wrap',
+            }}
+          >
+            {/* Select page button */}
+            {(() => {
+              const pagedIds =
+                tab === 'faces'
+                  ? pagedFaces.map((f) => f.id)
+                  : tab === 'backgrounds'
+                    ? pagedBgs.map((b) => b.id)
+                    : pagedPas.map((p) => p.id);
+              const pageSelected =
+                pagedIds.length > 0 && pagedIds.every((id) => selectedIds.includes(id));
+              return (
                 <button
-                  className="btn sm danger"
-                  disabled={working}
+                  className="btn sm ghost"
                   onClick={() => {
-                    setPermDel({ type: currentType, ids: selectedIds });
-                    setPermDelText('');
+                    if (tab === 'faces')
+                      setSelectedFaceIds((prev) =>
+                        pageSelected
+                          ? prev.filter((id) => !pagedIds.includes(id))
+                          : [...new Set([...prev, ...pagedIds])],
+                      );
+                    else if (tab === 'backgrounds')
+                      setSelectedBgIds((prev) =>
+                        pageSelected
+                          ? prev.filter((id) => !pagedIds.includes(id))
+                          : [...new Set([...prev, ...pagedIds])],
+                      );
+                    else
+                      setSelectedPaIds((prev) =>
+                        pageSelected
+                          ? prev.filter((id) => !pagedIds.includes(id))
+                          : [...new Set([...prev, ...pagedIds])],
+                      );
                   }}
                 >
-                  Permanently delete {selectedIds.length}
+                  {pageSelected ? 'Deselect page' : 'Select page'}
                 </button>
-              )}
-            </div>
-          )}
+              );
+            })()}
+            {/* Select all button */}
+            {(() => {
+              const allIds = currentItems.map((i) => i.id);
+              const allSelected =
+                allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
+              return (
+                <button
+                  className="btn sm ghost"
+                  onClick={() => {
+                    if (tab === 'faces') setSelectedFaceIds(allSelected ? [] : allIds);
+                    else if (tab === 'backgrounds') setSelectedBgIds(allSelected ? [] : allIds);
+                    else setSelectedPaIds(allSelected ? [] : allIds);
+                  }}
+                >
+                  {allSelected ? 'Deselect all' : `Select all ${allIds.length}`}
+                </button>
+              );
+            })()}
+            {selectedIds.length > 0 && (
+              <>
+                <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+                  {selectedIds.length} selected
+                </span>
+                <button
+                  className="btn sm ghost"
+                  disabled={working}
+                  onClick={() =>
+                    void restore(
+                      currentType,
+                      selectedIds,
+                      `${selectedIds.length} ${pluralLabel(currentType, selectedIds.length)}`,
+                    )
+                  }
+                >
+                  Restore {selectedIds.length}
+                </button>
+                {canHardDelete && (
+                  <button
+                    className="btn sm danger"
+                    disabled={working}
+                    onClick={() => {
+                      setPermDel({ type: currentType, ids: selectedIds });
+                      setPermDelText('');
+                    }}
+                  >
+                    Permanently delete {selectedIds.length}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
 
           <div className="table-wrap">
             {tab === 'faces' && (
@@ -226,15 +285,7 @@ export default function RecycleBinPage({ toast }: Props) {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: 36 }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedFaceIds.length === faces.length}
-                          onChange={(e) =>
-                            setSelectedFaceIds(e.target.checked ? faces.map((f) => f.id) : [])
-                          }
-                        />
-                      </th>
+                      <th style={{ width: 36 }} />
                       <th>Face</th>
                       <th>Gender</th>
                       <th>Deleted</th>
@@ -313,15 +364,7 @@ export default function RecycleBinPage({ toast }: Props) {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: 36 }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedBgIds.length === backgrounds.length}
-                          onChange={(e) =>
-                            setSelectedBgIds(e.target.checked ? backgrounds.map((b) => b.id) : [])
-                          }
-                        />
-                      </th>
+                      <th style={{ width: 36 }} />
                       <th>Background</th>
                       <th>Gender</th>
                       <th>Deleted</th>
@@ -400,15 +443,7 @@ export default function RecycleBinPage({ toast }: Props) {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: 36 }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedPaIds.length === poseAssets.length}
-                          onChange={(e) =>
-                            setSelectedPaIds(e.target.checked ? poseAssets.map((p) => p.id) : [])
-                          }
-                        />
-                      </th>
+                      <th style={{ width: 36 }} />
                       <th>Pose asset</th>
                       <th>Gender</th>
                       <th>Variant</th>
