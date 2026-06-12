@@ -64,7 +64,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
 
   useEffect(() => {
     fetchStats();
-    const id = setInterval(fetchStats, 30_000);
+    const id = setInterval(fetchStats, 60_000);
     return () => clearInterval(id);
   }, [fetchStats]);
 
