@@ -152,24 +152,27 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(page + 1), pageSize: String(PAGE_SIZE) });
-      if (filter !== 'all') params.set('status', filter);
-      if (query) params.set('search', query);
-      const data = await apiFetch<{ items: Job[]; total: number }>(`/admin/jobs?${params}`);
-      setJobs(data.items);
-      setTotal(data.total);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load jobs' });
-    } finally {
-      setLoading(false);
-    }
-  }, [page, filter, query, toast]);
+  const load = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true);
+      try {
+        const params = new URLSearchParams({ page: String(page + 1), pageSize: String(PAGE_SIZE) });
+        if (filter !== 'all') params.set('status', filter);
+        if (query) params.set('search', query);
+        const data = await apiFetch<{ items: Job[]; total: number }>(`/admin/jobs?${params}`);
+        setJobs(data.items);
+        setTotal(data.total);
+      } catch {
+        if (!silent) toast({ kind: 'error', title: 'Failed to load jobs' });
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [page, filter, query, toast],
+  );
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   useAdminJobStream(
@@ -179,6 +182,16 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       setDetail((d) => (d?.id === evt.jobId ? { ...d, status } : d));
     }, []),
   );
+
+  // Polling fallback when active jobs exist — catches updates if SSE drops (proxy buffering etc.)
+  const hasActiveJobs = jobs.some((j) =>
+    ['QUEUED', 'PREPROCESSING', 'GENERATING', 'UPLOADING'].includes(j.status),
+  );
+  useEffect(() => {
+    if (!hasActiveJobs) return;
+    const id = setInterval(() => void load(true), 5_000);
+    return () => clearInterval(id);
+  }, [hasActiveJobs, load]);
 
   const handleFilter = (k: FilterKey) => {
     setFilter(k);
