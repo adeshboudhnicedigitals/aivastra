@@ -1650,24 +1650,26 @@ export default function StudioPage(): React.ReactElement {
                         gap: 12,
                       }}
                     >
-                      {lowerCatalog.tree.map((node) => {
-                        const nodeItems = flattenNode(node);
-                        const isActive =
-                          !!lowerCatalogId &&
-                          findNodeForItem(lowerCatalog.tree, lowerCatalogId)?.id === node.id;
-                        const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
-                        return (
-                          <SelCard
-                            key={node.id}
-                            selected={isActive}
-                            onClick={() => setLowerCatModal(node)}
-                            imageUrl={thumb}
-                            label={node.label}
-                            w={120}
-                            h={160}
-                          />
-                        );
-                      })}
+                      {lowerCatalog.tree
+                        .filter((node) => node.slug !== 'other')
+                        .map((node) => {
+                          const nodeItems = flattenNode(node);
+                          const isActive =
+                            !!lowerCatalogId &&
+                            findNodeForItem(lowerCatalog.tree, lowerCatalogId)?.id === node.id;
+                          const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
+                          return (
+                            <SelCard
+                              key={node.id}
+                              selected={isActive}
+                              onClick={() => setLowerCatModal(node)}
+                              imageUrl={thumb}
+                              label={node.label}
+                              w={120}
+                              h={160}
+                            />
+                          );
+                        })}
                     </div>
                     {lowerCatalogId &&
                       (() => {
@@ -1752,24 +1754,26 @@ export default function StudioPage(): React.ReactElement {
                         gap: 12,
                       }}
                     >
-                      {shoesCatalog.tree.map((node) => {
-                        const nodeItems = flattenNode(node);
-                        const isActive =
-                          !!shoeCatalogId &&
-                          findNodeForItem(shoesCatalog.tree, shoeCatalogId)?.id === node.id;
-                        const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
-                        return (
-                          <SelCard
-                            key={node.id}
-                            selected={isActive}
-                            onClick={() => setShoeCatModal(node)}
-                            imageUrl={thumb}
-                            label={node.label}
-                            w={130}
-                            h={100}
-                          />
-                        );
-                      })}
+                      {shoesCatalog.tree
+                        .filter((node) => node.slug !== 'other')
+                        .map((node) => {
+                          const nodeItems = flattenNode(node);
+                          const isActive =
+                            !!shoeCatalogId &&
+                            findNodeForItem(shoesCatalog.tree, shoeCatalogId)?.id === node.id;
+                          const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
+                          return (
+                            <SelCard
+                              key={node.id}
+                              selected={isActive}
+                              onClick={() => setShoeCatModal(node)}
+                              imageUrl={thumb}
+                              label={node.label}
+                              w={130}
+                              h={100}
+                            />
+                          );
+                        })}
                     </div>
                     {shoeCatalogId &&
                       (() => {
