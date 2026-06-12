@@ -45,13 +45,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
+      if (!sessionStorage.getItem('admin_hasSession')) {
+        setIsLoading(false);
+        return;
+      }
       try {
-        const res = await fetch('/v1/auth/refresh', { method: 'POST', credentials: 'include' });
+        const res = await fetch('/admin/auth/refresh', { method: 'POST', credentials: 'include' });
         if (res.ok) {
           const { accessToken } = (await res.json()) as { accessToken: string };
           setToken(accessToken);
           setTokenState(accessToken);
           await fetchRole();
+        } else {
+          sessionStorage.removeItem('admin_hasSession');
         }
       } catch {
         // not logged in
@@ -63,7 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const { accessToken } = await apiFetch<{ accessToken: string }>('/v1/auth/login', {
+      const { accessToken } = await apiFetch<{ accessToken: string }>('/admin/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       });
@@ -71,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await fetchRole();
         setTokenState(accessToken);
+        sessionStorage.setItem('admin_hasSession', '1');
       } catch (err) {
         setToken(null);
         throw err;
@@ -81,10 +88,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
-      await apiFetch('/v1/auth/logout', { method: 'POST' });
+      await apiFetch('/admin/auth/logout', { method: 'POST' });
     } catch {
       // best-effort
     }
+    sessionStorage.removeItem('admin_hasSession');
     setToken(null);
     setTokenState(null);
     setRole(null);

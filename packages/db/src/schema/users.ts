@@ -25,6 +25,7 @@ export const refreshTokens = pgTable('refresh_tokens', {
   revoked: boolean('revoked').notNull().default(false),
   usedAt: timestamp('used_at', { withTimezone: true }),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  portal: text('portal').notNull().default('web'), // 'web' | 'admin'
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

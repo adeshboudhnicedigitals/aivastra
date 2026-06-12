@@ -385,7 +385,10 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   const res = await fetch(path, { ...init, headers: makeHeaders(_token), credentials: 'include' });
 
   if (res.status === 401 && _token) {
-    const refreshRes = await fetch('/v1/auth/refresh', { method: 'POST', credentials: 'include' });
+    const refreshRes = await fetch('/admin/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    });
     if (refreshRes.ok) {
       const { accessToken } = (await refreshRes.json()) as { accessToken: string };
       setToken(accessToken);

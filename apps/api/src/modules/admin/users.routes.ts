@@ -198,9 +198,13 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { userId } = req.params as { userId: string };
+      const [userRecord] = await app.db
+        .select({ passwordHash: schema.users.passwordHash })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId));
       const [row] = await app.db
         .update(schema.adminUsers)
-        .set({ status: 'active' })
+        .set({ status: 'active', passwordHash: userRecord?.passwordHash ?? null })
         .where(and(eq(schema.adminUsers.userId, userId), eq(schema.adminUsers.status, 'pending')))
         .returning({ userId: schema.adminUsers.userId });
       if (!row) throw new AppError('NOT_FOUND', 404, 'no pending admin request for this user');
@@ -240,16 +244,16 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     async (req) => {
       const { userId, role } = req.body as { userId: string; role: string };
       const [user] = await app.db
-        .select({ id: schema.users.id })
+        .select({ id: schema.users.id, passwordHash: schema.users.passwordHash })
         .from(schema.users)
         .where(eq(schema.users.id, userId));
       if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
       await app.db
         .insert(schema.adminUsers)
-        .values({ userId, role, status: 'active' })
+        .values({ userId, role, status: 'active', passwordHash: user.passwordHash })
         .onConflictDoUpdate({
           target: schema.adminUsers.userId,
-          set: { role, status: 'active' },
+          set: { role, status: 'active', passwordHash: user.passwordHash },
         });
       return { ok: true, role, status: 'active' };
     },

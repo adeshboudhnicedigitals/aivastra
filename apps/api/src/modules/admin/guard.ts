@@ -12,7 +12,7 @@ declare module 'fastify' {
 export function requireAdmin(roles: ('SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT' | 'ADMIN')[]) {
   return async (req: FastifyRequest) => {
     const app = req.server as FastifyInstance;
-    await app.requireUser(req as any, undefined as any);
+    await app.requireAdminUser(req as any, undefined as any);
     const [a] = await app.db
       .select()
       .from(schema.adminUsers)
