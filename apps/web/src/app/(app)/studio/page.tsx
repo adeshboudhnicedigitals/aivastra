@@ -63,12 +63,24 @@ interface CatalogNode {
   id: number;
   slug: string;
   label: string;
+  thumbnailUrl?: string | null;
   children: CatalogNode[];
   items: CatalogItem[];
 }
 
 function flattenCatalog(nodes: CatalogNode[]): CatalogItem[] {
   return nodes.flatMap((n) => [...n.items, ...flattenCatalog(n.children)]);
+}
+
+function flattenNode(node: CatalogNode): CatalogItem[] {
+  return [...node.items, ...node.children.flatMap((c) => flattenNode(c))];
+}
+
+function findNodeForItem(tree: CatalogNode[], itemId: string): CatalogNode | null {
+  for (const node of tree) {
+    if (flattenNode(node).some((i) => i.id === itemId)) return node;
+  }
+  return null;
 }
 
 const GENDERS = [
@@ -207,7 +219,7 @@ function SelCard({
 }: {
   selected: boolean;
   onClick: () => void;
-  imageUrl: string;
+  imageUrl?: string | null;
   label: string;
   w?: number;
   h?: number;
@@ -243,16 +255,33 @@ function SelCard({
             borderRadius: 6,
             overflow: 'hidden',
             background: C.lighter,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
           }}
         >
-          <div data-zoom style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
-              alt={label}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-          </div>
+          {imageUrl ? (
+            <div data-zoom style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imageUrl}
+                alt={label}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            </div>
+          ) : (
+            <span
+              style={{
+                fontSize: 28,
+                fontWeight: 700,
+                color: C.mid,
+                textTransform: 'uppercase',
+                lineHeight: 1,
+              }}
+            >
+              {label.charAt(0)}
+            </span>
+          )}
         </div>
         {selected && (
           <div
@@ -362,6 +391,8 @@ export default function StudioPage(): React.ReactElement {
   const [poseIds, setPoseIds] = useState<string[]>([]);
   const [lowerCatalogId, setLowerCatalogId] = useState('');
   const [shoeCatalogId, setShoeCatalogId] = useState('');
+  const [lowerCatModal, setLowerCatModal] = useState<CatalogNode | null>(null);
+  const [shoeCatModal, setShoeCatModal] = useState<CatalogNode | null>(null);
   const [resolution, setResolution] = useState<'HD' | '2K' | '4K' | ''>('');
   useEffect(() => {
     if (step === 3 && !resolution) {
@@ -476,18 +507,6 @@ export default function StudioPage(): React.ReactElement {
       ),
     enabled: step >= 3 && needsShoes,
   });
-  const lowerItems = lowerCatalog ? flattenCatalog(lowerCatalog.tree) : [];
-  const shoeItems = shoesCatalog ? flattenCatalog(shoesCatalog.tree) : [];
-  useEffect(() => {
-    if (lowerItems.length && needsLower && !lowerCatalogId) {
-      setLowerCatalogId(lowerItems[0]!.id);
-    }
-  }, [lowerItems, needsLower, lowerCatalogId]);
-  useEffect(() => {
-    if (shoeItems.length && needsShoes && !shoeCatalogId) {
-      setShoeCatalogId(shoeItems[0]!.id);
-    }
-  }, [shoeItems, needsShoes, shoeCatalogId]);
 
   async function handleGarmentUpload(file: File) {
     setGarmentFile(file);
@@ -1618,31 +1637,89 @@ export default function StudioPage(): React.ReactElement {
                   >
                     <SpinnerIcon />
                   </div>
-                ) : lowerItems.length === 0 ? (
+                ) : lowerCatalog.tree.length === 0 ? (
                   <p style={{ fontSize: 14, color: C.mid }}>
                     No lower garment options available yet.
                   </p>
                 ) : (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
-                      gap: 12,
-                      width: '100%',
-                    }}
-                  >
-                    {lowerItems.map((i) => (
-                      <SelCard
-                        key={i.id}
-                        selected={lowerCatalogId === i.id}
-                        onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
-                        imageUrl={i.thumbnailUrl}
-                        label={i.label}
-                        w={152.57}
-                        h={119}
-                      />
-                    ))}
-                  </div>
+                  <>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, 120px)',
+                        gap: 12,
+                      }}
+                    >
+                      {lowerCatalog.tree.map((node) => {
+                        const nodeItems = flattenNode(node);
+                        const isActive =
+                          !!lowerCatalogId &&
+                          findNodeForItem(lowerCatalog.tree, lowerCatalogId)?.id === node.id;
+                        const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
+                        return (
+                          <SelCard
+                            key={node.id}
+                            selected={isActive}
+                            onClick={() => setLowerCatModal(node)}
+                            imageUrl={thumb}
+                            label={node.label}
+                            w={120}
+                            h={160}
+                          />
+                        );
+                      })}
+                    </div>
+                    {lowerCatalogId &&
+                      (() => {
+                        const sel = flattenCatalog(lowerCatalog.tree).find(
+                          (i) => i.id === lowerCatalogId,
+                        );
+                        if (!sel) return null;
+                        return (
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              marginTop: 12,
+                              padding: '6px 10px',
+                              borderRadius: 8,
+                              border: `1px solid ${C.border}`,
+                              background: '#f9f9f9',
+                            }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={sel.thumbnailUrl}
+                              alt={sel.label}
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 5,
+                                objectFit: 'cover',
+                                flexShrink: 0,
+                              }}
+                            />
+                            <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
+                              {sel.label}
+                            </span>
+                            <button
+                              onClick={() => setLowerCatalogId('')}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: C.mid,
+                                display: 'flex',
+                                padding: 2,
+                              }}
+                            >
+                              <XIcon size={14} />
+                            </button>
+                          </div>
+                        );
+                      })()}
+                  </>
                 )}
               </section>
             )}
@@ -1664,29 +1741,87 @@ export default function StudioPage(): React.ReactElement {
                   >
                     <SpinnerIcon />
                   </div>
-                ) : shoeItems.length === 0 ? (
+                ) : shoesCatalog.tree.length === 0 ? (
                   <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
                 ) : (
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
-                      gap: 12,
-                      width: '100%',
-                    }}
-                  >
-                    {shoeItems.map((i) => (
-                      <SelCard
-                        key={i.id}
-                        selected={shoeCatalogId === i.id}
-                        onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
-                        imageUrl={i.thumbnailUrl}
-                        label={i.label}
-                        w={152.57}
-                        h={119}
-                      />
-                    ))}
-                  </div>
+                  <>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, 130px)',
+                        gap: 12,
+                      }}
+                    >
+                      {shoesCatalog.tree.map((node) => {
+                        const nodeItems = flattenNode(node);
+                        const isActive =
+                          !!shoeCatalogId &&
+                          findNodeForItem(shoesCatalog.tree, shoeCatalogId)?.id === node.id;
+                        const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
+                        return (
+                          <SelCard
+                            key={node.id}
+                            selected={isActive}
+                            onClick={() => setShoeCatModal(node)}
+                            imageUrl={thumb}
+                            label={node.label}
+                            w={130}
+                            h={100}
+                          />
+                        );
+                      })}
+                    </div>
+                    {shoeCatalogId &&
+                      (() => {
+                        const sel = flattenCatalog(shoesCatalog.tree).find(
+                          (i) => i.id === shoeCatalogId,
+                        );
+                        if (!sel) return null;
+                        return (
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              marginTop: 12,
+                              padding: '6px 10px',
+                              borderRadius: 8,
+                              border: `1px solid ${C.border}`,
+                              background: '#f9f9f9',
+                            }}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={sel.thumbnailUrl}
+                              alt={sel.label}
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: 5,
+                                objectFit: 'cover',
+                                flexShrink: 0,
+                              }}
+                            />
+                            <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
+                              {sel.label}
+                            </span>
+                            <button
+                              onClick={() => setShoeCatalogId('')}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: C.mid,
+                                display: 'flex',
+                                padding: 2,
+                              }}
+                            >
+                              <XIcon size={14} />
+                            </button>
+                          </div>
+                        );
+                      })()}
+                  </>
                 )}
               </section>
             )}
@@ -2034,6 +2169,172 @@ export default function StudioPage(): React.ReactElement {
         </div>
         {/* end Nav row */}
       </div>
+
+      {/* Lower Garment Category Modal */}
+      {lowerCatModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onClick={() => setLowerCatModal(null)}
+        >
+          <div
+            style={{
+              background: C.white,
+              borderRadius: 12,
+              padding: 24,
+              width: 700,
+              maxWidth: '92vw',
+              maxHeight: '82vh',
+              overflowY: 'auto',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 20,
+              }}
+            >
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                {lowerCatModal.label}
+              </h2>
+              <button
+                onClick={() => setLowerCatModal(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: C.mid,
+                }}
+              >
+                <XIcon size={20} />
+              </button>
+            </div>
+            {flattenNode(lowerCatModal).length === 0 ? (
+              <p style={{ fontSize: 14, color: C.mid }}>No items in this category yet.</p>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
+                  gap: 12,
+                }}
+              >
+                {flattenNode(lowerCatModal).map((i) => (
+                  <SelCard
+                    key={i.id}
+                    selected={lowerCatalogId === i.id}
+                    onClick={() => {
+                      setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id);
+                      setLowerCatModal(null);
+                    }}
+                    imageUrl={i.thumbnailUrl}
+                    label={i.label}
+                    w={152.57}
+                    h={119}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Shoe Category Modal */}
+      {shoeCatModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+          onClick={() => setShoeCatModal(null)}
+        >
+          <div
+            style={{
+              background: C.white,
+              borderRadius: 12,
+              padding: 24,
+              width: 700,
+              maxWidth: '92vw',
+              maxHeight: '82vh',
+              overflowY: 'auto',
+              boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 20,
+              }}
+            >
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                {shoeCatModal.label}
+              </h2>
+              <button
+                onClick={() => setShoeCatModal(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: C.mid,
+                }}
+              >
+                <XIcon size={20} />
+              </button>
+            </div>
+            {flattenNode(shoeCatModal).length === 0 ? (
+              <p style={{ fontSize: 14, color: C.mid }}>No items in this category yet.</p>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
+                  gap: 12,
+                }}
+              >
+                {flattenNode(shoeCatModal).map((i) => (
+                  <SelCard
+                    key={i.id}
+                    selected={shoeCatalogId === i.id}
+                    onClick={() => {
+                      setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id);
+                      setShoeCatModal(null);
+                    }}
+                    imageUrl={i.thumbnailUrl}
+                    label={i.label}
+                    w={152.57}
+                    h={119}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Amazon Pose Picker Modal */}
       {amazonPoseModalOpen && (
