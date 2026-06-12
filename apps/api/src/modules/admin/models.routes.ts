@@ -1489,7 +1489,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/pose-assets/:id',
     {
-      preHandler: D,
+      preHandler: RW,
       schema: {
         params: uuidParam,
         querystring: z.object({ force: z.coerce.boolean().optional().default(false) }),
@@ -1530,7 +1530,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   app.delete(
     '/admin/assets/pose-assets',
     {
-      preHandler: D,
+      preHandler: RW,
       schema: { body: z.object({ ids: z.array(z.string().uuid()).min(1) }) },
     },
     async (req) => {

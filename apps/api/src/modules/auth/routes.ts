@@ -191,11 +191,13 @@ export async function authRoutes(app: FastifyInstance) {
         email: schema.users.email,
         displayName: schema.users.displayName,
         tier: schema.users.tier,
+        passwordHash: schema.users.passwordHash,
       })
       .from(schema.users)
       .where(eq(schema.users.id, req.userId));
     if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
-    return user;
+    const { passwordHash, ...rest } = user;
+    return { ...rest, hasPassword: passwordHash !== null };
   });
 
   app.patch(
@@ -298,24 +300,25 @@ export async function authRoutes(app: FastifyInstance) {
       preHandler: app.requireUser,
       schema: {
         body: z.object({
-          currentPassword: z.string().min(1),
+          currentPassword: z.string().min(1).optional(),
           newPassword: z.string().min(8),
         }),
       },
     },
     async (req) => {
       const { currentPassword, newPassword } = req.body as {
-        currentPassword: string;
+        currentPassword?: string;
         newPassword: string;
       };
       const [user] = await app.db
         .select({ passwordHash: schema.users.passwordHash })
         .from(schema.users)
         .where(eq(schema.users.id, req.userId));
-      if (!user?.passwordHash)
-        throw new AppError('INVALID', 400, 'no password set on this account');
-      if (!(await verifyPassword(user.passwordHash, currentPassword)))
-        throw new AppError('WRONG_PASSWORD', 400, 'current password is incorrect');
+      if (user?.passwordHash) {
+        if (!currentPassword) throw new AppError('INVALID', 400, 'current password required');
+        if (!(await verifyPassword(user.passwordHash, currentPassword)))
+          throw new AppError('WRONG_PASSWORD', 400, 'current password is incorrect');
+      }
       const passwordHash = await hashPassword(newPassword);
       await app.db
         .update(schema.users)

@@ -114,6 +114,8 @@ export interface User {
   isBanned: boolean;
   banReason: string | null;
   isAdmin: boolean;
+  adminRole: string | null;
+  hasPassword: boolean;
   balance: number;
   totalJobs: number;
   lastJobAt: string | null;

@@ -16,6 +16,7 @@ interface MeResponse {
   email: string;
   displayName: string | null;
   tier: string;
+  hasPassword: boolean;
 }
 interface CreditsResponse {
   balance: number;
@@ -225,6 +226,8 @@ export default function SettingsPage(): React.ReactElement {
     }
   }
 
+  const hasPassword = me?.hasPassword ?? true;
+
   async function changePassword() {
     setPwdError('');
     if (newPwd.length < 8) {
@@ -237,11 +240,15 @@ export default function SettingsPage(): React.ReactElement {
     }
     setPwdSaving(true);
     try {
-      await api.patch('/v1/me/password', { currentPassword: curPwd, newPassword: newPwd });
+      await api.patch('/v1/me/password', {
+        ...(hasPassword ? { currentPassword: curPwd } : {}),
+        newPassword: newPwd,
+      });
       setPwdSaved(true);
       setCurPwd('');
       setNewPwd('');
       setConfirmPwd('');
+      void qc.invalidateQueries({ queryKey: ['me'] });
       setTimeout(() => setPwdSaved(false), 2500);
     } catch (e) {
       setPwdError((e as Error).message ?? 'Failed to update password.');
@@ -366,15 +373,22 @@ export default function SettingsPage(): React.ReactElement {
                 <Field label="Default Platform" value="Amazon" dropdown disabled />
               </Row>
             </Section>
-            <Section title="Change Password" noBorder>
+            <Section title={hasPassword ? 'Change Password' : 'Set Password'} noBorder>
+              {!hasPassword && (
+                <p style={{ fontSize: 13, color: C.mid, margin: '0 0 4px' }}>
+                  Your account was created with Google. Set a password to also sign in with email.
+                </p>
+              )}
               <Row>
-                <Field
-                  label="Current Password"
-                  placeholder="Enter current password"
-                  type="password"
-                  value={curPwd}
-                  onChange={setCurPwd}
-                />
+                {hasPassword && (
+                  <Field
+                    label="Current Password"
+                    placeholder="Enter current password"
+                    type="password"
+                    value={curPwd}
+                    onChange={setCurPwd}
+                  />
+                )}
                 <Field
                   label="New Password"
                   placeholder="Enter new password (min 8 chars)"
@@ -403,7 +417,7 @@ export default function SettingsPage(): React.ReactElement {
               >
                 <Tooltip
                   tip={
-                    !curPwd
+                    hasPassword && !curPwd
                       ? 'Enter your current password'
                       : !newPwd
                         ? 'Enter a new password'
@@ -415,23 +429,34 @@ export default function SettingsPage(): React.ReactElement {
                 >
                   <button
                     onClick={() => void changePassword()}
-                    disabled={pwdSaving || !curPwd || !newPwd || !confirmPwd}
+                    disabled={pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd}
                     style={{
                       padding: '10px 24px',
                       borderRadius: 8,
                       border: 'none',
                       cursor:
-                        pwdSaving || !curPwd || !newPwd || !confirmPwd ? 'not-allowed' : 'pointer',
+                        pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd
+                          ? 'not-allowed'
+                          : 'pointer',
                       fontFamily: 'inherit',
                       fontWeight: 600,
                       fontSize: 14,
                       color: C.white,
                       background: pwdSaved ? C.mint : grad,
-                      opacity: pwdSaving || !curPwd || !newPwd || !confirmPwd ? 0.6 : 1,
+                      opacity:
+                        pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd ? 0.6 : 1,
                       transition: 'background .3s',
                     }}
                   >
-                    {pwdSaved ? '✓ Password Updated!' : pwdSaving ? 'Updating…' : 'Update Password'}
+                    {pwdSaved
+                      ? `✓ Password ${hasPassword ? 'Updated' : 'Set'}!`
+                      : pwdSaving
+                        ? hasPassword
+                          ? 'Updating…'
+                          : 'Setting…'
+                        : hasPassword
+                          ? 'Update Password'
+                          : 'Set Password'}
                   </button>
                 </Tooltip>
               </div>

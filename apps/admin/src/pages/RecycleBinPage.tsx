@@ -54,7 +54,8 @@ function Thumb({
 }
 
 export default function RecycleBinPage({ toast }: Props) {
-  const { storagePublicUrl } = useAuth();
+  const { storagePublicUrl, role } = useAuth();
+  const canHardDelete = role === 'SUPER_ADMIN' || role === 'MODERATOR';
   const [loading, setLoading] = useState(false);
   const [faces, setFaces] = useState<ModelFace[]>([]);
   const [backgrounds, setBackgrounds] = useState<ModelBackground[]>([]);
@@ -204,16 +205,18 @@ export default function RecycleBinPage({ toast }: Props) {
               >
                 Restore {selectedIds.length}
               </button>
-              <button
-                className="btn sm danger"
-                disabled={working}
-                onClick={() => {
-                  setPermDel({ type: currentType, ids: selectedIds });
-                  setPermDelText('');
-                }}
-              >
-                Permanently delete {selectedIds.length}
-              </button>
+              {canHardDelete && (
+                <button
+                  className="btn sm danger"
+                  disabled={working}
+                  onClick={() => {
+                    setPermDel({ type: currentType, ids: selectedIds });
+                    setPermDelText('');
+                  }}
+                >
+                  Permanently delete {selectedIds.length}
+                </button>
+              )}
             </div>
           )}
 
@@ -275,16 +278,18 @@ export default function RecycleBinPage({ toast }: Props) {
                             >
                               Restore
                             </button>
-                            <button
-                              className="btn sm danger"
-                              disabled={working}
-                              onClick={() => {
-                                setPermDel({ type: 'face', ids: [f.id] });
-                                setPermDelText('');
-                              }}
-                            >
-                              Delete
-                            </button>
+                            {canHardDelete && (
+                              <button
+                                className="btn sm danger"
+                                disabled={working}
+                                onClick={() => {
+                                  setPermDel({ type: 'face', ids: [f.id] });
+                                  setPermDelText('');
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -360,16 +365,18 @@ export default function RecycleBinPage({ toast }: Props) {
                             >
                               Restore
                             </button>
-                            <button
-                              className="btn sm danger"
-                              disabled={working}
-                              onClick={() => {
-                                setPermDel({ type: 'background', ids: [b.id] });
-                                setPermDelText('');
-                              }}
-                            >
-                              Delete
-                            </button>
+                            {canHardDelete && (
+                              <button
+                                className="btn sm danger"
+                                disabled={working}
+                                onClick={() => {
+                                  setPermDel({ type: 'background', ids: [b.id] });
+                                  setPermDelText('');
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -449,16 +456,18 @@ export default function RecycleBinPage({ toast }: Props) {
                             >
                               Restore
                             </button>
-                            <button
-                              className="btn sm danger"
-                              disabled={working}
-                              onClick={() => {
-                                setPermDel({ type: 'poseAsset', ids: [p.id] });
-                                setPermDelText('');
-                              }}
-                            >
-                              Delete
-                            </button>
+                            {canHardDelete && (
+                              <button
+                                className="btn sm danger"
+                                disabled={working}
+                                onClick={() => {
+                                  setPermDel({ type: 'poseAsset', ids: [p.id] });
+                                  setPermDelText('');
+                                }}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

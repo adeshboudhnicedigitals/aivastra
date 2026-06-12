@@ -24,13 +24,18 @@ const items: NavItem[] = [
     k: 'dashboard',
     label: 'Dashboard',
     icon: Icon.Dashboard,
-    roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT'],
+    roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN'],
   },
-  { k: 'assets', label: 'Assets', icon: Icon.Image, roles: ['SUPER_ADMIN', 'MODERATOR'] },
+  { k: 'assets', label: 'Assets', icon: Icon.Image, roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'] },
   { k: 'workflows', label: 'Workflows', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
-  { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT'] },
-  { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR'] },
-  { k: 'recycle-bin', label: 'Recycle bin', icon: Icon.Trash, roles: ['SUPER_ADMIN', 'MODERATOR'] },
+  { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'] },
+  { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'] },
+  {
+    k: 'recycle-bin',
+    label: 'Recycle bin',
+    icon: Icon.Trash,
+    roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+  },
 ];
 
 export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: SidebarProps) {

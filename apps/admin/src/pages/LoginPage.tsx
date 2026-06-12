@@ -17,7 +17,7 @@ export default function LoginPage() {
       await login(email, password);
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
-        setError('Your account does not have admin access.');
+        setError('No admin access. Contact a super admin to grant you access.');
       } else if (err instanceof ApiError && err.status === 401) {
         setError('Invalid email or password.');
       } else {
