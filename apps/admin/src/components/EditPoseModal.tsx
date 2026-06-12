@@ -190,13 +190,14 @@ export function EditPoseModal({
   toast,
 }: Props) {
   const { storagePublicUrl } = useAuth();
+  const defaultWf = workflows.find((w) => w.id === pose.workflowTemplateId);
   const [form, setForm] = useState({
     label: pose.label,
     faceId: pose.faceId,
     backgroundId: pose.backgroundId,
     sortOrder: pose.sortOrder,
     workflowTemplateId: pose.workflowTemplateId,
-    promptGarmentPhase: pose.promptGarmentPhase ?? '',
+    promptGarmentPhase: pose.promptGarmentPhase ?? defaultWf?.defaultGarmentPhasePrompt ?? '',
   });
 
   const [faceSideFile, setFaceSideFile] = useState<File | null>(null);
