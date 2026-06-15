@@ -1,11 +1,475 @@
 # Project Progress
 
+## 2026-06-15 — Admin mobile EAS Android autolinking fix
+
+### Done
+- Diagnosed the EAS Java failure as Expo SDK 53 running with pnpm isolated dependencies, which Expo documents as unsupported for reliable native builds.
+- Switched the workspace to pnpm's hoisted linker and pinned React/React DOM runtime and type versions for deterministic monorepo resolution.
+- Added the required direct `expo-font` and `expo-linking` native peer dependencies and ignored local `.expo` state.
+- Verified Android autolinking now emits `import expo.modules.ExpoModulesPackage;` instead of the invalid `expo.core` import.
+- Verified Expo Doctor 18/18, admin-mobile typecheck, web-admin production build, and Android Hermes export.
+
+### Failed / Not Done
+- The corrected EAS cloud APK build has not yet been submitted; the next build should use `--clear-cache` to discard the failed build's native cache.
+
+### Open Questions / Decisions
+- Expo SDK 54+ supports isolated pnpm installs; the workspace can reconsider `nodeLinker: hoisted` during a future SDK upgrade.
+
+## 2026-06-15 — Admin mobile EAS project linking
+
+### Done
+- Linked the dynamic Expo configuration to EAS project `c1c815e3-1a59-4965-874f-c494e08702b2` with an environment override option.
+- Set EAS CLI app-version handling to local, removing the upcoming `cli.appVersionSource` warning.
+- Verified the resolved Expo config contains the EAS project ID and current Wi-Fi API/storage URLs.
+- Verified admin-mobile typecheck, EAS JSON parsing, and diff whitespace.
+
+### Failed / Not Done
+- The cloud APK build has not yet been retried after linking; it requires the authenticated user command.
+
+### Open Questions / Decisions
+- App version remains `0.0.0`, which is acceptable for this internal preview but must be raised before production distribution.
+
+## 2026-06-14 — Admin mobile Wi-Fi APK preview setup
+
+### Done
+- Added an EAS `preview` profile that produces an internally distributed Android APK.
+- Configured the preview APK for the current Wi-Fi host `192.168.29.54` on API port 4000 and MinIO port 9000.
+- Added storage URL propagation through Expo config and made the MinIO host binding configurable without exposing Postgres or Redis.
+- Updated ignored local environment files for physical-device API and storage access.
+- Verified mobile typecheck, `eas.json` parsing, Docker Compose configuration, and diff whitespace.
+
+### Failed / Not Done
+- MinIO recreation and endpoint reachability checks could not run because Docker Desktop was not running.
+- Windows Firewall access for TCP ports 4000 and 9000 still needs confirmation from the physical phone.
+
+### Open Questions / Decisions
+- The Wi-Fi IP is embedded in the preview profile and must be updated if the computer receives a different DHCP address.
+
+## 2026-06-14 — Admin mobile production-readiness audit
+
+### Done
+- Audited Android release configuration, environment handling, authentication persistence, tests, and observability.
+- Confirmed feature implementation and Hermes export are complete, but production release infrastructure and device QA are still pending.
+- Identified auth lifecycle risks: foreground bootstrap failure does not clear the in-memory access token, and API refresh does not update the Zustand token used by SSE/navigation.
+
+### Failed / Not Done
+- No EAS build profiles, signed release build verification, automated mobile tests, crash reporting, analytics, or staged rollout configuration exist yet.
+- Production API/storage environment validation and full emulator/physical-device regression testing are not complete.
+
+### Open Questions / Decisions
+- Select the production distribution path (Google Play internal testing/EAS or native Gradle CI), crash-reporting provider, and automated device-test framework.
+
+## 2026-06-14 — Admin mobile Phase 8 operations and configuration
+
+### Done
+- Implemented the Workers screen against the actual keyed Redis registry response, with health parsing, pull-to-refresh, and 30-second polling.
+- Implemented SUPER_ADMIN credit-plan CRUD using the live `slug`, `name`, `subtext`, credits, paise price, badge, highlight, active, and sort-order schema.
+- Added safe handling for successful `204 No Content` API mutations, required by credit-plan deletion.
+- Implemented the SUPER_ADMIN system-config form for the actual `creditCostPerJob` and `maxJobsPerDay` fields, including dirty-state detection and guarded refresh.
+- Registered and wired Workers, Credit Plans, and System Config routes, completing the More menu navigation map.
+- Verified admin-mobile typecheck, source diff checks, theme/log audits, and a clean Android Hermes export.
+
+### Failed / Not Done
+- Worker GPU utilization, VRAM usage, and true active-job counts are not displayed because the current worker registry API does not publish those fields.
+- Emulator interaction QA remains for polling, credit-plan create/edit/delete conflict behavior, and config dirty-refresh confirmation.
+
+### Open Questions / Decisions
+- The worker screen derives a single active slot from `status === 'BUSY'`; richer GPU/job metrics require a backend registry contract extension.
+- The current config API exposes only credit cost and daily job limit; maintenance mode, default credits, per-user limits, and retry limits are not implemented server-side.
+
+## 2026-06-13 — Admin mobile Phase 7 workflows and recycle bin
+
+### Done
+- Added typed workflow list and detail routes with active state, metadata, node IDs, prompts, and pose counts.
+- Added role-gated workflow label/status editing, pose reassignment, and conflict-aware deletion.
+- Added grouped recycle-bin sections for faces, backgrounds, and pose assets with accessible selection controls.
+- Added restore, role-gated permanent deletion, and confirmed empty-bin operations with refreshed server state.
+- Wired Workflows and Recycle Bin into the More stack and menu with backend-aligned role restrictions.
+- Verified admin-mobile typecheck, source diff checks, theme/log audits, and a clean Android Hermes export.
+
+### Failed / Not Done
+- Emulator interaction QA remains for workflow reassignment, conflict deletion, grouped restore, and empty-bin behavior.
+- Workflow creation and JSON/node mapping remain web-admin-only by design.
+
+### Open Questions / Decisions
+- Empty-bin requests are grouped by asset type because the API accepts one recycle type per request; partial failures trigger a refresh and explicit warning.
+
+## 2026-06-13 — Admin mobile Phase 6 catalog
+
+### Done
+- Fixed the Phase 5 pose-asset mapping contract by carrying `garmentTypeId` into pose-detail navigation.
+- Fixed the garment-type detail loading state for dark theme and normalized the screen into maintainable source formatting.
+- Added the Catalog route stack, More-menu navigation, lower-garment/shoe tabs, category-aware rows, and image upload/create flow.
+- Added catalog item detail editing for label, gender, active state, sort order, and garment-type assignments, with role-gated deletion.
+- Verified admin-mobile typecheck, source diff checks, theme/log audits, and a clean Android Hermes export.
+
+### Failed / Not Done
+- Emulator interaction QA remains for MinIO image display, catalog uploads, assignment changes, and deletion.
+- Catalog category reassignment remains web-admin-only because the mobile Phase 6 scope specifies read-only category display.
+
+### Open Questions / Decisions
+- Catalog detail falls back to the `lower` endpoint if opened without a type parameter; normal in-app navigation always provides the item type.
+
+## 2026-06-13 — Admin mobile Phase 5 assets
+
+### Done
+- Applied the Phase 4 review cleanup by resolving face/background thumbnail URLs once per detail render.
+- Added reusable searchable picker modal infrastructure.
+- Implemented garment type list/create/detail flows, JPEG thumbnail upload, active/lower-upload toggles, pose navigation, conflict handling, and role-gated deletion.
+- Implemented garment-type pose grid/detail flows with active filtering, bulk delete, prompt/order/workflow editing, and force-delete confirmation for referenced jobs.
+- Implemented pose asset library, multi-image creation uploads, metadata/mapping detail, garment-type mapping, bulk soft delete, and force-delete confirmation.
+- Verified mobile typecheck and a clean Android Hermes export for all Phase 5 routes.
+
+### Failed / Not Done
+- Existing garment-type slugs are read-only because the current `PatchGarmentTypeBody` API does not accept `slug`.
+- Emulator interaction QA remains for multi-image upload progress, picker selection, mapping, activation conflicts, and force-delete flows.
+
+### Open Questions / Decisions
+- Pose-asset gender and face/background/workflow reassignment can be expanded in a follow-up refinement; creation currently requires existing face, background, and workflow selections.
+
+## 2026-06-13 — Admin mobile Phase 4 asset hub
+
+### Done
+- Verified local `master` matches remote HEAD `ec18526`; no pull or conflict resolution was required.
+- Added emulator-safe storage URL handling, thumbnail generation, progress-aware XHR uploads, two-image upload confirmation, and JPEG-only thumbnail uploads.
+- Added reusable themed image picker, upload progress, square asset card, and horizontal asset row components.
+- Converted the Assets tab from a flat placeholder into a nested asset hub with live counts.
+- Implemented Faces and Backgrounds list grids with gender filtering, pull-to-refresh, selection mode, role-gated bulk soft delete, and upload forms.
+- Implemented Face and Background detail editing, active/white-background toggles, role-gated deletion, and 409 conflict messaging.
+- Added `canDeleteAssets()` and the Expo SDK-compatible `expo-image` dependency.
+- Verified mobile typecheck and a clean Android Hermes export with the nested Phase 4 routes.
+
+### Failed / Not Done
+- Phases 5–8 remain pending; they were not compressed into the Phase 4 change because each phase requires separate end-to-end API and emulator validation.
+
+### Open Questions / Decisions
+- Local Android emulator storage uses `http://10.0.2.2:9000/aivastra`; physical devices need a LAN-reachable MinIO URL instead.
+
+## 2026-06-13 — Admin mobile Phase 3 review cleanup
+
+### Done
+- Consolidated user avatar initials formatting into the shared `format.ts` utility and updated list/detail consumers.
+- Reviewed proposed future More stack registrations against Expo Router behavior.
+
+### Failed / Not Done
+- Did not register nonexistent workflows, recycle-bin, settings, or config routes because Expo Router emits unmatched-screen warnings; each registration will be added with its route implementation.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-13 — Admin mobile Phase 2 refinement and Phase 3 Users
+
+### Done
+- Added a global Zustand toast queue with animated success/error/warning/info cards, three-toast limit, manual dismissal, and automatic dismissal.
+- Mounted toast rendering at the root and wired job cancel/retry success feedback.
+- Added reusable paginated data loading and imperative confirmation helpers.
+- Added theme-aware user rows, credit grant page-sheet modal, debounced searchable users list, and paginated refresh/loading/error states.
+- Added user detail with profile metrics, recent jobs, role-gated credit grants, ban/unban, session revocation, and super-admin soft delete.
+- Converted the More route into a nested stack, wired More → Users and Dashboard Active Users → Users navigation.
+- Removed the final direct dark/light palette usage from mobile UI components; runtime colors now come from `useAppTheme()`.
+- Verified mobile typecheck, source diff formatting, Expo Router route discovery, and a clean Android Hermes export.
+
+### Failed / Not Done
+- Emulator interaction checks for grant, ban/unban, delete, and toast timing require authenticated test users and remain manual QA.
+
+### Open Questions / Decisions
+- The backend user-detail endpoint currently returns a partial object instead of HTTP 404 for an unknown UUID; the mobile screen defensively treats missing `id` or `email` as not found.
+
+## 2026-06-13 — Admin mobile Material 3 Expressive redesign
+
+### Done
+- Added a semantic light/dark Material-inspired color system, expressive shape scale, elevated glass surfaces, and persisted `system` / `light` / `dark` appearance modes.
+- Rebuilt the dashboard as a bento command center with a featured metric, compact supporting cards, worker pulse, attention queues, and expressive seven-day chart.
+- Added smart admin search shortcuts for failed, queued, and generating jobs, worker navigation, and direct pasted job-ID navigation.
+- Replaced text glyph navigation with Material Community icons and a floating rounded bottom navigation surface.
+- Redesigned login and More/profile screens, including a three-way appearance selector.
+- Migrated jobs list/detail, cards, filters, statuses, accordions, timelines, empty states, and skeletons to dynamic semantic colors.
+- Added `@expo/vector-icons` as a direct mobile dependency and verified mobile typecheck, Expo dependency compatibility, and clean diff formatting.
+
+### Failed / Not Done
+- Smart search is an intent-based local command router, not an LLM-backed assistant; conversational API integration remains future scope.
+- Assets remains a Phase 4 placeholder and More menu routes remain tied to later implementation phases.
+
+### Open Questions / Decisions
+- Emulator QA should verify floating navigation safe-area spacing, glass opacity in both themes, small-screen bento wrapping, and keyboard behavior on login/search.
+
+## 2026-06-13 — Admin mobile Phase 2 UI polish
+
+### Done
+- Added reusable animated `SkeletonLoader`, `EmptyState`, `AccordionSection`, and Android-capable pinch/drag `ImagePreview` components.
+- Replaced initial dashboard and jobs-list spinners with layout-matched skeleton states.
+- Replaced percentage chart heights with numeric Android-safe bar heights.
+- Added collapsible job-detail sections, fullscreen input/output image previews, and started/completed timestamps.
+- Added expandable event payload JSON with clipboard copy feedback using `expo-clipboard`.
+- Added explicit 404 job-not-found handling and per-action cancel/retry loading indicators.
+- Verified Expo dependencies, mobile typecheck, and a clean Android bundle with `--max-workers 1`.
+
+### Failed / Not Done
+- Active Users stat-card navigation remains deferred until the Phase 3 Users route exists.
+
+### Open Questions / Decisions
+- Emulator QA should verify pinch/drag bounds, accordion ergonomics, and chart appearance with real dashboard data.
+
+## 2026-06-13 — Remote synchronization before mobile work
+
+### Done
+- Fetched and fast-forwarded `master` from `ce49477` to remote HEAD `ec18526` after stashing all staged, unstaged, and untracked local work.
+- Restored local mobile work after the pull with no merge conflicts.
+- Confirmed remote commit `a6bf082` split the large admin `AssetsPage.tsx` into per-tab components.
+- Confirmed remote commit `ff39751` removed the root `assets/` directory from Git tracking; the pull removed those formerly tracked local copies, and the existing `assets/*` rule prevents future re-addition.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Local changes are intentionally left uncommitted and unpushed.
+
+## 2026-06-13 — Admin mobile pending-work audit
+
+### Done
+- Audited the current route tree and implementation against `admin-mobile-phase2-plus-plan.md` after successful Android emulator startup.
+- Confirmed Auth, Dashboard, Jobs list, and Job detail are functional foundations; Assets remains a placeholder and More menu items are not wired.
+- Confirmed Phases 3–8 and their shared infrastructure are not implemented.
+
+### Failed / Not Done
+- No implementation changes were made; this entry records scope only.
+
+### Open Questions / Decisions
+- Prioritize Phase 3 Users next, or complete remaining Phase 2 UX/polish gaps before starting new administration domains.
+- Node 20 LTS remains recommended for Expo SDK 53; Node 24 requires reduced Metro worker counts locally.
+
+## 2026-06-12 — Admin mobile Expo startup fix
+
+### Done
+- Converted `app.config.js` to ESM and renamed CommonJS Metro/Babel configuration files to `.cjs` so they load correctly under the package's `"type": "module"` setting.
+- Added `@babel/runtime` as a direct mobile dependency and updated Metro's pnpm monorepo watch/resolution paths to include the workspace root.
+- Corrected the Expo Router entry point from legacy `expo/AppEntry.js` to `expo-router/entry`.
+- Aligned React, React Native, Expo Router, and native Expo modules to the Expo SDK 53 compatibility set; added required Router and SecureStore config plugins.
+- Audited the full workspace React graph (18.3.1, 19.0.0, and 19.2.6 coexist by design), pinned mobile React exactly to 19.0.0, and forced Metro's mobile React/React Native resolutions to the app-local dependency graph without globally overriding other workspaces.
+- Verified with a clean Android source-map export that the mobile bundle contains only `react@19.0.0`.
+- Removed import-time `Intl.RelativeTimeFormat` and `Intl.NumberFormat` usage from shared mobile formatters for Hermes compatibility; declared the Assets tab unconditionally and hide it with `href: null` to satisfy Expo Router layout child requirements.
+- Confirmed the Hermes-safe mobile bundle succeeds with a single Metro worker; Node 24's multi-worker export path remains unstable, so Node 20 or `--max-workers 1` is recommended for local Expo development.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Android emulator UI and networking still require runtime verification after Metro starts.
+
+## 2026-06-12 — Admin mobile Phase 2 jobs flow
+
+### Done
+- Replaced the jobs tab placeholder with a nested stack, paginated job list, URL-derived initial filter, pull-to-refresh, infinite loading, global SSE badge updates, and 15-second polling fallback after stream errors.
+- Added `EventTimeline` using `JobEvent.eventType`; worker and error details are read from `event.payload`.
+- Added `useAdminJobStream` as a typed `useSSE` wrapper that filters the global admin stream by job ID and reconnects when the route job changes.
+- Added the `JobDetail` screen with live optimistic timeline events, job metadata, input/output images, and role-safe cancel/retry actions.
+- Corrected stuck-job identifiers on the dashboard to use neutral text instead of error red.
+- Confirmed job events are returned newest-first; retained live-event prepending and cleared optimistic events before completion refetches to prevent duplicates.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- The dashboard percentage-height bar chart still needs a device or simulator visual check before release.
+- `/admin/jobs/stream` is global and does not support server-side job filtering; the detail hook filters events client-side.
+
+## 2026-06-12 — Admin mobile worker card
+
+### Done
+- Added `accessible` to `StatusBadge` so its explicit screen-reader label is used.
+- Added `WorkerCard` using the real `DashboardWorker` payload: worker ID, health-derived status, and relative last-seen time.
+- Kept unhealthy workers visually and semantically offline; did not invent the stale plan's unavailable GPU field.
+- Consolidated status-label formatting in `lib/format.ts` for reuse by worker and job UI components.
+- Added a typed, reusable horizontal `FilterChips` control and the six plan-defined job filters; transient `PREPROCESSING` and `UPLOADING` remain under `All` only.
+- Removed the ineffective accessibility label from the filter `ScrollView`; individual chips retain button roles and selected state announcements.
+- Added `JobCard` with the plan-defined status, user, shortened job ID, credit cost, and relative creation time layout.
+- Humanized the job status in `JobCard` accessibility announcements to match the visible badge label.
+- Replaced the dashboard placeholder with the full `/admin/stats` view: 30-second polling, pull-to-refresh, six stat cards, seven-day chart, direct `DashboardWorker[]` rendering, recent failures, and stuck jobs.
+- Applied failed-job alert styling only when `failed24h` is non-zero and added an all-workers-offline warning.
+
+### Failed / Not Done
+- None.
+
+### Validation
+- `pnpm --filter @aivastra/admin-mobile typecheck`
+- `git diff --check -- apps/admin-mobile/src/components/StatusBadge.tsx apps/admin-mobile/src/components/WorkerCard.tsx`
+
+### Open Questions / Decisions
+- The plan's `WorkerCard` GPU comment is stale because `/admin/stats` does not return GPU data.
+- `PREPROCESSING` and `UPLOADING` jobs are intentionally reachable only through the `All` filter, which may make targeted transient-state investigation slower during QA.
+
 > Update this file after every plan execution (superpowers/plan or any implementation plan).
 > Record what was done, what failed, and open questions/decisions.
 
 ---
 
 ## Log
+
+### 2026-06-12 — Admin Mobile Phase 2 shared prerequisites
+
+**Done:**
+- Added `apps/admin-mobile/src/types.ts` with the shared admin domain types and
+  Phase 2 dashboard, job detail, pagination, and SSE event contracts.
+- Added `src/lib/sse.ts` with an authenticated fetch-based SSE reader, multiline
+  event parsing, heartbeat tolerance, cleanup, and bounded reconnect backoff.
+- Added `src/lib/format.ts` with relative time, date, and Indian-locale number
+  formatting helpers.
+- Added `src/hooks/useApi.ts` with loading, error, refresh, stale-request, unmount,
+  disabled-query, and React Strict Mode handling.
+- Added `src/hooks/useSSE.ts` with auth-token wiring and automatic connection cleanup.
+- Consolidated mobile `AdminRole` usage onto the shared type definition.
+- Verified `pnpm --filter @aivastra/admin-mobile typecheck` passes with zero errors.
+- Added `src/components/StatCard.tsx` for Phase 2 dashboard metrics, including
+  optional navigation, alert styling, subtitles, formatted values, hidden null
+  deltas, and neutral zero-delta rendering without an arrow.
+- Verified `/admin/stats` deltas are percentage changes, already multiplied by 100
+  and rounded by the API; `StatCard` therefore retains the `%` suffix. Its props now
+  enforce delta/subtitle exclusivity, and delta text uses the shared sans typography.
+- Added `src/components/StatusBadge.tsx` with compact/full-width variants, status
+  dots, the seven documented job-state colors, accessible labels, and a resilient
+  gray fallback for unknown future states.
+
+**Failed / Not Done:**
+- Remaining Phase 2 components and screens were not started; this entry covers plan
+  §2.2 steps 1–6 and reordered step 8 (`StatusBadge`) before `WorkerCard`.
+
+**Open Questions / Decisions:**
+- SSE reconnects currently reuse the same access token. If the stream is the only
+  active request when that token expires, 401 responses retry with backoff until
+  another app action refreshes the token. Add SSE-triggered refresh handling in a
+  later Phase 2+ pass.
+- `useApi()` is intentionally GET-only for current Phase 2 dashboard/list queries.
+  Extend it or add a mutation hook before Phase 3+ form submissions need request
+  methods or bodies.
+
+---
+
+### 2026-06-12 — Admin Mobile auth error handling + documentation corrections
+
+**Done:**
+- Fixed `apps/admin-mobile/src/store/auth.ts`: login error parsing now reads
+  `body.error.code` (matching the API's `{ error: { code, message } }` envelope).
+  `EMAIL_NOT_VERIFIED` (403) surfaces as a dedicated error; all other login failures
+  (wrong password, non-admin, inactive admin) surface as `INVALID_CREDENTIALS`.
+- Fixed `apps/admin-mobile/src/app/(auth)/login.tsx`: shows "Email not verified —
+  check your inbox" for `EMAIL_NOT_VERIFIED`; removed dead `NOT_ADMIN` branch (the
+  new `login-mobile` returns 401 for non-admins, not 403).
+- Corrected `docs/admin-mobile-implementation-report.md` §1.2: web `/v1/auth/refresh`
+  retains inlined rotation logic — it does **not** call `rotateTokenFamily()`. Only
+  `refresh-body` calls `rotateTokenFamily(app, plain, 'mobile')`.
+- Updated `docs/admin-mobile-phase2-plus-plan.md` §4.8: shared `uploadAsset()` helper
+  excludes garment types; garment-type upload documented as thumbnail-only
+  (`presign → PUT → POST /admin/assets/garment-types`).
+
+**Deferred:**
+- 429 rate-limit responses display generic "Invalid credentials" messaging for now.
+  Proper "Too many attempts — try again later" handling is Phase 2+ backlog.
+
+---
+
+### 2026-06-12 — Admin Mobile Phases 2-8 implementation plan
+
+**Done:**
+- Created `docs/admin-mobile-phase2-plus-plan.md` — detailed implementation plan for
+  all remaining phases (2-8), covering ~61 new files across 41 screens:
+  - **Shared prerequisites:** StatusBadge, ConfirmDialog, FilterChips, EmptyState,
+    SkeletonLoader, PullToRefresh, Toast, useApi/usePagination/useSSE hooks,
+    SSE lib, format lib, thumbnail lib, TypeScript types
+  - **Phase 2 (Dashboard + Jobs):** 8 files — StatCard, WorkerCard, JobCard,
+    EventTimeline, real Dashboard, Job list with SSE, Job detail with cancel/retry
+  - **Phase 3 (Users):** 4 files — UserRow, GrantCreditsModal, User list, User detail
+  - **Phase 4 (Assets Core):** 11 files — AssetCard, AssetRow, UploadProgress,
+    ImagePreview, Face/Background list/detail/upload
+  - **Phase 5 (Assets Advanced):** 11 files — Garment Types, Poses (face×bg grid),
+    Pose Assets (with mapping), WorkflowPicker
+  - **Phase 6 (Catalog):** 5 files — CategoryTree, Catalog items, batch upload
+  - **Phase 7 (Workflows + Recycle Bin):** 7 files — Workflow list/detail/upload,
+    Recycle Bin with tabs (restore/delete)
+  - **Phase 8 (Settings + Config):** 4 files — Credit plans CRUD, Config form
+  - Each phase includes: build order, data flow, UI states (loading/empty/error),
+    and cross-cutting checklist (skeleton, pull-to-refresh, toast, tablet)
+  - Navigation wiring plan for `more.tsx` as each phase completes
+
+---
+
+### 2026-06-12 — Admin Mobile Phase 1: Backend endpoints + scaffold
+
+**Done:**
+- **Backend (apps/api):** Added 3 mobile auth endpoints to `routes.ts`:
+  - `POST /v1/auth/login-mobile` — body-based login with admin_users check, returns `{ accessToken, refreshToken }` in JSON
+  - `POST /v1/auth/refresh-body` — body-based token rotation, reuses shared `rotateTokenFamily()` function
+  - `POST /v1/auth/logout-mobile` — body-based logout, revokes refresh token family via `revokedAt`
+  - Extracted `rotateTokenFamily()` from `/v1/auth/refresh` to avoid duplication
+  - All 3 endpoints have rate limiting, Zod body schemas, and no cookie usage
+  - Existing `/v1/auth/refresh` refactored to call shared function — identical behavior
+- **Types (packages/types):** Added `build:cjs` script + `require` export condition for Metro bundler compatibility
+- **Scaffold (apps/admin-mobile):** Created Expo SDK 53 project with:
+  - `package.json` — full deps (Expo 53, React Native 0.79, React 19, Zustand, etc.)
+  - `app.config.js` — Android-only, `usesCleartextTraffic` for dev, image-picker + media-library plugins
+  - `metro.config.js` — SVG transformer + `@aivastra/types` CJS resolver
+  - `tsconfig.json` — standalone, extends `expo/tsconfig.base`
+  - `babel.config.js` — with reanimated plugin
+- **Foundation files:**
+  - `src/styles/tokens.ts` — Colors, Spacing, Radius, Typography (ported from admin CSS)
+  - `src/store/auth.ts` — Zustand store: login, logout, bootstrap, SecureStore persistence
+  - `src/store/theme.ts` — Zustand store: dark/light toggle, AsyncStorage persistence
+  - `src/lib/api.ts` — `apiFetch()` with 401 → refresh-body → retry interceptor
+  - `src/lib/roles.ts` — `canAccessAssets()`, `canManageUsers()`, `isSuperAdmin()` helpers
+- **Screens:**
+  - `src/app/_layout.tsx` — Root layout: GestureHandlerRootView, auth gate, AppState foreground refresh
+  - `src/app/(auth)/login.tsx` — Login screen: email/password form, error states, dark theme
+  - `src/app/(tabs)/_layout.tsx` — 4-tab bottom navigator with role-based Assets tab visibility
+  - Placeholder screens: `home.tsx`, `jobs.tsx`, `assets.tsx`, `more.tsx` (with logout)
+
+**Typecheck:** Passes cleanly (both `@aivastra/api` mobile endpoints and `@aivastra/admin-mobile`)
+
+**Open Questions / Decisions:**
+- Pre-existing type errors in `admin/guard.ts`, `admin/users.routes.ts`, and `auth/routes.ts` (`request-admin`) — all from `status` column removed in migration 0039. Not related to mobile work.
+
+---
+
+### 2026-06-12 — Admin Mobile plan review (round 2)
+
+**Done:**
+- Addressed 10 remaining issues from second review:
+  - Bumped Expo from SDK 52 to **SDK 53** (React Native 0.78, New Architecture default)
+  - Bumped all dependency versions for SDK 53 compatibility (expo ~53, react-native-svg ~15.11, reanimated ~3.17, etc.)
+  - Added §1.6: New Architecture compatibility checklist
+  - Added §1.7: Root `pnpm dev` exclusion (mobile app not started by workspace runner)
+  - Fixed §4.2 Dashboard: workers now call `/admin/workers` separately (`/admin/stats` workers have no name/GPU)
+  - Fixed §4.2 Dashboard: `failed24h` has no server-provided delta — documented as standalone count
+  - Added §4.7: asset-type → presign endpoint mapping table (6 endpoints with response shapes)
+  - Added §4.4 dev note: job detail images use public URLs, MinIO 127.0.0.1 unreachable from physical devices
+  - Added explicit SSE path `/admin/jobs/stream` in §4.3
+  - Added §3.2: `AppState` foreground token refresh listener in root layout
+
+---
+
+### 2026-06-12 — Admin Mobile plan review (round 1)
+
+**Done:**
+- Created comprehensive implementation plan at `docs/admin-mobile-implementation.md`
+  for a React Native (Expo) admin app (`apps/admin-mobile`)
+- Plan covers: project scaffold, 4-tab navigation, auth flow (body-based tokens),
+  ~46 screens across 8 phases, component library, styling system, file migration map
+- Addressed all 12 issues from plan review:
+  - Two new backend endpoints needed: `/v1/auth/login-mobile` and `/v1/auth/refresh-body`
+    (both return refresh tokens in JSON body — mobile can't read HTTP-only cookies)
+  - Metro bundler ESM workaround: pre-build `@aivastra/types` to CJS + `metro.config.js` resolver
+  - Removed `react-native-event-source`, committed to custom fetch-based SSE reader
+  - Added missing deps: `expo-media-library`, `@react-native-async-storage/async-storage`, `react-native-gesture-handler`
+  - Fixed Android minimum to single value (12+), removed contradiction
+  - Added role helper functions (`canAccessAssets`, `canManageUsers`, `isSuperAdmin`)
+  - Concrete CI pipeline with EAS Build + `EXPO_TOKEN` secret
+  - `app.config.js` pattern for dev/staging/prod API URL switching
+  - Phase 9 "Polish" deleted — skeleton/empty state/error boundaries threaded into each phase's deliverable
+
+**Open Questions / Decisions:**
+- None — all review issues resolved, plan ready for Phase 1 execution
+
+---
+
+### 2026-06-12 — Admin Mobile plan review (round 1 fixes)
 
 ### 2026-06-09 — Production deployment & nginx fixes
 
