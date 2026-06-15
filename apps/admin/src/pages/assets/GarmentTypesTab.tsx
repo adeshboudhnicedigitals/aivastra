@@ -76,6 +76,8 @@ export function GarmentTypesTab() {
   const [editSubcatSaving, setEditSubcatSaving] = useState(false);
   const [editSubcatLabel, setEditSubcatLabel] = useState('');
   const [editSubcatRequiresLowerUpload, setEditSubcatRequiresLowerUpload] = useState(false);
+  const [editSubcatDefaultLowerId, setEditSubcatDefaultLowerId] = useState<string>('');
+  const [editSubcatDefaultShoeId, setEditSubcatDefaultShoeId] = useState<string>('');
 
   const loadGarmentTypeAssets = useCallback(
     async (garmentTypeId: string) => {
@@ -412,6 +414,8 @@ export function GarmentTypesTab() {
                             setEditingSubcat(sub);
                             setEditSubcatLabel(sub.label);
                             setEditSubcatRequiresLowerUpload(sub.requiresLowerUpload);
+                            setEditSubcatDefaultLowerId(sub.defaultLowerCatalogId ?? '');
+                            setEditSubcatDefaultShoeId(sub.defaultShoeCatalogId ?? '');
                             setEditSubcatImageFile(null);
                           }}
                         >
@@ -1068,6 +1072,8 @@ export function GarmentTypesTab() {
                   setEditSubcatImageFile(null);
                   setEditSubcatLabel('');
                   setEditSubcatRequiresLowerUpload(false);
+                  setEditSubcatDefaultLowerId('');
+                  setEditSubcatDefaultShoeId('');
                 }}
                 disabled={editSubcatSaving}
                 style={{ marginLeft: 'auto' }}
@@ -1101,6 +1107,204 @@ export function GarmentTypesTab() {
                     (user uploads bottom wear separately)
                   </span>
                 </label>
+              </div>
+              <div className="field">
+                <label>Default lower garment</label>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    maxHeight: 180,
+                    overflowY: 'auto',
+                    padding: '2px 0',
+                    opacity: editSubcatSaving ? 0.5 : 1,
+                    pointerEvents: editSubcatSaving ? 'none' : undefined,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEditSubcatDefaultLowerId('')}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 3,
+                      background: 'none',
+                      border: `2px solid ${editSubcatDefaultLowerId === '' ? 'var(--pink)' : 'var(--border)'}`,
+                      borderRadius: 6,
+                      padding: 3,
+                      cursor: 'pointer',
+                      width: 62,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 54,
+                        height: 54,
+                        borderRadius: 4,
+                        background: 'var(--subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--muted)',
+                        fontSize: 18,
+                      }}
+                    >
+                      —
+                    </div>
+                    <span style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1 }}>None</span>
+                  </button>
+                  {catalogItems
+                    .filter(
+                      (c) =>
+                        c.type === 'lower' &&
+                        c.isActive &&
+                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug),
+                    )
+                    .map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        title={c.label}
+                        onClick={() =>
+                          setEditSubcatDefaultLowerId(c.id === editSubcatDefaultLowerId ? '' : c.id)
+                        }
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 3,
+                          background: 'none',
+                          border: `2px solid ${editSubcatDefaultLowerId === c.id ? 'var(--pink)' : 'var(--border)'}`,
+                          borderRadius: 6,
+                          padding: 3,
+                          cursor: 'pointer',
+                          width: 62,
+                        }}
+                      >
+                        <AssetThumb
+                          thumbnailKey={c.thumbnailKey}
+                          label={c.label}
+                          w={54}
+                          h={54}
+                          storageBase={storagePublicUrl}
+                        />
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: 'var(--muted)',
+                            lineHeight: 1,
+                            maxWidth: 54,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {c.label}
+                        </span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+              <div className="field">
+                <label>Default shoe</label>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    maxHeight: 180,
+                    overflowY: 'auto',
+                    padding: '2px 0',
+                    opacity: editSubcatSaving ? 0.5 : 1,
+                    pointerEvents: editSubcatSaving ? 'none' : undefined,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setEditSubcatDefaultShoeId('')}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 3,
+                      background: 'none',
+                      border: `2px solid ${editSubcatDefaultShoeId === '' ? 'var(--pink)' : 'var(--border)'}`,
+                      borderRadius: 6,
+                      padding: 3,
+                      cursor: 'pointer',
+                      width: 62,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 54,
+                        height: 54,
+                        borderRadius: 4,
+                        background: 'var(--subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--muted)',
+                        fontSize: 18,
+                      }}
+                    >
+                      —
+                    </div>
+                    <span style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1 }}>None</span>
+                  </button>
+                  {catalogItems
+                    .filter(
+                      (c) =>
+                        c.type === 'shoe' &&
+                        c.isActive &&
+                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug),
+                    )
+                    .map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        title={c.label}
+                        onClick={() =>
+                          setEditSubcatDefaultShoeId(c.id === editSubcatDefaultShoeId ? '' : c.id)
+                        }
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: 3,
+                          background: 'none',
+                          border: `2px solid ${editSubcatDefaultShoeId === c.id ? 'var(--pink)' : 'var(--border)'}`,
+                          borderRadius: 6,
+                          padding: 3,
+                          cursor: 'pointer',
+                          width: 62,
+                        }}
+                      >
+                        <AssetThumb
+                          thumbnailKey={c.thumbnailKey}
+                          label={c.label}
+                          w={54}
+                          h={54}
+                          storageBase={storagePublicUrl}
+                        />
+                        <span
+                          style={{
+                            fontSize: 10,
+                            color: 'var(--muted)',
+                            lineHeight: 1,
+                            maxWidth: 54,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {c.label}
+                        </span>
+                      </button>
+                    ))}
+                </div>
               </div>
               <div className="field">
                 <label>Thumbnail image</label>
@@ -1182,6 +1386,8 @@ export function GarmentTypesTab() {
                   setEditSubcatImageFile(null);
                   setEditSubcatLabel('');
                   setEditSubcatRequiresLowerUpload(false);
+                  setEditSubcatDefaultLowerId('');
+                  setEditSubcatDefaultShoeId('');
                 }}
                 disabled={editSubcatSaving}
               >
@@ -1193,7 +1399,9 @@ export function GarmentTypesTab() {
                   editSubcatSaving ||
                   (!editSubcatImageFile &&
                     editSubcatLabel.trim() === editingSubcat.label.trim() &&
-                    editSubcatRequiresLowerUpload === editingSubcat.requiresLowerUpload)
+                    editSubcatRequiresLowerUpload === editingSubcat.requiresLowerUpload &&
+                    editSubcatDefaultLowerId === (editingSubcat.defaultLowerCatalogId ?? '') &&
+                    editSubcatDefaultShoeId === (editingSubcat.defaultShoeCatalogId ?? ''))
                 }
                 onClick={async () => {
                   setEditSubcatSaving(true);
@@ -1202,6 +1410,8 @@ export function GarmentTypesTab() {
                       thumbnailKey?: string;
                       label?: string;
                       requiresLowerUpload?: boolean;
+                      defaultLowerCatalogId?: string | null;
+                      defaultShoeCatalogId?: string | null;
                     } = {};
                     if (editSubcatImageFile) {
                       const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
@@ -1225,6 +1435,12 @@ export function GarmentTypesTab() {
                     if (editSubcatRequiresLowerUpload !== editingSubcat.requiresLowerUpload) {
                       patchBody.requiresLowerUpload = editSubcatRequiresLowerUpload;
                     }
+                    if (editSubcatDefaultLowerId !== (editingSubcat.defaultLowerCatalogId ?? '')) {
+                      patchBody.defaultLowerCatalogId = editSubcatDefaultLowerId || null;
+                    }
+                    if (editSubcatDefaultShoeId !== (editingSubcat.defaultShoeCatalogId ?? '')) {
+                      patchBody.defaultShoeCatalogId = editSubcatDefaultShoeId || null;
+                    }
                     if (Object.keys(patchBody).length > 0) {
                       await apiFetch(`/admin/assets/garment-types/${editingSubcat.id}`, {
                         method: 'PATCH',
@@ -1239,6 +1455,8 @@ export function GarmentTypesTab() {
                     setEditSubcatImageFile(null);
                     setEditSubcatLabel('');
                     setEditSubcatRequiresLowerUpload(false);
+                    setEditSubcatDefaultLowerId('');
+                    setEditSubcatDefaultShoeId('');
                   } catch {
                     toast({ kind: 'error', title: 'Failed to save' });
                   } finally {

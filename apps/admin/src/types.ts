@@ -37,6 +37,8 @@ export interface GarmentType {
   isActive: boolean;
   sortOrder: number;
   requiresLowerUpload: boolean;
+  defaultLowerCatalogId?: string | null;
+  defaultShoeCatalogId?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
