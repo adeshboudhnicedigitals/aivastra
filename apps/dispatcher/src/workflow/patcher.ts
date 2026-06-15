@@ -57,6 +57,7 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
 
 export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
   '1:1': { width: 1536, height: 1536 },
+  '2:3': { width: 1365, height: 2048 },
   '3:4': { width: 1331, height: 1774 },
   '4:5': { width: 1375, height: 1718 },
 };
@@ -155,7 +156,9 @@ export function applyWorkflowPatch(
       log?.warn(`patchWorkflow: unknown aspectRatio "${inputs.aspectRatio}" — skipping size patch`);
     } else {
       for (let i = 0; i < tmpl.sizeNodeIds.length; i++) {
-        const node = workflow[tmpl.sizeNodeIds[i]!];
+        const nodeId = tmpl.sizeNodeIds[i];
+        if (!nodeId) continue;
+        const node = workflow[nodeId];
         if (!node) continue;
         if (node.class_type === 'PrimitiveInt') {
           node.inputs.value = i === 0 ? dims.width : dims.height;
