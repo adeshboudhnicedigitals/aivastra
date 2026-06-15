@@ -574,26 +574,14 @@ export default function StudioPage(): React.ReactElement {
     setShoeCatalogId('');
   }
   function handlePoseSelect(id: string) {
-    const gt = garmentTypes?.items.find((g) => g.id === garmentTypeId);
     setPoseIds((prev) => {
-      const prevPoses = poses?.items.filter((p) => prev.includes(p.id)) ?? [];
-      const prevNeedsLower = prevPoses.some((p) => p.hasLower);
-      const prevNeedsShoes = prevPoses.some((p) => p.hasShoes);
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
       const nextPoses = poses?.items.filter((p) => next.includes(p.id)) ?? [];
       const nextNeedsLower = nextPoses.some((p) => p.hasLower);
       const nextNeedsShoes = nextPoses.some((p) => p.hasShoes);
-      // Clear when no longer needed; auto-set default on first lower/shoe-needing pose added
-      if (!nextNeedsLower) {
-        setLowerCatalogId('');
-      } else if (!prevNeedsLower && gt?.defaultLowerCatalogId) {
-        setLowerCatalogId(gt.defaultLowerCatalogId);
-      }
-      if (!nextNeedsShoes) {
-        setShoeCatalogId('');
-      } else if (!prevNeedsShoes && gt?.defaultShoeCatalogId) {
-        setShoeCatalogId(gt.defaultShoeCatalogId);
-      }
+      // Clear when no longer needed; leave empty otherwise (default sent at submit time)
+      if (!nextNeedsLower) setLowerCatalogId('');
+      if (!nextNeedsShoes) setShoeCatalogId('');
       return next;
     });
   }
@@ -619,15 +607,21 @@ export default function StudioPage(): React.ReactElement {
       // The aspectRatio (1:1) is already captured in `aspect` independently.
       const effectivePlatform =
         platform === 'Amazon' ? (amazonUseWhiteBg ? 'Amazon' : undefined) : platform;
+      const effectiveLowerId =
+        lowerCatalogId ||
+        (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
+      const effectiveShoesId =
+        shoeCatalogId ||
+        (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
       const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
         inputs: {
           upperGarmentKey: garmentKey,
           faceId,
           backgroundId,
           poseIds,
-          lowerCatalogId: lowerCatalogId || undefined,
+          lowerCatalogId: effectiveLowerId,
           lowerGarmentKey: lowerGarmentKey || undefined,
-          shoeCatalogId: shoeCatalogId || undefined,
+          shoeCatalogId: effectiveShoesId,
         },
         aspectRatio: aspect,
         resolution,
@@ -648,6 +642,13 @@ export default function StudioPage(): React.ReactElement {
     setIsSubmitting(true);
     setSubmitError('');
     try {
+      const effectiveLowerId =
+        lowerCatalogId ||
+        (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
+      const effectiveShoesId =
+        shoeCatalogId ||
+        (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
+
       // Main image: white Amazon-compliant background
       const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
         inputs: {
@@ -655,9 +656,9 @@ export default function StudioPage(): React.ReactElement {
           faceId,
           backgroundId,
           poseIds: [mainPoseId],
-          lowerCatalogId: lowerCatalogId || undefined,
+          lowerCatalogId: effectiveLowerId,
           lowerGarmentKey: lowerGarmentKey || undefined,
-          shoeCatalogId: shoeCatalogId || undefined,
+          shoeCatalogId: effectiveShoesId,
         },
         aspectRatio: aspect,
         resolution,
@@ -674,9 +675,9 @@ export default function StudioPage(): React.ReactElement {
             faceId,
             backgroundId,
             poseIds: remainingPoseIds,
-            lowerCatalogId: lowerCatalogId || undefined,
+            lowerCatalogId: effectiveLowerId,
             lowerGarmentKey: lowerGarmentKey || undefined,
-            shoeCatalogId: shoeCatalogId || undefined,
+            shoeCatalogId: effectiveShoesId,
           },
           aspectRatio: aspect,
           resolution,
@@ -1676,7 +1677,13 @@ export default function StudioPage(): React.ReactElement {
                         const isActive =
                           !!lowerCatalogId &&
                           findNodeForItem(lowerCatalog.tree, lowerCatalogId)?.id === node.id;
-                        const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
+                        const selectedItem = isActive
+                          ? nodeItems.find((i) => i.id === lowerCatalogId)
+                          : null;
+                        const thumb =
+                          selectedItem?.thumbnailUrl ??
+                          node.thumbnailUrl ??
+                          nodeItems[0]?.thumbnailUrl;
                         return (
                           <SelCard
                             key={node.id}
@@ -1714,7 +1721,7 @@ export default function StudioPage(): React.ReactElement {
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fill, 130px)',
+                      gridTemplateColumns: 'repeat(auto-fill, 120px)',
                       gap: 12,
                     }}
                   >
@@ -1725,7 +1732,13 @@ export default function StudioPage(): React.ReactElement {
                         const isActive =
                           !!shoeCatalogId &&
                           findNodeForItem(shoesCatalog.tree, shoeCatalogId)?.id === node.id;
-                        const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
+                        const selectedItem = isActive
+                          ? nodeItems.find((i) => i.id === shoeCatalogId)
+                          : null;
+                        const thumb =
+                          selectedItem?.thumbnailUrl ??
+                          node.thumbnailUrl ??
+                          nodeItems[0]?.thumbnailUrl;
                         return (
                           <SelCard
                             key={node.id}
@@ -1733,8 +1746,8 @@ export default function StudioPage(): React.ReactElement {
                             onClick={() => setShoeCatModal(node)}
                             imageUrl={thumb}
                             label={node.label}
-                            w={130}
-                            h={100}
+                            w={120}
+                            h={120}
                           />
                         );
                       })}
@@ -2242,7 +2255,7 @@ export default function StudioPage(): React.ReactElement {
                     }}
                     imageUrl={i.thumbnailUrl}
                     w={152.57}
-                    h={119}
+                    h={152.57}
                   />
                 ))}
               </div>
