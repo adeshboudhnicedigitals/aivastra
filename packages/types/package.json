@@ -13,6 +13,7 @@
     }
   },
   "scripts": {
+    "dev": "tsc --watch",
     "build": "tsc",
     "build:cjs": "tsc --module commonjs --moduleResolution node --outDir dist/cjs",
     "typecheck": "tsc --noEmit"

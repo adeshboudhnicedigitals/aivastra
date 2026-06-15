@@ -495,19 +495,31 @@ export default function StudioPage(): React.ReactElement {
 
   const poseIdsParam = poseIds.length > 0 ? `poseIds=${poseIds.join(',')}` : '';
   const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
-    queryKey: ['catalog', 'lower', gender, poseIds.join(',')],
-    queryFn: () =>
-      api.get(
-        `/v1/catalog/lower?${[poseIdsParam, gender ? `gender=${gender}` : ''].filter(Boolean).join('&')}`,
-      ),
+    queryKey: ['catalog', 'lower', gender, garmentTypeId, poseIds.join(',')],
+    queryFn: () => {
+      const params = [
+        poseIdsParam,
+        gender ? `gender=${gender}` : '',
+        garmentTypeId ? `garmentTypeId=${garmentTypeId}` : '',
+      ]
+        .filter(Boolean)
+        .join('&');
+      return api.get(`/v1/catalog/lower?${params}`);
+    },
     enabled: step >= 3 && needsLower,
   });
   const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
-    queryKey: ['catalog', 'shoe', gender, poseIds.join(',')],
-    queryFn: () =>
-      api.get(
-        `/v1/catalog/shoe?${[poseIdsParam, gender ? `gender=${gender}` : ''].filter(Boolean).join('&')}`,
-      ),
+    queryKey: ['catalog', 'shoe', gender, garmentTypeId, poseIds.join(',')],
+    queryFn: () => {
+      const params = [
+        poseIdsParam,
+        gender ? `gender=${gender}` : '',
+        garmentTypeId ? `garmentTypeId=${garmentTypeId}` : '',
+      ]
+        .filter(Boolean)
+        .join('&');
+      return api.get(`/v1/catalog/shoe?${params}`);
+    },
     enabled: step >= 3 && needsShoes,
   });
 
