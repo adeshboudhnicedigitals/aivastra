@@ -280,7 +280,7 @@ function SelCard({
                 lineHeight: 1,
               }}
             >
-              {label.charAt(0)}
+              {label?.charAt(0)}
             </span>
           )}
         </div>
