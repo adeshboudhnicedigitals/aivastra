@@ -287,7 +287,7 @@ export function Sidebar() {
         </div>
 
         {/* Nav */}
-        <nav style={{ padding: '16px 10px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <nav style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {NAV.map((item) => {
             const isActive = activeId === item.id;
             const linkContent = (
@@ -392,7 +392,7 @@ export function Sidebar() {
       </div>
 
       {/* Bottom: credits + profile */}
-      <div style={{ padding: '0 10px 16px' }}>
+      <div style={{ padding: '0 20px 16px' }}>
         {/* Credits widget — hidden when collapsed */}
         <div
           style={{

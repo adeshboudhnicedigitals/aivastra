@@ -8,11 +8,13 @@
   "exports": {
     ".": {
       "import": "./dist/index.js",
+      "require": "./dist/cjs/index.js",
       "types": "./dist/index.d.ts"
     }
   },
   "scripts": {
     "build": "tsc",
+    "build:cjs": "tsc --module commonjs --moduleResolution node --outDir dist/cjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
