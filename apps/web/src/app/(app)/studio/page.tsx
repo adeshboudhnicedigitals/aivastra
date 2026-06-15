@@ -1700,56 +1700,6 @@ export default function StudioPage(): React.ReactElement {
                           );
                         })}
                     </div>
-                    {lowerCatalogId &&
-                      (() => {
-                        const sel = flattenCatalog(lowerCatalog.tree).find(
-                          (i) => i.id === lowerCatalogId,
-                        );
-                        if (!sel) return null;
-                        return (
-                          <div
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              marginTop: 12,
-                              padding: '6px 10px',
-                              borderRadius: 8,
-                              border: `1px solid ${C.border}`,
-                              background: '#f9f9f9',
-                            }}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={sel.thumbnailUrl}
-                              alt={sel.label}
-                              style={{
-                                width: 36,
-                                height: 36,
-                                borderRadius: 5,
-                                objectFit: 'cover',
-                                flexShrink: 0,
-                              }}
-                            />
-                            <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
-                              {sel.label}
-                            </span>
-                            <button
-                              onClick={() => setLowerCatalogId('')}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: C.mid,
-                                display: 'flex',
-                                padding: 2,
-                              }}
-                            >
-                              <XIcon size={14} />
-                            </button>
-                          </div>
-                        );
-                      })()}
                   </>
                 )}
               </section>
@@ -1804,56 +1754,6 @@ export default function StudioPage(): React.ReactElement {
                           );
                         })}
                     </div>
-                    {shoeCatalogId &&
-                      (() => {
-                        const sel = flattenCatalog(shoesCatalog.tree).find(
-                          (i) => i.id === shoeCatalogId,
-                        );
-                        if (!sel) return null;
-                        return (
-                          <div
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              marginTop: 12,
-                              padding: '6px 10px',
-                              borderRadius: 8,
-                              border: `1px solid ${C.border}`,
-                              background: '#f9f9f9',
-                            }}
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={sel.thumbnailUrl}
-                              alt={sel.label}
-                              style={{
-                                width: 36,
-                                height: 36,
-                                borderRadius: 5,
-                                objectFit: 'cover',
-                                flexShrink: 0,
-                              }}
-                            />
-                            <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
-                              {sel.label}
-                            </span>
-                            <button
-                              onClick={() => setShoeCatalogId('')}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                cursor: 'pointer',
-                                color: C.mid,
-                                display: 'flex',
-                                padding: 2,
-                              }}
-                            >
-                              <XIcon size={14} />
-                            </button>
-                          </div>
-                        );
-                      })()}
                   </>
                 )}
               </section>
@@ -2277,7 +2177,7 @@ export default function StudioPage(): React.ReactElement {
                     imageUrl={i.thumbnailUrl}
                     label={i.label}
                     w={152.57}
-                    h={119}
+                    h={203}
                   />
                 ))}
               </div>
@@ -2360,7 +2260,7 @@ export default function StudioPage(): React.ReactElement {
                     imageUrl={i.thumbnailUrl}
                     label={i.label}
                     w={152.57}
-                    h={119}
+                    h={203}
                   />
                 ))}
               </div>
