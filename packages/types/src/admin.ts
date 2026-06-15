@@ -280,6 +280,8 @@ export const PatchGarmentTypeBody = z.object({
   sortOrder: z.number().int().optional(),
   thumbnailKey: z.string().nullable().optional(),
   requiresLowerUpload: z.boolean().optional(),
+  defaultLowerCatalogId: z.string().uuid().nullable().optional(),
+  defaultShoeCatalogId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,

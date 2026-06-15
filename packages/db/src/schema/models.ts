@@ -10,6 +10,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { catalogItems } from './catalog.js';
 
 export const modelFaces = pgTable('model_faces', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -49,6 +50,12 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   requiresLowerUpload: boolean('requires_lower_upload').notNull().default(false),
+  defaultLowerCatalogId: uuid('default_lower_catalog_id').references(() => catalogItems.id, {
+    onDelete: 'set null',
+  }),
+  defaultShoeCatalogId: uuid('default_shoe_catalog_id').references(() => catalogItems.id, {
+    onDelete: 'set null',
+  }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

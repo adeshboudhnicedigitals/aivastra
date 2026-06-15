@@ -30,6 +30,8 @@ interface GarmentType {
   label: string;
   thumbnailUrl?: string | null;
   requiresLowerUpload: boolean;
+  defaultLowerCatalogId?: string | null;
+  defaultShoeCatalogId?: string | null;
 }
 interface FaceItem {
   id: string;
@@ -562,12 +564,26 @@ export default function StudioPage(): React.ReactElement {
     setShoeCatalogId('');
   }
   function handlePoseSelect(id: string) {
+    const gt = garmentTypes?.items.find((g) => g.id === garmentTypeId);
     setPoseIds((prev) => {
+      const prevPoses = poses?.items.filter((p) => prev.includes(p.id)) ?? [];
+      const prevNeedsLower = prevPoses.some((p) => p.hasLower);
+      const prevNeedsShoes = prevPoses.some((p) => p.hasShoes);
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
-      // Clear lower/shoe selections only if the new pose set no longer needs them
       const nextPoses = poses?.items.filter((p) => next.includes(p.id)) ?? [];
-      if (!nextPoses.some((p) => p.hasLower)) setLowerCatalogId('');
-      if (!nextPoses.some((p) => p.hasShoes)) setShoeCatalogId('');
+      const nextNeedsLower = nextPoses.some((p) => p.hasLower);
+      const nextNeedsShoes = nextPoses.some((p) => p.hasShoes);
+      // Clear when no longer needed; auto-set default on first lower/shoe-needing pose added
+      if (!nextNeedsLower) {
+        setLowerCatalogId('');
+      } else if (!prevNeedsLower && gt?.defaultLowerCatalogId) {
+        setLowerCatalogId(gt.defaultLowerCatalogId);
+      }
+      if (!nextNeedsShoes) {
+        setShoeCatalogId('');
+      } else if (!prevNeedsShoes && gt?.defaultShoeCatalogId) {
+        setShoeCatalogId(gt.defaultShoeCatalogId);
+      }
       return next;
     });
   }

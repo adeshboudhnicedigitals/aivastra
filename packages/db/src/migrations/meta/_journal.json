@@ -316,6 +316,13 @@
       "when": 1780444800000,
       "tag": "0044_catalog_category_thumbnail",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1781507378425,
+      "tag": "0045_polite_rage",
+      "breakpoints": true
     }
   ]
 }
