@@ -30,7 +30,7 @@ export const CreateTryOnJobRequest = z.object({
     })
     .optional(),
   userHint: z.string().max(300).optional(),
-  aspectRatio: z.enum(['1:1', '3:4', '4:5']),
+  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
   resolution: z.enum(['HD', '2K', '4K']),
   platform: z.string().optional(),
 });
