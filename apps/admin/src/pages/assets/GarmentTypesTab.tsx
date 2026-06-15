@@ -338,6 +338,8 @@ export function GarmentTypesTab() {
                   <th>Garment Type</th>
                   <th>Gender</th>
                   <th>Poses</th>
+                  <th>Default Lower</th>
+                  <th>Default Shoe</th>
                   <th>Active</th>
                   <th></th>
                 </tr>
@@ -378,6 +380,72 @@ export function GarmentTypesTab() {
                     </td>
                     <td>
                       <span className="mono">{sub.poseCount ?? 0}</span>
+                    </td>
+                    <td>
+                      {(() => {
+                        const item = catalogItems.find((c) => c.id === sub.defaultLowerCatalogId);
+                        return item ? (
+                          <div
+                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                            title={item.label}
+                          >
+                            <AssetThumb
+                              thumbnailKey={item.thumbnailKey}
+                              label={item.label}
+                              w={32}
+                              h={32}
+                              storageBase={storagePublicUrl}
+                            />
+                            <span
+                              style={{
+                                fontSize: 12,
+                                color: 'var(--muted)',
+                                maxWidth: 100,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {item.label}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+                        );
+                      })()}
+                    </td>
+                    <td>
+                      {(() => {
+                        const item = catalogItems.find((c) => c.id === sub.defaultShoeCatalogId);
+                        return item ? (
+                          <div
+                            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                            title={item.label}
+                          >
+                            <AssetThumb
+                              thumbnailKey={item.thumbnailKey}
+                              label={item.label}
+                              w={32}
+                              h={32}
+                              storageBase={storagePublicUrl}
+                            />
+                            <span
+                              style={{
+                                fontSize: 12,
+                                color: 'var(--muted)',
+                                maxWidth: 100,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {item.label}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+                        );
+                      })()}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <Switch
@@ -1160,7 +1228,8 @@ export function GarmentTypesTab() {
                       (c) =>
                         c.type === 'lower' &&
                         c.isActive &&
-                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug),
+                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug) &&
+                        c.subcategoryIds.includes(editingSubcat.id),
                     )
                     .map((c) => (
                       <button
@@ -1259,7 +1328,8 @@ export function GarmentTypesTab() {
                       (c) =>
                         c.type === 'shoe' &&
                         c.isActive &&
-                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug),
+                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug) &&
+                        c.subcategoryIds.includes(editingSubcat.id),
                     )
                     .map((c) => (
                       <button

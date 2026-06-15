@@ -15,12 +15,21 @@ export async function catalogRoutes(app: FastifyInstance) {
         querystring: z.object({
           gender: z.enum(['women', 'men', 'girls', 'boys']).optional(),
           poseIds: z.string().optional(), // comma-separated pose UUIDs
+          garmentTypeId: z.string().uuid().optional(), // include garment type's default item
         }),
       },
     },
     async (req) => {
       const { type } = req.params as { type: string };
-      const { gender, poseIds: poseIdsParam } = req.query as { gender?: string; poseIds?: string };
+      const {
+        gender,
+        poseIds: poseIdsParam,
+        garmentTypeId,
+      } = req.query as {
+        gender?: string;
+        poseIds?: string;
+        garmentTypeId?: string;
+      };
 
       const poseIds = poseIdsParam ? poseIdsParam.split(',').filter(Boolean) : [];
 
@@ -50,6 +59,23 @@ export async function catalogRoutes(app: FastifyInstance) {
           .where(inArray(schema.catalogItemSubcategories.subcategoryId, subcategoryIds));
 
         const allowedIds = [...new Set(links.map((l) => l.catalogItemId))];
+
+        // Also include the garment type's default item for this catalog type so it
+        // always appears as pre-selectable even when pose-subcategory linking is incomplete.
+        if (garmentTypeId) {
+          const [gt] = await app.db
+            .select({
+              defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
+              defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
+            })
+            .from(schema.garmentSubcategories)
+            .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+          const defaultId = type === 'lower' ? gt?.defaultLowerCatalogId : gt?.defaultShoeCatalogId;
+          if (defaultId && !allowedIds.includes(defaultId)) {
+            allowedIds.push(defaultId);
+          }
+        }
+
         if (allowedIds.length === 0) return { type, tree: [] };
 
         const conditions = [
@@ -94,7 +120,7 @@ export async function catalogRoutes(app: FastifyInstance) {
 
         const tree = buildTree(cats, categorized, (key) => app.storage.publicUrl(key));
         if (uncategorized.length > 0) {
-          (tree as any[]).push({
+          (tree as unknown[]).push({
             id: 0,
             slug: 'other',
             label: 'Other',
@@ -148,7 +174,7 @@ export async function catalogRoutes(app: FastifyInstance) {
 
       const tree = buildTree(cats, enrichedCat, (key) => app.storage.publicUrl(key));
       if (enrichedUncat.length > 0) {
-        (tree as any[]).push({
+        (tree as unknown[]).push({
           id: 0,
           slug: 'other',
           label: 'Other',
