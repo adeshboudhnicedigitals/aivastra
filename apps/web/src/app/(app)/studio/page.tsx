@@ -70,10 +70,6 @@ interface CatalogNode {
   items: CatalogItem[];
 }
 
-function flattenCatalog(nodes: CatalogNode[]): CatalogItem[] {
-  return nodes.flatMap((n) => [...n.items, ...flattenCatalog(n.children)]);
-}
-
 function flattenNode(node: CatalogNode): CatalogItem[] {
   return [...node.items, ...node.children.flatMap((c) => flattenNode(c))];
 }
@@ -205,7 +201,9 @@ function VisualCard({
           </div>
         )}
       </div>
-      <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>{label}</div>
+      {label && (
+        <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>{label}</div>
+      )}
     </div>
   );
 }
@@ -223,7 +221,7 @@ function SelCard({
   selected: boolean;
   onClick: () => void;
   imageUrl?: string | null;
-  label: string;
+  label?: string;
   w?: number;
   h?: number;
   badges?: React.ReactNode;
@@ -772,11 +770,7 @@ export default function StudioPage(): React.ReactElement {
 
   return (
     <>
-      <TopBar
-        title="Create Catalogue"
-        subtitle="Create premium AI catalogue shoots from flat lay garments in minutes."
-        right={<StepBar step={visibleStep} />}
-      />
+      <TopBar title="Create Catalogue" right={<StepBar step={visibleStep} />} />
       <div
         style={{
           flex: 1,
@@ -1652,9 +1646,6 @@ export default function StudioPage(): React.ReactElement {
             {needsLower && !requiresLowerUpload && (
               <section>
                 <SectionHead title="Lower Garment" />
-                <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>
-                  Optional — select if your pose shows lower body
-                </p>
                 {!lowerCatalog ? (
                   <div
                     style={{
@@ -1671,36 +1662,34 @@ export default function StudioPage(): React.ReactElement {
                     No lower garment options available yet.
                   </p>
                 ) : (
-                  <>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, 120px)',
-                        gap: 12,
-                      }}
-                    >
-                      {lowerCatalog.tree
-                        .filter((node) => node.slug !== 'other')
-                        .map((node) => {
-                          const nodeItems = flattenNode(node);
-                          const isActive =
-                            !!lowerCatalogId &&
-                            findNodeForItem(lowerCatalog.tree, lowerCatalogId)?.id === node.id;
-                          const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
-                          return (
-                            <SelCard
-                              key={node.id}
-                              selected={isActive}
-                              onClick={() => setLowerCatModal(node)}
-                              imageUrl={thumb}
-                              label={node.label}
-                              w={120}
-                              h={160}
-                            />
-                          );
-                        })}
-                    </div>
-                  </>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, 120px)',
+                      gap: 12,
+                    }}
+                  >
+                    {lowerCatalog.tree
+                      .filter((node) => node.slug !== 'other')
+                      .map((node) => {
+                        const nodeItems = flattenNode(node);
+                        const isActive =
+                          !!lowerCatalogId &&
+                          findNodeForItem(lowerCatalog.tree, lowerCatalogId)?.id === node.id;
+                        const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
+                        return (
+                          <SelCard
+                            key={node.id}
+                            selected={isActive}
+                            onClick={() => setLowerCatModal(node)}
+                            imageUrl={thumb}
+                            label={node.label}
+                            w={120}
+                            h={160}
+                          />
+                        );
+                      })}
+                  </div>
                 )}
               </section>
             )}
@@ -1708,9 +1697,6 @@ export default function StudioPage(): React.ReactElement {
             {needsShoes && (
               <section>
                 <SectionHead title="Footwear" />
-                <p style={{ fontSize: 12, color: C.mid, marginTop: -10, marginBottom: 12 }}>
-                  Optional — select if your pose shows feet
-                </p>
                 {!shoesCatalog ? (
                   <div
                     style={{
@@ -1725,36 +1711,34 @@ export default function StudioPage(): React.ReactElement {
                 ) : shoesCatalog.tree.length === 0 ? (
                   <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
                 ) : (
-                  <>
-                    <div
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, 130px)',
-                        gap: 12,
-                      }}
-                    >
-                      {shoesCatalog.tree
-                        .filter((node) => node.slug !== 'other')
-                        .map((node) => {
-                          const nodeItems = flattenNode(node);
-                          const isActive =
-                            !!shoeCatalogId &&
-                            findNodeForItem(shoesCatalog.tree, shoeCatalogId)?.id === node.id;
-                          const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
-                          return (
-                            <SelCard
-                              key={node.id}
-                              selected={isActive}
-                              onClick={() => setShoeCatModal(node)}
-                              imageUrl={thumb}
-                              label={node.label}
-                              w={130}
-                              h={100}
-                            />
-                          );
-                        })}
-                    </div>
-                  </>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, 130px)',
+                      gap: 12,
+                    }}
+                  >
+                    {shoesCatalog.tree
+                      .filter((node) => node.slug !== 'other')
+                      .map((node) => {
+                        const nodeItems = flattenNode(node);
+                        const isActive =
+                          !!shoeCatalogId &&
+                          findNodeForItem(shoesCatalog.tree, shoeCatalogId)?.id === node.id;
+                        const thumb = node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
+                        return (
+                          <SelCard
+                            key={node.id}
+                            selected={isActive}
+                            onClick={() => setShoeCatModal(node)}
+                            imageUrl={thumb}
+                            label={node.label}
+                            w={130}
+                            h={100}
+                          />
+                        );
+                      })}
+                  </div>
                 )}
               </section>
             )}
@@ -2162,7 +2146,7 @@ export default function StudioPage(): React.ReactElement {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, 152.57px)',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
                   gap: 12,
                 }}
               >
@@ -2175,7 +2159,6 @@ export default function StudioPage(): React.ReactElement {
                       setLowerCatModal(null);
                     }}
                     imageUrl={i.thumbnailUrl}
-                    label={i.label}
                     w={152.57}
                     h={203}
                   />
@@ -2258,9 +2241,8 @@ export default function StudioPage(): React.ReactElement {
                       setShoeCatModal(null);
                     }}
                     imageUrl={i.thumbnailUrl}
-                    label={i.label}
                     w={152.57}
-                    h={203}
+                    h={119}
                   />
                 ))}
               </div>
