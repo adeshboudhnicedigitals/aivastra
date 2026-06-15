@@ -1446,6 +1446,32 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
+  // Bulk-rename display name across many pose assets + propagate to model_poses.label
+  app.patch(
+    '/admin/assets/pose-assets/bulk-rename',
+    {
+      preHandler: RW,
+      schema: {
+        body: z.object({
+          ids: z.array(z.string().uuid()).min(1),
+          displayName: z.string().min(1),
+        }),
+      },
+    },
+    async (req) => {
+      const { ids, displayName } = req.body as { ids: string[]; displayName: string };
+      await app.db
+        .update(schema.modelPoseAssets)
+        .set({ displayName })
+        .where(inArray(schema.modelPoseAssets.id, ids));
+      await app.db
+        .update(schema.modelPoses)
+        .set({ label: displayName })
+        .where(inArray(schema.modelPoses.poseAssetId, ids));
+      return { updated: ids.length };
+    },
+  );
+
   // List garment-type mappings for a pose asset
   app.get(
     '/admin/assets/pose-assets/:id/mappings',
@@ -1632,6 +1658,24 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           .select({ r2Key: schema.modelFaces.r2Key, thumbnailKey: schema.modelFaces.thumbnailKey })
           .from(schema.modelFaces)
           .where(inArray(schema.modelFaces.id, ids));
+        // Cascade: poses referencing these faces → their jobs → then faces
+        const posesRef = await app.db
+          .select({ id: schema.modelPoses.id })
+          .from(schema.modelPoses)
+          .where(inArray(schema.modelPoses.faceId, ids));
+        if (posesRef.length > 0) {
+          const poseIds = posesRef.map((p) => p.id);
+          const jobRefs = await app.db
+            .select({ jobId: schema.jobInputs.jobId })
+            .from(schema.jobInputs)
+            .where(inArray(schema.jobInputs.poseId, poseIds));
+          if (jobRefs.length > 0) {
+            await app.db
+              .delete(schema.jobs)
+              .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
+          }
+          await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, poseIds));
+        }
         await app.db.delete(schema.modelFaces).where(inArray(schema.modelFaces.id, ids));
         void Promise.allSettled(
           rows.flatMap((r) => [
@@ -1647,6 +1691,24 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           })
           .from(schema.modelBackgrounds)
           .where(inArray(schema.modelBackgrounds.id, ids));
+        // Cascade: poses referencing these backgrounds → their jobs → then backgrounds
+        const posesRef = await app.db
+          .select({ id: schema.modelPoses.id })
+          .from(schema.modelPoses)
+          .where(inArray(schema.modelPoses.backgroundId, ids));
+        if (posesRef.length > 0) {
+          const poseIds = posesRef.map((p) => p.id);
+          const jobRefs = await app.db
+            .select({ jobId: schema.jobInputs.jobId })
+            .from(schema.jobInputs)
+            .where(inArray(schema.jobInputs.poseId, poseIds));
+          if (jobRefs.length > 0) {
+            await app.db
+              .delete(schema.jobs)
+              .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
+          }
+          await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, poseIds));
+        }
         await app.db
           .delete(schema.modelBackgrounds)
           .where(inArray(schema.modelBackgrounds.id, ids));

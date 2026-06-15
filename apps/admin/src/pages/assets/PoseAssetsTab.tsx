@@ -74,6 +74,11 @@ export function PoseAssetsTab() {
   const [bulkMapProgress, setBulkMapProgress] = useState(0);
   const [bulkMapTotal, setBulkMapTotal] = useState(0);
 
+  // Bulk rename state
+  const [showBulkRename, setShowBulkRename] = useState(false);
+  const [bulkRenameDisplayName, setBulkRenameDisplayName] = useState('');
+  const [bulkRenaming, setBulkRenaming] = useState(false);
+
   // Bulk import state
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkImportGender, setBulkImportGender] = useState<GenderSlug>('men');
@@ -116,6 +121,29 @@ export function PoseAssetsTab() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [loadPoseAssets]);
+
+  const dosBulkRename = async () => {
+    const name = bulkRenameDisplayName.trim();
+    if (!name || selectedPoseAssetIds.length === 0) return;
+    setBulkRenaming(true);
+    try {
+      await apiFetch('/admin/assets/pose-assets/bulk-rename', {
+        method: 'PATCH',
+        body: JSON.stringify({ ids: selectedPoseAssetIds, displayName: name }),
+      });
+      setPoseAssets((prev) =>
+        prev.map((a) => (selectedPoseAssetIds.includes(a.id) ? { ...a, displayName: name } : a)),
+      );
+      toast({
+        title: `${selectedPoseAssetIds.length} pose asset${selectedPoseAssetIds.length !== 1 ? 's' : ''} renamed`,
+      });
+      setShowBulkRename(false);
+      setSelectedPoseAssetIds([]);
+    } catch {
+      toast({ kind: 'error', title: 'Bulk rename failed' });
+    }
+    setBulkRenaming(false);
+  };
 
   const doBulkDeletePoseAssets = async () => {
     if (deleteConfirmText !== 'move to recycle bin') return;
@@ -374,6 +402,15 @@ export function PoseAssetsTab() {
                   }}
                 >
                   <Icon.Add /> Map selected ({selectedPoseAssetIds.length})
+                </button>
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    setBulkRenameDisplayName('');
+                    setShowBulkRename(true);
+                  }}
+                >
+                  <Icon.Edit /> Rename ({selectedPoseAssetIds.length})
                 </button>
                 <button
                   className="btn sm danger"
@@ -940,6 +977,61 @@ export function PoseAssetsTab() {
             </div>
           );
         })()}
+
+      {/* Bulk rename display name */}
+      {showBulkRename && (
+        <div className="modal-overlay" onClick={() => !bulkRenaming && setShowBulkRename(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-head">
+              <h3>
+                Rename {selectedPoseAssetIds.length} pose asset
+                {selectedPoseAssetIds.length !== 1 ? 's' : ''}
+              </h3>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Sets the display name on all selected assets and propagates to their pose mappings.
+              </p>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+            >
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                Display name
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="e.g. Standing Front"
+                  value={bulkRenameDisplayName}
+                  disabled={bulkRenaming}
+                  onChange={(e) => setBulkRenameDisplayName(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && bulkRenameDisplayName.trim() && !bulkRenaming) {
+                      e.preventDefault();
+                      await dosBulkRename();
+                    }
+                  }}
+                />
+              </label>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                disabled={bulkRenaming}
+                onClick={() => setShowBulkRename(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={bulkRenaming || !bulkRenameDisplayName.trim()}
+                onClick={dosBulkRename}
+              >
+                {bulkRenaming ? 'Renaming…' : `Rename ${selectedPoseAssetIds.length}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bulk import ZIP */}
       {showBulkImport && (
