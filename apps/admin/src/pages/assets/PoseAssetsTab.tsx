@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditPoseAssetModal } from '../../components/EditPoseAssetModal';
 import { Icon } from '../../components/Icons';
@@ -81,6 +81,13 @@ export function PoseAssetsTab() {
   const [bulkImportFile, setBulkImportFile] = useState<File | null>(null);
   const [bulkImporting, setBulkImporting] = useState(false);
   const [bulkImportProgress, setBulkImportProgress] = useState(0);
+  const [bulkImportPhase, setBulkImportPhase] = useState<'uploading' | 'processing'>('uploading');
+  const [bulkImportCounts, setBulkImportCounts] = useState<{
+    phase: string;
+    done: number;
+    total: number;
+  } | null>(null);
+  const bulkImportXhrRef = useRef<XMLHttpRequest | null>(null);
 
   const loadPoseAssets = useCallback(async () => {
     setLoading(true);
@@ -195,7 +202,7 @@ export function PoseAssetsTab() {
             className="btn"
             onClick={() => {
               setBulkImportGender('men');
-              setBulkImportWorkflowId('');
+              setBulkImportWorkflowId(workflows[0]?.id ?? '');
               setBulkImportFile(null);
               setShowBulkImport(true);
             }}
@@ -936,7 +943,12 @@ export function PoseAssetsTab() {
 
       {/* Bulk import ZIP */}
       {showBulkImport && (
-        <div className="modal-overlay" onClick={() => !bulkImporting && setShowBulkImport(false)}>
+        <div
+          className="modal-overlay"
+          onClick={() =>
+            !(bulkImporting && bulkImportPhase === 'processing') && setShowBulkImport(false)
+          }
+        >
           <div className="modal" style={{ width: 480 }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
               <h3>Bulk import ZIP</h3>
@@ -977,16 +989,15 @@ export function PoseAssetsTab() {
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>
-                  Workflow template{' '}
-                  <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span>
+                  Workflow template
                 </label>
                 <select
                   className="input"
                   value={bulkImportWorkflowId}
                   onChange={(e) => setBulkImportWorkflowId(e.target.value)}
                   disabled={bulkImporting}
+                  required
                 >
-                  <option value="">— none —</option>
                   {workflows.map((w) => (
                     <option key={w.id} value={w.id}>
                       {w.label}
@@ -1009,7 +1020,13 @@ export function PoseAssetsTab() {
                       color: 'var(--muted)',
                     }}
                   >
-                    <span>{bulkImportProgress < 100 ? 'Uploading…' : 'Processing ZIP…'}</span>
+                    <span>
+                      {bulkImportPhase === 'uploading'
+                        ? 'Uploading…'
+                        : bulkImportCounts
+                          ? `Processing ${bulkImportCounts.phase} (${bulkImportCounts.done}/${bulkImportCounts.total})…`
+                          : 'Processing ZIP…'}
+                    </span>
                     <span>{bulkImportProgress}%</span>
                   </div>
                   <div
@@ -1036,34 +1053,76 @@ export function PoseAssetsTab() {
             <div className="modal-foot">
               <button
                 className="btn ghost"
-                disabled={bulkImporting}
-                onClick={() => setShowBulkImport(false)}
+                disabled={bulkImporting && bulkImportPhase === 'processing'}
+                onClick={() => {
+                  if (bulkImportXhrRef.current) {
+                    bulkImportXhrRef.current.abort();
+                    bulkImportXhrRef.current = null;
+                  }
+                  setShowBulkImport(false);
+                }}
               >
                 Cancel
               </button>
               <button
                 className="btn"
-                disabled={bulkImporting || !bulkImportFile}
+                disabled={bulkImporting || !bulkImportFile || !bulkImportWorkflowId}
                 onClick={() => {
-                  if (!bulkImportFile) return;
+                  if (!bulkImportFile || !bulkImportWorkflowId) return;
                   setBulkImporting(true);
                   setBulkImportProgress(0);
+                  setBulkImportPhase('uploading');
+                  setBulkImportCounts(null);
                   const fd = new FormData();
-                  if (bulkImportWorkflowId) fd.append('workflowTemplateId', bulkImportWorkflowId);
+                  fd.append('workflowTemplateId', bulkImportWorkflowId);
                   fd.append('genderSlug', bulkImportGender);
                   fd.append('zip', bulkImportFile);
                   const tok = getToken();
                   const xhr = new XMLHttpRequest();
+                  bulkImportXhrRef.current = xhr;
                   xhr.open('POST', '/admin/assets/bulk-import');
                   if (tok) xhr.setRequestHeader('Authorization', `Bearer ${tok}`);
                   xhr.upload.onprogress = (e) => {
                     if (e.lengthComputable)
                       setBulkImportProgress(Math.round((e.loaded / e.total) * 100));
                   };
+                  xhr.upload.onload = () => {
+                    setBulkImportPhase('processing');
+                    setBulkImportProgress(0);
+                  };
+                  let lastLen = 0;
+                  xhr.onprogress = () => {
+                    const newText = xhr.responseText.slice(lastLen);
+                    lastLen = xhr.responseText.length;
+                    for (const line of newText.split('\n').filter(Boolean)) {
+                      try {
+                        const msg = JSON.parse(line) as {
+                          phase?: string;
+                          done?: number;
+                          total?: number;
+                        };
+                        if (msg.phase && msg.done !== undefined && msg.total !== undefined) {
+                          setBulkImportCounts({
+                            phase: msg.phase,
+                            done: msg.done,
+                            total: msg.total,
+                          });
+                          setBulkImportProgress(Math.round((msg.done / msg.total) * 100));
+                        }
+                      } catch {
+                        /* partial line — ignore */
+                      }
+                    }
+                  };
                   xhr.onload = async () => {
+                    bulkImportXhrRef.current = null;
                     setBulkImporting(false);
+                    setBulkImportPhase('uploading');
+                    setBulkImportCounts(null);
                     if (xhr.status >= 200 && xhr.status < 300) {
-                      const result = JSON.parse(xhr.responseText) as {
+                      const lines = xhr.responseText.split('\n').filter(Boolean);
+                      const result = JSON.parse(lines[lines.length - 1] ?? '{}') as {
+                        done?: boolean;
                         created: { faces: number; backgrounds: number; poses: number };
                         errors: string[];
                       };
@@ -1105,8 +1164,18 @@ export function PoseAssetsTab() {
                     }
                   };
                   xhr.onerror = () => {
+                    bulkImportXhrRef.current = null;
                     setBulkImporting(false);
+                    setBulkImportPhase('uploading');
+                    setBulkImportCounts(null);
                     toast({ kind: 'error', title: 'Bulk import failed', body: 'Network error' });
+                  };
+                  xhr.onabort = () => {
+                    bulkImportXhrRef.current = null;
+                    setBulkImporting(false);
+                    setBulkImportPhase('uploading');
+                    setBulkImportProgress(0);
+                    setBulkImportCounts(null);
                   };
                   xhr.send(fd);
                 }}

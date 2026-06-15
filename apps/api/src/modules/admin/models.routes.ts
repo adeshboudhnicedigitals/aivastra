@@ -1703,7 +1703,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
   }
 
   // ── Bulk import from ZIP ──────────────────────────────────────────────────
-  app.post('/admin/assets/bulk-import', { preHandler: RW }, async (req) => {
+  app.post('/admin/assets/bulk-import', { preHandler: RW }, async (req, reply) => {
     const data = await req.file();
     if (!data) throw new AppError('VALIDATION', 400, 'no file uploaded');
 
@@ -1724,6 +1724,14 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const zipBuffer = await data.toBuffer();
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries().filter((e) => !e.isDirectory);
+
+    // Start NDJSON stream — all validation done above
+    reply.raw.writeHead(200, {
+      'Content-Type': 'application/x-ndjson',
+      'Cache-Control': 'no-cache',
+      'X-Accel-Buffering': 'no',
+    });
+    const emit = (obj: unknown) => reply.raw.write(`${JSON.stringify(obj)}\n`);
 
     const imageExts = new Set(['.jpg', '.jpeg', '.png', '.webp']);
     const extToMime: Record<string, string> = {
@@ -1752,6 +1760,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
     // Upload backgrounds — index by filename stem (bg1 → 1)
     const bgIndexMap = new Map<number, { id: string; r2Key: string }>(); // bgNumber → { id, r2Key }
+    let bgDone = 0;
     for (const entry of bgEntries) {
       try {
         const stem = entry.name.replace(/\.[^.]+$/, '');
@@ -1781,28 +1790,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             ),
           ]);
           bgIndexMap.set(bgNum, { id: existing.id, r2Key: existing.r2Key });
-          continue;
+        } else {
+          const id = randomUUID();
+          const r2Key = keys.modelBackground(id);
+          const thumbKey = keys.modelBackgroundThumb(id);
+          await Promise.all([
+            app.storage.putObject(r2Key, buf, mime),
+            app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
+          ]);
+          const [row] = await app.db
+            .insert(schema.modelBackgrounds)
+            .values({ label: stem, r2Key, thumbnailKey: thumbKey, genderSlug, sortOrder: bgNum })
+            .returning({ id: schema.modelBackgrounds.id });
+          bgIndexMap.set(bgNum, { id: row.id, r2Key });
+          createdBackgrounds++;
         }
-        const id = randomUUID();
-        const r2Key = keys.modelBackground(id);
-        const thumbKey = keys.modelBackgroundThumb(id);
-        await Promise.all([
-          app.storage.putObject(r2Key, buf, mime),
-          app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
-        ]);
-        const [row] = await app.db
-          .insert(schema.modelBackgrounds)
-          .values({ label: stem, r2Key, thumbnailKey: thumbKey, genderSlug, sortOrder: bgNum })
-          .returning({ id: schema.modelBackgrounds.id });
-        bgIndexMap.set(bgNum, { id: row.id, r2Key });
-        createdBackgrounds++;
       } catch (err) {
         errors.push(`bg ${entry.name}: ${(err as Error).message}`);
       }
+      emit({ phase: 'backgrounds', done: ++bgDone, total: bgEntries.length });
     }
 
     // Upload faces — index by filename number (face01 → 1)
     const faceIndexMap = new Map<number, { id: string; r2Key: string }>(); // faceNumber → { id, r2Key }
+    let faceDone = 0;
     for (const entry of faceEntries) {
       try {
         const stem = entry.name.replace(/\.[^.]+$/, '');
@@ -1827,41 +1838,43 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             ),
           ]);
           faceIndexMap.set(faceNum, { id: existing.id, r2Key: existing.r2Key });
-          continue;
+        } else {
+          const id = randomUUID();
+          const r2Key = keys.modelFace(id);
+          const thumbKey = keys.modelFaceThumb(id);
+          await Promise.all([
+            app.storage.putObject(r2Key, buf, mime),
+            app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
+          ]);
+          const [row] = await app.db
+            .insert(schema.modelFaces)
+            .values({
+              label: stem,
+              gender: genderSlug,
+              r2Key,
+              thumbnailKey: thumbKey,
+              sortOrder: faceNum,
+            })
+            .returning({ id: schema.modelFaces.id });
+          faceIndexMap.set(faceNum, { id: row.id, r2Key });
+          createdFaces++;
         }
-        const id = randomUUID();
-        const r2Key = keys.modelFace(id);
-        const thumbKey = keys.modelFaceThumb(id);
-        await Promise.all([
-          app.storage.putObject(r2Key, buf, mime),
-          app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
-        ]);
-        const [row] = await app.db
-          .insert(schema.modelFaces)
-          .values({
-            label: stem,
-            gender: genderSlug,
-            r2Key,
-            thumbnailKey: thumbKey,
-            sortOrder: faceNum,
-          })
-          .returning({ id: schema.modelFaces.id });
-        faceIndexMap.set(faceNum, { id: row.id, r2Key });
-        createdFaces++;
       } catch (err) {
         errors.push(`face ${entry.name}: ${(err as Error).message}`);
       }
+      emit({ phase: 'faces', done: ++faceDone, total: faceEntries.length });
     }
 
-    // Upload poses — parse faceXXbgYposeZZ pattern
-    const posePattern = /face(\d+)bg(\d+)pose(\d+)/i;
+    // Upload poses — parse faceXXbgYposeZZ or faceXXbgYpZZ pattern
+    const posePattern = /face(\d+)bg(\d+)(?:pose|p)(\d+)/i;
     let _sortOrder = 0;
+    let poseDone = 0;
     for (const entry of poseEntries) {
       try {
         const stem = entry.name.replace(/\.[^.]+$/, '');
         const m = stem.match(posePattern);
         if (!m) {
-          errors.push(`pose ${entry.name}: filename doesn't match faceXXbgYposeZZ`);
+          errors.push(`pose ${entry.name}: filename doesn't match faceXXbgYposeZZ or faceXXbgYpZZ`);
           continue;
         }
         const faceNum = parseInt(m[1], 10);
@@ -1958,7 +1971,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           app.storage.putObject(r2Key, buf, mime),
           app.storage.putObject(thumbKey, thumb, 'image/jpeg'),
         ]);
-        const poseVariantMatch = stem.match(/pose(\d+)/i);
+        const poseVariantMatch = stem.match(/(?:pose|p)(\d+)$/i);
         const poseVariant = poseVariantMatch ? `pose${poseVariantMatch[1].padStart(2, '0')}` : null;
         await app.db.insert(schema.modelPoseAssets).values({
           label: stem,
@@ -1977,6 +1990,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       } catch (err) {
         errors.push(`pose ${entry.name}: ${(err as Error).message}`);
       }
+      emit({ phase: 'poses', done: ++poseDone, total: poseEntries.length });
     }
 
     if (errors.length > 0) {
@@ -1985,9 +1999,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         'bulk-import partial errors',
       );
     }
-    return {
+    emit({
+      done: true,
       created: { faces: createdFaces, backgrounds: createdBackgrounds, poses: createdPoses },
       errors,
-    };
+    });
+    reply.raw.end();
   });
 }

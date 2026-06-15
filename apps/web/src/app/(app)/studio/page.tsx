@@ -94,18 +94,19 @@ interface BrandConfig {
   default: string;
 }
 const BRAND_CONFIG: Record<string, BrandConfig> = {
-  Amazon: { ratios: ['1:1'], default: '1:1' },
-  Flipkart: { ratios: ['1:1', '3:4'], default: '1:1' },
-  Myntra: { ratios: ['3:4'], default: '3:4' },
-  AJIO: { ratios: ['1:1', '3:4'], default: '3:4' },
-  Meesho: { ratios: ['1:1'], default: '1:1' },
-  'Nykaa Fashion': { ratios: ['3:4'], default: '3:4' },
-  Shopify: { ratios: ['1:1', '4:5'], default: '1:1' },
+  Amazon: { ratios: ['1:1', '2:3'], default: '1:1' },
+  Flipkart: { ratios: ['1:1', '2:3', '3:4'], default: '1:1' },
+  Myntra: { ratios: ['2:3', '3:4'], default: '3:4' },
+  AJIO: { ratios: ['1:1', '2:3', '3:4'], default: '3:4' },
+  Meesho: { ratios: ['1:1', '2:3'], default: '1:1' },
+  'Nykaa Fashion': { ratios: ['2:3', '3:4'], default: '3:4' },
+  Shopify: { ratios: ['1:1', '2:3', '4:5'], default: '1:1' },
 };
 const PLATFORMS = Object.keys(BRAND_CONFIG);
-const ALL_ASPECTS = ['1:1', '3:4', '4:5'];
+const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5'];
 const ASPECT_DIMS: Record<string, string> = {
   '1:1': '2048 × 2048 px',
+  '2:3': '1365 × 2048 px',
   '3:4': '1331 × 1774 px',
   '4:5': '1375 × 1718 px',
 };
@@ -416,7 +417,7 @@ export default function StudioPage(): React.ReactElement {
   const didAutoGarment = useRef('');
   useEffect(() => {
     if (garmentTypes?.items?.length && !garmentTypeId && didAutoGarment.current !== gender) {
-      setGarmentTypeId(garmentTypes.items[0]!.id);
+      setGarmentTypeId(garmentTypes.items[0]?.id ?? '');
       didAutoGarment.current = gender;
     }
   }, [garmentTypes, garmentTypeId, gender]);
@@ -444,7 +445,7 @@ export default function StudioPage(): React.ReactElement {
   useEffect(() => {
     if (!filteredFaces.length) return;
     if (!filteredFaces.some((f) => f.id === faceId)) {
-      setFaceId(filteredFaces[0]!.id);
+      setFaceId(filteredFaces[0]?.id ?? '');
     }
   }, [filteredFaces, faceId]);
   const {
@@ -465,7 +466,7 @@ export default function StudioPage(): React.ReactElement {
   });
   useEffect(() => {
     if (backgrounds?.items?.length && !backgroundId) {
-      setBackgroundId(backgrounds.items[0]!.id);
+      setBackgroundId(backgrounds.items[0]?.id ?? '');
     }
   }, [backgrounds, backgroundId]);
   const {
