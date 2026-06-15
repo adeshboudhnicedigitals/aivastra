@@ -81,7 +81,7 @@ export function Sidebar() {
   const initials = displayName.slice(0, 2).toUpperCase() || 'U';
 
   const activeId = NAV.find(
-    (item) => pathname === item.href || pathname.startsWith(item.href + '/'),
+    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   )?.id;
 
   async function handleSignOut() {
@@ -180,78 +180,27 @@ export function Sidebar() {
                 </div>
               </Link>
 
-              {/* Dock button — overlaid (crossfade) only when collapsed */}
-              {collapsed && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCollapsed(false);
-                    setLogoHover(false);
-                  }}
-                  title="Expand sidebar"
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    opacity: logoHover ? 1 : 0,
-                    transition: 'opacity .18s ease',
-                    pointerEvents: logoHover ? 'auto' : 'none',
-                    padding: 0,
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 8,
-                      background: logoHover ? '#F9F9F91A' : 'transparent',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'background .18s ease',
-                    }}
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#EEEEEE"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect width="18" height="18" x="3" y="3" rx="2" />
-                      <path d="M9 3v18" />
-                      <path d="m14 9 3 3-3 3" />
-                    </svg>
-                  </div>
-                </button>
-              )}
-            </div>
-
-            {/* Dock button (expanded) — always visible */}
-            {!collapsed && (
+              {/* Expand button — always rendered, fades in when collapsed + hovered */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  setCollapsed(true);
+                  setCollapsed(false);
                   setLogoHover(false);
                 }}
-                title="Collapse sidebar"
+                title="Expand sidebar"
                 style={{
+                  position: 'absolute',
+                  inset: 0,
                   background: 'none',
                   border: 'none',
                   cursor: 'pointer',
                   display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: collapsed && logoHover ? 1 : 0,
+                  transition: 'opacity .18s ease',
+                  pointerEvents: collapsed && logoHover ? 'auto' : 'none',
                   padding: 0,
-                  flexShrink: 0,
                 }}
               >
                 <div
@@ -259,10 +208,11 @@ export function Sidebar() {
                     width: 30,
                     height: 30,
                     borderRadius: 8,
-                    background: '#F9F9F91A',
+                    background: logoHover ? '#F9F9F91A' : 'transparent',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    transition: 'background .18s ease',
                   }}
                 >
                   <svg
@@ -278,16 +228,73 @@ export function Sidebar() {
                   >
                     <rect width="18" height="18" x="3" y="3" rx="2" />
                     <path d="M9 3v18" />
-                    <path d="m16 15-3-3 3-3" />
+                    <path d="m14 9 3 3-3 3" />
                   </svg>
                 </div>
               </button>
-            )}
+            </div>
+
+            {/* Collapse button — always rendered, fades out when collapsed */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setCollapsed(true);
+                setLogoHover(false);
+              }}
+              title="Collapse sidebar"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                padding: 0,
+                flexShrink: 0,
+                opacity: collapsed ? 0 : 1,
+                pointerEvents: collapsed ? 'none' : 'auto',
+                transition: 'opacity .18s ease',
+              }}
+            >
+              <div
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: 8,
+                  background: '#F9F9F91A',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="#EEEEEE"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect width="18" height="18" x="3" y="3" rx="2" />
+                  <path d="M9 3v18" />
+                  <path d="m16 15-3-3 3-3" />
+                </svg>
+              </div>
+            </button>
           </div>
         </div>
 
         {/* Nav */}
-        <nav style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <nav
+          style={{
+            padding: collapsed ? '16px 14px' : '16px 20px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            transition: 'padding .22s ease',
+          }}
+        >
           {NAV.map((item) => {
             const isActive = activeId === item.id;
             const linkContent = (
@@ -319,10 +326,11 @@ export function Sidebar() {
                     padding: 1,
                     background:
                       'linear-gradient(90deg, rgba(245, 92, 122, 0.5) 0%, rgba(246, 181, 83, 0.5) 100%)',
-                    width: collapsed ? undefined : 220,
+                    width: collapsed ? 40 : 220,
                     height: 40,
                     boxSizing: 'border-box',
                     overflow: 'hidden',
+                    transition: 'width .22s ease',
                   }}
                 >
                   <Link
@@ -339,6 +347,7 @@ export function Sidebar() {
                       justifyContent: collapsed ? 'center' : 'flex-start',
                       width: '100%',
                       height: '100%',
+                      transition: 'gap .22s ease, padding .22s ease',
                       backgroundColor: '#141414',
                       backgroundImage:
                         'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 100%)',
@@ -367,13 +376,13 @@ export function Sidebar() {
                   borderRadius: 8,
                   textDecoration: 'none',
                   justifyContent: collapsed ? 'center' : 'flex-start',
-                  width: collapsed ? undefined : 220,
+                  width: collapsed ? 40 : 220,
                   height: 40,
                   background: 'transparent',
                   color: isActive ? C.onDark : '#EEEEEE',
                   fontWeight: 500,
                   fontSize: 14,
-                  transition: 'background .15s',
+                  transition: 'width .22s ease, padding .22s ease, gap .22s ease, background .15s',
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
@@ -399,7 +408,7 @@ export function Sidebar() {
             maxHeight: collapsed ? 0 : 120,
             opacity: collapsed ? 0 : 1,
             overflow: 'hidden',
-            transition: 'max-height .22s ease, opacity .18s ease',
+            transition: 'max-height .22s ease, opacity .18s ease, margin-bottom .22s ease',
             marginBottom: collapsed ? 0 : 12,
           }}
         >
