@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
 import { type CreateTryOnJobRequest, RESOLUTION_COSTS, type Resolution } from '@aivastra/types';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -18,6 +18,7 @@ export async function createJob(
     faceId,
     backgroundId,
     poseIds,
+    garmentTypeId,
     upperGarmentKey,
     lowerCatalogId,
     lowerGarmentKey,
@@ -71,9 +72,15 @@ export async function createJob(
         ),
       ),
     app.db
-      .select({ id: schema.modelPoses.id })
-      .from(schema.modelPoses)
-      .where(and(inArray(schema.modelPoses.id, poseIds), eq(schema.modelPoses.isActive, true))),
+      .select({ id: schema.modelPoseAssets.id })
+      .from(schema.modelPoseAssets)
+      .where(
+        and(
+          inArray(schema.modelPoseAssets.id, poseIds),
+          eq(schema.modelPoseAssets.isActive, true),
+          isNull(schema.modelPoseAssets.deletedAt),
+        ),
+      ),
   ]);
 
   if (!face[0]) throw new AppError('BAD_CATALOG', 400, 'face not found or inactive');
@@ -86,17 +93,17 @@ export async function createJob(
   // Same for shoes. This mirrors what the studio UI shows based on hasLower/hasShoes.
   const poseWorkflows = await app.db
     .select({
-      poseId: schema.modelPoses.id,
+      poseId: schema.modelPoseAssets.id,
       lowerNodeId: schema.workflowTemplates.lowerNodeId,
       shoeNodeId: schema.workflowTemplates.shoeNodeId,
       sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
     })
-    .from(schema.modelPoses)
+    .from(schema.modelPoseAssets)
     .leftJoin(
       schema.workflowTemplates,
-      eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
+      eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
     )
-    .where(inArray(schema.modelPoses.id, poseIds));
+    .where(inArray(schema.modelPoseAssets.id, poseIds));
 
   // Build map for O(1) lookup in the insert loop
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
@@ -146,6 +153,7 @@ export async function createJob(
         faceId,
         backgroundId: effectiveBackgroundId,
         poseId,
+        garmentTypeId: garmentTypeId ?? null,
         lowerCatalogId: effectiveLowerCatalogId,
         lowerGarmentKey: effectiveLowerGarmentKey,
         shoeCatalogId: effectiveShoeCatalogId,

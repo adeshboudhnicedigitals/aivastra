@@ -1,6 +1,6 @@
 import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { catalogItems } from './catalog.js';
-import { modelBackgrounds, modelFaces, modelPoses } from './models.js';
+import { garmentSubcategories, modelBackgrounds, modelFaces, modelPoseAssets } from './models.js';
 import { users } from './users.js';
 
 export const jobs = pgTable('jobs', {
@@ -33,7 +33,10 @@ export const jobInputs = pgTable('job_inputs', {
     .references(() => modelBackgrounds.id),
   poseId: uuid('pose_id')
     .notNull()
-    .references(() => modelPoses.id),
+    .references(() => modelPoseAssets.id),
+  garmentTypeId: uuid('garment_type_id').references(() => garmentSubcategories.id, {
+    onDelete: 'set null',
+  }),
   lowerCatalogId: uuid('lower_catalog_id').references(() => catalogItems.id),
   lowerGarmentKey: text('lower_garment_key'),
   shoeCatalogId: uuid('shoe_catalog_id').references(() => catalogItems.id),

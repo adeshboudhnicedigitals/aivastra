@@ -32,15 +32,11 @@ export async function jobsRoutes(app: FastifyInstance) {
         status: schema.jobs.status,
         createdAt: schema.jobs.createdAt,
         creditsCharged: schema.jobs.creditsCharged,
-        genderSlug: schema.garmentSubcategories.genderSlug,
+        genderSlug: schema.modelPoseAssets.genderSlug,
       })
       .from(schema.jobs)
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-      .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
-      .leftJoin(
-        schema.garmentSubcategories,
-        eq(schema.garmentSubcategories.id, schema.modelPoses.subcategoryId),
-      )
+      .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
       .where(eq(schema.jobs.userId, req.userId))
       .orderBy(desc(schema.jobs.createdAt))
       .limit(200);
