@@ -14,7 +14,8 @@
       "!twopiece.json",
       "!templates",
       "!pnpm-lock.yaml",
-      "!docs/*.html"
+      "!docs/*.html",
+      "!Logs-*.json"
     ]
   },
   "formatter": {
