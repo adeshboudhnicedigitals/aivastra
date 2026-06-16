@@ -4,6 +4,7 @@ import { EditPoseAssetModal } from '../../components/EditPoseAssetModal';
 import { Icon } from '../../components/Icons';
 import { Pager } from '../../components/Pager';
 import { PoseUploadModal } from '../../components/PoseUploadModal';
+import { Switch } from '../../components/Switch';
 import { apiFetch, getToken } from '../../lib/data';
 import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../../types';
 import { useAssetsContext } from './AssetsContext';
@@ -22,11 +23,6 @@ export function PoseAssetsTab() {
   const {
     genderFilter,
     setGenderFilter,
-    faces,
-    setFaces,
-    allBackgrounds,
-    setAllBackgrounds,
-    garmentTypes,
     workflows,
     setWorkflows,
     loading,
@@ -38,11 +34,9 @@ export function PoseAssetsTab() {
 
   const [poseAssets, setPoseAssets] = useState<ModelPoseAsset[]>([]);
   const [paSearch, setPaSearch] = useState('');
-  const [paFilterFace, setPaFilterFace] = useState('');
-  const [paFilterBg, setPaFilterBg] = useState('');
   const [paFilterWorkflow, setPaFilterWorkflow] = useState('');
   const [paFilterPose, setPaFilterPose] = useState('');
-  const [paSortKey, setPaSortKey] = useState<'label' | 'createdAt'>('label');
+  const [paSortKey, setPaSortKey] = useState<'label' | 'sortOrder' | 'createdAt'>('sortOrder');
   const [paSortDir, setPaSortDir] = useState<'asc' | 'desc'>('asc');
   const [paPage, setPaPage] = useState(1);
   const [selectedPoseAssetIds, setSelectedPoseAssetIds] = useState<string[]>([]);
@@ -51,33 +45,15 @@ export function PoseAssetsTab() {
   const [confirmDeletePoseAssetId, setConfirmDeletePoseAssetId] = useState<string | null>(null);
   const [showPoseAssetUpload, setShowPoseAssetUpload] = useState(false);
   const [editingPoseAsset, setEditingPoseAsset] = useState<ModelPoseAsset | null>(null);
-  const [mappingPoseAsset, setMappingPoseAsset] = useState<ModelPoseAsset | null>(null);
-  const [existingMappings, setExistingMappings] = useState<
-    {
-      id: string;
-      garmentTypeId: string;
-      garmentTypeLabel: string | null;
-      faceId: string;
-      faceLabel: string | null;
-      backgroundId: string;
-      backgroundLabel: string | null;
-      workflowTemplateId: string;
-      workflowLabel: string | null;
-      isActive: boolean;
-      createdAt: string;
-    }[]
-  >([]);
-  const [loadingMappings, setLoadingMappings] = useState(false);
-  const [showBulkMap, setShowBulkMap] = useState(false);
-  const [bulkMapGarmentTypeIds, setBulkMapGarmentTypeIds] = useState<Set<string>>(new Set());
-  const [bulkMapping, setBulkMapping] = useState(false);
-  const [bulkMapProgress, setBulkMapProgress] = useState(0);
-  const [bulkMapTotal, setBulkMapTotal] = useState(0);
 
   // Bulk rename state
   const [showBulkRename, setShowBulkRename] = useState(false);
   const [bulkRenameDisplayName, setBulkRenameDisplayName] = useState('');
   const [bulkRenaming, setBulkRenaming] = useState(false);
+
+  // Bulk sort order state
+  const [bulkSortStart, setBulkSortStart] = useState(0);
+  const [bulkSortSaving, setBulkSortSaving] = useState(false);
 
   // Bulk import state
   const [showBulkImport, setShowBulkImport] = useState(false);
@@ -122,6 +98,25 @@ export function PoseAssetsTab() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [loadPoseAssets]);
 
+  const toggleActive = async (id: string) => {
+    const item = poseAssets.find((a) => a.id === id);
+    if (!item) return;
+    const next = !item.isActive;
+    setPoseAssets((prev) => prev.map((a) => (a.id === id ? { ...a, isActive: next } : a)));
+    try {
+      await apiFetch(`/admin/assets/pose-assets/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: next }),
+      });
+      toast({ title: `${item.displayName ?? item.label} ${next ? 'activated' : 'deactivated'}` });
+    } catch {
+      setPoseAssets((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, isActive: item.isActive } : a)),
+      );
+      toast({ kind: 'error', title: 'Failed to update pose asset' });
+    }
+  };
+
   const dosBulkRename = async () => {
     const name = bulkRenameDisplayName.trim();
     if (!name || selectedPoseAssetIds.length === 0) return;
@@ -143,6 +138,39 @@ export function PoseAssetsTab() {
       toast({ kind: 'error', title: 'Bulk rename failed' });
     }
     setBulkRenaming(false);
+  };
+
+  const doBulkSortOrder = async () => {
+    if (selectedPoseAssetIds.length === 0) return;
+    setBulkSortSaving(true);
+    // Assign sequential numbers in current display order
+    const orderedSelected = filteredPoseAssets
+      .filter((a) => selectedPoseAssetIds.includes(a.id))
+      .map((a, i) => ({ id: a.id, sortOrder: bulkSortStart + i }));
+    try {
+      await Promise.all(
+        orderedSelected.map(({ id, sortOrder }) =>
+          apiFetch(`/admin/assets/pose-assets/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ sortOrder }),
+          }),
+        ),
+      );
+      setPoseAssets((prev) =>
+        prev.map((a) => {
+          const entry = orderedSelected.find((e) => e.id === a.id);
+          return entry ? { ...a, sortOrder: entry.sortOrder } : a;
+        }),
+      );
+      toast({
+        title: `Sort order updated for ${orderedSelected.length} pose${orderedSelected.length !== 1 ? 's' : ''}`,
+      });
+      setSelectedPoseAssetIds([]);
+    } catch {
+      toast({ kind: 'error', title: 'Failed to update sort order' });
+    } finally {
+      setBulkSortSaving(false);
+    }
   };
 
   const doBulkDeletePoseAssets = async () => {
@@ -170,8 +198,6 @@ export function PoseAssetsTab() {
   const filteredPoseAssets = poseAssets
     .filter((a) => {
       if (genderFilter !== 'all' && a.genderSlug !== genderFilter) return false;
-      if (paFilterFace && a.faceId !== paFilterFace) return false;
-      if (paFilterBg && a.backgroundId !== paFilterBg) return false;
       if (paFilterWorkflow && a.workflowTemplateId !== paFilterWorkflow) return false;
       if (paFilterPose && a.poseVariant !== paFilterPose) return false;
       if (paSearch) {
@@ -187,6 +213,7 @@ export function PoseAssetsTab() {
     .sort((a, b) => {
       let cmp = 0;
       if (paSortKey === 'label') cmp = a.label.localeCompare(b.label);
+      else if (paSortKey === 'sortOrder') cmp = a.sortOrder - b.sortOrder;
       else cmp = a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
       return paSortDir === 'asc' ? cmp : -cmp;
     });
@@ -201,10 +228,6 @@ export function PoseAssetsTab() {
   const genderSlicedAssets = poseAssets.filter(
     (a) => genderFilter === 'all' || a.genderSlug === genderFilter,
   );
-  const paFaceOptions = faces.filter((f) => genderSlicedAssets.some((a) => a.faceId === f.id));
-  const paBgOptions = allBackgrounds.filter((b) =>
-    genderSlicedAssets.some((a) => a.backgroundId === b.id),
-  );
   const paWorkflowOptions = workflows.filter((w) =>
     genderSlicedAssets.some((a) => a.workflowTemplateId === w.id),
   );
@@ -218,8 +241,7 @@ export function PoseAssetsTab() {
         <div>
           <h1>Pose Assets</h1>
           <p className="lede">
-            Centralised pose image assets. Delete here removes R2 objects. Remove all garment-type
-            mappings first.
+            Pose image assets. Filtered by gender — active poses are shown to users in studio.
           </p>
         </div>
         <div className="head-tools">
@@ -247,8 +269,6 @@ export function PoseAssetsTab() {
             className={`tab ${genderFilter === t.k ? 'active' : ''}`}
             onClick={() => {
               setGenderFilter(t.k);
-              setPaFilterFace('');
-              setPaFilterBg('');
               setPaFilterWorkflow('');
               setPaFilterPose('');
               setPaSearch('');
@@ -282,32 +302,6 @@ export function PoseAssetsTab() {
             <select
               className="select"
               style={{ minWidth: 140 }}
-              value={paFilterFace}
-              onChange={(e) => setPaFilterFace(e.target.value)}
-            >
-              <option value="">All faces</option>
-              {paFaceOptions.map((f) => (
-                <option key={f.id} value={f.id}>
-                  [{f.gender}] {f.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="select"
-              style={{ minWidth: 140 }}
-              value={paFilterBg}
-              onChange={(e) => setPaFilterBg(e.target.value)}
-            >
-              <option value="">All backgrounds</option>
-              {paBgOptions.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="select"
-              style={{ minWidth: 140 }}
               value={paFilterWorkflow}
               onChange={(e) => setPaFilterWorkflow(e.target.value)}
             >
@@ -335,8 +329,9 @@ export function PoseAssetsTab() {
               className="select"
               style={{ minWidth: 110 }}
               value={paSortKey}
-              onChange={(e) => setPaSortKey(e.target.value as 'label' | 'createdAt')}
+              onChange={(e) => setPaSortKey(e.target.value as 'label' | 'sortOrder' | 'createdAt')}
             >
+              <option value="sortOrder">Sort order</option>
               <option value="label">Name</option>
               <option value="createdAt">Date added</option>
             </select>
@@ -347,13 +342,11 @@ export function PoseAssetsTab() {
             >
               {paSortDir === 'asc' ? '↑' : '↓'}
             </button>
-            {(paSearch || paFilterFace || paFilterBg || paFilterWorkflow || paFilterPose) && (
+            {(paSearch || paFilterWorkflow || paFilterPose) && (
               <button
                 className="btn sm ghost"
                 onClick={() => {
                   setPaSearch('');
-                  setPaFilterFace('');
-                  setPaFilterBg('');
                   setPaFilterWorkflow('');
                   setPaFilterPose('');
                 }}
@@ -397,21 +390,34 @@ export function PoseAssetsTab() {
                 <button
                   className="btn sm"
                   onClick={() => {
-                    setBulkMapGarmentTypeIds(new Set());
-                    setShowBulkMap(true);
-                  }}
-                >
-                  <Icon.Add /> Map selected ({selectedPoseAssetIds.length})
-                </button>
-                <button
-                  className="btn sm"
-                  onClick={() => {
                     setBulkRenameDisplayName('');
                     setShowBulkRename(true);
                   }}
                 >
                   <Icon.Edit /> Rename ({selectedPoseAssetIds.length})
                 </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    Sort from
+                  </span>
+                  <input
+                    type="number"
+                    className="input"
+                    min={0}
+                    step={1}
+                    value={bulkSortStart}
+                    disabled={bulkSortSaving}
+                    onChange={(e) => setBulkSortStart(Number(e.target.value))}
+                    style={{ width: 64, padding: '3px 6px', fontSize: 12, height: 28 }}
+                  />
+                  <button
+                    className="btn sm"
+                    disabled={bulkSortSaving}
+                    onClick={() => void doBulkSortOrder()}
+                  >
+                    {bulkSortSaving ? 'Saving…' : `Apply (${selectedPoseAssetIds.length})`}
+                  </button>
+                </div>
                 <button
                   className="btn sm danger"
                   onClick={() => setConfirmBulkDeletePoseAssetIds([...selectedPoseAssetIds])}
@@ -445,6 +451,7 @@ export function PoseAssetsTab() {
                     outline: selectedPoseAssetIds.includes(a.id)
                       ? '2px solid var(--pink)'
                       : undefined,
+                    opacity: a.isActive ? 1 : 0.55,
                   }}
                 >
                   <div
@@ -501,20 +508,10 @@ export function PoseAssetsTab() {
                     >
                       {a.displayName ?? a.label}
                     </p>
-                    {a.genderSlug && (
-                      <span className="badge dot accent" style={{ fontSize: 10, marginTop: 4 }}>
-                        {a.genderSlug}
-                      </span>
-                    )}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 5 }}>
-                      {a.faceId && (
-                        <span className="badge dot" style={{ fontSize: 10 }} title="Face">
-                          {faces.find((f) => f.id === a.faceId)?.label ?? '?'}
-                        </span>
-                      )}
-                      {a.backgroundId && (
-                        <span className="badge dot" style={{ fontSize: 10 }} title="Background">
-                          {allBackgrounds.find((b) => b.id === a.backgroundId)?.label ?? '?'}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
+                      {a.genderSlug && (
+                        <span className="badge dot accent" style={{ fontSize: 10 }}>
+                          {a.genderSlug}
                         </span>
                       )}
                       {a.workflowTemplateId && (
@@ -527,34 +524,21 @@ export function PoseAssetsTab() {
                         </span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginTop: 8,
+                      }}
+                    >
+                      <Switch checked={a.isActive} onChange={() => void toggleActive(a.id)} />
                       <button
                         className="btn ghost"
-                        style={{ flex: 1, fontSize: 10, padding: '3px 0' }}
+                        style={{ fontSize: 10, padding: '3px 8px' }}
                         onClick={() => setEditingPoseAsset(a)}
                       >
                         <Icon.Edit /> Edit
-                      </button>
-                      <button
-                        className="btn ghost"
-                        style={{ flex: 1, fontSize: 10, padding: '3px 0' }}
-                        onClick={async () => {
-                          setMappingPoseAsset(a);
-                          setExistingMappings([]);
-                          setLoadingMappings(true);
-                          try {
-                            const res = await apiFetch<{ items: typeof existingMappings }>(
-                              `/admin/assets/pose-assets/${a.id}/mappings`,
-                            );
-                            setExistingMappings(res.items);
-                          } catch {
-                            /* ignore */
-                          } finally {
-                            setLoadingMappings(false);
-                          }
-                        }}
-                      >
-                        <Icon.Eye /> Mappings
                       </button>
                     </div>
                     <button
@@ -669,315 +653,6 @@ export function PoseAssetsTab() {
         </div>
       )}
 
-      {/* Map pose asset mappings view */}
-      {mappingPoseAsset && (
-        <div className="modal-overlay" onClick={() => setMappingPoseAsset(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Pose mappings</h3>
-              <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                {mappingPoseAsset.label}
-              </p>
-            </div>
-            <div
-              className="modal-body"
-              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
-            >
-              <div>
-                <label className="field-label" style={{ marginBottom: 6, display: 'block' }}>
-                  Existing mappings
-                </label>
-                {loadingMappings ? (
-                  <p style={{ fontSize: 12, color: 'var(--muted)' }}>Loading…</p>
-                ) : existingMappings.length === 0 ? (
-                  <p style={{ fontSize: 12, color: 'var(--muted)' }}>None yet.</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {existingMappings.map((m) => (
-                      <div
-                        key={m.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '6px 10px',
-                          background: 'var(--subtle)',
-                          borderRadius: 6,
-                          fontSize: 12,
-                        }}
-                      >
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 12 }}>
-                            {m.garmentTypeLabel ?? m.garmentTypeId}
-                          </div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
-                            {m.faceLabel && <span className="badge dot">{m.faceLabel}</span>}
-                            {m.backgroundLabel && (
-                              <span className="badge dot">{m.backgroundLabel}</span>
-                            )}
-                            {m.workflowLabel && (
-                              <span className="badge dot accent">{m.workflowLabel}</span>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          className="btn sm danger ghost"
-                          style={{ flexShrink: 0, padding: '2px 6px', fontSize: 11 }}
-                          onClick={async () => {
-                            try {
-                              await apiFetch(`/admin/assets/poses/${m.id}`, { method: 'DELETE' });
-                              setExistingMappings((prev) => prev.filter((x) => x.id !== m.id));
-                            } catch (err: unknown) {
-                              toast({
-                                kind: 'error',
-                                title: 'Delete mapping failed',
-                                body: err instanceof Error ? err.message : String(err),
-                              });
-                            }
-                          }}
-                        >
-                          <Icon.Trash />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setMappingPoseAsset(null)}>
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bulk map selected pose assets */}
-      {showBulkMap &&
-        (() => {
-          const genderOrder: GenderSlug[] = ['men', 'women', 'boys', 'girls'];
-          const byGender = genderOrder
-            .map((g) => ({ gender: g, types: garmentTypes.filter((t) => t.genderSlug === g) }))
-            .filter((group) => group.types.length > 0);
-
-          const toggleId = (id: string) => {
-            setBulkMapGarmentTypeIds((prev) => {
-              const next = new Set(prev);
-              if (next.has(id)) next.delete(id);
-              else next.add(id);
-              return next;
-            });
-          };
-
-          const toggleGender = (ids: string[]) => {
-            const allChecked = ids.every((id) => bulkMapGarmentTypeIds.has(id));
-            setBulkMapGarmentTypeIds((prev) => {
-              const next = new Set(prev);
-              if (allChecked)
-                ids.forEach((id) => {
-                  next.delete(id);
-                });
-              else
-                ids.forEach((id) => {
-                  next.add(id);
-                });
-              return next;
-            });
-          };
-
-          return (
-            <div className="modal-overlay" onClick={() => !bulkMapping && setShowBulkMap(false)}>
-              <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 480 }}>
-                <div className="modal-head">
-                  <h3>Bulk map poses</h3>
-                  <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                    Map {selectedPoseAssetIds.length} selected pose
-                    {selectedPoseAssetIds.length !== 1 ? 's' : ''} to one or more subcategories
-                  </p>
-                </div>
-                <div
-                  className="modal-body"
-                  style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-                >
-                  <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                    Each pose uses its own stored face / background / workflow. Select all
-                    subcategories you want to map to — duplicates are skipped automatically.
-                  </p>
-                  {bulkMapping && (
-                    <div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          fontSize: 12,
-                          color: 'var(--muted)',
-                          marginBottom: 6,
-                        }}
-                      >
-                        <span>Mapping…</span>
-                        <span>
-                          {bulkMapProgress} / {bulkMapTotal}
-                        </span>
-                      </div>
-                      <div
-                        style={{
-                          height: 6,
-                          background: 'var(--border)',
-                          borderRadius: 3,
-                          overflow: 'hidden',
-                          width: '100%',
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: '100%',
-                            background: 'var(--accent)',
-                            borderRadius: 3,
-                            width:
-                              bulkMapTotal > 0
-                                ? `${Math.round((bulkMapProgress / bulkMapTotal) * 100)}%`
-                                : '0%',
-                            transition: 'width 0.15s ease',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {byGender.map(({ gender, types }) => {
-                      const typeIds = types.map((t) => t.id);
-                      const allChecked = typeIds.every((id) => bulkMapGarmentTypeIds.has(id));
-                      const someChecked = typeIds.some((id) => bulkMapGarmentTypeIds.has(id));
-                      return (
-                        <div key={gender}>
-                          <label
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 8,
-                              cursor: bulkMapping ? 'default' : 'pointer',
-                              fontSize: 11,
-                              fontWeight: 600,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.08em',
-                              color: 'var(--muted)',
-                              marginBottom: 6,
-                              userSelect: 'none',
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              disabled={bulkMapping}
-                              checked={allChecked}
-                              ref={(el) => {
-                                if (el) el.indeterminate = someChecked && !allChecked;
-                              }}
-                              onChange={() => !bulkMapping && toggleGender(typeIds)}
-                            />
-                            {gender.charAt(0).toUpperCase() + gender.slice(1)}
-                          </label>
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-                              gap: '4px 12px',
-                              paddingLeft: 4,
-                            }}
-                          >
-                            {types.map((gt) => (
-                              <label
-                                key={gt.id}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 8,
-                                  cursor: bulkMapping ? 'default' : 'pointer',
-                                  fontSize: 13,
-                                  padding: '4px 0',
-                                  userSelect: 'none',
-                                }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  disabled={bulkMapping}
-                                  checked={bulkMapGarmentTypeIds.has(gt.id)}
-                                  onChange={() => !bulkMapping && toggleId(gt.id)}
-                                />
-                                {gt.label}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {bulkMapGarmentTypeIds.size > 0 && (
-                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                      {bulkMapGarmentTypeIds.size} subcategor
-                      {bulkMapGarmentTypeIds.size === 1 ? 'y' : 'ies'} selected →{' '}
-                      {selectedPoseAssetIds.length * bulkMapGarmentTypeIds.size} mappings to create
-                    </p>
-                  )}
-                </div>
-                <div className="modal-foot">
-                  <button
-                    className="btn ghost"
-                    disabled={bulkMapping}
-                    onClick={() => setShowBulkMap(false)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="btn"
-                    disabled={bulkMapping || bulkMapGarmentTypeIds.size === 0}
-                    onClick={async () => {
-                      if (bulkMapGarmentTypeIds.size === 0) return;
-                      setBulkMapping(true);
-                      setBulkMapProgress(0);
-                      setBulkMapTotal(selectedPoseAssetIds.length * bulkMapGarmentTypeIds.size);
-                      try {
-                        const res = await apiFetch<{
-                          created: number;
-                          skipped: number;
-                          errors: string[];
-                        }>('/admin/assets/pose-assets/bulk-map', {
-                          method: 'POST',
-                          body: JSON.stringify({
-                            assetIds: selectedPoseAssetIds,
-                            garmentTypeIds: [...bulkMapGarmentTypeIds],
-                          }),
-                        });
-                        setBulkMapProgress(
-                          selectedPoseAssetIds.length * bulkMapGarmentTypeIds.size,
-                        );
-                        const parts = [];
-                        if (res.created > 0) parts.push(`mapped ${res.created}`);
-                        if (res.skipped > 0) parts.push(`skipped ${res.skipped} already mapped`);
-                        if (res.errors.length > 0) parts.push(`${res.errors.length} errors`);
-                        toast({
-                          kind: res.errors.length > 0 ? 'error' : undefined,
-                          title: parts.join(', ') || 'nothing to map',
-                        });
-                      } catch {
-                        toast({ kind: 'error', title: 'Bulk map failed' });
-                      }
-                      setBulkMapping(false);
-                      setShowBulkMap(false);
-                      setSelectedPoseAssetIds([]);
-                      setBulkMapGarmentTypeIds(new Set());
-                    }}
-                  >
-                    {bulkMapping
-                      ? 'Mapping…'
-                      : `Map to ${bulkMapGarmentTypeIds.size} subcategor${bulkMapGarmentTypeIds.size === 1 ? 'y' : 'ies'}`}
-                  </button>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
       {/* Bulk rename display name */}
       {showBulkRename && (
         <div className="modal-overlay" onClick={() => !bulkRenaming && setShowBulkRename(false)}>
@@ -988,7 +663,7 @@ export function PoseAssetsTab() {
                 {selectedPoseAssetIds.length !== 1 ? 's' : ''}
               </h3>
               <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                Sets the display name on all selected assets and propagates to their pose mappings.
+                Sets the display name on all selected assets.
               </p>
             </div>
             <div
@@ -1098,8 +773,8 @@ export function PoseAssetsTab() {
                 </select>
               </div>
               <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-                ZIP must contain <code>backgrounds/</code>, <code>faces/</code>, and{' '}
-                <code>poses/</code> folders. Pose filenames: <code>faceXXbgYposeZZ.png</code>
+                ZIP must contain <code>poses/</code> folder with pose images. Filenames become the
+                dedup label.
               </p>
               {bulkImporting && (
                 <div>
@@ -1237,15 +912,7 @@ export function PoseAssetsTab() {
                           body: result.errors[0],
                         });
                       }
-                      await Promise.all([
-                        loadPoseAssets(),
-                        apiFetch<{ items: typeof faces }>('/admin/assets/faces')
-                          .then((r) => setFaces(r.items))
-                          .catch(() => {}),
-                        apiFetch<{ items: typeof allBackgrounds }>('/admin/assets/backgrounds')
-                          .then((r) => setAllBackgrounds(r.items))
-                          .catch(() => {}),
-                      ]);
+                      await loadPoseAssets();
                     } else {
                       const err = JSON.parse(xhr.responseText) as { error?: { message?: string } };
                       toast({
@@ -1282,17 +949,9 @@ export function PoseAssetsTab() {
       {showPoseAssetUpload && (
         <PoseUploadModal
           garmentTypeGenderSlug={genderFilter !== 'all' ? genderFilter : 'men'}
-          faces={faces}
-          backgrounds={allBackgrounds}
-          onDone={(_added) => {
+          onDone={() => {
             setShowPoseAssetUpload(false);
             void loadPoseAssets();
-            apiFetch<{ items: typeof faces }>('/admin/assets/faces')
-              .then((r) => setFaces(r.items))
-              .catch(() => {});
-            apiFetch<{ items: typeof allBackgrounds }>('/admin/assets/backgrounds')
-              .then((r) => setAllBackgrounds(r.items))
-              .catch(() => {});
           }}
           onClose={() => setShowPoseAssetUpload(false)}
           toast={toast}
@@ -1302,8 +961,6 @@ export function PoseAssetsTab() {
       {editingPoseAsset && (
         <EditPoseAssetModal
           asset={editingPoseAsset}
-          faces={faces}
-          backgrounds={allBackgrounds}
           workflows={workflows}
           onSaved={(updated) => {
             setPoseAssets((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));

@@ -1,5 +1,17 @@
 # Project Progress
 
+## 2026-06-15 - Admin mobile Android emulator ABI fix
+
+### Done
+- Diagnosed the `libreactnative.so` startup crash as an ABI mismatch: the debug APK was being built for `arm64-v8a` only and then installed on an `x86_64` emulator.
+- Updated the generated Android Gradle properties to package both `arm64-v8a` and `x86_64` for local testing.
+
+### Failed / Not Done
+- The APK has not been rebuilt after the ABI fix in this turn.
+
+### Open Questions / Decisions
+- If you want faster physical-device-only debug builds later, the ABI list can be narrowed back to `arm64-v8a` before release packaging.
+
 ## 2026-06-15 — Admin mobile EAS Android autolinking fix
 
 ### Done

@@ -66,7 +66,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         completedAt: schema.jobs.completedAt,
         faceLabel: schema.modelFaces.label,
         backgroundLabel: schema.modelBackgrounds.label,
-        poseLabel: schema.modelPoses.label,
+        poseLabel: schema.modelPoseAssets.displayName,
         hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
         hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
         outputKey: schema.jobOutputs.resultKey,
@@ -79,7 +79,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         schema.modelBackgrounds,
         eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
       )
-      .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
+      .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
       .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
       .where(where)
       .orderBy(desc(schema.jobs.createdAt))
@@ -123,16 +123,17 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           completedAt: schema.jobs.completedAt,
           faceLabel: schema.modelFaces.label,
           backgroundLabel: schema.modelBackgrounds.label,
-          poseLabel: schema.modelPoses.label,
+          poseLabel: schema.modelPoseAssets.displayName,
           hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
           hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
           userHint: schema.jobInputs.userHint,
           outputKey: schema.jobOutputs.resultKey,
           // ComfyUI-actual inputs — mirrors dispatcher's key resolution exactly
-          faceSideKey: schema.modelPoses.faceSideR2Key,
-          bgComfyKey: schema.modelPoses.bgComfyR2Key,
+          // faceSideKey lives on model_faces, bgComfyKey lives on model_backgrounds
+          faceSideKey: schema.modelFaces.faceSideR2Key,
+          bgComfyKey: schema.modelBackgrounds.bgComfyR2Key,
           bgFallbackKey: schema.modelBackgrounds.r2Key,
-          poseKey: schema.modelPoses.r2Key,
+          poseKey: schema.modelPoseAssets.r2Key,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           lowerCatalogKey: lowerCatalog.r2Key,
@@ -147,7 +148,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           schema.modelBackgrounds,
           eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
         )
-        .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
+        .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
         .leftJoin(lowerCatalog, eq(lowerCatalog.id, schema.jobInputs.lowerCatalogId))
         .leftJoin(shoeCatalog, eq(shoeCatalog.id, schema.jobInputs.shoeCatalogId))

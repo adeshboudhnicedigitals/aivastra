@@ -19,7 +19,7 @@ export async function resultsRoutes(app: FastifyInstance) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);
 
   async function requireResultsUser(req: FastifyRequest, _reply: FastifyReply) {
-    const token = req.cookies['results_access_token'];
+    const token = req.cookies.results_access_token;
     if (!token) throw new AppError('UNAUTH', 401, 'missing results token');
     try {
       const payload = await verifyAccess(secret, token);
@@ -115,7 +115,7 @@ export async function resultsRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
         .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-        .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
+        .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
         .leftJoin(
           schema.modelBackgrounds,
           eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),
@@ -132,7 +132,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           createdAt: schema.jobs.createdAt,
           status: schema.jobs.status,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
-          poseThumbKey: schema.modelPoses.thumbnailKey,
+          poseThumbKey: schema.modelPoseAssets.thumbnailKey,
           backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
           lowerThumbKey: sql<
             string | null
@@ -145,7 +145,7 @@ export async function resultsRoutes(app: FastifyInstance) {
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
         .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-        .leftJoin(schema.modelPoses, eq(schema.modelPoses.id, schema.jobInputs.poseId))
+        .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
         .leftJoin(
           schema.modelBackgrounds,
           eq(schema.modelBackgrounds.id, schema.jobInputs.backgroundId),

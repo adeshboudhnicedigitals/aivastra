@@ -2,19 +2,26 @@ import { useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type {
-  GenderSlug,
-  ModelBackground,
-  ModelFace,
-  ModelPoseAsset,
-  WorkflowOption,
-} from '../types';
+import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../types';
 import { Icon } from './Icons';
+
+async function putFile(url: string, file: Blob): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Upload failed: HTTP ${xhr.status}`));
+    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.send(file);
+  });
+}
 
 function ImagePicker({
   id,
   label,
-  hint,
   currentUrl,
   file,
   disabled,
@@ -23,7 +30,6 @@ function ImagePicker({
 }: {
   id: string;
   label: string;
-  hint?: string;
   currentUrl?: string | null;
   file: File | null;
   disabled: boolean;
@@ -36,23 +42,16 @@ function ImagePicker({
 
   return (
     <div className="field">
-      <label htmlFor={id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <span>{label}</span>
-        {hint && (
-          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400 }}>{hint}</span>
-        )}
-      </label>
+      <label htmlFor={id}>{label}</label>
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 12,
           padding: '10px 12px',
-          border: `1.5px dashed ${file ? 'var(--success-border, #4caf50)' : 'var(--border-strong, var(--border))'}`,
+          border: `1.5px dashed ${file ? 'var(--success-border)' : 'var(--border-strong, var(--border))'}`,
           borderRadius: 8,
-          background: file
-            ? 'var(--success-soft, rgba(76,175,80,0.06))'
-            : 'var(--surface-2, var(--subtle))',
+          background: file ? 'var(--success-soft)' : 'var(--surface-2)',
           transition: 'border-color 120ms',
         }}
       >
@@ -91,7 +90,6 @@ function ImagePicker({
             <Icon.Image />
           </div>
         )}
-
         <div style={{ flex: 1, minWidth: 0 }}>
           {file ? (
             <div
@@ -117,7 +115,6 @@ function ImagePicker({
               : 'JPEG, PNG or WebP'}
           </div>
         </div>
-
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           {file && (
             <button
@@ -159,77 +156,30 @@ function ImagePicker({
   );
 }
 
-async function putFile(url: string, file: Blob): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
-    xhr.setRequestHeader('Content-Type', file.type);
-    xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Upload failed: HTTP ${xhr.status}`));
-    xhr.onerror = () => reject(new Error('Network error during upload'));
-    xhr.send(file);
-  });
-}
-
 interface Props {
   asset: ModelPoseAsset;
-  faces: ModelFace[];
-  backgrounds: ModelBackground[];
   workflows: WorkflowOption[];
   onSaved: (updated: ModelPoseAsset) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-export function EditPoseAssetModal({
-  asset,
-  faces,
-  backgrounds,
-  workflows,
-  onSaved,
-  onClose,
-  toast,
-}: Props) {
+export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }: Props) {
   const { storagePublicUrl } = useAuth();
-  const [label, _setLabel] = useState(asset.label);
+  const [label] = useState(asset.label);
   const [displayName, setDisplayName] = useState(asset.displayName ?? '');
   const [genderSlug, setGenderSlug] = useState<GenderSlug>(
     (asset.genderSlug ?? 'men') as GenderSlug,
   );
-  const [faceId, setFaceId] = useState(asset.faceId ?? '');
-  const [backgroundId, setBackgroundId] = useState(asset.backgroundId ?? '');
   const [workflowTemplateId, setWorkflowTemplateId] = useState(asset.workflowTemplateId ?? '');
   const [prompt, setPrompt] = useState(
     asset.promptGarmentPhase ??
       workflows.find((w) => w.id === asset.workflowTemplateId)?.defaultGarmentPhasePrompt ??
       '',
   );
+  const [sortOrder, setSortOrder] = useState(asset.sortOrder ?? 0);
   const [poseFile, setPoseFile] = useState<File | null>(null);
-  const [faceSideFile, setFaceSideFile] = useState<File | null>(null);
-  const [bgComfyFile, setBgComfyFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
-
-  const selectedFace = faces.find((f) => f.id === faceId);
-  const selectedBg = backgrounds.find((b) => b.id === backgroundId);
-
-  // Derived fallback keys: use face/bg r2Key when explicit key is absent
-  const faceSideCurrentUrl = storagePublicUrl
-    ? asset.faceSideR2Key
-      ? `${storagePublicUrl}/${asset.faceSideR2Key}`
-      : selectedFace?.r2Key
-        ? `${storagePublicUrl}/${selectedFace.r2Key}`
-        : null
-    : null;
-
-  const bgComfyCurrentUrl = storagePublicUrl
-    ? asset.bgComfyR2Key
-      ? `${storagePublicUrl}/${asset.bgComfyR2Key}`
-      : selectedBg?.r2Key
-        ? `${storagePublicUrl}/${selectedBg.r2Key}`
-        : null
-    : null;
 
   const handleSave = async () => {
     setSaving(true);
@@ -237,20 +187,10 @@ export function EditPoseAssetModal({
       const patch: Record<string, unknown> = {
         displayName: displayName.trim() || null,
         genderSlug,
-        faceId: faceId || null,
-        backgroundId: backgroundId || null,
         workflowTemplateId: workflowTemplateId || null,
         promptGarmentPhase: prompt.trim() || null,
+        sortOrder,
       };
-
-      // Auto-backfill faceSideR2Key from selected face if not set and no new file chosen
-      if (!faceSideFile && !asset.faceSideR2Key && selectedFace?.r2Key) {
-        patch.faceSideR2Key = selectedFace.r2Key;
-      }
-      // Auto-backfill bgComfyR2Key from selected background if not set and no new file chosen
-      if (!bgComfyFile && !asset.bgComfyR2Key && selectedBg?.r2Key) {
-        patch.bgComfyR2Key = selectedBg.r2Key;
-      }
 
       if (poseFile) {
         const presign = await apiFetch<{
@@ -268,24 +208,6 @@ export function EditPoseAssetModal({
         ]);
         patch.r2Key = presign.r2Key;
         patch.thumbnailKey = presign.thumbnailKey;
-      }
-
-      if (faceSideFile) {
-        const presign = await apiFetch<{ r2Key: string; uploadUrl: string }>(
-          `/admin/assets/pose-assets/${asset.id}/presign-faceside`,
-          { method: 'POST', body: JSON.stringify({ contentType: faceSideFile.type }) },
-        );
-        await putFile(presign.uploadUrl, faceSideFile);
-        patch.faceSideR2Key = presign.r2Key;
-      }
-
-      if (bgComfyFile) {
-        const presign = await apiFetch<{ r2Key: string; uploadUrl: string }>(
-          `/admin/assets/pose-assets/${asset.id}/presign-bgcomfy`,
-          { method: 'POST', body: JSON.stringify({ contentType: bgComfyFile.type }) },
-        );
-        await putFile(presign.uploadUrl, bgComfyFile);
-        patch.bgComfyR2Key = presign.r2Key;
       }
 
       const updated = await apiFetch<ModelPoseAsset>(`/admin/assets/pose-assets/${asset.id}`, {
@@ -312,7 +234,7 @@ export function EditPoseAssetModal({
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(720px, calc(100vw - 40px))' }}
+        style={{ width: 'min(480px, calc(100vw - 40px))' }}
       >
         <div className="modal-head">
           <h3>Edit pose asset</h3>
@@ -356,7 +278,7 @@ export function EditPoseAssetModal({
             <label>
               Display name{' '}
               <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
-                (optional human-readable name)
+                (optional)
               </span>
             </label>
             <input
@@ -369,7 +291,26 @@ export function EditPoseAssetModal({
           </div>
 
           <div className="field">
-            <label>Gender</label>
+            <label>
+              Sort order{' '}
+              <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
+                (lower = first)
+              </span>
+            </label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={1}
+              value={sortOrder}
+              disabled={saving}
+              onChange={(e) => setSortOrder(Number(e.target.value))}
+              style={{ width: 120 }}
+            />
+          </div>
+
+          <div className="field">
+            <label>Category</label>
             <select
               className="select"
               value={genderSlug}
@@ -392,14 +333,11 @@ export function EditPoseAssetModal({
               onChange={(e) => {
                 const newId = e.target.value;
                 setWorkflowTemplateId(newId);
-                // Auto-fill prompt with new workflow's default when prompt is empty or still default
                 const prevDefault =
                   workflows.find((w) => w.id === workflowTemplateId)?.defaultGarmentPhasePrompt ??
                   '';
                 if (!prompt || prompt === prevDefault) {
-                  const nextDefault =
-                    workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '';
-                  setPrompt(nextDefault);
+                  setPrompt(workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '');
                 }
               }}
             >
@@ -415,117 +353,19 @@ export function EditPoseAssetModal({
             </select>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="field">
-              <label>Model face (display &amp; filter)</label>
-              {selectedFace && storagePublicUrl && selectedFace.thumbnailKey && (
-                // biome-ignore lint/performance/noImgElement: admin panel
-                <img
-                  src={`${storagePublicUrl}/${selectedFace.thumbnailKey}`}
-                  alt=""
-                  style={{
-                    width: 56,
-                    height: 72,
-                    objectFit: 'cover',
-                    borderRadius: 6,
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              )}
-              <select
-                className="select"
-                value={faceId}
-                disabled={saving}
-                onChange={(e) => setFaceId(e.target.value)}
-              >
-                <option value="">— none —</option>
-                {faces.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    [{f.gender}] {f.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label>Background (location)</label>
-              {selectedBg && storagePublicUrl && selectedBg.thumbnailKey && (
-                // biome-ignore lint/performance/noImgElement: admin panel
-                <img
-                  src={`${storagePublicUrl}/${selectedBg.thumbnailKey}`}
-                  alt=""
-                  style={{
-                    width: 56,
-                    height: 72,
-                    objectFit: 'cover',
-                    borderRadius: 6,
-                    marginBottom: 6,
-                    display: 'block',
-                  }}
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              )}
-              <select
-                className="select"
-                value={backgroundId}
-                disabled={saving}
-                onChange={(e) => setBackgroundId(e.target.value)}
-              >
-                <option value="">— none —</option>
-                {backgrounds.map((bg) => (
-                  <option key={bg.id} value={bg.id}>
-                    {bg.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '2px 0' }} />
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-            <ImagePicker
-              id="epa-pose-img"
-              label="Pose image"
-              hint="display + ComfyUI pose node"
-              currentUrl={
-                storagePublicUrl && asset.thumbnailKey
-                  ? `${storagePublicUrl}/${asset.thumbnailKey}`
-                  : null
-              }
-              file={poseFile}
-              disabled={saving}
-              onChange={setPoseFile}
-              onClear={() => setPoseFile(null)}
-            />
-            <ImagePicker
-              id="epa-faceside-img"
-              label="Side / tilt face"
-              hint="ComfyUI face node"
-              currentUrl={faceSideCurrentUrl}
-              file={faceSideFile}
-              disabled={saving}
-              onChange={setFaceSideFile}
-              onClear={() => setFaceSideFile(null)}
-            />
-            <ImagePicker
-              id="epa-bgcomfy-img"
-              label="Background (ComfyUI)"
-              hint="ComfyUI bg node"
-              currentUrl={bgComfyCurrentUrl}
-              file={bgComfyFile}
-              disabled={saving}
-              onChange={setBgComfyFile}
-              onClear={() => setBgComfyFile(null)}
-            />
-          </div>
-
-          <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '2px 0' }} />
+          <ImagePicker
+            id="epa-pose-img"
+            label="Pose image"
+            currentUrl={
+              storagePublicUrl && asset.thumbnailKey
+                ? `${storagePublicUrl}/${asset.thumbnailKey}`
+                : null
+            }
+            file={poseFile}
+            disabled={saving}
+            onChange={setPoseFile}
+            onClear={() => setPoseFile(null)}
+          />
 
           <div className="field">
             <label>Positive prompt</label>

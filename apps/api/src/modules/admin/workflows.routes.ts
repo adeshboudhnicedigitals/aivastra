@@ -76,11 +76,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
     const poseCounts = await app.db
       .select({
-        workflowTemplateId: schema.modelPoses.workflowTemplateId,
+        workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
         cnt: count(),
       })
-      .from(schema.modelPoses)
-      .groupBy(schema.modelPoses.workflowTemplateId);
+      .from(schema.modelPoseAssets)
+      .groupBy(schema.modelPoseAssets.workflowTemplateId);
 
     const countMap = Object.fromEntries(
       poseCounts.map((r) => [r.workflowTemplateId, Number(r.cnt)]),
@@ -237,8 +237,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
       const [poseCountRow] = await app.db
         .select({ cnt: count() })
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.workflowTemplateId, id));
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
 
       return { ...row, poseCount: Number(poseCountRow?.cnt ?? 0) };
     },
@@ -388,10 +388,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
 
       const result = await app.db
-        .update(schema.modelPoses)
+        .update(schema.modelPoseAssets)
         .set({ workflowTemplateId: targetWorkflowId })
-        .where(eq(schema.modelPoses.workflowTemplateId, sourceId))
-        .returning({ id: schema.modelPoses.id });
+        .where(eq(schema.modelPoseAssets.workflowTemplateId, sourceId))
+        .returning({ id: schema.modelPoseAssets.id });
 
       return { ok: true, updated: result.length };
     },
@@ -415,14 +415,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
       const [poseCountRow] = await app.db
         .select({ cnt: count() })
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.workflowTemplateId, id));
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.workflowTemplateId, id));
       const poseCount = Number(poseCountRow?.cnt ?? 0);
       if (poseCount > 0) {
         throw new AppError(
           'CONFLICT',
           409,
-          `Cannot delete: ${poseCount} pose${poseCount === 1 ? '' : 's'} use this workflow. Reassign those poses first.`,
+          `Cannot delete: ${poseCount} pose asset${poseCount === 1 ? '' : 's'} use this workflow. Reassign those poses first.`,
         );
       }
 
