@@ -784,7 +784,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const numMatch = stem.match(/(\d+)$/);
         const bgNum = numMatch ? parseInt(numMatch[1], 10) : bgEntries.indexOf(entry) + 1;
         const [existing] = await app.db
-          .select({ id: schema.modelBackgrounds.id, r2Key: schema.modelBackgrounds.r2Key })
+          .select({
+            id: schema.modelBackgrounds.id,
+            r2Key: schema.modelBackgrounds.r2Key,
+            deletedAt: schema.modelBackgrounds.deletedAt,
+          })
           .from(schema.modelBackgrounds)
           .where(
             and(
@@ -797,7 +801,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const buf = entry.getData();
         const thumb = await makeThumb(buf);
         if (existing) {
-          // Re-upload files in case MinIO was reset after DB was populated
+          // Re-upload files; if soft-deleted, restore it
           await Promise.all([
             app.storage.putObject(existing.r2Key, buf, mime),
             app.storage.putObject(
@@ -806,6 +810,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
               'image/jpeg',
             ),
           ]);
+          if (existing.deletedAt) {
+            await app.db
+              .update(schema.modelBackgrounds)
+              .set({ deletedAt: null })
+              .where(eq(schema.modelBackgrounds.id, existing.id));
+            createdBackgrounds++;
+          }
           bgIndexMap.set(bgNum, { id: existing.id, r2Key: existing.r2Key });
         } else {
           const id = randomUUID();
@@ -837,7 +848,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const numMatch = stem.match(/(\d+)$/);
         const faceNum = numMatch ? parseInt(numMatch[1], 10) : faceEntries.indexOf(entry) + 1;
         const [existing] = await app.db
-          .select({ id: schema.modelFaces.id, r2Key: schema.modelFaces.r2Key })
+          .select({
+            id: schema.modelFaces.id,
+            r2Key: schema.modelFaces.r2Key,
+            deletedAt: schema.modelFaces.deletedAt,
+          })
           .from(schema.modelFaces)
           .where(and(eq(schema.modelFaces.label, stem), eq(schema.modelFaces.gender, genderSlug)));
         const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
@@ -845,7 +860,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         const buf = entry.getData();
         const thumb = await makeThumb(buf);
         if (existing) {
-          // Re-upload files in case MinIO was reset after DB was populated
+          // Re-upload files; if soft-deleted, restore it
           await Promise.all([
             app.storage.putObject(existing.r2Key, buf, mime),
             app.storage.putObject(
@@ -854,6 +869,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
               'image/jpeg',
             ),
           ]);
+          if (existing.deletedAt) {
+            await app.db
+              .update(schema.modelFaces)
+              .set({ deletedAt: null })
+              .where(eq(schema.modelFaces.id, existing.id));
+            createdFaces++;
+          }
           faceIndexMap.set(faceNum, { id: existing.id, r2Key: existing.r2Key });
         } else {
           const id = randomUUID();
@@ -888,9 +910,14 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     for (const entry of poseEntries) {
       try {
         const stem = entry.name.replace(/\.[^.]+$/, '');
-        // Dedup by label + gender: skip if already exists
+        // Dedup by label + gender: skip if already exists; restore if soft-deleted
         const [existingAsset] = await app.db
-          .select({ id: schema.modelPoseAssets.id })
+          .select({
+            id: schema.modelPoseAssets.id,
+            r2Key: schema.modelPoseAssets.r2Key,
+            thumbnailKey: schema.modelPoseAssets.thumbnailKey,
+            deletedAt: schema.modelPoseAssets.deletedAt,
+          })
           .from(schema.modelPoseAssets)
           .where(
             and(
@@ -899,6 +926,22 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             ),
           );
         if (existingAsset) {
+          if (existingAsset.deletedAt) {
+            // Restore soft-deleted asset: re-upload files + clear deletedAt
+            const ext = entry.name.slice(entry.name.lastIndexOf('.')).toLowerCase();
+            const mime = extToMime[ext] ?? 'image/png';
+            const buf = entry.getData();
+            const thumb = await makeThumb(buf);
+            await Promise.all([
+              app.storage.putObject(existingAsset.r2Key, buf, mime),
+              app.storage.putObject(existingAsset.thumbnailKey, thumb, 'image/jpeg'),
+            ]);
+            await app.db
+              .update(schema.modelPoseAssets)
+              .set({ deletedAt: null })
+              .where(eq(schema.modelPoseAssets.id, existingAsset.id));
+            createdPoses++;
+          }
           _sortOrder++;
           continue;
         }
