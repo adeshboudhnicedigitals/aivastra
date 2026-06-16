@@ -8,6 +8,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 import { catalogItems } from './catalog.js';
@@ -92,66 +93,54 @@ export const workflowTemplates = pgTable('workflow_templates', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Centralised pose image asset — R2 objects managed independently of garment type mappings.
-// Deleting this row removes the R2 object; model_poses rows are mappings that reference it.
+// Centralised pose image asset — single source of truth for poses, filtered by genderSlug.
+// Replaces model_poses: no longer tied to garment type mappings.
 export const modelPoseAssets = pgTable('model_pose_assets', {
   id: uuid('id').primaryKey().defaultRandom(),
   label: text('label').notNull(),
   displayName: text('display_name'),
   poseVariant: text('pose_variant'),
   r2Key: text('r2_key').notNull(),
-  faceSideR2Key: text('face_side_r2_key'),
-  bgComfyR2Key: text('bg_comfy_r2_key'),
   thumbnailKey: text('thumbnail_key').notNull(),
   genderSlug: text('gender_slug'),
-  faceId: uuid('face_id').references(() => modelFaces.id, { onDelete: 'set null' }),
-  backgroundId: uuid('background_id').references(() => modelBackgrounds.id, {
-    onDelete: 'set null',
-  }),
   workflowTemplateId: uuid('workflow_template_id').references(() => workflowTemplates.id, {
     onDelete: 'set null',
   }),
   promptGarmentPhase: text('prompt_garment_phase'),
+  promptFacePhase: text('prompt_face_phase'),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Poses belong to a garment subcategory only — no longer tied to a specific face/background combo.
-export const modelPoses = pgTable(
-  'model_poses',
+// Per-garment-type workflow/prompt overrides for a pose asset.
+// Null fields mean "use the pose asset's default".
+export const poseGarmentConfigs = pgTable(
+  'pose_garment_configs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    poseAssetId: uuid('pose_asset_id')
+      .notNull()
+      .references(() => modelPoseAssets.id, { onDelete: 'cascade' }),
     subcategoryId: uuid('subcategory_id')
       .notNull()
-      .references(() => garmentSubcategories.id),
-    faceId: uuid('face_id').references(() => modelFaces.id, { onDelete: 'set null' }),
-    backgroundId: uuid('background_id').references(() => modelBackgrounds.id, {
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+    workflowTemplateId: uuid('workflow_template_id').references(() => workflowTemplates.id, {
       onDelete: 'set null',
     }),
-    label: text('label').notNull(),
-    r2Key: text('r2_key').notNull(),
-    thumbnailKey: text('thumbnail_key').notNull(),
-    showsLower: boolean('shows_lower').notNull().default(false),
-    showsShoes: boolean('shows_shoes').notNull().default(false),
-    isActive: boolean('is_active').notNull().default(true),
-    sortOrder: integer('sort_order').notNull().default(0),
-    workflowTemplateId: uuid('workflow_template_id')
-      .notNull()
-      .references(() => workflowTemplates.id),
-    promptFacePhase: text('prompt_face_phase'),
     promptGarmentPhase: text('prompt_garment_phase'),
-    faceSideR2Key: text('face_side_r2_key'),
-    bgComfyR2Key: text('bg_comfy_r2_key'),
-    poseAssetId: uuid('pose_asset_id').references(() => modelPoseAssets.id),
+    promptFacePhase: text('prompt_face_phase'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    subcategoryIdx: index('model_poses_subcategory_id_idx').on(table.subcategoryId),
-    faceIdx: index('model_poses_face_id_idx').on(table.faceId),
-    backgroundIdx: index('model_poses_background_id_idx').on(table.backgroundId),
-    workflowIdx: index('model_poses_workflow_template_id_idx').on(table.workflowTemplateId),
-    // Only one pose per cell can be the template
+    uniqPoseSubcat: unique('pose_garment_configs_pose_subcat_unique').on(
+      table.poseAssetId,
+      table.subcategoryId,
+    ),
+    poseIdx: index('pose_garment_configs_pose_asset_id_idx').on(table.poseAssetId),
+    subcatIdx: index('pose_garment_configs_subcategory_id_idx').on(table.subcategoryId),
   }),
 );
 

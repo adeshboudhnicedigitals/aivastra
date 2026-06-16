@@ -11,7 +11,7 @@ import type { StorageProvider } from '@aivastra/storage';
 import { keys } from '@aivastra/storage';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import sharp from 'sharp';
 import {
@@ -97,17 +97,42 @@ export async function processJob(
     .where(eq(schema.modelBackgrounds.id, inputs.backgroundId));
   const [poseRow] = await db
     .select({
-      r2Key: schema.modelPoses.r2Key,
-      workflowTemplateId: schema.modelPoses.workflowTemplateId,
-      promptFacePhase: schema.modelPoses.promptFacePhase,
-      promptGarmentPhase: schema.modelPoses.promptGarmentPhase,
+      r2Key: schema.modelPoseAssets.r2Key,
+      workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+      promptFacePhase: schema.modelPoseAssets.promptFacePhase,
+      promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
     })
-    .from(schema.modelPoses)
-    .where(eq(schema.modelPoses.id, inputs.poseId));
+    .from(schema.modelPoseAssets)
+    .where(eq(schema.modelPoseAssets.id, inputs.poseId));
 
   if (!faceRow || !bgRow || !poseRow) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'CATALOG_NOT_FOUND', jobLog, startedAt);
     return;
+  }
+
+  // If job has a garmentTypeId, check for per-type workflow/prompt overrides.
+  let effectiveWorkflowTemplateId = poseRow.workflowTemplateId;
+  let effectivePromptFacePhase = poseRow.promptFacePhase;
+  let effectivePromptGarmentPhase = poseRow.promptGarmentPhase;
+  if (inputs.garmentTypeId) {
+    const [cfgRow] = await db
+      .select({
+        workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+        promptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
+        promptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
+      })
+      .from(schema.poseGarmentConfigs)
+      .where(
+        and(
+          eq(schema.poseGarmentConfigs.poseAssetId, inputs.poseId),
+          eq(schema.poseGarmentConfigs.subcategoryId, inputs.garmentTypeId),
+        ),
+      );
+    if (cfgRow) {
+      if (cfgRow.workflowTemplateId) effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
+      if (cfgRow.promptFacePhase) effectivePromptFacePhase = cfgRow.promptFacePhase;
+      if (cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = cfgRow.promptGarmentPhase;
+    }
   }
 
   // faceSideR2Key lives on the face row — the ComfyUI-specific face image.
@@ -136,7 +161,11 @@ export async function processJob(
       ? 'comfy-specific'
       : 'display-fallback';
   const poseKey = poseRow.r2Key;
-  const workflowTemplateId = poseRow.workflowTemplateId;
+  const workflowTemplateId = effectiveWorkflowTemplateId;
+  if (!workflowTemplateId) {
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
+    return;
+  }
   jobLog.info(
     { faceSideKey, bgKeyResolved: bgKey, bgSource, poseKey, workflowTemplateId },
     'resolved R2 keys for ComfyUI upload',
@@ -253,8 +282,8 @@ export async function processJob(
         backgroundFile,
         lowerGarmentFile,
         shoeGarmentFile,
-        promptFacePhase: poseRow.promptFacePhase ?? undefined,
-        promptGarmentPhase: poseRow.promptGarmentPhase ?? undefined,
+        promptFacePhase: effectivePromptFacePhase ?? undefined,
+        promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
         aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio as
           | string
           | undefined,
@@ -287,8 +316,8 @@ export async function processJob(
           backgroundFile,
           lowerGarmentFile,
           shoeGarmentFile,
-          promptFacePhase: poseRow.promptFacePhase ?? null,
-          promptGarmentPhase: poseRow.promptGarmentPhase ?? null,
+          promptFacePhase: effectivePromptFacePhase ?? null,
+          promptGarmentPhase: effectivePromptGarmentPhase ?? null,
           aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio ?? null,
           _r2Keys: {
             upperGarmentKey: inputs.upperGarmentKey,

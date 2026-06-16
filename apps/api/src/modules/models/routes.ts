@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
@@ -126,43 +126,95 @@ export async function modelsRoutes(app: FastifyInstance) {
       preHandler: app.requireUser,
       schema: {
         querystring: z.object({
-          garmentTypeId: z.string().uuid(),
+          gender: z.enum(['men', 'women', 'boys', 'girls']),
+          garmentTypeId: z.string().uuid().optional(),
         }),
       },
     },
     async (req) => {
-      const { garmentTypeId } = req.query as {
-        garmentTypeId: string;
+      const { gender, garmentTypeId } = req.query as {
+        gender: string;
+        garmentTypeId?: string;
       };
       const items = await app.db
         .select({
-          id: schema.modelPoses.id,
-          label: schema.modelPoses.label,
-          thumbnailUrl: schema.modelPoses.thumbnailKey,
+          id: schema.modelPoseAssets.id,
+          displayName: schema.modelPoseAssets.displayName,
+          label: schema.modelPoseAssets.label,
+          thumbnailUrl: schema.modelPoseAssets.thumbnailKey,
+          // Default workflow from pose asset
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
-          sizeNodeId: schema.workflowTemplates.sizeNodeId,
+          sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
         })
-        .from(schema.modelPoses)
+        .from(schema.modelPoseAssets)
         .leftJoin(
           schema.workflowTemplates,
-          eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
+          eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
         )
         .where(
           and(
-            eq(schema.modelPoses.subcategoryId, garmentTypeId),
-            eq(schema.modelPoses.isActive, true),
+            eq(schema.modelPoseAssets.genderSlug, gender),
+            eq(schema.modelPoseAssets.isActive, true),
+            isNull(schema.modelPoseAssets.deletedAt),
           ),
+        )
+        .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
+
+      // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes
+      let configMap = new Map<
+        string,
+        { lowerNodeId: string | null; shoeNodeId: string | null; sizeNodeIds: string[] | null }
+      >();
+      if (garmentTypeId && items.length > 0) {
+        const poseIds = items.map((i) => i.id);
+        const configs = await app.db
+          .select({
+            poseAssetId: schema.poseGarmentConfigs.poseAssetId,
+            lowerNodeId: schema.workflowTemplates.lowerNodeId,
+            shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+          })
+          .from(schema.poseGarmentConfigs)
+          .leftJoin(
+            schema.workflowTemplates,
+            eq(schema.poseGarmentConfigs.workflowTemplateId, schema.workflowTemplates.id),
+          )
+          .where(
+            and(
+              inArray(schema.poseGarmentConfigs.poseAssetId, poseIds),
+              eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId),
+            ),
+          );
+        configMap = new Map(
+          configs
+            .filter((c) => c.lowerNodeId !== undefined || c.shoeNodeId !== undefined)
+            .map((c) => [
+              c.poseAssetId,
+              {
+                lowerNodeId: c.lowerNodeId ?? null,
+                shoeNodeId: c.shoeNodeId ?? null,
+                sizeNodeIds: c.sizeNodeIds ?? null,
+              },
+            ]),
         );
+      }
+
       return {
-        items: items.map((i) => ({
-          id: i.id,
-          label: i.label,
-          thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl),
-          hasLower: i.lowerNodeId != null,
-          hasShoes: i.shoeNodeId != null,
-          hasAspectRatio: i.sizeNodeId != null,
-        })),
+        items: items.map((i) => {
+          const cfg = configMap.get(i.id);
+          const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
+          const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
+          const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
+          return {
+            id: i.id,
+            label: i.displayName ?? i.label,
+            thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl),
+            hasLower: lowerNodeId != null,
+            hasShoes: shoeNodeId != null,
+            hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
+          };
+        }),
       };
     },
   );

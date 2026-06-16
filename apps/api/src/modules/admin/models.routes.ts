@@ -3,20 +3,15 @@ import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   AssetContentType,
-  ClonePoseBody,
-  ClonePosesBulkBody,
   ConfirmModelBackgroundBody,
   ConfirmModelFaceBody,
-  ConfirmModelPoseBody,
   PatchModelBackgroundBody,
   PatchModelFaceBody,
-  PatchModelPoseBody,
   PresignModelBackgroundBody,
   PresignModelFaceBody,
-  PresignModelPoseBody,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
-import { and, eq, getTableColumns, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -325,598 +320,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get(
-    '/admin/assets/poses',
-    {
-      preHandler: RW,
-      schema: {
-        querystring: z.object({
-          garmentTypeId: z.string().uuid(),
-          faceId: z.string().uuid().optional(),
-          backgroundId: z.string().uuid().optional(),
-        }),
-      },
-    },
-    async (req) => {
-      const { garmentTypeId, faceId, backgroundId } = req.query as {
-        garmentTypeId: string;
-        faceId?: string;
-        backgroundId?: string;
-      };
-      const conditions = [eq(schema.modelPoses.subcategoryId, garmentTypeId)];
-      if (faceId) conditions.push(eq(schema.modelPoses.faceId, faceId));
-      if (backgroundId) conditions.push(eq(schema.modelPoses.backgroundId, backgroundId));
-      const rows = await app.db
-        .select({
-          ...getTableColumns(schema.modelPoses),
-          workflowLabel: schema.workflowTemplates.label,
-        })
-        .from(schema.modelPoses)
-        .leftJoin(
-          schema.workflowTemplates,
-          eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
-        )
-        .where(and(...conditions));
-      return { items: rows };
-    },
-  );
-
-  app.post(
-    '/admin/assets/poses/presign',
-    {
-      preHandler: RW,
-      schema: { body: PresignModelPoseBody },
-    },
-    async (req) => {
-      const body = req.body as z.infer<typeof PresignModelPoseBody>;
-      const { garmentTypeId, contentType, faceSideContentType, bgComfyContentType } = body;
-
-      const [sub] = await app.db
-        .select()
-        .from(schema.garmentSubcategories)
-        .where(eq(schema.garmentSubcategories.id, garmentTypeId));
-      if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
-
-      if (body.faceId) {
-        const [face] = await app.db
-          .select({ id: schema.modelFaces.id })
-          .from(schema.modelFaces)
-          .where(eq(schema.modelFaces.id, body.faceId));
-        if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
-      }
-
-      if (body.backgroundId) {
-        const [bg] = await app.db
-          .select({ id: schema.modelBackgrounds.id })
-          .from(schema.modelBackgrounds)
-          .where(eq(schema.modelBackgrounds.id, body.backgroundId));
-        if (!bg) throw new AppError('NOT_FOUND', 404, 'background not found');
-      }
-
-      const newId = randomUUID();
-      const r2Key = keys.modelPose(newId);
-      const thumbKey = keys.modelPoseThumb(newId);
-      const faceSideKey = faceSideContentType ? keys.modelPoseFaceSide(newId) : null;
-      const bgComfyKey = bgComfyContentType ? keys.modelPoseBgComfy(newId) : null;
-
-      const presignTasks: Promise<{ url: string }>[] = [
-        app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        // Thumbnails are downscaled to JPEG client-side; sign for image/jpeg.
-        app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
-      ];
-      if (faceSideKey && faceSideContentType)
-        presignTasks.push(
-          app.storage.presignPut(faceSideKey, faceSideContentType, 10_000_000, 300),
-        );
-      if (bgComfyKey && bgComfyContentType)
-        presignTasks.push(app.storage.presignPut(bgComfyKey, bgComfyContentType, 10_000_000, 300));
-
-      const newFaceId = body.newFaceContentType ? randomUUID() : null;
-      const newFaceR2Key = newFaceId ? keys.modelFace(newFaceId) : null;
-      const newFaceThumbKey = newFaceId ? keys.modelFaceThumb(newFaceId) : null;
-      if (newFaceId && body.newFaceContentType && newFaceR2Key && newFaceThumbKey) {
-        presignTasks.push(
-          app.storage.presignPut(newFaceR2Key, body.newFaceContentType, 10_000_000, 300),
-        );
-        presignTasks.push(app.storage.presignPut(newFaceThumbKey, 'image/jpeg', 1_000_000, 300));
-      }
-
-      const newBgId = body.newBgContentType ? randomUUID() : null;
-      const newBgR2Key = newBgId ? keys.modelBackground(newBgId) : null;
-      const newBgThumbKey = newBgId ? keys.modelBackgroundThumb(newBgId) : null;
-      if (newBgId && body.newBgContentType && newBgR2Key && newBgThumbKey) {
-        presignTasks.push(
-          app.storage.presignPut(newBgR2Key, body.newBgContentType, 10_000_000, 300),
-        );
-        presignTasks.push(app.storage.presignPut(newBgThumbKey, 'image/jpeg', 1_000_000, 300));
-      }
-
-      const results = await Promise.all(presignTasks);
-      let idx = 0;
-      const uploadUrl = results[idx++]?.url;
-      const thumbnailUploadUrl = results[idx++]?.url;
-      const faceSideUploadUrl = faceSideKey ? results[idx++]?.url : undefined;
-      const bgComfyUploadUrl = bgComfyKey ? results[idx++]?.url : undefined;
-
-      const response: Record<string, unknown> = {
-        uploadUrl,
-        r2Key,
-        thumbnailUploadUrl,
-        thumbnailKey: thumbKey,
-      };
-      if (faceSideUploadUrl && faceSideKey) {
-        response.faceSideUploadUrl = faceSideUploadUrl;
-        response.faceSideR2Key = faceSideKey;
-      }
-      if (bgComfyUploadUrl && bgComfyKey) {
-        response.bgComfyUploadUrl = bgComfyUploadUrl;
-        response.bgComfyR2Key = bgComfyKey;
-      }
-
-      if (newFaceId && newFaceR2Key && newFaceThumbKey) {
-        response.newFaceUploadUrl = results[idx++]?.url;
-        response.newFaceR2Key = newFaceR2Key;
-        response.newFaceThumbnailUploadUrl = results[idx++]?.url;
-        response.newFaceThumbnailKey = newFaceThumbKey;
-      }
-
-      if (newBgId && newBgR2Key && newBgThumbKey) {
-        response.newBgUploadUrl = results[idx++]?.url;
-        response.newBgR2Key = newBgR2Key;
-        response.newBgThumbnailUploadUrl = results[idx++]?.url;
-        response.newBgThumbnailKey = newBgThumbKey;
-      }
-
-      return response;
-    },
-  );
-
-  app.post(
-    '/admin/assets/poses/confirm',
-    {
-      preHandler: RW,
-      schema: { body: ConfirmModelPoseBody },
-    },
-    async (req) => {
-      const body = req.body as z.infer<typeof ConfirmModelPoseBody>;
-
-      // Validate garmentTypeId exists
-      const [subCheck] = await app.db
-        .select({ genderSlug: schema.garmentSubcategories.genderSlug })
-        .from(schema.garmentSubcategories)
-        .where(eq(schema.garmentSubcategories.id, body.garmentTypeId));
-      if (!subCheck) throw new AppError('NOT_FOUND', 404, 'garment type not found');
-
-      // Validate workflowTemplateId exists and derive lower/shoe capability from it
-      const [wfCheck] = await app.db
-        .select({
-          id: schema.workflowTemplates.id,
-          lowerNodeId: schema.workflowTemplates.lowerNodeId,
-          shoeNodeId: schema.workflowTemplates.shoeNodeId,
-        })
-        .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.id, body.workflowTemplateId));
-      if (!wfCheck) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
-      const derivedShowsLower = wfCheck.lowerNodeId != null;
-      const derivedShowsShoes = wfCheck.shoeNodeId != null;
-
-      const row = await app.db.transaction(async (tx) => {
-        let resolvedFaceId = body.faceId ?? '';
-        if (body.newFace) {
-          const gender = subCheck.genderSlug;
-          const autoLabel = body.newFace.filename.replace(/\.[^.]+$/, '');
-          const [newFaceRow] = await tx
-            .insert(schema.modelFaces)
-            .values({
-              label: autoLabel,
-              gender,
-              r2Key: body.newFace.r2Key,
-              thumbnailKey: body.newFace.thumbnailKey,
-              sortOrder: 0,
-            })
-            .returning({ id: schema.modelFaces.id });
-          resolvedFaceId = newFaceRow?.id;
-        }
-
-        let resolvedBgId = body.backgroundId ?? '';
-        if (body.newBackground) {
-          const autoLabel = body.newBackground.filename.replace(/\.[^.]+$/, '');
-          const [newBgRow] = await tx
-            .insert(schema.modelBackgrounds)
-            .values({
-              label: autoLabel,
-              genderSlug: subCheck.genderSlug,
-              r2Key: body.newBackground.r2Key,
-              thumbnailKey: body.newBackground.thumbnailKey,
-              sortOrder: 0,
-            })
-            .returning({ id: schema.modelBackgrounds.id });
-          resolvedBgId = newBgRow?.id;
-        }
-
-        const [inserted] = await tx
-          .insert(schema.modelPoses)
-          .values({
-            subcategoryId: body.garmentTypeId,
-            faceId: resolvedFaceId,
-            backgroundId: resolvedBgId,
-            label: body.label,
-            r2Key: body.r2Key,
-            thumbnailKey: body.thumbnailKey,
-            faceSideR2Key: body.faceSideR2Key,
-            bgComfyR2Key: body.bgComfyR2Key,
-            workflowTemplateId: body.workflowTemplateId,
-            promptFacePhase: body.promptFacePhase,
-            promptGarmentPhase: body.promptGarmentPhase,
-            showsLower: derivedShowsLower,
-            showsShoes: derivedShowsShoes,
-            sortOrder: body.sortOrder,
-          })
-          .returning();
-        return inserted;
-      });
-
-      return row;
-    },
-  );
-
-  // ── Pose face-side re-upload ──────────────────────────────────────────────
-  app.post(
-    '/admin/assets/poses/:id/presign-faceside',
-    {
-      preHandler: RW,
-      schema: { params: uuidParam, body: z.object({ contentType: AssetContentType }) },
-    },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const { contentType } = req.body as { contentType: string };
-      const [pose] = await app.db
-        .select({ id: schema.modelPoses.id })
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.id, id));
-      if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
-      const r2Key = keys.modelPoseFaceSide(id);
-      const { url: uploadUrl } = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
-      return { uploadUrl, r2Key };
-    },
-  );
-
-  // ── Pose image re-upload ─────────────────────────────────────────────────
-  app.post(
-    '/admin/assets/poses/:id/presign-pose',
-    {
-      preHandler: RW,
-      schema: { params: uuidParam, body: z.object({ contentType: AssetContentType }) },
-    },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const { contentType } = req.body as { contentType: string };
-      const [pose] = await app.db
-        .select({ id: schema.modelPoses.id })
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.id, id));
-      if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
-      const r2Key = keys.modelPose(id);
-      const thumbnailKey = keys.modelPoseThumb(id);
-      const [main, thumb] = await Promise.all([
-        app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        // Thumbnails are downscaled to JPEG client-side; sign for image/jpeg.
-        app.storage.presignPut(thumbnailKey, 'image/jpeg', 1_000_000, 300),
-      ]);
-      return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey };
-    },
-  );
-
-  // ── ComfyUI background re-upload ──────────────────────────────────────────
-  app.post(
-    '/admin/assets/poses/:id/presign-bgcomfy',
-    {
-      preHandler: RW,
-      schema: { params: uuidParam, body: z.object({ contentType: AssetContentType }) },
-    },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const { contentType } = req.body as { contentType: string };
-      const [pose] = await app.db
-        .select({ id: schema.modelPoses.id })
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.id, id));
-      if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
-      const r2Key = keys.modelPoseBgComfy(id);
-      const { url: uploadUrl } = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
-      return { uploadUrl, r2Key };
-    },
-  );
-
-  app.patch(
-    '/admin/assets/poses/:id',
-    {
-      preHandler: RW,
-      schema: { params: uuidParam, body: PatchModelPoseBody },
-    },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const body = req.body as {
-        workflowTemplateId?: string;
-        [key: string]: unknown;
-      };
-
-      // Validate workflowTemplateId if provided, and derive showsLower/showsShoes from it
-      if (body.workflowTemplateId) {
-        const [wfCheck] = await app.db
-          .select({
-            id: schema.workflowTemplates.id,
-            lowerNodeId: schema.workflowTemplates.lowerNodeId,
-            shoeNodeId: schema.workflowTemplates.shoeNodeId,
-          })
-          .from(schema.workflowTemplates)
-          .where(eq(schema.workflowTemplates.id, body.workflowTemplateId));
-        if (!wfCheck) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
-        (body as Record<string, unknown>).showsLower = wfCheck.lowerNodeId != null;
-        (body as Record<string, unknown>).showsShoes = wfCheck.shoeNodeId != null;
-      }
-
-      const poseFields = body as Record<string, unknown>;
-
-      await app.db.transaction(async (tx) => {
-        if (Object.keys(poseFields).length > 0) {
-          const [updated] = await tx
-            .update(schema.modelPoses)
-            .set({ ...poseFields, updatedAt: new Date() })
-            .where(eq(schema.modelPoses.id, id))
-            .returning({ id: schema.modelPoses.id });
-          if (!updated) throw new AppError('NOT_FOUND', 404, 'pose not found');
-        }
-      });
-      return { ok: true };
-    },
-  );
-
-  app.patch('/admin/assets/poses/bulk-workflow', { preHandler: RW }, async (req) => {
-    const { ids, workflowTemplateId } = req.body as {
-      ids: string[];
-      workflowTemplateId: string;
-    };
-    if (!Array.isArray(ids) || ids.length === 0)
-      throw new AppError('VALIDATION', 400, 'ids required');
-
-    const [wf] = await app.db
-      .select({
-        id: schema.workflowTemplates.id,
-        lowerNodeId: schema.workflowTemplates.lowerNodeId,
-        shoeNodeId: schema.workflowTemplates.shoeNodeId,
-      })
-      .from(schema.workflowTemplates)
-      .where(eq(schema.workflowTemplates.id, workflowTemplateId));
-    if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
-
-    await app.db
-      .update(schema.modelPoses)
-      .set({
-        workflowTemplateId,
-        showsLower: wf.lowerNodeId != null,
-        showsShoes: wf.shoeNodeId != null,
-        updatedAt: new Date(),
-      })
-      .where(inArray(schema.modelPoses.id, ids));
-
-    return { ok: true, updated: ids.length };
-  });
-
-  app.post(
-    '/admin/assets/poses/:id/clone',
-    { preHandler: RW, schema: { params: uuidParam, body: ClonePoseBody } },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const { targetGarmentTypeIds } = req.body as { targetGarmentTypeIds: string[] };
-
-      const [source] = await app.db
-        .select()
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.id, id));
-      if (!source) throw new AppError('NOT_FOUND', 404, 'pose not found');
-
-      const validSubs = await app.db
-        .select({ id: schema.garmentSubcategories.id })
-        .from(schema.garmentSubcategories)
-        .where(inArray(schema.garmentSubcategories.id, targetGarmentTypeIds));
-      if (validSubs.length !== targetGarmentTypeIds.length)
-        throw new AppError('BAD_CATALOG', 400, 'one or more garment types not found');
-
-      // Find which targets already have this exact pose image (same r2Key)
-      const existing = await app.db
-        .select({ subcategoryId: schema.modelPoses.subcategoryId })
-        .from(schema.modelPoses)
-        .where(
-          and(
-            inArray(schema.modelPoses.subcategoryId, targetGarmentTypeIds),
-            eq(schema.modelPoses.r2Key, source.r2Key),
-          ),
-        );
-      const existingIds = new Set(existing.map((r) => r.subcategoryId));
-      const toCreate = targetGarmentTypeIds.filter((tid) => !existingIds.has(tid));
-
-      if (toCreate.length === 0)
-        return { created: 0, skipped: targetGarmentTypeIds.length, ids: [] };
-
-      const inserted = await app.db
-        .insert(schema.modelPoses)
-        .values(
-          toCreate.map((subcategoryId) => ({
-            subcategoryId,
-            faceId: source.faceId,
-            backgroundId: source.backgroundId,
-            label: source.label,
-            r2Key: source.r2Key,
-            thumbnailKey: source.thumbnailKey,
-            faceSideR2Key: source.faceSideR2Key,
-            bgComfyR2Key: source.bgComfyR2Key,
-            workflowTemplateId: source.workflowTemplateId,
-            promptFacePhase: source.promptFacePhase,
-            promptGarmentPhase: source.promptGarmentPhase,
-            showsLower: source.showsLower,
-            showsShoes: source.showsShoes,
-            sortOrder: source.sortOrder,
-            isActive: source.isActive,
-          })),
-        )
-        .returning({ id: schema.modelPoses.id });
-
-      return {
-        created: inserted.length,
-        skipped: existingIds.size,
-        ids: inserted.map((r) => r.id),
-      };
-    },
-  );
-
-  app.post(
-    '/admin/assets/poses/clone-bulk',
-    { preHandler: RW, schema: { body: ClonePosesBulkBody } },
-    async (req) => {
-      const { poseIds, targetGarmentTypeIds } = req.body as {
-        poseIds: string[];
-        targetGarmentTypeIds: string[];
-      };
-
-      const sources = await app.db
-        .select()
-        .from(schema.modelPoses)
-        .where(inArray(schema.modelPoses.id, poseIds));
-      if (sources.length === 0) throw new AppError('NOT_FOUND', 404, 'no poses found');
-
-      const validSubs = await app.db
-        .select({ id: schema.garmentSubcategories.id })
-        .from(schema.garmentSubcategories)
-        .where(inArray(schema.garmentSubcategories.id, targetGarmentTypeIds));
-      if (validSubs.length !== targetGarmentTypeIds.length)
-        throw new AppError('BAD_CATALOG', 400, 'one or more garment types not found');
-
-      let created = 0;
-      let skipped = 0;
-      const ids: string[] = [];
-
-      for (const source of sources) {
-        const existing = await app.db
-          .select({ subcategoryId: schema.modelPoses.subcategoryId })
-          .from(schema.modelPoses)
-          .where(
-            and(
-              inArray(schema.modelPoses.subcategoryId, targetGarmentTypeIds),
-              eq(schema.modelPoses.r2Key, source.r2Key),
-            ),
-          );
-        const existingIds = new Set(existing.map((r) => r.subcategoryId));
-        const toCreate = targetGarmentTypeIds.filter((tid) => !existingIds.has(tid));
-        skipped += existingIds.size;
-
-        if (toCreate.length === 0) continue;
-
-        const inserted = await app.db
-          .insert(schema.modelPoses)
-          .values(
-            toCreate.map((subcategoryId) => ({
-              subcategoryId,
-              faceId: source.faceId,
-              backgroundId: source.backgroundId,
-              label: source.label,
-              r2Key: source.r2Key,
-              thumbnailKey: source.thumbnailKey,
-              faceSideR2Key: source.faceSideR2Key,
-              bgComfyR2Key: source.bgComfyR2Key,
-              workflowTemplateId: source.workflowTemplateId,
-              promptFacePhase: source.promptFacePhase,
-              promptGarmentPhase: source.promptGarmentPhase,
-              showsLower: source.showsLower,
-              showsShoes: source.showsShoes,
-              sortOrder: source.sortOrder,
-              isActive: source.isActive,
-            })),
-          )
-          .returning({ id: schema.modelPoses.id });
-
-        created += inserted.length;
-        ids.push(...inserted.map((r) => r.id));
-      }
-
-      return { created, skipped, ids };
-    },
-  );
-
-  app.delete(
-    '/admin/assets/poses',
-    {
-      preHandler: D,
-      schema: {
-        body: z.object({ ids: z.array(z.string().uuid()).min(1).max(1000) }),
-      },
-    },
-    async (req) => {
-      const { ids } = req.body as { ids: string[] };
-      const poses = await app.db
-        .select()
-        .from(schema.modelPoses)
-        .where(inArray(schema.modelPoses.id, ids));
-      if (poses.length === 0) return { deleted: 0 };
-
-      const jobRefs = await app.db
-        .select({ jobId: schema.jobInputs.jobId })
-        .from(schema.jobInputs)
-        .where(inArray(schema.jobInputs.poseId, ids));
-
-      if (jobRefs.length > 0) {
-        const jobIds = [...new Set(jobRefs.map((r) => r.jobId))];
-        await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
-      }
-
-      await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, ids));
-      // R2 objects are owned by model_pose_assets rows — not deleted here.
-      return { deleted: poses.length };
-    },
-  );
-
-  app.delete(
-    '/admin/assets/poses/:id',
-    {
-      preHandler: D,
-      schema: {
-        params: uuidParam,
-        querystring: z.object({ force: z.coerce.boolean().optional().default(false) }),
-      },
-    },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const { force } = req.query as { force: boolean };
-      const [pose] = await app.db
-        .select()
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.id, id));
-      if (!pose) throw new AppError('NOT_FOUND', 404, 'pose not found');
-
-      const jobRefs = await app.db
-        .select({ jobId: schema.jobInputs.jobId })
-        .from(schema.jobInputs)
-        .where(eq(schema.jobInputs.poseId, id));
-
-      if (jobRefs.length > 0 && !force) {
-        throw new AppError(
-          'CONFLICT',
-          409,
-          `pose is referenced by ${jobRefs.length} job(s) — delete with ?force=true to also remove those jobs`,
-        );
-      }
-
-      if (jobRefs.length > 0 && force) {
-        // Delete referencing jobs (cascades to job_inputs, job_outputs, job_events)
-        const jobIds = jobRefs.map((r) => r.jobId);
-        await app.db.delete(schema.jobs).where(inArray(schema.jobs.id, jobIds));
-      }
-
-      await app.db.delete(schema.modelPoses).where(eq(schema.modelPoses.id, id));
-      // R2 objects are owned by model_pose_assets rows — not deleted here.
-      return { ok: true };
-    },
-  );
+  // (model_poses routes removed — pose-assets is the single source of truth)
 
   // ── Pose Assets (centralised R2 object management) ───────────────────────
 
@@ -926,25 +330,24 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         id: schema.modelPoseAssets.id,
         label: schema.modelPoseAssets.label,
         r2Key: schema.modelPoseAssets.r2Key,
-        faceSideR2Key: schema.modelPoseAssets.faceSideR2Key,
-        bgComfyR2Key: schema.modelPoseAssets.bgComfyR2Key,
         thumbnailKey: schema.modelPoseAssets.thumbnailKey,
         genderSlug: schema.modelPoseAssets.genderSlug,
-        faceId: schema.modelPoseAssets.faceId,
-        backgroundId: schema.modelPoseAssets.backgroundId,
         workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
         promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+        promptFacePhase: schema.modelPoseAssets.promptFacePhase,
         poseVariant: schema.modelPoseAssets.poseVariant,
         displayName: schema.modelPoseAssets.displayName,
+        isActive: schema.modelPoseAssets.isActive,
+        sortOrder: schema.modelPoseAssets.sortOrder,
         createdAt: schema.modelPoseAssets.createdAt,
       })
       .from(schema.modelPoseAssets)
       .where(isNull(schema.modelPoseAssets.deletedAt))
-      .orderBy(schema.modelPoseAssets.label);
+      .orderBy(schema.modelPoseAssets.sortOrder, schema.modelPoseAssets.label);
     return { items: rows };
   });
 
-  // Presign for a new pose asset image upload (full: pose + faceSide + bgComfy + optional new face/bg)
+  // Presign for a new pose asset image upload
   app.post(
     '/admin/assets/pose-assets/presign',
     {
@@ -952,89 +355,26 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       schema: {
         body: z.object({
           contentType: AssetContentType,
-          faceSideContentType: AssetContentType.optional(),
-          bgComfyContentType: AssetContentType.optional(),
-          newFaceContentType: AssetContentType.optional(),
-          newBgContentType: AssetContentType.optional(),
         }),
       },
     },
     async (req) => {
-      const body = req.body as {
-        contentType: string;
-        faceSideContentType?: string;
-        bgComfyContentType?: string;
-        newFaceContentType?: string;
-        newBgContentType?: string;
-      };
+      const { contentType } = req.body as { contentType: string };
       const newId = randomUUID();
       const r2Key = keys.modelPose(newId);
       const thumbKey = keys.modelPoseThumb(newId);
-      const faceSideKey = body.faceSideContentType ? keys.modelPoseFaceSide(newId) : null;
-      const bgComfyKey = body.bgComfyContentType ? keys.modelPoseBgComfy(newId) : null;
 
-      const presignTasks: Promise<{ url: string }>[] = [
-        app.storage.presignPut(r2Key, body.contentType, 10_000_000, 300),
+      const [mainRes, thumbRes] = await Promise.all([
+        app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
         app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
-      ];
-      if (faceSideKey && body.faceSideContentType)
-        presignTasks.push(
-          app.storage.presignPut(faceSideKey, body.faceSideContentType, 10_000_000, 300),
-        );
-      if (bgComfyKey && body.bgComfyContentType)
-        presignTasks.push(
-          app.storage.presignPut(bgComfyKey, body.bgComfyContentType, 10_000_000, 300),
-        );
+      ]);
 
-      const newFaceId = body.newFaceContentType ? randomUUID() : null;
-      const newFaceR2Key = newFaceId ? keys.modelFace(newFaceId) : null;
-      const newFaceThumbKey = newFaceId ? keys.modelFaceThumb(newFaceId) : null;
-      if (newFaceId && body.newFaceContentType && newFaceR2Key && newFaceThumbKey) {
-        presignTasks.push(
-          app.storage.presignPut(newFaceR2Key, body.newFaceContentType, 10_000_000, 300),
-        );
-        presignTasks.push(app.storage.presignPut(newFaceThumbKey, 'image/jpeg', 1_000_000, 300));
-      }
-
-      const newBgId = body.newBgContentType ? randomUUID() : null;
-      const newBgR2Key = newBgId ? keys.modelBackground(newBgId) : null;
-      const newBgThumbKey = newBgId ? keys.modelBackgroundThumb(newBgId) : null;
-      if (newBgId && body.newBgContentType && newBgR2Key && newBgThumbKey) {
-        presignTasks.push(
-          app.storage.presignPut(newBgR2Key, body.newBgContentType, 10_000_000, 300),
-        );
-        presignTasks.push(app.storage.presignPut(newBgThumbKey, 'image/jpeg', 1_000_000, 300));
-      }
-
-      const results = await Promise.all(presignTasks);
-      let idx = 0;
-      const response: Record<string, unknown> = {
+      return {
         r2Key,
-        uploadUrl: results[idx++]?.url,
+        uploadUrl: mainRes.url,
         thumbnailKey: thumbKey,
-        thumbnailUploadUrl: results[idx++]?.url,
+        thumbnailUploadUrl: thumbRes.url,
       };
-      if (faceSideKey && body.faceSideContentType) {
-        response.faceSideR2Key = faceSideKey;
-        response.faceSideUploadUrl = results[idx++]?.url;
-      }
-      if (bgComfyKey && body.bgComfyContentType) {
-        response.bgComfyR2Key = bgComfyKey;
-        response.bgComfyUploadUrl = results[idx++]?.url;
-      }
-      if (newFaceId && newFaceR2Key && newFaceThumbKey) {
-        response.newFaceUploadUrl = results[idx++]?.url;
-        response.newFaceR2Key = newFaceR2Key;
-        response.newFaceThumbnailUploadUrl = results[idx++]?.url;
-        response.newFaceThumbnailKey = newFaceThumbKey;
-      }
-      if (newBgId && newBgR2Key && newBgThumbKey) {
-        response.newBgUploadUrl = results[idx++]?.url;
-        response.newBgR2Key = newBgR2Key;
-        response.newBgThumbnailUploadUrl = results[idx++]?.url;
-        response.newBgThumbnailKey = newBgThumbKey;
-      }
-      return response;
     },
   );
 
@@ -1050,18 +390,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           genderSlug: z.string().optional(),
           r2Key: z.string(),
           thumbnailKey: z.string(),
-          faceSideR2Key: z.string().optional(),
-          bgComfyR2Key: z.string().optional(),
-          faceId: z.string().uuid().optional(),
-          backgroundId: z.string().uuid().optional(),
           workflowTemplateId: z.string().uuid().optional(),
           promptGarmentPhase: z.string().optional(),
-          newFace: z
-            .object({ r2Key: z.string(), thumbnailKey: z.string(), filename: z.string() })
-            .optional(),
-          newBackground: z
-            .object({ r2Key: z.string(), thumbnailKey: z.string(), filename: z.string() })
-            .optional(),
+          promptFacePhase: z.string().optional(),
+          isActive: z.boolean().optional(),
+          sortOrder: z.number().int().optional(),
         }),
       },
     },
@@ -1072,69 +405,30 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         genderSlug?: string;
         r2Key: string;
         thumbnailKey: string;
-        faceSideR2Key?: string;
-        bgComfyR2Key?: string;
-        faceId?: string;
-        backgroundId?: string;
         workflowTemplateId?: string;
         promptGarmentPhase?: string;
-        newFace?: { r2Key: string; thumbnailKey: string; filename: string };
-        newBackground?: { r2Key: string; thumbnailKey: string; filename: string };
+        promptFacePhase?: string;
+        isActive?: boolean;
+        sortOrder?: number;
       };
 
-      const row = await app.db.transaction(async (tx) => {
-        let resolvedFaceId = body.faceId ?? null;
-        if (body.newFace) {
-          const autoLabel = body.newFace.filename.replace(/\.[^.]+$/, '');
-          const [newFaceRow] = await tx
-            .insert(schema.modelFaces)
-            .values({
-              label: autoLabel,
-              gender: body.genderSlug ?? 'men',
-              r2Key: body.newFace.r2Key,
-              thumbnailKey: body.newFace.thumbnailKey,
-              sortOrder: 0,
-            })
-            .returning({ id: schema.modelFaces.id });
-          resolvedFaceId = newFaceRow?.id ?? null;
-        }
+      const [inserted] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: body.label,
+          displayName: body.displayName ?? null,
+          genderSlug: body.genderSlug ?? null,
+          r2Key: body.r2Key,
+          thumbnailKey: body.thumbnailKey,
+          workflowTemplateId: body.workflowTemplateId ?? null,
+          promptGarmentPhase: body.promptGarmentPhase ?? null,
+          promptFacePhase: body.promptFacePhase ?? null,
+          isActive: body.isActive ?? true,
+          sortOrder: body.sortOrder ?? 0,
+        })
+        .returning();
 
-        let resolvedBgId = body.backgroundId ?? null;
-        if (body.newBackground) {
-          const autoLabel = body.newBackground.filename.replace(/\.[^.]+$/, '');
-          const [newBgRow] = await tx
-            .insert(schema.modelBackgrounds)
-            .values({
-              label: autoLabel,
-              genderSlug: body.genderSlug ?? 'men',
-              r2Key: body.newBackground.r2Key,
-              thumbnailKey: body.newBackground.thumbnailKey,
-              sortOrder: 0,
-            })
-            .returning({ id: schema.modelBackgrounds.id });
-          resolvedBgId = newBgRow?.id ?? null;
-        }
-
-        const [inserted] = await tx
-          .insert(schema.modelPoseAssets)
-          .values({
-            label: body.label,
-            displayName: body.displayName ?? null,
-            genderSlug: body.genderSlug ?? null,
-            r2Key: body.r2Key,
-            thumbnailKey: body.thumbnailKey,
-            faceSideR2Key: body.faceSideR2Key ?? null,
-            bgComfyR2Key: body.bgComfyR2Key ?? null,
-            faceId: resolvedFaceId,
-            backgroundId: resolvedBgId,
-            workflowTemplateId: body.workflowTemplateId ?? null,
-            promptGarmentPhase: body.promptGarmentPhase ?? null,
-          })
-          .returning();
-        return inserted;
-      });
-
-      return row;
+      return inserted;
     },
   );
 
@@ -1160,30 +454,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post(
-    '/admin/assets/pose-assets/:id/presign-faceside',
-    { preHandler: RW, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const { contentType } = req.body as { contentType: string };
-      const r2Key = keys.modelPoseFaceSide(id);
-      const res = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
-      return { r2Key, uploadUrl: res.url };
-    },
-  );
-
-  app.post(
-    '/admin/assets/pose-assets/:id/presign-bgcomfy',
-    { preHandler: RW, schema: { params: uuidParam, body: z.object({ contentType: z.string() }) } },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const { contentType } = req.body as { contentType: string };
-      const r2Key = keys.modelPoseBgComfy(id);
-      const res = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
-      return { r2Key, uploadUrl: res.url };
-    },
-  );
-
   // Edit pose asset
   app.patch(
     '/admin/assets/pose-assets/:id',
@@ -1197,12 +467,11 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           genderSlug: z.string().nullable().optional(),
           r2Key: z.string().optional(),
           thumbnailKey: z.string().optional(),
-          faceSideR2Key: z.string().nullable().optional(),
-          bgComfyR2Key: z.string().nullable().optional(),
-          faceId: z.string().uuid().nullable().optional(),
-          backgroundId: z.string().uuid().nullable().optional(),
           workflowTemplateId: z.string().uuid().nullable().optional(),
           promptGarmentPhase: z.string().nullable().optional(),
+          promptFacePhase: z.string().nullable().optional(),
+          isActive: z.boolean().optional(),
+          sortOrder: z.number().int().optional(),
         }),
       },
     },
@@ -1214,28 +483,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         genderSlug?: string | null;
         r2Key?: string;
         thumbnailKey?: string;
-        faceSideR2Key?: string | null;
-        bgComfyR2Key?: string | null;
-        faceId?: string | null;
-        backgroundId?: string | null;
         workflowTemplateId?: string | null;
         promptGarmentPhase?: string | null;
+        promptFacePhase?: string | null;
+        isActive?: boolean;
+        sortOrder?: number;
       };
-      // Validate FK references before update
-      if (body.backgroundId) {
-        const [bg] = await app.db
-          .select({ id: schema.modelBackgrounds.id })
-          .from(schema.modelBackgrounds)
-          .where(eq(schema.modelBackgrounds.id, body.backgroundId));
-        if (!bg) throw new AppError('NOT_FOUND', 404, `background not found: ${body.backgroundId}`);
-      }
-      if (body.faceId) {
-        const [face] = await app.db
-          .select({ id: schema.modelFaces.id })
-          .from(schema.modelFaces)
-          .where(eq(schema.modelFaces.id, body.faceId));
-        if (!face) throw new AppError('NOT_FOUND', 404, `face not found: ${body.faceId}`);
-      }
 
       const set: Record<string, unknown> = {};
       if (body.label !== undefined) set.label = body.label;
@@ -1243,13 +496,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       if (body.genderSlug !== undefined) set.genderSlug = body.genderSlug;
       if (body.r2Key !== undefined) set.r2Key = body.r2Key;
       if (body.thumbnailKey !== undefined) set.thumbnailKey = body.thumbnailKey;
-      if (body.faceSideR2Key !== undefined) set.faceSideR2Key = body.faceSideR2Key;
-      if (body.bgComfyR2Key !== undefined) set.bgComfyR2Key = body.bgComfyR2Key;
-      if (body.faceId !== undefined) set.faceId = body.faceId;
-      if (body.backgroundId !== undefined) set.backgroundId = body.backgroundId;
       if (body.workflowTemplateId !== undefined) set.workflowTemplateId = body.workflowTemplateId;
       if (body.promptGarmentPhase !== undefined)
         set.promptGarmentPhase = body.promptGarmentPhase || null;
+      if (body.promptFacePhase !== undefined) set.promptFacePhase = body.promptFacePhase || null;
+      if (body.isActive !== undefined) set.isActive = body.isActive;
+      if (body.sortOrder !== undefined) set.sortOrder = body.sortOrder;
+
       const [updated] = await app.db
         .update(schema.modelPoseAssets)
         .set(set)
@@ -1257,257 +510,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .returning();
       if (!updated) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
 
-      if (body.label !== undefined || body.displayName !== undefined) {
-        const newLabel = updated.displayName ?? updated.label;
-        await app.db
-          .update(schema.modelPoses)
-          .set({ label: newLabel })
-          .where(eq(schema.modelPoses.poseAssetId, id));
-      }
-
       return updated;
-    },
-  );
-
-  // Map a pose asset to a garment type (creates model_poses row)
-  // face/bg/workflow are optional — defaults to values stored on the pose asset itself
-  app.post(
-    '/admin/assets/pose-assets/:id/map',
-    {
-      preHandler: RW,
-      schema: {
-        params: uuidParam,
-        body: z.object({
-          garmentTypeId: z.string().uuid(),
-          faceId: z.string().uuid().optional(),
-          backgroundId: z.string().uuid().optional(),
-          workflowTemplateId: z.string().uuid().optional(),
-        }),
-      },
-    },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const body = req.body as {
-        garmentTypeId: string;
-        faceId?: string;
-        backgroundId?: string;
-        workflowTemplateId?: string;
-      };
-
-      const [asset] = await app.db
-        .select()
-        .from(schema.modelPoseAssets)
-        .where(eq(schema.modelPoseAssets.id, id));
-      if (!asset) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
-
-      const resolvedFaceId = body.faceId ?? asset.faceId;
-      const resolvedBgId = body.backgroundId ?? asset.backgroundId;
-      const resolvedWfId = body.workflowTemplateId ?? asset.workflowTemplateId;
-
-      if (!resolvedFaceId)
-        throw new AppError('VALIDATION', 400, 'faceId required — set it on the pose asset first');
-      if (!resolvedBgId)
-        throw new AppError(
-          'VALIDATION',
-          400,
-          'backgroundId required — set it on the pose asset first',
-        );
-      if (!resolvedWfId)
-        throw new AppError(
-          'VALIDATION',
-          400,
-          'workflowTemplateId required — set it on the pose asset first',
-        );
-
-      const [wf] = await app.db
-        .select({
-          id: schema.workflowTemplates.id,
-          lowerNodeId: schema.workflowTemplates.lowerNodeId,
-          shoeNodeId: schema.workflowTemplates.shoeNodeId,
-        })
-        .from(schema.workflowTemplates)
-        .where(eq(schema.workflowTemplates.id, resolvedWfId));
-      if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
-
-      const [mapping] = await app.db
-        .insert(schema.modelPoses)
-        .values({
-          subcategoryId: body.garmentTypeId,
-          faceId: resolvedFaceId,
-          backgroundId: resolvedBgId,
-          workflowTemplateId: resolvedWfId,
-          poseAssetId: asset.id,
-          label: asset.displayName ?? asset.label,
-          r2Key: asset.r2Key,
-          thumbnailKey: asset.thumbnailKey,
-          faceSideR2Key: asset.faceSideR2Key,
-          bgComfyR2Key: asset.bgComfyR2Key,
-          showsLower: Boolean(wf.lowerNodeId),
-          showsShoes: Boolean(wf.shoeNodeId),
-          sortOrder: 0,
-        })
-        .returning();
-      return mapping;
-    },
-  );
-
-  // Bulk-map many pose assets to multiple garment types in a single transaction
-  app.post(
-    '/admin/assets/pose-assets/bulk-map',
-    {
-      preHandler: RW,
-      schema: {
-        body: z.object({
-          assetIds: z.array(z.string().uuid()).min(1).max(2000),
-          garmentTypeIds: z.array(z.string().uuid()).min(1).max(100),
-        }),
-      },
-    },
-    async (req) => {
-      const { assetIds, garmentTypeIds } = req.body as {
-        assetIds: string[];
-        garmentTypeIds: string[];
-      };
-
-      // Fetch all requested assets in one query
-      const assets = await app.db
-        .select()
-        .from(schema.modelPoseAssets)
-        .where(inArray(schema.modelPoseAssets.id, assetIds));
-
-      if (assets.length === 0) return { created: 0, skipped: 0, errors: [] };
-
-      // Collect unique workflow IDs to fetch showsLower/showsShoes flags
-      const wfIds = [
-        ...new Set(assets.map((a) => a.workflowTemplateId).filter(Boolean) as string[]),
-      ];
-      const wfRows = wfIds.length
-        ? await app.db
-            .select({
-              id: schema.workflowTemplates.id,
-              lowerNodeId: schema.workflowTemplates.lowerNodeId,
-              shoeNodeId: schema.workflowTemplates.shoeNodeId,
-            })
-            .from(schema.workflowTemplates)
-            .where(inArray(schema.workflowTemplates.id, wfIds))
-        : [];
-      const wfMap = new Map(wfRows.map((w) => [w.id, w]));
-
-      // Find already-mapped (assetId, garmentTypeId) pairs to skip duplicates
-      const existingRows = await app.db
-        .select({
-          poseAssetId: schema.modelPoses.poseAssetId,
-          subcategoryId: schema.modelPoses.subcategoryId,
-        })
-        .from(schema.modelPoses)
-        .where(
-          and(
-            inArray(schema.modelPoses.subcategoryId, garmentTypeIds),
-            inArray(
-              schema.modelPoses.poseAssetId,
-              assets.map((a) => a.id),
-            ),
-          ),
-        );
-      // Key: `${assetId}:${garmentTypeId}`
-      const alreadyMapped = new Set(
-        existingRows
-          .filter((r) => r.poseAssetId && r.subcategoryId)
-          .map((r) => `${r.poseAssetId}:${r.subcategoryId}`),
-      );
-
-      const errors: string[] = [];
-      const rows: (typeof schema.modelPoses.$inferInsert)[] = [];
-
-      for (const garmentTypeId of garmentTypeIds) {
-        for (const a of assets) {
-          if (alreadyMapped.has(`${a.id}:${garmentTypeId}`)) continue;
-          if (!a.faceId) {
-            errors.push(`${a.id}: missing faceId`);
-            continue;
-          }
-          if (!a.backgroundId) {
-            errors.push(`${a.id}: missing backgroundId`);
-            continue;
-          }
-          if (!a.workflowTemplateId) {
-            errors.push(`${a.id}: missing workflowTemplateId`);
-            continue;
-          }
-          if (!wfMap.has(a.workflowTemplateId)) {
-            errors.push(`${a.id}: workflow not found`);
-            continue;
-          }
-          // biome-ignore lint/style/noNonNullAssertion: checked via wfMap.has above
-          const wf = wfMap.get(a.workflowTemplateId)!;
-          rows.push({
-            subcategoryId: garmentTypeId,
-            faceId: a.faceId,
-            backgroundId: a.backgroundId,
-            workflowTemplateId: a.workflowTemplateId,
-            poseAssetId: a.id,
-            label: a.displayName ?? a.label,
-            r2Key: a.r2Key,
-            thumbnailKey: a.thumbnailKey,
-            faceSideR2Key: a.faceSideR2Key,
-            bgComfyR2Key: a.bgComfyR2Key,
-            showsLower: Boolean(wf.lowerNodeId),
-            showsShoes: Boolean(wf.shoeNodeId),
-            sortOrder: 0,
-          });
-        }
-      }
-
-      const skipped = alreadyMapped.size;
-      if (rows.length === 0) return { created: 0, skipped, errors };
-
-      // Insert all rows in chunks to stay under Postgres param limit
-      const CHUNK = 500;
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        await app.db.insert(schema.modelPoses).values(rows.slice(i, i + CHUNK));
-      }
-
-      return { created: rows.length, skipped, errors };
-    },
-  );
-
-  // List garment-type mappings for a pose asset
-  app.get(
-    '/admin/assets/pose-assets/:id/mappings',
-    { preHandler: RW, schema: { params: uuidParam } },
-    async (req) => {
-      const { id } = req.params as { id: string };
-      const rows = await app.db
-        .select({
-          id: schema.modelPoses.id,
-          garmentTypeId: schema.modelPoses.subcategoryId,
-          garmentTypeLabel: schema.garmentSubcategories.label,
-          faceId: schema.modelPoses.faceId,
-          faceLabel: schema.modelFaces.label,
-          backgroundId: schema.modelPoses.backgroundId,
-          backgroundLabel: schema.modelBackgrounds.label,
-          workflowTemplateId: schema.modelPoses.workflowTemplateId,
-          workflowLabel: schema.workflowTemplates.label,
-          isActive: schema.modelPoses.isActive,
-          createdAt: schema.modelPoses.createdAt,
-        })
-        .from(schema.modelPoses)
-        .leftJoin(
-          schema.garmentSubcategories,
-          eq(schema.modelPoses.subcategoryId, schema.garmentSubcategories.id),
-        )
-        .leftJoin(schema.modelFaces, eq(schema.modelPoses.faceId, schema.modelFaces.id))
-        .leftJoin(
-          schema.modelBackgrounds,
-          eq(schema.modelPoses.backgroundId, schema.modelBackgrounds.id),
-        )
-        .leftJoin(
-          schema.workflowTemplates,
-          eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
-        )
-        .where(eq(schema.modelPoses.poseAssetId, id))
-        .orderBy(schema.modelPoses.createdAt);
-      return { items: rows };
     },
   );
 
@@ -1515,34 +518,31 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     '/admin/assets/pose-assets/:id',
     {
       preHandler: RW,
-      schema: {
-        params: uuidParam,
-        querystring: z.object({ force: z.coerce.boolean().optional().default(false) }),
-      },
+      schema: { params: uuidParam },
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const { force } = req.query as { force: boolean };
       const [asset] = await app.db
-        .select()
+        .select({ id: schema.modelPoseAssets.id })
         .from(schema.modelPoseAssets)
         .where(eq(schema.modelPoseAssets.id, id));
       if (!asset) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
 
-      const mappings = await app.db
-        .select({ id: schema.modelPoses.id })
-        .from(schema.modelPoses)
-        .where(eq(schema.modelPoses.poseAssetId, id));
-
-      if (mappings.length > 0 && !force) {
+      // Check if any jobs reference this pose asset
+      const jobRefs = await app.db
+        .select({ jobId: schema.jobInputs.jobId })
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.poseId, id))
+        .limit(1);
+      if (jobRefs.length > 0) {
         throw new AppError(
           'CONFLICT',
           409,
-          `pose asset has ${mappings.length} garment-type mapping(s) — delete with ?force=true to also remove mappings`,
+          'pose asset is referenced by existing jobs — cannot delete',
         );
       }
 
-      // Soft delete — keep mappings and R2 intact for potential restore
+      // Soft delete — keep R2 intact for potential restore
       await app.db
         .update(schema.modelPoseAssets)
         .set({ deletedAt: new Date() })
@@ -1689,23 +689,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           })
           .from(schema.modelPoseAssets)
           .where(inArray(schema.modelPoseAssets.id, ids));
-        // Remove mappings and jobs before hard delete
-        const mappings = await app.db
-          .select({ id: schema.modelPoses.id })
-          .from(schema.modelPoses)
-          .where(inArray(schema.modelPoses.poseAssetId, ids));
-        if (mappings.length > 0) {
-          const mappingIds = mappings.map((m) => m.id);
-          const jobRefs = await app.db
-            .select({ jobId: schema.jobInputs.jobId })
-            .from(schema.jobInputs)
-            .where(inArray(schema.jobInputs.poseId, mappingIds));
-          if (jobRefs.length > 0) {
-            await app.db
-              .delete(schema.jobs)
-              .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
-          }
-          await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, mappingIds));
+        // Remove referencing jobs before hard delete (job_inputs cascade via FK)
+        const jobRefs = await app.db
+          .select({ jobId: schema.jobInputs.jobId })
+          .from(schema.jobInputs)
+          .where(inArray(schema.jobInputs.poseId, ids));
+        if (jobRefs.length > 0) {
+          await app.db
+            .delete(schema.jobs)
+            .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
         }
         await app.db.delete(schema.modelPoseAssets).where(inArray(schema.modelPoseAssets.id, ids));
         void Promise.allSettled(
@@ -1890,77 +882,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       emit({ phase: 'faces', done: ++faceDone, total: faceEntries.length });
     }
 
-    // Upload poses — parse faceXXbgYposeZZ or faceXXbgYpZZ pattern
-    const posePattern = /face(\d+)bg(\d+)(?:pose|p)(\d+)/i;
+    // Upload poses — extract poseZZ variant from filename (face/bg prefix no longer required)
     let _sortOrder = 0;
     let poseDone = 0;
     for (const entry of poseEntries) {
       try {
         const stem = entry.name.replace(/\.[^.]+$/, '');
-        const m = stem.match(posePattern);
-        if (!m) {
-          errors.push(`pose ${entry.name}: filename doesn't match faceXXbgYposeZZ or faceXXbgYpZZ`);
-          continue;
-        }
-        const faceNum = parseInt(m[1], 10);
-        const bgNum = parseInt(m[2], 10);
-        let faceEntry = faceIndexMap.get(faceNum);
-        let bgEntry = bgIndexMap.get(bgNum);
-
-        // Fall back to DB lookup if face not in ZIP batch
-        if (!faceEntry) {
-          const [dbFace] = await app.db
-            .select({ id: schema.modelFaces.id, r2Key: schema.modelFaces.r2Key })
-            .from(schema.modelFaces)
-            .where(
-              and(
-                eq(schema.modelFaces.gender, genderSlug),
-                eq(schema.modelFaces.sortOrder, faceNum),
-              ),
-            );
-          if (dbFace) {
-            faceEntry = { id: dbFace.id, r2Key: dbFace.r2Key };
-            faceIndexMap.set(faceNum, faceEntry);
-          }
-        }
-        // Fall back to DB lookup if background not in ZIP batch
-        if (!bgEntry) {
-          const [dbBg] = await app.db
-            .select({ id: schema.modelBackgrounds.id, r2Key: schema.modelBackgrounds.r2Key })
-            .from(schema.modelBackgrounds)
-            .where(
-              and(
-                eq(schema.modelBackgrounds.genderSlug, genderSlug),
-                eq(schema.modelBackgrounds.sortOrder, bgNum),
-              ),
-            );
-          if (dbBg) {
-            bgEntry = { id: dbBg.id, r2Key: dbBg.r2Key };
-            bgIndexMap.set(bgNum, bgEntry);
-          }
-        }
-
-        if (!faceEntry) {
-          errors.push(
-            `pose ${entry.name}: face${m[1]} not found in ZIP or DB (gender=${genderSlug}, sortOrder=${faceNum})`,
-          );
-          continue;
-        }
-        if (!bgEntry) {
-          errors.push(
-            `pose ${entry.name}: bg${m[2]} not found in ZIP or DB (gender=${genderSlug}, sortOrder=${bgNum})`,
-          );
-          continue;
-        }
-        // Dedup by label + gender: skip create but patch null FK/key fields
+        // Dedup by label + gender: skip if already exists
         const [existingAsset] = await app.db
-          .select({
-            id: schema.modelPoseAssets.id,
-            faceId: schema.modelPoseAssets.faceId,
-            backgroundId: schema.modelPoseAssets.backgroundId,
-            faceSideR2Key: schema.modelPoseAssets.faceSideR2Key,
-            bgComfyR2Key: schema.modelPoseAssets.bgComfyR2Key,
-          })
+          .select({ id: schema.modelPoseAssets.id })
           .from(schema.modelPoseAssets)
           .where(
             and(
@@ -1969,19 +899,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             ),
           );
         if (existingAsset) {
-          // Always overwrite derived keys; only skip FK backfill if already set
-          const patch: Record<string, unknown> = {
-            faceSideR2Key: faceEntry.r2Key,
-            bgComfyR2Key: bgEntry.r2Key,
-          };
-          if (!existingAsset.faceId) patch.faceId = faceEntry.id;
-          if (!existingAsset.backgroundId) patch.backgroundId = bgEntry.id;
-          if (Object.keys(patch).length > 0) {
-            await app.db
-              .update(schema.modelPoseAssets)
-              .set(patch)
-              .where(eq(schema.modelPoseAssets.id, existingAsset.id));
-          }
           _sortOrder++;
           continue;
         }
@@ -2002,10 +919,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           label: stem,
           r2Key,
           thumbnailKey: thumbKey,
-          faceSideR2Key: faceEntry.r2Key,
-          bgComfyR2Key: bgEntry.r2Key,
-          faceId: faceEntry.id,
-          backgroundId: bgEntry.id,
           workflowTemplateId: workflowTemplateId ?? null,
           genderSlug,
           poseVariant,

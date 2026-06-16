@@ -33,35 +33,34 @@ export async function catalogRoutes(app: FastifyInstance) {
 
       const poseIds = poseIdsParam ? poseIdsParam.split(',').filter(Boolean) : [];
 
-      // If poseIds provided, return items targeting those poses' subcategories.
-      // Lower/shoe availability is determined by the workflow template (lowerNodeId /
-      // shoeNodeId non-null), not by manual showsLower / showsShoes flags on the pose.
+      // If poseIds provided, check that at least one pose supports lower/shoe (via workflowTemplateId).
+      // Poses are now per-gender and not tied to subcategories, so we return all active catalog
+      // items of that type/gender when any selected pose has the required node.
       if (poseIds.length > 0) {
         const nodeField =
           type === 'lower'
             ? schema.workflowTemplates.lowerNodeId
             : schema.workflowTemplates.shoeNodeId;
-        const poses = await app.db
-          .select({ subcategoryId: schema.modelPoses.subcategoryId })
-          .from(schema.modelPoses)
+        const supportingPoses = await app.db
+          .select({ id: schema.modelPoseAssets.id })
+          .from(schema.modelPoseAssets)
           .innerJoin(
             schema.workflowTemplates,
-            eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
+            eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
           )
-          .where(and(inArray(schema.modelPoses.id, poseIds), isNotNull(nodeField)));
+          .where(and(inArray(schema.modelPoseAssets.id, poseIds), isNotNull(nodeField)));
 
-        const subcategoryIds = [...new Set(poses.map((p) => p.subcategoryId))];
-        if (subcategoryIds.length === 0) return { type, tree: [] };
+        if (supportingPoses.length === 0) return { type, tree: [] };
 
-        const links = await app.db
-          .select({ catalogItemId: schema.catalogItemSubcategories.catalogItemId })
-          .from(schema.catalogItemSubcategories)
-          .where(inArray(schema.catalogItemSubcategories.subcategoryId, subcategoryIds));
+        // Return all active catalog items of this type/gender
+        const conditions = [
+          eq(schema.catalogItems.isActive, true),
+          eq(schema.catalogItems.type, type),
+        ];
+        if (gender) conditions.push(eq(schema.catalogItems.genderSlug, gender));
 
-        const allowedIds = [...new Set(links.map((l) => l.catalogItemId))];
-
-        // Also include the garment type's default item for this catalog type so it
-        // always appears as pre-selectable even when pose-subcategory linking is incomplete.
+        // Also ensure the garment type's default item is included
+        const defaultIds: string[] = [];
         if (garmentTypeId) {
           const [gt] = await app.db
             .select({
@@ -71,31 +70,34 @@ export async function catalogRoutes(app: FastifyInstance) {
             .from(schema.garmentSubcategories)
             .where(eq(schema.garmentSubcategories.id, garmentTypeId));
           const defaultId = type === 'lower' ? gt?.defaultLowerCatalogId : gt?.defaultShoeCatalogId;
-          if (defaultId && !allowedIds.includes(defaultId)) {
-            allowedIds.push(defaultId);
-          }
+          if (defaultId) defaultIds.push(defaultId);
         }
-
-        if (allowedIds.length === 0) return { type, tree: [] };
-
-        const conditions = [
-          eq(schema.catalogItems.isActive, true),
-          eq(schema.catalogItems.type, type),
-          inArray(schema.catalogItems.id, allowedIds),
-        ];
-        if (gender) conditions.push(eq(schema.catalogItems.genderSlug, gender));
 
         const items = await app.db
           .select()
           .from(schema.catalogItems)
           .where(and(...conditions));
-        const enriched = items.map((i) => ({
+
+        // Also fetch the garment type's default item if not already in the result
+        let allItems = items;
+        if (defaultIds.length > 0) {
+          const missing = defaultIds.filter((id) => !items.some((i) => i.id === id));
+          if (missing.length > 0) {
+            const extraItems = await app.db
+              .select()
+              .from(schema.catalogItems)
+              .where(inArray(schema.catalogItems.id, missing));
+            allItems = [...items, ...extraItems];
+          }
+        }
+
+        const enriched = allItems.map((i) => ({
           ...i,
           thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
         }));
 
         const catIds = [
-          ...new Set(items.map((i) => i.categoryId).filter((id): id is number => id != null)),
+          ...new Set(allItems.map((i) => i.categoryId).filter((id): id is number => id != null)),
         ];
         const cats =
           catIds.length > 0

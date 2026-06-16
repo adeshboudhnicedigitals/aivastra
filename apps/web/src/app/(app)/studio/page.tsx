@@ -465,9 +465,12 @@ export default function StudioPage(): React.ReactElement {
     isError: posesError,
     refetch: refetchPoses,
   } = useQuery<{ items: PoseItem[] }>({
-    queryKey: ['poses', garmentTypeId],
-    queryFn: () => api.get(`/v1/models/poses?garmentTypeId=${garmentTypeId}`),
-    enabled: !!(garmentTypeId && step >= 3),
+    queryKey: ['poses', gender, garmentTypeId],
+    queryFn: () =>
+      api.get(
+        `/v1/models/poses?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+      ),
+    enabled: !!(gender && step >= 3),
     staleTime: 60_000,
     refetchOnWindowFocus: true,
   });
@@ -607,6 +610,7 @@ export default function StudioPage(): React.ReactElement {
           faceId,
           backgroundId,
           poseIds,
+          garmentTypeId: garmentTypeId || undefined,
           lowerCatalogId: effectiveLowerId,
           lowerGarmentKey: lowerGarmentKey || undefined,
           shoeCatalogId: effectiveShoesId,
@@ -644,6 +648,7 @@ export default function StudioPage(): React.ReactElement {
           faceId,
           backgroundId,
           poseIds: [mainPoseId],
+          garmentTypeId: garmentTypeId || undefined,
           lowerCatalogId: effectiveLowerId,
           lowerGarmentKey: lowerGarmentKey || undefined,
           shoeCatalogId: effectiveShoesId,
@@ -663,6 +668,7 @@ export default function StudioPage(): React.ReactElement {
             faceId,
             backgroundId,
             poseIds: remainingPoseIds,
+            garmentTypeId: garmentTypeId || undefined,
             lowerCatalogId: effectiveLowerId,
             lowerGarmentKey: lowerGarmentKey || undefined,
             shoeCatalogId: effectiveShoesId,
