@@ -18,6 +18,7 @@ export const modelFaces = pgTable('model_faces', {
   label: text('label').notNull(),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
+  faceSideR2Key: text('face_side_r2_key'), // ComfyUI-specific face image (moved from model_pose_assets)
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -31,6 +32,7 @@ export const modelBackgrounds = pgTable('model_backgrounds', {
   label: text('label').notNull(),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
+  bgComfyR2Key: text('bg_comfy_r2_key'), // ComfyUI-specific background (moved from model_pose_assets)
   genderSlug: text('gender_slug'), // nullable — null means shown for all genders
   isActive: boolean('is_active').notNull().default(true),
   isWhiteBg: boolean('is_white_bg').notNull().default(false),
@@ -114,8 +116,7 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Poses belong to a garment subcategory AND are per (face × background) combo
-// e.g. m1bg1p1 → face=model1, background=bg1, pose variant 1
+// Poses belong to a garment subcategory only — no longer tied to a specific face/background combo.
 export const modelPoses = pgTable(
   'model_poses',
   {
@@ -123,12 +124,10 @@ export const modelPoses = pgTable(
     subcategoryId: uuid('subcategory_id')
       .notNull()
       .references(() => garmentSubcategories.id),
-    faceId: uuid('face_id')
-      .notNull()
-      .references(() => modelFaces.id),
-    backgroundId: uuid('background_id')
-      .notNull()
-      .references(() => modelBackgrounds.id),
+    faceId: uuid('face_id').references(() => modelFaces.id, { onDelete: 'set null' }),
+    backgroundId: uuid('background_id').references(() => modelBackgrounds.id, {
+      onDelete: 'set null',
+    }),
     label: text('label').notNull(),
     r2Key: text('r2_key').notNull(),
     thumbnailKey: text('thumbnail_key').notNull(),

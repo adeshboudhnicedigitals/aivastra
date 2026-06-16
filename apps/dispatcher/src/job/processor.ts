@@ -84,15 +84,20 @@ export async function processJob(
   }
 
   // 2. Resolve face / background / pose IDs → R2 keys
+  const [faceRow] = await db
+    .select({ faceSideR2Key: schema.modelFaces.faceSideR2Key })
+    .from(schema.modelFaces)
+    .where(eq(schema.modelFaces.id, inputs.faceId));
   const [bgRow] = await db
-    .select({ r2Key: schema.modelBackgrounds.r2Key })
+    .select({
+      r2Key: schema.modelBackgrounds.r2Key,
+      bgComfyR2Key: schema.modelBackgrounds.bgComfyR2Key,
+    })
     .from(schema.modelBackgrounds)
     .where(eq(schema.modelBackgrounds.id, inputs.backgroundId));
   const [poseRow] = await db
     .select({
       r2Key: schema.modelPoses.r2Key,
-      faceSideR2Key: schema.modelPoses.faceSideR2Key,
-      bgComfyR2Key: schema.modelPoses.bgComfyR2Key,
       workflowTemplateId: schema.modelPoses.workflowTemplateId,
       promptFacePhase: schema.modelPoses.promptFacePhase,
       promptGarmentPhase: schema.modelPoses.promptGarmentPhase,
@@ -100,22 +105,21 @@ export async function processJob(
     .from(schema.modelPoses)
     .where(eq(schema.modelPoses.id, inputs.poseId));
 
-  if (!bgRow || !poseRow) {
+  if (!faceRow || !bgRow || !poseRow) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'CATALOG_NOT_FOUND', jobLog, startedAt);
     return;
   }
 
-  // faceSideR2Key is the ComfyUI-specific face image uploaded at pose creation time.
-  // The display face (faceRow.r2Key) is UI-only and must never be sent to ComfyUI.
-  const faceSideKey = poseRow.faceSideR2Key;
+  // faceSideR2Key lives on the face row — the ComfyUI-specific face image.
+  // The display face r2Key is UI-only and must never be sent to ComfyUI.
+  const faceSideKey = faceRow.faceSideR2Key;
   if (!faceSideKey) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
     return;
   }
 
-  // bgComfyR2Key is the ComfyUI-specific background; bgRow.r2Key is display-only.
-  // Fall back to display background only for legacy poses that pre-date the bgComfy field.
-  // Amazon platform overrides the background entirely — always use the configured white BG image.
+  // bgComfyR2Key lives on the background row.
+  // Amazon platform overrides the background — always uses the configured white BG image.
   let params: Record<string, unknown> = {};
   if (inputs.params) {
     params =
@@ -125,10 +129,10 @@ export async function processJob(
   }
   const isAmazon = params.platform === 'Amazon';
   jobLog.info({ platform: params.platform, isAmazon }, 'platform check');
-  const bgKey = isAmazon ? bgRow.r2Key : (poseRow.bgComfyR2Key ?? bgRow.r2Key);
+  const bgKey = isAmazon ? bgRow.r2Key : (bgRow.bgComfyR2Key ?? bgRow.r2Key);
   const bgSource = isAmazon
     ? 'amazon-override'
-    : poseRow.bgComfyR2Key
+    : bgRow.bgComfyR2Key
       ? 'comfy-specific'
       : 'display-fallback';
   const poseKey = poseRow.r2Key;

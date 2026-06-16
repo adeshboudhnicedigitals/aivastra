@@ -49,13 +49,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const newId = randomUUID();
       const r2Key = keys.modelFace(newId);
       const thumbKey = keys.modelFaceThumb(newId);
-      const [main, thumb] = await Promise.all([
+      const faceSideKey = keys.modelFaceSide(newId);
+      const [main, thumb, faceSide] = await Promise.all([
         app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        // Thumbnails are downscaled to JPEG client-side — sign the PUT for image/jpeg
-        // so the signed Content-Type header matches what the browser sends.
         app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
+        app.storage.presignPut(faceSideKey, 'image/jpeg', 10_000_000, 300),
       ]);
-      return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey: thumbKey };
+      return {
+        uploadUrl: main.url,
+        r2Key,
+        thumbnailUploadUrl: thumb.url,
+        thumbnailKey: thumbKey,
+        faceSideUploadUrl: faceSide.url,
+        faceSideR2Key: faceSideKey,
+      };
     },
   );
 
@@ -66,16 +73,24 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       schema: { body: ConfirmModelFaceBody },
     },
     async (req) => {
-      const { label, gender, r2Key, thumbnailKey, sortOrder } = req.body as {
+      const { label, gender, r2Key, thumbnailKey, faceSideR2Key, sortOrder } = req.body as {
         label: string;
         gender: string;
         r2Key: string;
         thumbnailKey: string;
+        faceSideR2Key?: string;
         sortOrder: number;
       };
       const [row] = await app.db
         .insert(schema.modelFaces)
-        .values({ label, gender, r2Key, thumbnailKey, sortOrder })
+        .values({
+          label,
+          gender,
+          r2Key,
+          thumbnailKey,
+          faceSideR2Key: faceSideR2Key ?? null,
+          sortOrder,
+        })
         .returning();
       return row;
     },
@@ -182,12 +197,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const newId = randomUUID();
       const r2Key = keys.modelBackground(newId);
       const thumbKey = keys.modelBackgroundThumb(newId);
-      const [main, thumb] = await Promise.all([
+      const bgComfyKey = keys.modelBackgroundComfy(newId);
+      const [main, thumb, bgComfy] = await Promise.all([
         app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        // Thumbnails are downscaled to JPEG client-side; sign for image/jpeg.
         app.storage.presignPut(thumbKey, thumbnailContentType ?? 'image/jpeg', 1_000_000, 300),
+        app.storage.presignPut(bgComfyKey, 'image/jpeg', 10_000_000, 300),
       ]);
-      return { uploadUrl: main.url, r2Key, thumbnailUploadUrl: thumb.url, thumbnailKey: thumbKey };
+      return {
+        uploadUrl: main.url,
+        r2Key,
+        thumbnailUploadUrl: thumb.url,
+        thumbnailKey: thumbKey,
+        bgComfyUploadUrl: bgComfy.url,
+        bgComfyR2Key: bgComfyKey,
+      };
     },
   );
 
@@ -202,6 +225,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         label: string;
         r2Key: string;
         thumbnailKey: string;
+        bgComfyR2Key?: string;
         sortOrder: number;
         genderSlug?: string;
         isWhiteBg?: boolean;
@@ -219,6 +243,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           label: body.label,
           r2Key: body.r2Key,
           thumbnailKey: body.thumbnailKey,
+          bgComfyR2Key: body.bgComfyR2Key ?? null,
           sortOrder: body.sortOrder,
           genderSlug: body.genderSlug ?? null,
           isWhiteBg: body.isWhiteBg ?? false,
@@ -1446,32 +1471,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
-  // Bulk-rename display name across many pose assets + propagate to model_poses.label
-  app.patch(
-    '/admin/assets/pose-assets/bulk-rename',
-    {
-      preHandler: RW,
-      schema: {
-        body: z.object({
-          ids: z.array(z.string().uuid()).min(1),
-          displayName: z.string().min(1),
-        }),
-      },
-    },
-    async (req) => {
-      const { ids, displayName } = req.body as { ids: string[]; displayName: string };
-      await app.db
-        .update(schema.modelPoseAssets)
-        .set({ displayName })
-        .where(inArray(schema.modelPoseAssets.id, ids));
-      await app.db
-        .update(schema.modelPoses)
-        .set({ label: displayName })
-        .where(inArray(schema.modelPoses.poseAssetId, ids));
-      return { updated: ids.length };
-    },
-  );
-
   // List garment-type mappings for a pose asset
   app.get(
     '/admin/assets/pose-assets/:id/mappings',
@@ -1658,24 +1657,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           .select({ r2Key: schema.modelFaces.r2Key, thumbnailKey: schema.modelFaces.thumbnailKey })
           .from(schema.modelFaces)
           .where(inArray(schema.modelFaces.id, ids));
-        // Cascade: poses referencing these faces → their jobs → then faces
-        const posesRef = await app.db
-          .select({ id: schema.modelPoses.id })
-          .from(schema.modelPoses)
-          .where(inArray(schema.modelPoses.faceId, ids));
-        if (posesRef.length > 0) {
-          const poseIds = posesRef.map((p) => p.id);
-          const jobRefs = await app.db
-            .select({ jobId: schema.jobInputs.jobId })
-            .from(schema.jobInputs)
-            .where(inArray(schema.jobInputs.poseId, poseIds));
-          if (jobRefs.length > 0) {
-            await app.db
-              .delete(schema.jobs)
-              .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
-          }
-          await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, poseIds));
-        }
         await app.db.delete(schema.modelFaces).where(inArray(schema.modelFaces.id, ids));
         void Promise.allSettled(
           rows.flatMap((r) => [
@@ -1691,24 +1672,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           })
           .from(schema.modelBackgrounds)
           .where(inArray(schema.modelBackgrounds.id, ids));
-        // Cascade: poses referencing these backgrounds → their jobs → then backgrounds
-        const posesRef = await app.db
-          .select({ id: schema.modelPoses.id })
-          .from(schema.modelPoses)
-          .where(inArray(schema.modelPoses.backgroundId, ids));
-        if (posesRef.length > 0) {
-          const poseIds = posesRef.map((p) => p.id);
-          const jobRefs = await app.db
-            .select({ jobId: schema.jobInputs.jobId })
-            .from(schema.jobInputs)
-            .where(inArray(schema.jobInputs.poseId, poseIds));
-          if (jobRefs.length > 0) {
-            await app.db
-              .delete(schema.jobs)
-              .where(inArray(schema.jobs.id, [...new Set(jobRefs.map((r) => r.jobId))]));
-          }
-          await app.db.delete(schema.modelPoses).where(inArray(schema.modelPoses.id, poseIds));
-        }
         await app.db
           .delete(schema.modelBackgrounds)
           .where(inArray(schema.modelBackgrounds.id, ids));

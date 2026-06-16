@@ -78,6 +78,7 @@ export const ConfirmModelFaceBody = z.object({
   gender: GenderEnum,
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
+  faceSideR2Key: z.string().min(1).optional(),
   sortOrder: z.number().int().default(0),
 });
 export const PatchModelFaceBody = z.object({
@@ -87,6 +88,7 @@ export const PatchModelFaceBody = z.object({
   sortOrder: z.number().int().optional(),
   r2Key: z.string().optional(),
   thumbnailKey: z.string().optional(),
+  faceSideR2Key: z.string().nullable().optional(),
 });
 
 // Backgrounds are now global — no faceId
@@ -98,6 +100,7 @@ export const ConfirmModelBackgroundBody = z.object({
   label: z.string().min(1).max(120),
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
+  bgComfyR2Key: z.string().min(1).optional(),
   sortOrder: z.number().int().default(0),
   genderSlug: GenderEnum.optional(),
   isWhiteBg: z.boolean().optional(),
@@ -110,6 +113,7 @@ export const PatchModelBackgroundBody = z.object({
   sortOrder: z.number().int().optional(),
   r2Key: z.string().optional(),
   thumbnailKey: z.string().optional(),
+  bgComfyR2Key: z.string().nullable().optional(),
 });
 
 // ── Workflow template schemas ─────────────────────────────────────────────

@@ -6,6 +6,7 @@ export interface ModelFace {
   label: string;
   thumbnailKey: string;
   r2Key: string;
+  faceSideR2Key: string | null;
   isActive: boolean;
   sortOrder: number;
   deletedAt: string | null;
@@ -13,12 +14,12 @@ export interface ModelFace {
   updatedAt: string;
 }
 
-// Global — no faceId
 export interface ModelBackground {
   id: string;
   label: string;
   thumbnailKey: string;
   r2Key: string;
+  bgComfyR2Key: string | null;
   isActive: boolean;
   isWhiteBg: boolean;
   sortOrder: number;
