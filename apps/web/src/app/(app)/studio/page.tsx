@@ -426,12 +426,8 @@ export default function StudioPage(): React.ReactElement {
     isError: facesError,
     refetch: refetchFaces,
   } = useQuery<{ items: FaceItem[] }>({
-    queryKey: ['faces', gender, garmentTypeId],
-    queryFn: () => {
-      const p = new URLSearchParams({ gender });
-      if (garmentTypeId) p.set('garmentTypeId', garmentTypeId);
-      return api.get(`/v1/models/faces?${p}`);
-    },
+    queryKey: ['faces', gender],
+    queryFn: () => api.get(`/v1/models/faces?gender=${gender}`),
     enabled: !!gender && step >= 1,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
@@ -453,14 +449,9 @@ export default function StudioPage(): React.ReactElement {
     isError: backgroundsError,
     refetch: refetchBackgrounds,
   } = useQuery<BackgroundsResponse>({
-    queryKey: ['backgrounds', faceId, garmentTypeId],
-    queryFn: () => {
-      const p = new URLSearchParams();
-      if (faceId) p.set('faceId', faceId);
-      if (garmentTypeId) p.set('garmentTypeId', garmentTypeId);
-      return api.get(`/v1/models/backgrounds?${p}`);
-    },
-    enabled: !!faceId && step >= 2,
+    queryKey: ['backgrounds', gender],
+    queryFn: () => api.get(`/v1/models/backgrounds?gender=${gender}`),
+    enabled: !!gender && step >= 2,
     staleTime: 60_000,
     refetchOnWindowFocus: true,
   });
@@ -474,12 +465,9 @@ export default function StudioPage(): React.ReactElement {
     isError: posesError,
     refetch: refetchPoses,
   } = useQuery<{ items: PoseItem[] }>({
-    queryKey: ['poses', garmentTypeId, faceId, backgroundId],
-    queryFn: () =>
-      api.get(
-        `/v1/models/poses?garmentTypeId=${garmentTypeId}&faceId=${faceId}&backgroundId=${backgroundId}`,
-      ),
-    enabled: !!(garmentTypeId && faceId && backgroundId && step >= 3),
+    queryKey: ['poses', garmentTypeId],
+    queryFn: () => api.get(`/v1/models/poses?garmentTypeId=${garmentTypeId}`),
+    enabled: !!(garmentTypeId && step >= 3),
     staleTime: 60_000,
     refetchOnWindowFocus: true,
   });
