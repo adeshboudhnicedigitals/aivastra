@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
-import { EditPoseModal } from '../../components/EditPoseModal';
 import { Icon } from '../../components/Icons';
-import { Pager } from '../../components/Pager';
 import { Switch } from '../../components/Switch';
 import { apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
-import type { GarmentType, GenderSlug, ModelPose, WorkflowOption } from '../../types';
+import type { GarmentType, GenderSlug, PoseGarmentConfig, WorkflowOption } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
-type SubView = { kind: 'list' } | { kind: 'garment-type'; sub: GarmentType };
-type ConfirmDeleteGT =
-  | { type: 'garment-type'; id: string; label: string }
-  | { type: 'pose'; id: string; label: string };
+type SubView = { kind: 'list' } | { kind: 'configs'; sub: GarmentType };
+type ConfirmDeleteGT = { type: 'garment-type'; id: string; label: string };
 
 const GENDER_TABS = [
   { k: 'all' as const, l: 'All' },
@@ -22,14 +18,10 @@ const GENDER_TABS = [
   { k: 'girls' as const, l: 'Girls' },
 ];
 
-const POSE_PAGE_SIZE = 50;
-
 export function GarmentTypesTab() {
   const {
     genderFilter,
     setGenderFilter,
-    faces,
-    allBackgrounds,
     garmentTypes,
     setGarmentTypes,
     loadGarmentTypes,
@@ -37,27 +29,15 @@ export function GarmentTypesTab() {
     setWorkflows,
     catalogItems,
     loading,
-    setLoading,
     storagePublicUrl,
-    setPreviewUrl,
     toast,
   } = useAssetsContext();
 
   const [subView, setSubView] = useState<SubView>({ kind: 'list' });
-  const [poses, setPoses] = useState<ModelPose[]>([]);
-  const [filterFace, setFilterFace] = useState('');
-  const [filterBg, setFilterBg] = useState('');
-  const [filterPose, setFilterPose] = useState('');
-  const [poseSearch, setPoseSearch] = useState('');
-  const [poseSortKey, setPoseSortKey] = useState<'label' | 'sortOrder' | 'createdAt'>('label');
-  const [poseSortDir, setPoseSortDir] = useState<'asc' | 'desc'>('asc');
-  const [posePage, setPosePage] = useState(1);
-  const [selectedPoseIds, setSelectedPoseIds] = useState<string[]>([]);
-  const [confirmBulkDeletePoseIds, setConfirmBulkDeletePoseIds] = useState<string[]>([]);
-  const [bulkWorkflowId, setBulkWorkflowId] = useState('');
-  const [bulkWorkflowing, setBulkWorkflowing] = useState(false);
+  const [poseConfigs, setPoseConfigs] = useState<PoseGarmentConfig[]>([]);
+  const [configsLoading, setConfigsLoading] = useState(false);
+  const [savingConfigId, setSavingConfigId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
-  const [editingPose, setEditingPose] = useState<ModelPose | null>(null);
 
   // Add garment type modal
   const [showSubcatModal, setShowSubcatModal] = useState(false);
@@ -79,193 +59,119 @@ export function GarmentTypesTab() {
   const [editSubcatDefaultLowerId, setEditSubcatDefaultLowerId] = useState<string>('');
   const [editSubcatDefaultShoeId, setEditSubcatDefaultShoeId] = useState<string>('');
 
-  const loadGarmentTypeAssets = useCallback(
+  const loadPoseConfigs = useCallback(
     async (garmentTypeId: string) => {
-      setLoading(true);
+      setConfigsLoading(true);
       try {
-        const [posesRes, wfRes] = await Promise.all([
-          apiFetch<{ items: ModelPose[] }>(`/admin/assets/poses?garmentTypeId=${garmentTypeId}`),
-          apiFetch<WorkflowOption[]>('/admin/workflows'),
-        ]);
-        setPoses(posesRes.items);
-        setWorkflows(wfRes);
+        const res = await apiFetch<{ items: PoseGarmentConfig[] }>(
+          `/admin/assets/garment-types/${garmentTypeId}/pose-configs`,
+        );
+        setPoseConfigs(res.items);
       } catch {
-        toast({ kind: 'error', title: 'Failed to load assets' });
+        toast({ kind: 'error', title: 'Failed to load pose configs' });
       } finally {
-        setLoading(false);
+        setConfigsLoading(false);
       }
     },
-    [toast, setLoading, setWorkflows],
+    [toast],
   );
 
   useEffect(() => {
     if (subView.kind === 'list') {
       void loadGarmentTypes();
     } else {
-      void loadGarmentTypeAssets(subView.sub.id);
+      void loadPoseConfigs(subView.sub.id);
+      if (workflows.length === 0) {
+        void apiFetch<WorkflowOption[]>('/admin/workflows')
+          .then(setWorkflows)
+          .catch(() => {});
+      }
     }
-  }, [subView, loadGarmentTypes, loadGarmentTypeAssets]);
+  }, [subView, loadGarmentTypes, loadPoseConfigs, workflows.length, setWorkflows]);
 
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
       if (subView.kind === 'list') void loadGarmentTypes();
-      else void loadGarmentTypeAssets(subView.sub.id);
+      else void loadPoseConfigs(subView.sub.id);
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [subView, loadGarmentTypes, loadGarmentTypeAssets]);
+  }, [subView, loadGarmentTypes, loadPoseConfigs]);
 
-  const togglePose = async (id: string) => {
-    const item = poses.find((p) => p.id === id);
-    if (!item) return;
-    const next = !item.isActive;
-    setPoses((prev) => prev.map((p) => (p.id === id ? { ...p, isActive: next } : p)));
+  const saveConfig = async (
+    garmentTypeId: string,
+    poseAssetId: string,
+    patch: {
+      workflowTemplateId: string | null;
+      promptGarmentPhase: string | null;
+      promptFacePhase: string | null;
+    },
+  ) => {
+    setSavingConfigId(poseAssetId);
     try {
-      await apiFetch(`/admin/assets/poses/${id}`, {
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ isActive: next }),
+        body: JSON.stringify(patch),
       });
-      toast({ title: `${item.label} ${item.isActive ? 'deactivated' : 'activated'}` });
+      setPoseConfigs((prev) =>
+        prev.map((p) =>
+          p.id === poseAssetId
+            ? {
+                ...p,
+                config:
+                  patch.workflowTemplateId || patch.promptGarmentPhase || patch.promptFacePhase
+                    ? patch
+                    : null,
+              }
+            : p,
+        ),
+      );
+      toast({ title: 'Config saved' });
     } catch {
-      setPoses((prev) => prev.map((p) => (p.id === id ? { ...p, isActive: item.isActive } : p)));
+      toast({ kind: 'error', title: 'Failed to save config' });
+    } finally {
+      setSavingConfigId(null);
+    }
+  };
+
+  const togglePoseActive = async (poseAssetId: string, isActive: boolean) => {
+    setPoseConfigs((prev) => prev.map((p) => (p.id === poseAssetId ? { ...p, isActive } : p)));
+    try {
+      await apiFetch(`/admin/assets/pose-assets/${poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive }),
+      });
+    } catch {
+      setPoseConfigs((prev) =>
+        prev.map((p) => (p.id === poseAssetId ? { ...p, isActive: !isActive } : p)),
+      );
       toast({ kind: 'error', title: 'Failed to update pose' });
     }
   };
 
   const doDelete = async () => {
     if (!confirmDelete) return;
-    const { type, id, label } = confirmDelete;
+    const { id, label } = confirmDelete;
     setConfirmDelete(null);
-    const path =
-      type === 'garment-type'
-        ? `/admin/assets/garment-types/${id}`
-        : `/admin/assets/poses/${id}?force=true`;
     try {
-      await apiFetch(path, { method: 'DELETE' });
-      if (type === 'garment-type') {
-        setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
-        setSubView({ kind: 'list' });
-      } else {
-        setPoses((prev) => prev.filter((p) => p.id !== id));
-      }
+      await apiFetch(`/admin/assets/garment-types/${id}`, { method: 'DELETE' });
+      setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
       toast({ title: `${label} deleted` });
     } catch {
-      toast({ kind: 'error', title: `Failed to delete ${type}` });
+      toast({ kind: 'error', title: 'Failed to delete garment type' });
     }
   };
 
-  const doBulkDeletePoses = async () => {
-    const ids = confirmBulkDeletePoseIds;
-    setConfirmBulkDeletePoseIds([]);
-    if (ids.length === 0) return;
-    try {
-      const res = await apiFetch<{ deleted: number }>('/admin/assets/poses', {
-        method: 'DELETE',
-        body: JSON.stringify({ ids }),
-      });
-      setPoses((prev) => prev.filter((p) => !ids.includes(p.id)));
-      setSelectedPoseIds((prev) => prev.filter((id) => !ids.includes(id)));
-      toast({ title: `Deleted ${res.deleted} pose${res.deleted !== 1 ? 's' : ''}` });
-    } catch {
-      toast({ kind: 'error', title: 'Bulk delete failed' });
-    }
-  };
-
-  const doBulkWorkflow = async () => {
-    if (!bulkWorkflowId || selectedPoseIds.length === 0) return;
-    setBulkWorkflowing(true);
-    try {
-      await apiFetch('/admin/assets/poses/bulk-workflow', {
-        method: 'PATCH',
-        body: JSON.stringify({ ids: selectedPoseIds, workflowTemplateId: bulkWorkflowId }),
-      });
-      const wf = workflows.find((w) => w.id === bulkWorkflowId);
-      setPoses((prev) =>
-        prev.map((p) =>
-          selectedPoseIds.includes(p.id)
-            ? {
-                ...p,
-                workflowTemplateId: bulkWorkflowId,
-                workflowLabel: wf?.label ?? null,
-                showsLower: wf?.lowerNodeId != null,
-                showsShoes: wf?.shoeNodeId != null,
-              }
-            : p,
-        ),
-      );
-      toast({
-        title: `Workflow updated for ${selectedPoseIds.length} pose${selectedPoseIds.length !== 1 ? 's' : ''}`,
-      });
-      setBulkWorkflowId('');
-    } catch {
-      toast({ kind: 'error', title: 'Bulk workflow update failed' });
-    } finally {
-      setBulkWorkflowing(false);
-    }
-  };
-
-  // Derived data
   const filteredGarmentTypes = garmentTypes.filter(
     (s) => genderFilter === 'all' || s.genderSlug === genderFilter,
   );
-
-  const posesInCell = poses.filter(
-    (p) => (!filterFace || p.faceId === filterFace) && (!filterBg || p.backgroundId === filterBg),
-  );
-
-  const poseVariantsInCell = Array.from(
-    new Set(
-      posesInCell
-        .map((p) => p.label.match(/pose(\d+)/i)?.[0]?.toLowerCase())
-        .filter(Boolean) as string[],
-    ),
-  ).sort();
-
-  const visiblePoses = posesInCell
-    .filter((p) => !filterPose || p.label.match(/pose(\d+)/i)?.[0]?.toLowerCase() === filterPose)
-    .filter((p) => !poseSearch || p.label.toLowerCase().includes(poseSearch.toLowerCase()))
-    .sort((a, b) => {
-      let cmp = 0;
-      if (poseSortKey === 'label') cmp = a.label.localeCompare(b.label);
-      else if (poseSortKey === 'sortOrder') cmp = a.sortOrder - b.sortOrder;
-      else cmp = a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0;
-      return poseSortDir === 'asc' ? cmp : -cmp;
-    });
-
-  const poseTotalPages = Math.max(1, Math.ceil(visiblePoses.length / POSE_PAGE_SIZE));
-  const poseClampedPage = Math.min(posePage, poseTotalPages);
-  const pagedPoses = visiblePoses.slice(
-    (poseClampedPage - 1) * POSE_PAGE_SIZE,
-    poseClampedPage * POSE_PAGE_SIZE,
-  );
-
-  const usedFaceIds = new Set(
-    poses.filter((p) => !filterBg || p.backgroundId === filterBg).map((p) => p.faceId),
-  );
-  const usedBgIds = new Set(
-    poses.filter((p) => !filterFace || p.faceId === filterFace).map((p) => p.backgroundId),
-  );
-  const poseFaces = faces.filter((f) => usedFaceIds.has(f.id));
-  const poseBgs = allBackgrounds.filter((b) => usedBgIds.has(b.id));
-
-  const currentSubcatId = subView.kind === 'garment-type' ? subView.sub.id : null;
-  const hasActiveLowerForSubcat =
-    currentSubcatId !== null &&
-    catalogItems.some(
-      (c) => c.type === 'lower' && c.isActive && c.subcategoryIds.includes(currentSubcatId),
-    );
-  const hasActiveShoeForSubcat =
-    currentSubcatId !== null &&
-    catalogItems.some(
-      (c) => c.type === 'shoe' && c.isActive && c.subcategoryIds.includes(currentSubcatId),
-    );
 
   return (
     <>
       <div className="page-head">
         <div>
-          {subView.kind === 'garment-type' && (
+          {subView.kind === 'configs' && (
             <div
               style={{
                 display: 'flex',
@@ -278,10 +184,7 @@ export function GarmentTypesTab() {
             >
               <button
                 className="btn sm ghost"
-                onClick={() => {
-                  setSubView({ kind: 'list' });
-                  setSelectedPoseIds([]);
-                }}
+                onClick={() => setSubView({ kind: 'list' })}
                 style={{ padding: '2px 8px', fontSize: 13 }}
               >
                 Garment Types
@@ -290,13 +193,22 @@ export function GarmentTypesTab() {
               <span>{subView.sub.label}</span>
             </div>
           )}
-          <h1>{subView.kind === 'garment-type' ? subView.sub.label : 'Garment Types'}</h1>
+          <h1>
+            {subView.kind === 'configs' ? `${subView.sub.label} — Pose Configs` : 'Garment Types'}
+          </h1>
           <p className="lede">
-            {subView.kind === 'list'
-              ? 'Garment types. Click to manage assets.'
-              : `Assets for ${subView.sub.genderSlug} / ${subView.sub.slug}. Filter by face or background to slice the tensor.`}
+            {subView.kind === 'configs'
+              ? `Override workflow and prompts per pose for ${subView.sub.genderSlug} / ${subView.sub.slug}.`
+              : 'Garment types used to classify uploads.'}
           </p>
         </div>
+        {subView.kind === 'configs' && (
+          <div className="head-tools">
+            <button className="btn ghost" onClick={() => setSubView({ kind: 'list' })}>
+              <Icon.ArrowLeft /> Back
+            </button>
+          </div>
+        )}
         {subView.kind === 'list' && (
           <div className="head-tools">
             <button
@@ -317,8 +229,21 @@ export function GarmentTypesTab() {
         )}
       </div>
 
-      {/* List view */}
-      {!loading && subView.kind === 'list' && (
+      {/* Pose configs subview */}
+      {subView.kind === 'configs' && (
+        <PoseConfigsPanel
+          sub={subView.sub}
+          items={poseConfigs}
+          loading={configsLoading}
+          savingId={savingConfigId}
+          workflows={workflows}
+          storagePublicUrl={storagePublicUrl}
+          onSave={saveConfig}
+          onToggleActive={togglePoseActive}
+        />
+      )}
+
+      {subView.kind === 'list' && !loading && (
         <>
           <div className="tabs" style={{ marginTop: -8 }}>
             {GENDER_TABS.map((t) => (
@@ -337,7 +262,6 @@ export function GarmentTypesTab() {
                 <tr>
                   <th>Garment Type</th>
                   <th>Gender</th>
-                  <th>Poses</th>
                   <th>Default Lower</th>
                   <th>Default Shoe</th>
                   <th>Active</th>
@@ -349,14 +273,7 @@ export function GarmentTypesTab() {
                   <tr
                     key={sub.id}
                     style={{ cursor: 'pointer' }}
-                    onClick={() => {
-                      setFilterFace('');
-                      setFilterBg('');
-                      setFilterPose('');
-                      setPoseSearch('');
-                      setPosePage(1);
-                      setSubView({ kind: 'garment-type', sub });
-                    }}
+                    onClick={() => setSubView({ kind: 'configs', sub })}
                   >
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -377,9 +294,6 @@ export function GarmentTypesTab() {
                     </td>
                     <td>
                       <span className="badge dot accent">{sub.genderSlug}</span>
-                    </td>
-                    <td>
-                      <span className="mono">{sub.poseCount ?? 0}</span>
                     </td>
                     <td>
                       {(() => {
@@ -517,356 +431,18 @@ export function GarmentTypesTab() {
         </>
       )}
 
-      {/* Poses subview */}
-      {!loading && subView.kind === 'garment-type' && (
-        <>
-          <div
-            style={{
-              display: 'flex',
-              gap: 10,
-              alignItems: 'center',
-              marginTop: 8,
-              marginBottom: 4,
-              flexWrap: 'wrap',
-            }}
-          >
-            <button
-              className="btn sm ghost"
-              onClick={() => setSubView({ kind: 'list' })}
-              style={{ display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              <Icon.Back />
-            </button>
-            <div style={{ width: 1, height: 16, background: 'var(--border)' }} />
-            <input
-              className="input"
-              style={{ minWidth: 160, maxWidth: 220 }}
-              placeholder="Search poses…"
-              value={poseSearch}
-              onChange={(e) => setPoseSearch(e.target.value)}
-            />
-            <select
-              className="select"
-              style={{ minWidth: 150 }}
-              value={filterFace}
-              onChange={(e) => {
-                setFilterFace(e.target.value);
-                setFilterPose('');
-              }}
-            >
-              <option value="">All faces</option>
-              {poseFaces.map((f) => (
-                <option key={f.id} value={f.id}>
-                  [{f.gender}] {f.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="select"
-              style={{ minWidth: 150 }}
-              value={filterBg}
-              onChange={(e) => {
-                setFilterBg(e.target.value);
-                setFilterPose('');
-              }}
-            >
-              <option value="">All backgrounds</option>
-              {poseBgs
-                .slice()
-                .sort((a, b) => a.label.localeCompare(b.label))
-                .map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.label}
-                  </option>
-                ))}
-            </select>
-            <select
-              className="select"
-              style={{ minWidth: 130 }}
-              value={filterPose}
-              disabled={posesInCell.length === 0}
-              onChange={(e) => setFilterPose(e.target.value)}
-            >
-              <option value="">All poses ({posesInCell.length})</option>
-              {poseVariantsInCell.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-            {(filterFace || filterBg || filterPose || poseSearch) && (
-              <button
-                className="btn sm ghost"
-                onClick={() => {
-                  setFilterFace('');
-                  setFilterBg('');
-                  setFilterPose('');
-                  setPoseSearch('');
-                }}
-              >
-                Clear
-              </button>
-            )}
-            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-              <select
-                className="select"
-                style={{ minWidth: 120 }}
-                value={poseSortKey}
-                onChange={(e) =>
-                  setPoseSortKey(e.target.value as 'label' | 'sortOrder' | 'createdAt')
-                }
-              >
-                <option value="label">Name</option>
-                <option value="sortOrder">Sort order</option>
-                <option value="createdAt">Date added</option>
-              </select>
-              <button
-                className="btn sm ghost"
-                title={poseSortDir === 'asc' ? 'Ascending' : 'Descending'}
-                onClick={() => setPoseSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-              >
-                {poseSortDir === 'asc' ? '↑' : '↓'}
-              </button>
-            </div>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-              <button
-                className="btn sm ghost"
-                onClick={() => {
-                  const allVisible = visiblePoses.map((p) => p.id);
-                  const allSelected = allVisible.every((id) => selectedPoseIds.includes(id));
-                  setSelectedPoseIds(allSelected ? [] : allVisible);
-                }}
-              >
-                {visiblePoses.every((p) => selectedPoseIds.includes(p.id)) &&
-                visiblePoses.length > 0
-                  ? 'Deselect all'
-                  : 'Select all'}
-              </button>
-              {selectedPoseIds.length > 0 && (
-                <>
-                  <select
-                    className="select"
-                    style={{ minWidth: 140 }}
-                    value={bulkWorkflowId}
-                    onChange={(e) => setBulkWorkflowId(e.target.value)}
-                  >
-                    <option value="">Change workflow…</option>
-                    {workflows.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    className="btn sm"
-                    disabled={!bulkWorkflowId || bulkWorkflowing}
-                    onClick={() => void doBulkWorkflow()}
-                  >
-                    Apply to {selectedPoseIds.length}
-                  </button>
-                  <button
-                    className="btn sm danger"
-                    onClick={() => setConfirmBulkDeletePoseIds([...selectedPoseIds])}
-                  >
-                    <Icon.Trash /> Delete selected ({selectedPoseIds.length})
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '4px 0 10px' }}>
-            {visiblePoses.length}/{poses.length} poses
-            {poseTotalPages > 1 && ` · page ${poseClampedPage}/${poseTotalPages}`}
-          </p>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-              gap: 14,
-            }}
-          >
-            {pagedPoses.map((pose) => {
-              const faceName = faces.find((f) => f.id === pose.faceId)?.label ?? '?';
-              const bgName = allBackgrounds.find((b) => b.id === pose.backgroundId)?.label ?? '?';
-              const wf = workflows.find((w) => w.id === pose.workflowTemplateId);
-              const hasLower = !!wf?.lowerNodeId;
-              const hasShoe = !!wf?.shoeNodeId;
-              const missingLower = hasLower && !hasActiveLowerForSubcat;
-              const missingShoe = hasShoe && !hasActiveShoeForSubcat;
-              const missingAddons = missingLower || missingShoe;
-              return (
-                <div
-                  key={pose.id}
-                  className="card"
-                  style={{
-                    opacity: pose.isActive ? 1 : 0.6,
-                    padding: 14,
-                    outline: selectedPoseIds.includes(pose.id)
-                      ? '2px solid var(--pink)'
-                      : missingAddons
-                        ? '2px solid #f59e0b'
-                        : undefined,
-                  }}
-                >
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{ position: 'relative', flexShrink: 0 }}>
-                      <AssetThumb
-                        thumbnailKey={pose.thumbnailKey}
-                        r2Key={pose.r2Key}
-                        label={pose.label}
-                        w={64}
-                        h={88}
-                        storageBase={storagePublicUrl}
-                        onPreview={setPreviewUrl}
-                      />
-                      <input
-                        type="checkbox"
-                        checked={selectedPoseIds.includes(pose.id)}
-                        onChange={(e) =>
-                          setSelectedPoseIds((prev) =>
-                            e.target.checked
-                              ? [...prev, pose.id]
-                              : prev.filter((id) => id !== pose.id),
-                          )
-                        }
-                        style={{
-                          position: 'absolute',
-                          top: 4,
-                          left: 4,
-                          width: 15,
-                          height: 15,
-                          cursor: 'pointer',
-                          accentColor: 'var(--pink)',
-                        }}
-                      />
-                    </div>
-                    <div style={{ marginTop: 4, minWidth: 0 }}>
-                      <span className="semi" style={{ fontSize: 13 }}>
-                        {pose.label}
-                      </span>
-                      <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                        <span className="badge dot">{faceName}</span>
-                        <span className="badge dot">{bgName}</span>
-                        {pose.workflowLabel && (
-                          <span className="badge dot accent">{pose.workflowLabel}</span>
-                        )}
-                        {hasLower && !missingLower && (
-                          <span
-                            className="badge dot"
-                            style={{ background: '#d1fae5', color: '#065f46' }}
-                            title="Lower garment items assigned"
-                          >
-                            lower ✓
-                          </span>
-                        )}
-                        {hasShoe && !missingShoe && (
-                          <span
-                            className="badge dot"
-                            style={{ background: '#dbeafe', color: '#1e3a8a' }}
-                            title="Shoes items assigned"
-                          >
-                            shoes ✓
-                          </span>
-                        )}
-                        {missingLower && (
-                          <span
-                            className="badge dot"
-                            style={{ background: '#fef3c7', color: '#92400e' }}
-                            title="Workflow requires lower garment but no lower items assigned"
-                          >
-                            ⚠ lower missing
-                          </span>
-                        )}
-                        {missingShoe && (
-                          <span
-                            className="badge dot"
-                            style={{ background: '#fef3c7', color: '#92400e' }}
-                            title="Workflow requires shoes but no shoe items assigned"
-                          >
-                            ⚠ shoes missing
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div
-                    style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <Switch checked={pose.isActive} onChange={() => togglePose(pose.id)} />
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button
-                          className="btn sm ghost"
-                          title="Edit prompt & workflow"
-                          onClick={() => setEditingPose(pose)}
-                        >
-                          <Icon.Edit />
-                        </button>
-                        <button
-                          className="btn sm ghost"
-                          onClick={() =>
-                            setConfirmDelete({ type: 'pose', id: pose.id, label: pose.label })
-                          }
-                        >
-                          <Icon.Trash />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            {visiblePoses.length === 0 && (
-              <div
-                style={{
-                  gridColumn: '1 / -1',
-                  textAlign: 'center',
-                  color: 'var(--muted)',
-                  padding: '2rem',
-                }}
-              >
-                {poses.length === 0
-                  ? 'No poses yet. Upload poses to get started.'
-                  : 'No poses match current filters.'}
-              </div>
-            )}
-          </div>
-          {poseTotalPages > 1 && (
-            <Pager
-              page={poseClampedPage - 1}
-              totalPages={poseTotalPages}
-              onPage={(n) => setPosePage(n + 1)}
-              totalItems={visiblePoses.length}
-              pageSize={POSE_PAGE_SIZE}
-            />
-          )}
-        </>
-      )}
-
       {/* ── Modals ── */}
 
       {confirmDelete && (
         <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <h3>Delete {confirmDelete.type === 'garment-type' ? 'garment type' : 'pose'}</h3>
+              <h3>Delete garment type</h3>
             </div>
             <div className="modal-body">
               <p>
                 Delete <strong>{confirmDelete.label}</strong>? This cannot be undone.
               </p>
-              {confirmDelete.type === 'garment-type' && (
-                <p style={{ color: 'var(--danger)', marginTop: 8 }}>
-                  All related poses and templates will also be deleted.
-                </p>
-              )}
             </div>
             <div className="modal-foot">
               <button className="btn ghost" onClick={() => setConfirmDelete(null)}>
@@ -874,33 +450,6 @@ export function GarmentTypesTab() {
               </button>
               <button className="btn danger" onClick={doDelete}>
                 <Icon.Trash /> Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {confirmBulkDeletePoseIds.length > 0 && (
-        <div className="modal-overlay" onClick={() => setConfirmBulkDeletePoseIds([])}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h3>Delete {confirmBulkDeletePoseIds.length} poses</h3>
-            </div>
-            <div className="modal-body">
-              <p>
-                Permanently delete <strong>{confirmBulkDeletePoseIds.length} selected poses</strong>
-                ? This cannot be undone.
-              </p>
-              <p style={{ color: 'var(--danger)', marginTop: 8 }}>
-                Warning: poses referenced by existing jobs will still be deleted (force).
-              </p>
-            </div>
-            <div className="modal-foot">
-              <button className="btn ghost" onClick={() => setConfirmBulkDeletePoseIds([])}>
-                Cancel
-              </button>
-              <button className="btn danger" onClick={doBulkDeletePoses}>
-                <Icon.Trash /> Delete {confirmBulkDeletePoseIds.length} poses
               </button>
             </div>
           </div>
@@ -1228,8 +777,7 @@ export function GarmentTypesTab() {
                       (c) =>
                         c.type === 'lower' &&
                         c.isActive &&
-                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug) &&
-                        c.subcategoryIds.includes(editingSubcat.id),
+                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug),
                     )
                     .map((c) => (
                       <button
@@ -1328,8 +876,7 @@ export function GarmentTypesTab() {
                       (c) =>
                         c.type === 'shoe' &&
                         c.isActive &&
-                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug) &&
-                        c.subcategoryIds.includes(editingSubcat.id),
+                        (!c.genderSlug || c.genderSlug === editingSubcat.genderSlug),
                     )
                     .map((c) => (
                       <button
@@ -1540,19 +1087,385 @@ export function GarmentTypesTab() {
           </div>
         </div>
       )}
+    </>
+  );
+}
 
-      {editingPose && (
-        <EditPoseModal
-          pose={editingPose}
-          faces={faces}
-          backgrounds={allBackgrounds}
-          workflows={workflows}
-          onSaved={(updated) => {
-            setPoses((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-          }}
-          onClose={() => setEditingPose(null)}
-          toast={toast}
-        />
+// ── PoseConfigsPanel ──────────────────────────────────────────────────────────
+
+interface PoseConfigsPanelProps {
+  sub: GarmentType;
+  items: PoseGarmentConfig[];
+  loading: boolean;
+  savingId: string | null;
+  workflows: WorkflowOption[];
+  storagePublicUrl: string | null;
+  onSave: (
+    garmentTypeId: string,
+    poseAssetId: string,
+    patch: {
+      workflowTemplateId: string | null;
+      promptGarmentPhase: string | null;
+      promptFacePhase: string | null;
+    },
+  ) => Promise<void>;
+  onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
+}
+
+function PoseConfigsPanel({
+  sub,
+  items,
+  loading,
+  savingId,
+  workflows,
+  storagePublicUrl,
+  onSave,
+  onToggleActive,
+}: PoseConfigsPanelProps) {
+  const [editing, setEditing] = useState<PoseGarmentConfig | null>(null);
+  const [editWorkflow, setEditWorkflow] = useState('');
+  const [editGarmentPrompt, setEditGarmentPrompt] = useState('');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkWorkflow, setBulkWorkflow] = useState('');
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  const toggleSelect = (id: string) =>
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const selectAll = () => setSelectedIds(items.map((i) => i.id));
+  const clearSelection = () => setSelectedIds([]);
+
+  const applyBulkWorkflow = async () => {
+    if (!bulkWorkflow || selectedIds.length === 0) return;
+    setBulkSaving(true);
+    try {
+      await Promise.all(
+        selectedIds.map((id) => {
+          const item = items.find((i) => i.id === id);
+          return onSave(sub.id, id, {
+            workflowTemplateId: bulkWorkflow,
+            promptGarmentPhase: item?.config?.promptGarmentPhase ?? null,
+            promptFacePhase: null,
+          });
+        }),
+      );
+      clearSelection();
+      setBulkWorkflow('');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const openEdit = (item: PoseGarmentConfig) => {
+    setEditing(item);
+    setEditWorkflow(item.config?.workflowTemplateId ?? '');
+    // Pre-fill with override if set, else inherit pose default so user edits from it
+    setEditGarmentPrompt(item.config?.promptGarmentPhase ?? item.defaultPromptGarmentPhase ?? '');
+  };
+
+  const closeEdit = () => {
+    setEditing(null);
+    setEditWorkflow('');
+    setEditGarmentPrompt('');
+  };
+
+  const doSave = async () => {
+    if (!editing) return;
+    await onSave(sub.id, editing.id, {
+      workflowTemplateId: editWorkflow || null,
+      promptGarmentPhase: editGarmentPrompt || null,
+      promptFacePhase: null,
+    });
+    closeEdit();
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>Loading…</div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+        No active poses for {sub.genderSlug}.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Bulk action bar */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginTop: 12,
+          marginBottom: 4,
+          flexWrap: 'wrap',
+        }}
+      >
+        <button
+          className="btn sm ghost"
+          onClick={selectedIds.length === items.length ? clearSelection : selectAll}
+        >
+          {selectedIds.length === items.length ? 'Deselect all' : 'Select all'}
+        </button>
+        {selectedIds.length > 0 && (
+          <>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {selectedIds.length} selected
+            </span>
+            <select
+              className="select"
+              style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+              value={bulkWorkflow}
+              disabled={bulkSaving}
+              onChange={(e) => setBulkWorkflow(e.target.value)}
+            >
+              <option value="">Pick workflow…</option>
+              {workflows.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.label}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn sm primary"
+              disabled={!bulkWorkflow || bulkSaving}
+              onClick={() => void applyBulkWorkflow()}
+            >
+              {bulkSaving ? 'Applying…' : 'Apply workflow'}
+            </button>
+            <button className="btn sm ghost" onClick={clearSelection} disabled={bulkSaving}>
+              Clear
+            </button>
+          </>
+        )}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+          gap: 12,
+          marginTop: 8,
+        }}
+      >
+        {items.map((item) => {
+          const overrideWorkflow = item.config?.workflowTemplateId
+            ? workflows.find((w) => w.id === item.config?.workflowTemplateId)?.label
+            : null;
+          const defaultWorkflow = item.defaultWorkflowTemplateId
+            ? workflows.find((w) => w.id === item.defaultWorkflowTemplateId)?.label
+            : null;
+          const hasOverride = !!item.config;
+
+          return (
+            <div
+              key={item.id}
+              className="card"
+              style={{
+                padding: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                outline: selectedIds.includes(item.id)
+                  ? '2px solid var(--accent)'
+                  : hasOverride
+                    ? '2px solid var(--pink)'
+                    : undefined,
+                opacity: item.isActive ? 1 : 0.55,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--surface2, #1a1a1a)',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  aspectRatio: '3/4',
+                  position: 'relative',
+                }}
+              >
+                <AssetThumb
+                  thumbnailKey={item.thumbnailKey}
+                  label={item.label}
+                  storageBase={storagePublicUrl}
+                  w={160}
+                  h={210}
+                />
+                <input
+                  type="checkbox"
+                  checked={selectedIds.includes(item.id)}
+                  onChange={() => toggleSelect(item.id)}
+                  style={{
+                    position: 'absolute',
+                    top: 6,
+                    left: 6,
+                    width: 15,
+                    height: 15,
+                    cursor: 'pointer',
+                    accentColor: 'var(--pink)',
+                  }}
+                />
+              </div>
+              <div style={{ padding: '8px 8px 10px' }}>
+                <p
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={item.displayName ?? item.label}
+                >
+                  {item.displayName ?? item.label}
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
+                  {overrideWorkflow ? (
+                    <span
+                      className="badge dot accent"
+                      style={{ fontSize: 10 }}
+                      title="Override workflow"
+                    >
+                      {overrideWorkflow}
+                    </span>
+                  ) : defaultWorkflow ? (
+                    <span
+                      className="badge"
+                      style={{ fontSize: 10, opacity: 0.6 }}
+                      title="Default workflow"
+                    >
+                      {defaultWorkflow}
+                    </span>
+                  ) : null}
+                  {hasOverride && (
+                    <span
+                      className="badge dot"
+                      style={{ fontSize: 10, background: 'var(--pink)', color: '#fff' }}
+                    >
+                      overridden
+                    </span>
+                  )}
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 8,
+                  }}
+                >
+                  <Switch
+                    checked={item.isActive}
+                    onChange={() => void onToggleActive(item.id, !item.isActive)}
+                  />
+                  <button
+                    className="btn ghost"
+                    style={{ fontSize: 10, padding: '3px 8px' }}
+                    onClick={() => openEdit(item)}
+                  >
+                    <Icon.Edit /> Edit
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Edit override modal */}
+      {editing && (
+        <div className="modal-overlay" onClick={savingId === editing.id ? undefined : closeEdit}>
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(720px, calc(100vw - 80px))' }}
+          >
+            <div className="modal-head">
+              <h3>{editing.displayName ?? editing.label} — Override</h3>
+              <button
+                className="btn sm ghost"
+                onClick={closeEdit}
+                disabled={savingId === editing.id}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icon.Close />
+              </button>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              <div className="field">
+                <label>Workflow override</label>
+                <select
+                  className="select"
+                  value={editWorkflow}
+                  disabled={savingId === editing.id}
+                  onChange={(e) => setEditWorkflow(e.target.value)}
+                >
+                  <option value="">
+                    Use default (
+                    {editing.defaultWorkflowTemplateId
+                      ? (workflows.find((w) => w.id === editing.defaultWorkflowTemplateId)?.label ??
+                        '?')
+                      : 'none'}
+                    )
+                  </option>
+                  {workflows.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>Positive prompt</label>
+                <textarea
+                  className="input"
+                  rows={10}
+                  placeholder="Inherited from pose"
+                  value={editGarmentPrompt}
+                  disabled={savingId === editing.id}
+                  onChange={(e) => setEditGarmentPrompt(e.target.value)}
+                  style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+                />
+              </div>
+            </div>
+            <div className="modal-foot">
+              {editing.config && (
+                <button
+                  className="btn ghost"
+                  disabled={savingId === editing.id}
+                  style={{ marginRight: 'auto' }}
+                  onClick={() =>
+                    void onSave(sub.id, editing.id, {
+                      workflowTemplateId: null,
+                      promptGarmentPhase: null,
+                      promptFacePhase: null,
+                    }).then(closeEdit)
+                  }
+                >
+                  Clear override
+                </button>
+              )}
+              <button className="btn ghost" onClick={closeEdit} disabled={savingId === editing.id}>
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                disabled={savingId === editing.id}
+                onClick={() => void doSave()}
+              >
+                {savingId === editing.id ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

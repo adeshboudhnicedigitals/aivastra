@@ -22,6 +22,14 @@ interface PresignResult {
   r2Key: string;
   thumbnailUploadUrl: string;
   thumbnailKey: string;
+  [key: string]: string; // extra fields (e.g. faceSideUploadUrl, faceSideR2Key)
+}
+
+export interface SecondaryUpload {
+  label: string;
+  uploadUrlKey: string; // key in presign response containing the PUT URL
+  r2KeyField: string; // key in presign response to pass to confirm body
+  required?: boolean;
 }
 
 interface UploadModalProps {
@@ -31,6 +39,7 @@ interface UploadModalProps {
   confirmPath: string;
   confirmExtra?: Record<string, unknown>;
   fields: FieldDef[];
+  secondaryUpload?: SecondaryUpload;
   onDone: (row: unknown) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
@@ -64,6 +73,7 @@ export function UploadModal({
   confirmPath,
   confirmExtra,
   fields,
+  secondaryUpload,
   onDone,
   onClose,
   toast,
@@ -80,6 +90,7 @@ export function UploadModal({
   });
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+  const [secondaryFile, setSecondaryFile] = useState<File | null>(null);
   const [status, setStatus] = useState<'idle' | 'uploading' | 'confirming'>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +115,10 @@ export function UploadModal({
       setError('Select an image file');
       return;
     }
+    if (secondaryUpload?.required && !secondaryFile) {
+      setError(`${secondaryUpload.label} is required`);
+      return;
+    }
     for (const f of fields) {
       if (f.type === 'text' && f.required && !(values[f.name] as string).trim()) {
         setError(`${f.label} is required`);
@@ -113,24 +128,44 @@ export function UploadModal({
     setError(null);
     setStatus('uploading');
     setProgress(0);
+
+    // Progress budget: main=50%, thumb=20%, secondary=20%, confirm=10%
+    const hasSecondary = !!secondaryUpload && !!secondaryFile;
+    const mainBudget = hasSecondary ? 50 : 65;
+    const thumbBudget = hasSecondary ? 20 : 25;
+
     try {
       const presignRes = await apiFetch<PresignResult>(presignPath, {
         method: 'POST',
         body: JSON.stringify({ contentType: file.type, ...values, ...presignExtra }),
       });
-      await uploadWithProgress(presignRes.uploadUrl, file, (p) => setProgress(Math.round(p * 65)));
+      await uploadWithProgress(presignRes.uploadUrl, file, (p) =>
+        setProgress(Math.round(p * mainBudget)),
+      );
       const thumb = await makeThumbnail(file);
       await uploadWithProgress(presignRes.thumbnailUploadUrl, thumb, (p) =>
-        setProgress(65 + Math.round(p * 25)),
+        setProgress(mainBudget + Math.round(p * thumbBudget)),
       );
-      setStatus('confirming');
-      setProgress(92);
+
       const confirmBody: Record<string, unknown> = {
         ...values,
         ...confirmExtra,
         r2Key: presignRes.r2Key,
         thumbnailKey: presignRes.thumbnailKey,
       };
+
+      if (secondaryUpload && secondaryFile) {
+        const secondaryUploadUrl = presignRes[secondaryUpload.uploadUrlKey];
+        if (secondaryUploadUrl) {
+          await uploadWithProgress(secondaryUploadUrl, secondaryFile, (p) =>
+            setProgress(mainBudget + thumbBudget + Math.round(p * 20)),
+          );
+        }
+        confirmBody[secondaryUpload.r2KeyField] = presignRes[secondaryUpload.r2KeyField];
+      }
+
+      setStatus('confirming');
+      setProgress(92);
       const row = await apiFetch(confirmPath, {
         method: 'POST',
         body: JSON.stringify(confirmBody),
@@ -180,9 +215,9 @@ export function UploadModal({
             </div>
           )}
 
-          {/* File picker */}
+          {/* Primary file picker */}
           <div className="field">
-            <label>Image</label>
+            <label>Display Image</label>
             {preview && (
               <img
                 src={preview}
@@ -206,6 +241,27 @@ export function UploadModal({
               style={{ fontSize: 13 }}
             />
           </div>
+
+          {/* Optional secondary file picker (e.g. ComfyUI-specific image) */}
+          {secondaryUpload && (
+            <div className="field">
+              <label>
+                {secondaryUpload.label}
+                {!secondaryUpload.required && (
+                  <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 4 }}>
+                    (optional — can be set later)
+                  </span>
+                )}
+              </label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={busy}
+                onChange={(e) => setSecondaryFile(e.target.files?.[0] ?? null)}
+                style={{ fontSize: 13 }}
+              />
+            </div>
+          )}
 
           {/* Dynamic fields */}
           {fields.map((f) => (

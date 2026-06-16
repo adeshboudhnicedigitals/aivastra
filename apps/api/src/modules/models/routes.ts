@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
@@ -46,40 +46,27 @@ export async function modelsRoutes(app: FastifyInstance) {
       schema: {
         querystring: z.object({
           gender: z.enum(['men', 'women', 'boys', 'girls']),
-          // When provided, only return faces that have ≥1 active pose for this garment type.
-          // Without this filter, all faces for the gender are shown even if they have no
-          // poses for the selected garment type — the root cause of the filtering bug.
-          garmentTypeId: z.string().uuid().optional(),
         }),
       },
     },
     async (req) => {
-      const { gender, garmentTypeId } = req.query as { gender: string; garmentTypeId?: string };
+      const { gender } = req.query as { gender: string };
 
-      const cols = {
-        id: schema.modelFaces.id,
-        gender: schema.modelFaces.gender,
-        label: schema.modelFaces.label,
-        thumbnailUrl: schema.modelFaces.thumbnailKey,
-      };
-
-      const items = garmentTypeId
-        ? await app.db
-            .selectDistinct(cols)
-            .from(schema.modelFaces)
-            .innerJoin(
-              schema.modelPoses,
-              and(
-                eq(schema.modelPoses.faceId, schema.modelFaces.id),
-                eq(schema.modelPoses.subcategoryId, garmentTypeId),
-                eq(schema.modelPoses.isActive, true),
-              ),
-            )
-            .where(and(eq(schema.modelFaces.gender, gender), eq(schema.modelFaces.isActive, true)))
-        : await app.db
-            .select(cols)
-            .from(schema.modelFaces)
-            .where(and(eq(schema.modelFaces.gender, gender), eq(schema.modelFaces.isActive, true)));
+      const items = await app.db
+        .select({
+          id: schema.modelFaces.id,
+          gender: schema.modelFaces.gender,
+          label: schema.modelFaces.label,
+          thumbnailUrl: schema.modelFaces.thumbnailKey,
+        })
+        .from(schema.modelFaces)
+        .where(
+          and(
+            eq(schema.modelFaces.gender, gender),
+            eq(schema.modelFaces.isActive, true),
+            isNull(schema.modelFaces.deletedAt),
+          ),
+        );
 
       return {
         items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })),
@@ -93,48 +80,12 @@ export async function modelsRoutes(app: FastifyInstance) {
       preHandler: app.requireUser,
       schema: {
         querystring: z.object({
-          faceId: z.string().uuid().optional(),
-          garmentTypeId: z.string().uuid().optional(),
+          gender: z.enum(['men', 'women', 'boys', 'girls']).optional(),
         }),
       },
     },
     async (req) => {
-      const { faceId, garmentTypeId } = req.query as {
-        faceId?: string;
-        garmentTypeId?: string;
-      };
-
-      if (faceId) {
-        // Backgrounds that have ≥1 active pose for this face (and garment type when provided)
-        const backs = await app.db
-          .selectDistinct({
-            id: schema.modelBackgrounds.id,
-            label: schema.modelBackgrounds.label,
-            thumbnailKey: schema.modelBackgrounds.thumbnailKey,
-            isWhiteBg: schema.modelBackgrounds.isWhiteBg,
-          })
-          .from(schema.modelBackgrounds)
-          .innerJoin(
-            schema.modelPoses,
-            and(
-              eq(schema.modelPoses.backgroundId, schema.modelBackgrounds.id),
-              eq(schema.modelPoses.faceId, faceId),
-              eq(schema.modelPoses.isActive, true),
-              ...(garmentTypeId ? [eq(schema.modelPoses.subcategoryId, garmentTypeId)] : []),
-            ),
-          )
-          .where(eq(schema.modelBackgrounds.isActive, true));
-
-        return {
-          items: backs.map((b) => ({
-            id: b.id,
-            label: b.label,
-            thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
-            previewUrl: app.storage.publicUrl(b.thumbnailKey),
-            isWhiteBg: b.isWhiteBg,
-          })),
-        };
-      }
+      const { gender } = req.query as { gender?: string };
 
       const rows = await app.db
         .select({
@@ -144,7 +95,18 @@ export async function modelsRoutes(app: FastifyInstance) {
           isWhiteBg: schema.modelBackgrounds.isWhiteBg,
         })
         .from(schema.modelBackgrounds)
-        .where(eq(schema.modelBackgrounds.isActive, true));
+        .where(
+          and(
+            eq(schema.modelBackgrounds.isActive, true),
+            isNull(schema.modelBackgrounds.deletedAt),
+            gender
+              ? or(
+                  isNull(schema.modelBackgrounds.genderSlug),
+                  eq(schema.modelBackgrounds.genderSlug, gender),
+                )
+              : undefined,
+          ),
+        );
 
       return {
         items: rows.map((b) => ({
@@ -164,49 +126,95 @@ export async function modelsRoutes(app: FastifyInstance) {
       preHandler: app.requireUser,
       schema: {
         querystring: z.object({
-          garmentTypeId: z.string().uuid(),
-          faceId: z.string().uuid(),
-          backgroundId: z.string().uuid(),
+          gender: z.enum(['men', 'women', 'boys', 'girls']),
+          garmentTypeId: z.string().uuid().optional(),
         }),
       },
     },
     async (req) => {
-      const { garmentTypeId, faceId, backgroundId } = req.query as {
-        garmentTypeId: string;
-        faceId: string;
-        backgroundId: string;
+      const { gender, garmentTypeId } = req.query as {
+        gender: string;
+        garmentTypeId?: string;
       };
       const items = await app.db
         .select({
-          id: schema.modelPoses.id,
-          label: schema.modelPoses.label,
-          thumbnailUrl: schema.modelPoses.thumbnailKey,
+          id: schema.modelPoseAssets.id,
+          displayName: schema.modelPoseAssets.displayName,
+          label: schema.modelPoseAssets.label,
+          thumbnailUrl: schema.modelPoseAssets.thumbnailKey,
+          // Default workflow from pose asset
           lowerNodeId: schema.workflowTemplates.lowerNodeId,
           shoeNodeId: schema.workflowTemplates.shoeNodeId,
-          sizeNodeId: schema.workflowTemplates.sizeNodeId,
+          sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
         })
-        .from(schema.modelPoses)
+        .from(schema.modelPoseAssets)
         .leftJoin(
           schema.workflowTemplates,
-          eq(schema.modelPoses.workflowTemplateId, schema.workflowTemplates.id),
+          eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
         )
         .where(
           and(
-            eq(schema.modelPoses.subcategoryId, garmentTypeId),
-            eq(schema.modelPoses.faceId, faceId),
-            eq(schema.modelPoses.backgroundId, backgroundId),
-            eq(schema.modelPoses.isActive, true),
+            eq(schema.modelPoseAssets.genderSlug, gender),
+            eq(schema.modelPoseAssets.isActive, true),
+            isNull(schema.modelPoseAssets.deletedAt),
           ),
+        )
+        .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
+
+      // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes
+      let configMap = new Map<
+        string,
+        { lowerNodeId: string | null; shoeNodeId: string | null; sizeNodeIds: string[] | null }
+      >();
+      if (garmentTypeId && items.length > 0) {
+        const poseIds = items.map((i) => i.id);
+        const configs = await app.db
+          .select({
+            poseAssetId: schema.poseGarmentConfigs.poseAssetId,
+            lowerNodeId: schema.workflowTemplates.lowerNodeId,
+            shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+          })
+          .from(schema.poseGarmentConfigs)
+          .leftJoin(
+            schema.workflowTemplates,
+            eq(schema.poseGarmentConfigs.workflowTemplateId, schema.workflowTemplates.id),
+          )
+          .where(
+            and(
+              inArray(schema.poseGarmentConfigs.poseAssetId, poseIds),
+              eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId),
+            ),
+          );
+        configMap = new Map(
+          configs
+            .filter((c) => c.lowerNodeId !== undefined || c.shoeNodeId !== undefined)
+            .map((c) => [
+              c.poseAssetId,
+              {
+                lowerNodeId: c.lowerNodeId ?? null,
+                shoeNodeId: c.shoeNodeId ?? null,
+                sizeNodeIds: c.sizeNodeIds ?? null,
+              },
+            ]),
         );
+      }
+
       return {
-        items: items.map((i) => ({
-          id: i.id,
-          label: i.label,
-          thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl),
-          hasLower: i.lowerNodeId != null,
-          hasShoes: i.shoeNodeId != null,
-          hasAspectRatio: i.sizeNodeId != null,
-        })),
+        items: items.map((i) => {
+          const cfg = configMap.get(i.id);
+          const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
+          const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
+          const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
+          return {
+            id: i.id,
+            label: i.displayName ?? i.label,
+            thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl),
+            hasLower: lowerNodeId != null,
+            hasShoes: shoeNodeId != null,
+            hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
+          };
+        }),
       };
     },
   );

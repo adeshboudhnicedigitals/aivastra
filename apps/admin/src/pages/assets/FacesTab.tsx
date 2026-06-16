@@ -375,6 +375,11 @@ export function FacesTab() {
           presignPath="/admin/assets/faces/presign"
           confirmPath="/admin/assets/faces/confirm"
           fields={FACE_FIELDS}
+          secondaryUpload={{
+            label: 'ComfyUI Face Image',
+            uploadUrlKey: 'faceSideUploadUrl',
+            r2KeyField: 'faceSideR2Key',
+          }}
           onDone={(row) => {
             setShowFaceUpload(false);
             setFaces((prev) => [...prev, row as ModelFace]);

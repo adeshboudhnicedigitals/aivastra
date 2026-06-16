@@ -6,6 +6,7 @@ export interface ModelFace {
   label: string;
   thumbnailKey: string;
   r2Key: string;
+  faceSideR2Key: string | null;
   isActive: boolean;
   sortOrder: number;
   deletedAt: string | null;
@@ -13,12 +14,12 @@ export interface ModelFace {
   updatedAt: string;
 }
 
-// Global — no faceId
 export interface ModelBackground {
   id: string;
   label: string;
   thumbnailKey: string;
   r2Key: string;
+  bgComfyR2Key: string | null;
   isActive: boolean;
   isWhiteBg: boolean;
   sortOrder: number;
@@ -234,17 +235,33 @@ export interface ModelPoseAsset {
   label: string;
   displayName: string | null;
   r2Key: string;
-  faceSideR2Key: string | null;
-  bgComfyR2Key: string | null;
   thumbnailKey: string;
   genderSlug: string | null;
-  faceId: string | null;
-  backgroundId: string | null;
   workflowTemplateId: string | null;
   promptGarmentPhase: string | null;
+  promptFacePhase: string | null;
   poseVariant: string | null;
+  isActive: boolean;
+  sortOrder: number;
   deletedAt: string | null;
   createdAt: string;
+}
+
+export interface PoseGarmentConfig {
+  id: string;
+  isActive: boolean;
+  defaultWorkflowTemplateId: string | null;
+  defaultPromptGarmentPhase: string | null;
+  defaultPromptFacePhase: string | null;
+  displayName: string | null;
+  label: string;
+  thumbnailKey: string;
+  thumbnailUrl: string;
+  config: {
+    workflowTemplateId: string | null;
+    promptGarmentPhase: string | null;
+    promptFacePhase: string | null;
+  } | null;
 }
 
 export type AdminRole = 'SUPER_ADMIN' | 'MODERATOR' | 'SUPPORT';
