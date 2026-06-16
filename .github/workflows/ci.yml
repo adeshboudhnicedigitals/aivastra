@@ -125,15 +125,15 @@ jobs:
                cd ${DEPLOY_PATH}
                git pull https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git master
 
-               echo '→ applying DB migrations'
-               docker compose -f infra/docker-compose.prod.yml \
-                 --env-file .env.production \
-                 run --rm api pnpm db:migrate
-
                echo '→ building images'
                docker compose -f infra/docker-compose.prod.yml \
                  --env-file .env.production \
                  build
+
+               echo '→ applying DB migrations'
+               docker compose -f infra/docker-compose.prod.yml \
+                 --env-file .env.production \
+                 run --rm api pnpm db:migrate
 
                echo '→ restarting services'
                docker compose -f infra/docker-compose.prod.yml \
