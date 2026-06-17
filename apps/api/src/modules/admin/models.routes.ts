@@ -109,6 +109,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.post(
+    '/admin/assets/faces/:id/presign-side',
+    {
+      preHandler: RW,
+      schema: { params: uuidParam },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const faceSideKey = keys.modelFaceSide(id);
+      const presign = await app.storage.presignPut(faceSideKey, 'image/jpeg', 10_000_000, 300);
+      return { uploadUrl: presign.url, faceSideR2Key: faceSideKey };
+    },
+  );
+
   app.delete(
     '/admin/assets/faces/:id',
     {

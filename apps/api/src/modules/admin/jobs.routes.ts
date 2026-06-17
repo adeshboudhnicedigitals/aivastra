@@ -65,6 +65,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         startedAt: schema.jobs.startedAt,
         completedAt: schema.jobs.completedAt,
         faceLabel: schema.modelFaces.label,
+        faceThumbnailKey: schema.modelFaces.thumbnailKey,
         backgroundLabel: schema.modelBackgrounds.label,
         poseLabel: schema.modelPoseAssets.displayName,
         hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
@@ -93,7 +94,11 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       items: rows.map((r) => ({
         ...r,
         outputUrl: r.outputKey ? app.storage.publicUrl(r.outputKey) : undefined,
+        faceThumbnailUrl: r.faceThumbnailKey
+          ? app.storage.publicUrl(r.faceThumbnailKey)
+          : undefined,
         outputKey: undefined,
+        faceThumbnailKey: undefined,
       })),
     };
   });
@@ -131,6 +136,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           // ComfyUI-actual inputs — mirrors dispatcher's key resolution exactly
           // faceSideKey lives on model_faces, bgComfyKey lives on model_backgrounds
           faceSideKey: schema.modelFaces.faceSideR2Key,
+          faceDisplayKey: schema.modelFaces.r2Key,
           bgComfyKey: schema.modelBackgrounds.bgComfyR2Key,
           bgFallbackKey: schema.modelBackgrounds.r2Key,
           poseKey: schema.modelPoseAssets.r2Key,
@@ -181,6 +187,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         outputUrl: pu(row.outputKey),
         outputKey: undefined,
         faceSideKey: undefined,
+        faceDisplayKey: undefined,
         bgComfyKey: undefined,
         bgFallbackKey: undefined,
         poseKey: undefined,
@@ -190,7 +197,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         shoeCatalogKey: undefined,
         jobParams: undefined,
         inputImages: {
-          face: pu(row.faceSideKey),
+          face: pu(row.faceSideKey ?? row.faceDisplayKey),
           background: pu(bgKey),
           pose: pu(row.poseKey),
           upper: pu(row.upperGarmentKey),
