@@ -51,6 +51,11 @@ export function PoseAssetsTab() {
   const [bulkRenameDisplayName, setBulkRenameDisplayName] = useState('');
   const [bulkRenaming, setBulkRenaming] = useState(false);
 
+  // Bulk workflow state
+  const [showBulkWorkflow, setShowBulkWorkflow] = useState(false);
+  const [bulkWorkflowId, setBulkWorkflowId] = useState('');
+  const [bulkWorkflowSaving, setBulkWorkflowSaving] = useState(false);
+
   // Bulk sort order state
   const [bulkSortStart, setBulkSortStart] = useState(0);
   const [bulkSortSaving, setBulkSortSaving] = useState(false);
@@ -138,6 +143,31 @@ export function PoseAssetsTab() {
       toast({ kind: 'error', title: 'Bulk rename failed' });
     }
     setBulkRenaming(false);
+  };
+
+  const doBulkWorkflow = async () => {
+    if (!bulkWorkflowId || selectedPoseAssetIds.length === 0) return;
+    setBulkWorkflowSaving(true);
+    try {
+      await apiFetch('/admin/assets/pose-assets/bulk-workflow', {
+        method: 'PATCH',
+        body: JSON.stringify({ ids: selectedPoseAssetIds, workflowTemplateId: bulkWorkflowId }),
+      });
+      setPoseAssets((prev) =>
+        prev.map((a) =>
+          selectedPoseAssetIds.includes(a.id) ? { ...a, workflowTemplateId: bulkWorkflowId } : a,
+        ),
+      );
+      toast({
+        title: `Workflow updated for ${selectedPoseAssetIds.length} pose asset${selectedPoseAssetIds.length !== 1 ? 's' : ''}`,
+      });
+      setShowBulkWorkflow(false);
+      setSelectedPoseAssetIds([]);
+    } catch {
+      toast({ kind: 'error', title: 'Bulk workflow update failed' });
+    } finally {
+      setBulkWorkflowSaving(false);
+    }
   };
 
   const doBulkSortOrder = async () => {
@@ -396,6 +426,15 @@ export function PoseAssetsTab() {
                 >
                   <Icon.Edit /> Rename ({selectedPoseAssetIds.length})
                 </button>
+                <button
+                  className="btn sm"
+                  onClick={() => {
+                    setBulkWorkflowId(workflows[0]?.id ?? '');
+                    setShowBulkWorkflow(true);
+                  }}
+                >
+                  <Icon.Workflow /> Workflow ({selectedPoseAssetIds.length})
+                </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     Sort from
@@ -647,6 +686,61 @@ export function PoseAssetsTab() {
                 disabled={deleteConfirmText !== 'move to recycle bin'}
               >
                 <Icon.Trash /> Move to recycle bin ({confirmBulkDeletePoseAssetIds.length})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk workflow change */}
+      {showBulkWorkflow && (
+        <div
+          className="modal-overlay"
+          onClick={() => !bulkWorkflowSaving && setShowBulkWorkflow(false)}
+        >
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 400 }}>
+            <div className="modal-head">
+              <h3>
+                Change workflow for {selectedPoseAssetIds.length} pose asset
+                {selectedPoseAssetIds.length !== 1 ? 's' : ''}
+              </h3>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+            >
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+                Workflow template
+                <select
+                  className="select"
+                  value={bulkWorkflowId}
+                  disabled={bulkWorkflowSaving}
+                  onChange={(e) => setBulkWorkflowId(e.target.value)}
+                >
+                  {workflows.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                disabled={bulkWorkflowSaving}
+                onClick={() => setShowBulkWorkflow(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                disabled={bulkWorkflowSaving || !bulkWorkflowId}
+                onClick={() => void doBulkWorkflow()}
+              >
+                {bulkWorkflowSaving
+                  ? 'Saving…'
+                  : `Apply to ${selectedPoseAssetIds.length} pose${selectedPoseAssetIds.length !== 1 ? 's' : ''}`}
               </button>
             </div>
           </div>
