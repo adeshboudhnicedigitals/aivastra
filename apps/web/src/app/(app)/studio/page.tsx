@@ -21,6 +21,7 @@ import { ErrorState } from '@/components/ui/error-state';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
+import { useVisibleCount } from './use-visible-count';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -371,20 +372,7 @@ export default function StudioPage(): React.ReactElement {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lowerFileInputRef = useRef<HTMLInputElement>(null);
-  const [garmentVisibleCount, setGarmentVisibleCount] = useState(6);
-  const garmentRoRef = useRef<ResizeObserver | null>(null);
-  const garmentRowRef = useCallback((el: HTMLDivElement | null) => {
-    garmentRoRef.current?.disconnect();
-    garmentRoRef.current = null;
-    if (!el) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const w = entry?.contentRect.width ?? 0;
-      const count = Math.max(1, Math.floor((w + 20) / (108.8 + 20)));
-      setGarmentVisibleCount(count);
-    });
-    ro.observe(el);
-    garmentRoRef.current = ro;
-  }, []);
+  const { visibleCount: garmentVisibleCount, rowRef: garmentRowRef } = useVisibleCount(108.8, 20);
 
   const [modelFilter, setModelFilter] = useState('All');
   const [faceId, setFaceId] = useState('');
