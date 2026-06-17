@@ -159,6 +159,7 @@ export interface Job {
   completedAt?: string | null;
   errorCode?: string | null;
   faceLabel?: string | null;
+  faceThumbnailUrl?: string | null;
   backgroundLabel?: string | null;
   poseLabel?: string | null;
   hasLower: boolean;

@@ -605,10 +605,32 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       <span className="semi">{j.userEmail ?? '—'}</span>
                     </td>
                     <td>
-                      <span className="semi">{j.faceLabel ?? '—'}</span>
-                      <span className="sub" style={{ display: 'block' }}>
-                        {j.poseLabel ?? '—'}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {j.faceThumbnailUrl && (
+                          // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
+                          <img
+                            src={j.faceThumbnailUrl}
+                            alt=""
+                            style={{
+                              width: 32,
+                              height: 32,
+                              objectFit: 'cover',
+                              borderRadius: 4,
+                              border: '1px solid var(--border)',
+                              flexShrink: 0,
+                            }}
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        )}
+                        <div>
+                          <span className="semi">{j.faceLabel ?? '—'}</span>
+                          <span className="sub" style={{ display: 'block' }}>
+                            {j.poseLabel ?? '—'}
+                          </span>
+                        </div>
+                      </div>
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>

@@ -85,7 +85,7 @@ export async function processJob(
 
   // 2. Resolve face / background / pose IDs → R2 keys
   const [faceRow] = await db
-    .select({ faceSideR2Key: schema.modelFaces.faceSideR2Key })
+    .select({ r2Key: schema.modelFaces.r2Key, faceSideR2Key: schema.modelFaces.faceSideR2Key })
     .from(schema.modelFaces)
     .where(eq(schema.modelFaces.id, inputs.faceId));
   const [bgRow] = await db
@@ -135,12 +135,15 @@ export async function processJob(
     }
   }
 
-  // faceSideR2Key lives on the face row — the ComfyUI-specific face image.
-  // The display face r2Key is UI-only and must never be sent to ComfyUI.
-  const faceSideKey = faceRow.faceSideR2Key;
+  // faceSideR2Key is the preferred ComfyUI-specific face image.
+  // Falls back to r2Key when faceSideR2Key is not set (faces uploaded before the column was added).
+  const faceSideKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
   if (!faceSideKey) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
     return;
+  }
+  if (!faceRow.faceSideR2Key) {
+    jobLog.warn({ faceId: inputs.faceId }, 'faceSideR2Key not set — falling back to display r2Key');
   }
 
   // bgComfyR2Key lives on the background row.
