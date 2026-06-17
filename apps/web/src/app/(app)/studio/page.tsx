@@ -6,7 +6,6 @@ import {
   CheckIcon,
   ImagePlusIcon,
   LightbulbIcon,
-  SearchIcon,
   SparkleIcon,
   SpinnerIcon,
   XIcon,
@@ -17,6 +16,7 @@ import { ErrorState } from '@/components/ui/error-state';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
+import type { GenerationJob } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
 import { SelectGridModal } from './select-modal';
 import { useVisibleCount } from './use-visible-count';
@@ -365,7 +365,6 @@ export default function StudioPage(): React.ReactElement {
   const { visibleCount: poseVisibleCount, rowRef: poseRowRef } = useVisibleCount(215.2, 8);
   const [poseModalOpen, setPoseModalOpen] = useState(false);
 
-  const [modelFilter, setModelFilter] = useState('All');
   const [faceId, setFaceId] = useState('');
   const [backgroundId, setBackgroundId] = useState('');
   const [poseIds, setPoseIds] = useState<string[]>([]);
@@ -382,6 +381,10 @@ export default function StudioPage(): React.ReactElement {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  const [activeGeneration, setActiveGeneration] = useState<{
+    catalogueId: string;
+    jobs: GenerationJob[];
+  } | null>(null);
   const [toast, setToast] = useState('');
   const showToast = useCallback((m: string) => {
     setToast(m);
@@ -411,12 +414,7 @@ export default function StudioPage(): React.ReactElement {
     staleTime: 60_000,
     refetchOnWindowFocus: true,
   });
-  const filteredFaces = useMemo(() => {
-    if (!faces?.items) return [];
-    return modelFilter === 'All'
-      ? faces.items
-      : faces.items.filter((f) => f.gender === modelFilter);
-  }, [faces?.items, modelFilter]);
+  const filteredFaces = useMemo(() => faces?.items ?? [], [faces?.items]);
   useEffect(() => {
     if (!filteredFaces.length) return;
     if (!filteredFaces.some((f) => f.id === faceId)) {
@@ -583,25 +581,40 @@ export default function StudioPage(): React.ReactElement {
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
-      const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
-        inputs: {
-          upperGarmentKey: garmentKey,
-          faceId,
-          backgroundId,
-          poseIds,
-          garmentTypeId: garmentTypeId || undefined,
-          lowerCatalogId: effectiveLowerId,
-          lowerGarmentKey: lowerGarmentKey || undefined,
-          shoeCatalogId: effectiveShoesId,
+      const { catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(
+        '/v1/jobs/tryon',
+        {
+          inputs: {
+            upperGarmentKey: garmentKey,
+            faceId,
+            backgroundId,
+            poseIds,
+            garmentTypeId: garmentTypeId || undefined,
+            lowerCatalogId: effectiveLowerId,
+            lowerGarmentKey: lowerGarmentKey || undefined,
+            shoeCatalogId: effectiveShoesId,
+          },
+          aspectRatio: aspect,
+          resolution,
+          ...(effectivePlatform ? { platform: effectivePlatform } : {}),
         },
-        aspectRatio: aspect,
-        resolution,
-        ...(effectivePlatform ? { platform: effectivePlatform } : {}),
-      });
+      );
       // Credits were deducted server-side — refresh balance + catalogues list.
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
-      router.push(`/catalogues/${catalogueId}`);
+      setActiveGeneration({
+        catalogueId,
+        jobs: poseIds.map((poseId, i) => {
+          const pose = poses?.items.find((p) => p.id === poseId);
+          return {
+            id: jobIds[i]!,
+            poseId,
+            label: pose?.label ?? `Pose ${i + 1}`,
+            thumbnailUrl: pose?.thumbnailUrl ?? '',
+          };
+        }),
+      });
+      setIsSubmitting(false);
     } catch (e) {
       setSubmitError((e as Error).message);
       setIsSubmitting(false);
@@ -1383,65 +1396,6 @@ export default function StudioPage(): React.ReactElement {
                   </button>
                 )}
               </div>
-              {faces && faces.items.length > 0 && (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 10,
-                    flexWrap: 'wrap',
-                    marginBottom: 16,
-                    alignItems: 'center',
-                  }}
-                >
-                  {['All', ...Array.from(new Set(faces.items.map((f) => f.gender)))].map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => setModelFilter(f)}
-                      style={{
-                        padding: '7px 16px',
-                        borderRadius: 8,
-                        border: 'none',
-                        background: modelFilter === f ? C.text : C.white,
-                        color: modelFilter === f ? C.white : C.text,
-                        fontFamily: 'inherit',
-                        fontSize: 13,
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        boxShadow: modelFilter === f ? 'none' : `0 0 0 1px ${C.border2}`,
-                      }}
-                    >
-                      {f === 'All' ? `All (${faces.items.length})` : f}
-                    </button>
-                  ))}
-                  <div style={{ marginLeft: 'auto', position: 'relative' }}>
-                    <span
-                      style={{
-                        position: 'absolute',
-                        left: 10,
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: C.mid,
-                      }}
-                    >
-                      <SearchIcon />
-                    </span>
-                    <input
-                      placeholder="Search models..."
-                      style={{
-                        paddingLeft: 34,
-                        height: 36,
-                        borderRadius: 8,
-                        border: `1px solid ${C.border2}`,
-                        fontFamily: 'inherit',
-                        fontSize: 13,
-                        outline: 'none',
-                        background: C.white,
-                        width: 200,
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
               {facesError ? (
                 <ErrorState
                   compact
@@ -1480,7 +1434,6 @@ export default function StudioPage(): React.ReactElement {
                   title="Choose your model"
                   items={filteredFaces}
                   selectedIds={faceId ? [faceId] : []}
-                  cardWidth={152.57}
                   cardHeight={190}
                   onSelect={(id) => {
                     handleFaceSelect(id);
@@ -1564,7 +1517,6 @@ export default function StudioPage(): React.ReactElement {
                   title="Select Background"
                   items={backgrounds.items}
                   selectedIds={backgroundId ? [backgroundId] : []}
-                  cardWidth={152.57}
                   cardHeight={150}
                   onSelect={(id) => {
                     handleBackgroundSelect(id);
@@ -1649,7 +1601,6 @@ export default function StudioPage(): React.ReactElement {
                   items={poses.items}
                   selectedIds={poseIds}
                   multiSelect
-                  cardWidth={152.57}
                   cardHeight={200}
                   onSelect={(id) => handlePoseSelect(id)}
                   onClose={() => setPoseModalOpen(false)}
