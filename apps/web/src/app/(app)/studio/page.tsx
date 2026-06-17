@@ -1,6 +1,5 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckIcon,
@@ -16,7 +15,7 @@ import { ErrorState } from '@/components/ui/error-state';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
-import type { GenerationJob } from './generation-panel';
+import { type GenerationJob, GenerationPanel } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
 import { SelectGridModal } from './select-modal';
 import { useVisibleCount } from './use-visible-count';
@@ -326,7 +325,6 @@ const pill = (active: boolean): React.CSSProperties => ({
   cursor: 'pointer',
 });
 export default function StudioPage(): React.ReactElement {
-  const router = useRouter();
   const qc = useQueryClient();
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
@@ -634,7 +632,10 @@ export default function StudioPage(): React.ReactElement {
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
 
       // Main image: white Amazon-compliant background
-      const { catalogueId } = await api.post<{ catalogueId: string }>('/v1/jobs/tryon', {
+      const { catalogueId, jobIds: mainJobIds } = await api.post<{
+        catalogueId: string;
+        jobIds: string[];
+      }>('/v1/jobs/tryon', {
         inputs: {
           upperGarmentKey: garmentKey,
           faceId,
@@ -652,8 +653,9 @@ export default function StudioPage(): React.ReactElement {
 
       // Remaining poses: same catalogue, original background, no Amazon override
       const remainingPoseIds = poseIds.filter((id) => id !== mainPoseId);
+      let remainingJobIds: string[] = [];
       if (remainingPoseIds.length > 0) {
-        await api.post('/v1/jobs/tryon', {
+        const remaining = await api.post<{ jobIds: string[] }>('/v1/jobs/tryon', {
           catalogueId,
           inputs: {
             upperGarmentKey: garmentKey,
@@ -668,11 +670,26 @@ export default function StudioPage(): React.ReactElement {
           aspectRatio: aspect,
           resolution,
         });
+        remainingJobIds = remaining.jobIds;
       }
 
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
-      router.push(`/catalogues/${catalogueId}`);
+      const orderedPoseIds = [mainPoseId, ...remainingPoseIds];
+      const orderedJobIds = [...mainJobIds, ...remainingJobIds];
+      setActiveGeneration({
+        catalogueId,
+        jobs: orderedPoseIds.map((poseId, i) => {
+          const pose = poses?.items.find((p) => p.id === poseId);
+          return {
+            id: orderedJobIds[i]!,
+            poseId,
+            label: pose?.label ?? `Pose ${i + 1}`,
+            thumbnailUrl: pose?.thumbnailUrl ?? '',
+          };
+        }),
+      });
+      setIsSubmitting(false);
     } catch (e) {
       setSubmitError((e as Error).message);
       setIsSubmitting(false);
@@ -1842,7 +1859,14 @@ export default function StudioPage(): React.ReactElement {
         </div>
 
         <div style={{ width: 480, flexShrink: 0 }}>
-          <PreviewPanel />
+          {activeGeneration ? (
+            <GenerationPanel
+              catalogueId={activeGeneration.catalogueId}
+              jobs={activeGeneration.jobs}
+            />
+          ) : (
+            <PreviewPanel />
+          )}
         </div>
       </div>
 
