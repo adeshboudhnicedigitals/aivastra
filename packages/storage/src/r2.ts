@@ -72,6 +72,14 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
         }),
       );
     },
+    getObject: async (key) => {
+      const res = await s3.send(new GetObjectCommand({ Bucket: cfg.bucket, Key: key }));
+      const chunks: Uint8Array[] = [];
+      for await (const chunk of res.Body as AsyncIterable<Uint8Array>) {
+        chunks.push(chunk);
+      }
+      return Buffer.concat(chunks);
+    },
     publicUrl: (key) => `${cfg.publicUrl.replace(/\/$/, '')}/${key}`,
   };
 }
