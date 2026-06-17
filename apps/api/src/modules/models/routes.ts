@@ -171,6 +171,7 @@ export async function modelsRoutes(app: FastifyInstance) {
         const configs = await app.db
           .select({
             poseAssetId: schema.poseGarmentConfigs.poseAssetId,
+            workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
@@ -186,9 +187,12 @@ export async function modelsRoutes(app: FastifyInstance) {
               eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId),
             ),
           );
+        // Only override lower/shoe/size when the config row actually has a workflow
+        // override set — a prompt-only override (no workflowTemplateId) must fall back
+        // to the pose's own default workflow instead of wiping out hasLower/hasShoes.
         configMap = new Map(
           configs
-            .filter((c) => c.lowerNodeId !== undefined || c.shoeNodeId !== undefined)
+            .filter((c) => c.workflowTemplateId != null)
             .map((c) => [
               c.poseAssetId,
               {
