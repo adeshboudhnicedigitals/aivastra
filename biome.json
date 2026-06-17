@@ -15,7 +15,8 @@
       "!templates",
       "!pnpm-lock.yaml",
       "!docs/*.html",
-      "!Logs-*.json"
+      "!Logs-*.json",
+      "!Two-page design frames/**"
     ]
   },
   "formatter": {
