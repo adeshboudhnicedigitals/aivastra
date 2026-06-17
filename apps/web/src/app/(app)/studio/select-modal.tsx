@@ -16,7 +16,6 @@ interface SelectGridModalProps<T extends SelectableItem> {
   multiSelect?: boolean;
   onSelect: (id: string) => void;
   onClose: () => void;
-  cardWidth?: number;
   cardHeight?: number;
 }
 
@@ -27,7 +26,6 @@ export function SelectGridModal<T extends SelectableItem>({
   multiSelect = false,
   onSelect,
   onClose,
-  cardWidth = 136,
   cardHeight = 148,
 }: SelectGridModalProps<T>) {
   return (
@@ -86,7 +84,7 @@ export function SelectGridModal<T extends SelectableItem>({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: `repeat(auto-fill, ${cardWidth}px)`,
+              gridTemplateColumns: 'repeat(4, 1fr)',
               gap: 16,
             }}
           >
@@ -101,7 +99,7 @@ export function SelectGridModal<T extends SelectableItem>({
                 >
                   <div
                     style={{
-                      width: cardWidth,
+                      width: '100%',
                       height: cardHeight,
                       borderRadius: 8,
                       overflow: 'hidden',
