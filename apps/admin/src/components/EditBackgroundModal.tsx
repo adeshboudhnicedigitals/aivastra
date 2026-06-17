@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
-import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelBackground } from '../types';
 import { Icon } from './Icons';
 
@@ -65,38 +64,29 @@ export function EditBackgroundModal({
       const presign = await apiFetch<{
         uploadUrl: string;
         r2Key: string;
-        thumbnailUploadUrl: string;
-        thumbnailKey: string;
       }>('/admin/assets/backgrounds/presign', {
         method: 'POST',
         body: JSON.stringify({ contentType: replaceFile.type }),
       });
-      const thumb = await makeThumbnail(replaceFile);
-      await Promise.all(
-        [
-          [presign.uploadUrl, replaceFile as Blob],
-          [presign.thumbnailUploadUrl, thumb],
-        ].map(
-          ([url, body]) =>
-            new Promise<void>((res, rej) => {
-              const xhr = new XMLHttpRequest();
-              xhr.open('PUT', url as string);
-              xhr.setRequestHeader('Content-Type', (body as Blob).type);
-              xhr.onload = () => (xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`)));
-              xhr.onerror = () => rej(new Error('Network error'));
-              xhr.send(body as Blob);
-            }),
-        ),
-      );
+      await new Promise<void>((res, rej) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', presign.uploadUrl);
+        xhr.setRequestHeader('Content-Type', replaceFile.type);
+        xhr.onload = () => (xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`)));
+        xhr.onerror = () => rej(new Error('Network error'));
+        xhr.send(replaceFile);
+      });
+      // Server regenerates the thumbnail from the new image on PATCH, deriving the
+      // same key the server computes (r2Key with the extension swapped).
       await apiFetch(`/admin/assets/backgrounds/${background.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ r2Key: presign.r2Key, thumbnailKey: presign.thumbnailKey }),
+        body: JSON.stringify({ r2Key: presign.r2Key }),
       });
       onSaved({
         ...background,
         ...form,
         r2Key: presign.r2Key,
-        thumbnailKey: presign.thumbnailKey,
+        thumbnailKey: presign.r2Key.replace(/\.jpg$/, '.thumb.jpg'),
       });
       setReplaceFile(null);
       setReplacePreview(null);

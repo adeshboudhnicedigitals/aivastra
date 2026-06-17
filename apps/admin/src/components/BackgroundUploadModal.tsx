@@ -1,16 +1,11 @@
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/data';
-import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelBackground } from '../types';
 import { Icon } from './Icons';
 
 interface PresignResult {
   uploadUrl: string;
   r2Key: string;
-  thumbnailUploadUrl: string;
-  thumbnailKey: string;
-  bgComfyUploadUrl: string;
-  bgComfyR2Key: string;
 }
 
 interface Props {
@@ -40,7 +35,6 @@ function uploadFile(url: string, file: Blob, onProgress: (p: number) => void): P
 export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlug = '' }: Props) {
   const [mainFile, setMainFile] = useState<File | null>(null);
   const [mainPreview, setMainPreview] = useState<string | null>(null);
-  const [comfyFile, setComfyFile] = useState<File | null>(null);
   const [label, setLabel] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
   const [genderSlug, setGenderSlug] = useState(defaultGenderSlug);
@@ -78,25 +72,13 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
     setStatus('uploading');
     setProgress(0);
 
-    const hasComfy = !!comfyFile;
-
     try {
       const presign = await apiFetch<PresignResult>('/admin/assets/backgrounds/presign', {
         method: 'POST',
-        body: JSON.stringify({ contentType: mainFile.type, thumbnailContentType: 'image/jpeg' }),
+        body: JSON.stringify({ contentType: mainFile.type }),
       });
 
-      await uploadFile(presign.uploadUrl, mainFile, (p) => setProgress(Math.round(p * 40)));
-      const thumb = await makeThumbnail(mainFile);
-      await uploadFile(presign.thumbnailUploadUrl, thumb, (p) =>
-        setProgress(40 + Math.round(p * 30)),
-      );
-
-      if (hasComfy && comfyFile) {
-        await uploadFile(presign.bgComfyUploadUrl, comfyFile, (p) =>
-          setProgress(70 + Math.round(p * 20)),
-        );
-      }
+      await uploadFile(presign.uploadUrl, mainFile, (p) => setProgress(Math.round(p * 90)));
 
       setStatus('confirming');
       setProgress(92);
@@ -106,8 +88,6 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
         body: JSON.stringify({
           label: label.trim(),
           r2Key: presign.r2Key,
-          thumbnailKey: presign.thumbnailKey,
-          bgComfyR2Key: hasComfy ? presign.bgComfyR2Key : undefined,
           sortOrder,
           genderSlug: genderSlug || undefined,
         }),
@@ -160,7 +140,7 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
 
           <div className="field">
             <label>
-              Display Image <span style={{ color: 'var(--danger)' }}>*</span>
+              Background Image <span style={{ color: 'var(--danger)' }}>*</span>
             </label>
             {mainPreview && (
               <img
@@ -189,22 +169,6 @@ export function BackgroundUploadModal({ onDone, onClose, toast, defaultGenderSlu
                 {mainFile.name} ({(mainFile.size / 1024).toFixed(0)} KB)
               </span>
             )}
-          </div>
-
-          <div className="field">
-            <label>
-              ComfyUI Background Image{' '}
-              <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
-                (optional — can be set later)
-              </span>
-            </label>
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              disabled={busy}
-              onChange={(e) => setComfyFile(e.target.files?.[0] ?? null)}
-              style={{ fontSize: 13 }}
-            />
           </div>
 
           <div className="field">

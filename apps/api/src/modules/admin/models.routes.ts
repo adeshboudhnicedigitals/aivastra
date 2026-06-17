@@ -199,26 +199,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       schema: { body: PresignModelBackgroundBody },
     },
     async (req) => {
-      const { contentType, thumbnailContentType } = req.body as {
-        contentType: string;
-        thumbnailContentType?: string;
-      };
+      const { contentType } = req.body as { contentType: string };
       const newId = randomUUID();
       const r2Key = keys.modelBackground(newId);
-      const thumbKey = keys.modelBackgroundThumb(newId);
-      const bgComfyKey = keys.modelBackgroundComfy(newId);
-      const [main, thumb, bgComfy] = await Promise.all([
-        app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
-        app.storage.presignPut(thumbKey, thumbnailContentType ?? 'image/jpeg', 1_000_000, 300),
-        app.storage.presignPut(bgComfyKey, 'image/jpeg', 10_000_000, 300),
-      ]);
+      const main = await app.storage.presignPut(r2Key, contentType, 10_000_000, 300);
       return {
         uploadUrl: main.url,
         r2Key,
-        thumbnailUploadUrl: thumb.url,
-        thumbnailKey: thumbKey,
-        bgComfyUploadUrl: bgComfy.url,
-        bgComfyR2Key: bgComfyKey,
       };
     },
   );
@@ -233,7 +220,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       const body = req.body as {
         label: string;
         r2Key: string;
-        thumbnailKey: string;
         bgComfyR2Key?: string;
         sortOrder: number;
         genderSlug?: string;
@@ -246,12 +232,18 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           .set({ isWhiteBg: false })
           .where(eq(schema.modelBackgrounds.isWhiteBg, true));
       }
+      // Auto-generate the thumbnail server-side from the already-uploaded display image
+      // instead of trusting a client-supplied thumbnail.
+      const thumbnailKey = body.r2Key.replace(/\.jpg$/, '.thumb.jpg');
+      const buf = await app.storage.getObject(body.r2Key);
+      const thumb = await makeThumb(buf);
+      await app.storage.putObject(thumbnailKey, thumb, 'image/jpeg');
       const [row] = await app.db
         .insert(schema.modelBackgrounds)
         .values({
           label: body.label,
           r2Key: body.r2Key,
-          thumbnailKey: body.thumbnailKey,
+          thumbnailKey,
           bgComfyR2Key: body.bgComfyR2Key ?? null,
           sortOrder: body.sortOrder,
           genderSlug: body.genderSlug ?? null,
@@ -277,6 +269,15 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           .update(schema.modelBackgrounds)
           .set({ isWhiteBg: false })
           .where(eq(schema.modelBackgrounds.isWhiteBg, true));
+      }
+      // If the display image is being replaced, regenerate the thumbnail server-side
+      // from the new image instead of trusting a client-supplied thumbnail.
+      if (typeof body.r2Key === 'string') {
+        const thumbnailKey = body.r2Key.replace(/\.jpg$/, '.thumb.jpg');
+        const buf = await app.storage.getObject(body.r2Key);
+        const thumb = await makeThumb(buf);
+        await app.storage.putObject(thumbnailKey, thumb, 'image/jpeg');
+        body.thumbnailKey = thumbnailKey;
       }
       const [updated] = await app.db
         .update(schema.modelBackgrounds)
