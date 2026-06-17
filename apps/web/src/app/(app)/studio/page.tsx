@@ -374,6 +374,15 @@ export default function StudioPage(): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lowerFileInputRef = useRef<HTMLInputElement>(null);
   const { visibleCount: garmentVisibleCount, rowRef: garmentRowRef } = useVisibleCount(108.8, 20);
+  const { visibleCount: modelVisibleCount, rowRef: modelRowRef } = useVisibleCount(215.2, 16);
+  const [modelModalOpen, setModelModalOpen] = useState(false);
+  const { visibleCount: backgroundVisibleCount, rowRef: backgroundRowRef } = useVisibleCount(
+    215.2,
+    16,
+  );
+  const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
+  const { visibleCount: poseVisibleCount, rowRef: poseRowRef } = useVisibleCount(215.2, 8);
+  const [poseModalOpen, setPoseModalOpen] = useState(false);
 
   const [modelFilter, setModelFilter] = useState('All');
   const [faceId, setFaceId] = useState('');
@@ -1420,7 +1429,33 @@ export default function StudioPage(): React.ReactElement {
         {/* ── Step 1: Model ── */}
         {step === 1 && (
           <section>
-            <SectionHead title="Choose your model" />
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 14,
+              }}
+            >
+              <SectionHead title="Choose your model" />
+              {filteredFaces.length > modelVisibleCount && (
+                <button
+                  onClick={() => setModelModalOpen(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    height: 16,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>View more</span>
+                </button>
+              )}
+            </div>
             {faces && faces.items.length > 0 && (
               <div
                 style={{
@@ -1499,28 +1534,33 @@ export default function StudioPage(): React.ReactElement {
                 <SpinnerIcon />
               </div>
             ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, 215.2px)',
-                  gap: 16,
-                  width: '100%',
-                }}
-              >
-                {faces.items
-                  .filter((f) => modelFilter === 'All' || f.gender === modelFilter)
-                  .map((f) => (
-                    <SelCard
-                      key={f.id}
-                      selected={faceId === f.id}
-                      onClick={() => handleFaceSelect(f.id)}
-                      imageUrl={f.thumbnailUrl}
-                      label={f.label}
-                      w={215.2}
-                      h={212.67}
-                    />
-                  ))}
+              <div ref={modelRowRef} style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                {filteredFaces.slice(0, modelVisibleCount).map((f) => (
+                  <SelCard
+                    key={f.id}
+                    selected={faceId === f.id}
+                    onClick={() => handleFaceSelect(f.id)}
+                    imageUrl={f.thumbnailUrl}
+                    label={f.label}
+                    w={215.2}
+                    h={212.67}
+                  />
+                ))}
               </div>
+            )}
+            {modelModalOpen && faces && (
+              <SelectGridModal
+                title="Choose your model"
+                items={filteredFaces}
+                selectedIds={faceId ? [faceId] : []}
+                cardWidth={152.57}
+                cardHeight={190}
+                onSelect={(id) => {
+                  handleFaceSelect(id);
+                  setModelModalOpen(false);
+                }}
+                onClose={() => setModelModalOpen(false)}
+              />
             )}
           </section>
         )}
@@ -1528,7 +1568,33 @@ export default function StudioPage(): React.ReactElement {
         {/* ── Step 2: Background ── */}
         {step === 2 && (
           <section>
-            <SectionHead title="Select Background" />
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 14,
+              }}
+            >
+              <SectionHead title="Select Background" />
+              {(backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
+                <button
+                  onClick={() => setBackgroundModalOpen(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer',
+                    height: 16,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>View more</span>
+                </button>
+              )}
+            </div>
             {backgroundsError ? (
               <ErrorState
                 compact
@@ -1552,15 +1618,8 @@ export default function StudioPage(): React.ReactElement {
                 No backgrounds available for this model yet. Try a different model.
               </p>
             ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, 215.2px)',
-                  gap: 16,
-                  width: '100%',
-                }}
-              >
-                {backgrounds.items.map((b) => (
+              <div ref={backgroundRowRef} style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                {backgrounds.items.slice(0, backgroundVisibleCount).map((b) => (
                   <SelCard
                     key={b.id}
                     selected={backgroundId === b.id}
@@ -1573,6 +1632,20 @@ export default function StudioPage(): React.ReactElement {
                 ))}
               </div>
             )}
+            {backgroundModalOpen && backgrounds && (
+              <SelectGridModal
+                title="Select Background"
+                items={backgrounds.items}
+                selectedIds={backgroundId ? [backgroundId] : []}
+                cardWidth={152.57}
+                cardHeight={150}
+                onSelect={(id) => {
+                  handleBackgroundSelect(id);
+                  setBackgroundModalOpen(false);
+                }}
+                onClose={() => setBackgroundModalOpen(false)}
+              />
+            )}
           </section>
         )}
 
@@ -1580,7 +1653,35 @@ export default function StudioPage(): React.ReactElement {
         {step === 3 && (
           <>
             <section>
-              <SectionHead title="Choose Poses" />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 14,
+                }}
+              >
+                <SectionHead title="Choose Poses" />
+                {(poses?.items.length ?? 0) > poseVisibleCount && (
+                  <button
+                    onClick={() => setPoseModalOpen(true)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      cursor: 'pointer',
+                      height: 16,
+                    }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                      View more
+                    </span>
+                  </button>
+                )}
+              </div>
               {posesError ? (
                 <ErrorState
                   compact
@@ -1604,15 +1705,8 @@ export default function StudioPage(): React.ReactElement {
                   No poses for this combination. Go back and try a different background.
                 </p>
               ) : (
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, 215.2px)',
-                    gap: 8,
-                    width: '100%',
-                  }}
-                >
-                  {poses.items.map((p) => (
+                <div ref={poseRowRef} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {poses.items.slice(0, poseVisibleCount).map((p) => (
                     <SelCard
                       key={p.id}
                       selected={poseIds.includes(p.id)}
@@ -1624,6 +1718,18 @@ export default function StudioPage(): React.ReactElement {
                     />
                   ))}
                 </div>
+              )}
+              {poseModalOpen && poses && (
+                <SelectGridModal
+                  title="Choose Poses"
+                  items={poses.items}
+                  selectedIds={poseIds}
+                  multiSelect
+                  cardWidth={152.57}
+                  cardHeight={200}
+                  onSelect={(id) => handlePoseSelect(id)}
+                  onClose={() => setPoseModalOpen(false)}
+                />
               )}
             </section>
 
