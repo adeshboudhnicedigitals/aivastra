@@ -582,6 +582,58 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     },
   );
 
+  // Bulk set workflow template on pose assets
+  app.patch(
+    '/admin/assets/pose-assets/bulk-workflow',
+    {
+      preHandler: RW,
+      schema: {
+        body: z.object({
+          ids: z.array(z.string().uuid()).min(1),
+          workflowTemplateId: z.string().uuid(),
+        }),
+      },
+    },
+    async (req) => {
+      const { ids, workflowTemplateId } = req.body as {
+        ids: string[];
+        workflowTemplateId: string;
+      };
+      const [wf] = await app.db
+        .select({ id: schema.workflowTemplates.id })
+        .from(schema.workflowTemplates)
+        .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+      if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
+      await app.db
+        .update(schema.modelPoseAssets)
+        .set({ workflowTemplateId })
+        .where(inArray(schema.modelPoseAssets.id, ids));
+      return { updated: ids.length };
+    },
+  );
+
+  // Bulk rename display name on pose assets
+  app.patch(
+    '/admin/assets/pose-assets/bulk-rename',
+    {
+      preHandler: RW,
+      schema: {
+        body: z.object({
+          ids: z.array(z.string().uuid()).min(1),
+          displayName: z.string().min(1).max(200),
+        }),
+      },
+    },
+    async (req) => {
+      const { ids, displayName } = req.body as { ids: string[]; displayName: string };
+      await app.db
+        .update(schema.modelPoseAssets)
+        .set({ displayName })
+        .where(inArray(schema.modelPoseAssets.id, ids));
+      return { updated: ids.length };
+    },
+  );
+
   // ── Recycle bin ──────────────────────────────────────────────────────────
 
   app.get('/admin/assets/recycle-bin', { preHandler: RW }, async () => {

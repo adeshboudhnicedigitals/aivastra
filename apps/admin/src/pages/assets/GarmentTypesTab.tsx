@@ -202,13 +202,6 @@ export function GarmentTypesTab() {
               : 'Garment types used to classify uploads.'}
           </p>
         </div>
-        {subView.kind === 'configs' && (
-          <div className="head-tools">
-            <button className="btn ghost" onClick={() => setSubView({ kind: 'list' })}>
-              <Icon.ArrowLeft /> Back
-            </button>
-          </div>
-        )}
         {subView.kind === 'list' && (
           <div className="head-tools">
             <button
@@ -238,6 +231,7 @@ export function GarmentTypesTab() {
           savingId={savingConfigId}
           workflows={workflows}
           storagePublicUrl={storagePublicUrl}
+          onBack={() => setSubView({ kind: 'list' })}
           onSave={saveConfig}
           onToggleActive={togglePoseActive}
         />
@@ -1100,6 +1094,7 @@ interface PoseConfigsPanelProps {
   savingId: string | null;
   workflows: WorkflowOption[];
   storagePublicUrl: string | null;
+  onBack: () => void;
   onSave: (
     garmentTypeId: string,
     poseAssetId: string,
@@ -1119,6 +1114,7 @@ function PoseConfigsPanel({
   savingId,
   workflows,
   storagePublicUrl,
+  onBack,
   onSave,
   onToggleActive,
 }: PoseConfigsPanelProps) {
@@ -1204,45 +1200,51 @@ function PoseConfigsPanel({
           marginTop: 12,
           marginBottom: 4,
           flexWrap: 'wrap',
+          justifyContent: 'space-between',
         }}
       >
-        <button
-          className="btn sm ghost"
-          onClick={selectedIds.length === items.length ? clearSelection : selectAll}
-        >
-          {selectedIds.length === items.length ? 'Deselect all' : 'Select all'}
+        <button className="btn ghost" onClick={onBack}>
+          <Icon.ArrowLeft /> Back
         </button>
-        {selectedIds.length > 0 && (
-          <>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-              {selectedIds.length} selected
-            </span>
-            <select
-              className="select"
-              style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
-              value={bulkWorkflow}
-              disabled={bulkSaving}
-              onChange={(e) => setBulkWorkflow(e.target.value)}
-            >
-              <option value="">Pick workflow…</option>
-              {workflows.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.label}
-                </option>
-              ))}
-            </select>
-            <button
-              className="btn sm primary"
-              disabled={!bulkWorkflow || bulkSaving}
-              onClick={() => void applyBulkWorkflow()}
-            >
-              {bulkSaving ? 'Applying…' : 'Apply workflow'}
-            </button>
-            <button className="btn sm ghost" onClick={clearSelection} disabled={bulkSaving}>
-              Clear
-            </button>
-          </>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            className="btn sm ghost"
+            onClick={selectedIds.length === items.length ? clearSelection : selectAll}
+          >
+            {selectedIds.length === items.length ? 'Deselect all' : 'Select all'}
+          </button>
+          {selectedIds.length > 0 && (
+            <>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {selectedIds.length} selected
+              </span>
+              <select
+                className="select"
+                style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+                value={bulkWorkflow}
+                disabled={bulkSaving}
+                onChange={(e) => setBulkWorkflow(e.target.value)}
+              >
+                <option value="">Pick workflow…</option>
+                {workflows.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                className="btn sm primary"
+                disabled={!bulkWorkflow || bulkSaving}
+                onClick={() => void applyBulkWorkflow()}
+              >
+                {bulkSaving ? 'Applying…' : 'Apply workflow'}
+              </button>
+              <button className="btn sm ghost" onClick={clearSelection} disabled={bulkSaving}>
+                Clear
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div
