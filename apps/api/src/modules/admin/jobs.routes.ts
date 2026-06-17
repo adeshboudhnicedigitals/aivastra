@@ -111,6 +111,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const { id } = req.params as any;
       const lowerCatalog = aliasedTable(schema.catalogItems, 'lower_catalog');
       const shoeCatalog = aliasedTable(schema.catalogItems, 'shoe_catalog');
+      const defaultWorkflow = aliasedTable(schema.workflowTemplates, 'default_workflow');
+      const overrideWorkflow = aliasedTable(schema.workflowTemplates, 'override_workflow');
 
       const [row] = await app.db
         .select({
@@ -145,6 +147,8 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           lowerCatalogKey: lowerCatalog.r2Key,
           shoeCatalogKey: shoeCatalog.r2Key,
           jobParams: schema.jobInputs.params,
+          defaultWorkflowLabel: defaultWorkflow.label,
+          overrideWorkflowLabel: overrideWorkflow.label,
         })
         .from(schema.jobs)
         .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
@@ -158,6 +162,21 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
         .leftJoin(lowerCatalog, eq(lowerCatalog.id, schema.jobInputs.lowerCatalogId))
         .leftJoin(shoeCatalog, eq(shoeCatalog.id, schema.jobInputs.shoeCatalogId))
+        .leftJoin(
+          defaultWorkflow,
+          eq(defaultWorkflow.id, schema.modelPoseAssets.workflowTemplateId),
+        )
+        .leftJoin(
+          schema.poseGarmentConfigs,
+          and(
+            eq(schema.poseGarmentConfigs.poseAssetId, schema.jobInputs.poseId),
+            eq(schema.poseGarmentConfigs.subcategoryId, schema.jobInputs.garmentTypeId),
+          ),
+        )
+        .leftJoin(
+          overrideWorkflow,
+          eq(overrideWorkflow.id, schema.poseGarmentConfigs.workflowTemplateId),
+        )
         .where(eq(schema.jobs.id, id));
 
       if (!row) throw new AppError('NOT_FOUND', 404, 'job not found');
@@ -196,6 +215,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         lowerCatalogKey: undefined,
         shoeCatalogKey: undefined,
         jobParams: undefined,
+        workflowLabel: row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null,
+        defaultWorkflowLabel: undefined,
+        overrideWorkflowLabel: undefined,
         inputImages: {
           face: pu(row.faceSideKey ?? row.faceDisplayKey),
           background: pu(bgKey),

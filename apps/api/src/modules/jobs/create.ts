@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
 import { type CreateTryOnJobRequest, RESOLUTION_COSTS, type Resolution } from '@aivastra/types';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { aliasedTable, and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -91,19 +91,46 @@ export async function createJob(
   // Validate that workflow-required inputs are present for every selected pose.
   // If a pose's workflow has a lower garment node → lowerCatalogId is mandatory.
   // Same for shoes. This mirrors what the studio UI shows based on hasLower/hasShoes.
-  const poseWorkflows = await app.db
+  // A per-garment-type pose_garment_configs override (when one exists with a
+  // workflowTemplateId set) takes priority over the pose's own default workflow —
+  // must match the resolution used by /v1/models/poses and the dispatcher exactly,
+  // otherwise the UI and the server disagree on what's required.
+  const defaultWorkflow = aliasedTable(schema.workflowTemplates, 'default_workflow');
+  const overrideWorkflow = aliasedTable(schema.workflowTemplates, 'override_workflow');
+  const poseWorkflowRows = await app.db
     .select({
       poseId: schema.modelPoseAssets.id,
-      lowerNodeId: schema.workflowTemplates.lowerNodeId,
-      shoeNodeId: schema.workflowTemplates.shoeNodeId,
-      sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+      defaultLowerNodeId: defaultWorkflow.lowerNodeId,
+      defaultShoeNodeId: defaultWorkflow.shoeNodeId,
+      defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
+      configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+      overrideLowerNodeId: overrideWorkflow.lowerNodeId,
+      overrideShoeNodeId: overrideWorkflow.shoeNodeId,
+      overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
     })
     .from(schema.modelPoseAssets)
+    .leftJoin(defaultWorkflow, eq(schema.modelPoseAssets.workflowTemplateId, defaultWorkflow.id))
     .leftJoin(
-      schema.workflowTemplates,
-      eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
+      schema.poseGarmentConfigs,
+      and(
+        eq(schema.poseGarmentConfigs.poseAssetId, schema.modelPoseAssets.id),
+        garmentTypeId
+          ? eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId)
+          : isNull(schema.poseGarmentConfigs.subcategoryId),
+      ),
+    )
+    .leftJoin(
+      overrideWorkflow,
+      eq(schema.poseGarmentConfigs.workflowTemplateId, overrideWorkflow.id),
     )
     .where(inArray(schema.modelPoseAssets.id, poseIds));
+
+  const poseWorkflows = poseWorkflowRows.map((r) => ({
+    poseId: r.poseId,
+    lowerNodeId: r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
+    shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+    sizeNodeIds: r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
+  }));
 
   // Build map for O(1) lookup in the insert loop
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));

@@ -41,6 +41,7 @@ interface InputImages {
 interface JobDetail extends Job {
   events?: JobEvent[];
   inputImages?: InputImages;
+  workflowLabel?: string | null;
 }
 
 function EventRow({ ev }: { ev: JobEvent }) {
@@ -346,6 +347,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               <KV k="Face" v={j.faceLabel ?? '—'} />
               <KV k="Background" v={j.backgroundLabel ?? '—'} />
               <KV k="Pose" v={j.poseLabel ?? '—'} />
+              <KV k="Workflow" v={j.workflowLabel ?? '—'} />
               <KV k="Worker" v={j.workerId ?? '—'} />
               <KV k="Created" v={fmtTs(j.createdAt)} />
               <KV k="Started" v={fmtTs(j.startedAt)} />
