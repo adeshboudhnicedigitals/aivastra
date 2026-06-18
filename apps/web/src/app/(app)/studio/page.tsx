@@ -438,7 +438,8 @@ export default function StudioPage(): React.ReactElement {
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
   const [amazonPoseModalOpen, setAmazonPoseModalOpen] = useState(false);
   const [amazonMainPoseId, setAmazonMainPoseId] = useState('');
-  const [amazonUseWhiteBg, setAmazonUseWhiteBg] = useState(true);
+  // Bypassed: Amazon no longer forces white bg. Logic kept dormant for future use.
+  const [amazonUseWhiteBg, _setAmazonUseWhiteBg] = useState(false);
 
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
 
@@ -446,7 +447,6 @@ export default function StudioPage(): React.ReactElement {
     setPlatform(p);
     const cfg = BRAND_CONFIG[p];
     if (cfg) setAspect(cfg.default);
-    if (p === 'Amazon') setAmazonUseWhiteBg(true);
   };
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
   const garmentPreviewUrl = useMemo(
@@ -1021,22 +1021,6 @@ export default function StudioPage(): React.ReactElement {
                     </button>
                   ))}
                 </div>
-                {platform === 'Amazon' && (
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button
-                      onClick={() => setAmazonUseWhiteBg(true)}
-                      style={pill(amazonUseWhiteBg)}
-                    >
-                      Main listing
-                    </button>
-                    <button
-                      onClick={() => setAmazonUseWhiteBg(false)}
-                      style={pill(!amazonUseWhiteBg)}
-                    >
-                      Lifestyle
-                    </button>
-                  </div>
-                )}
               </section>
               <section style={{ flex: 1, minWidth: 200 }}>
                 <SectionHead title="Aspect Ratio" />
