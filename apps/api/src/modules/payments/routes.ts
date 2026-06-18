@@ -186,12 +186,16 @@ export async function paymentsRoutes(app: FastifyInstance) {
         razorpaySignature: string;
       };
 
-      // Verify HMAC-SHA256 signature
+      // Verify HMAC-SHA256 signature (constant-time to avoid a timing oracle)
       const expected = createHmac('sha256', RAZORPAY_KEY_SECRET)
         .update(`${razorpayOrderId}|${razorpayPaymentId}`)
         .digest('hex');
 
-      if (expected !== razorpaySignature) {
+      const expectedBuf = Buffer.from(expected);
+      const signatureBuf = Buffer.from(razorpaySignature);
+      const signatureValid =
+        expectedBuf.length === signatureBuf.length && timingSafeEqual(expectedBuf, signatureBuf);
+      if (!signatureValid) {
         throw new AppError('INVALID_SIGNATURE', 400, 'payment signature invalid');
       }
 

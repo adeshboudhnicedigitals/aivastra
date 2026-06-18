@@ -10,7 +10,7 @@ export async function buildTestApp(c: Containers) {
     API_PORT: 0,
     DATABASE_URL: c.pgUrl,
     REDIS_URL: c.redisUrl,
-    JWT_SECRET: 'test-jwt-secret-1234567890',
+    JWT_SECRET: 'test-jwt-secret-0123456789abcdef-32min',
     JWT_EXPIRY: '15m',
     REFRESH_TOKEN_EXPIRY: '7d',
     R2_ENDPOINT: c.r2Endpoint,
@@ -20,7 +20,7 @@ export async function buildTestApp(c: Containers) {
     R2_PUBLIC_URL: c.r2Endpoint + '/' + c.r2Bucket,
     R2_FORCE_PATH_STYLE: true,
     CORS_ORIGIN: 'http://localhost:3000',
-    COOKIE_SECRET: 'test-cookie-secret-1234567890',
+    COOKIE_SECRET: 'test-cookie-secret-0123456789abcdef-32min',
   });
   await app.listen({ port: 0 });
   return app;

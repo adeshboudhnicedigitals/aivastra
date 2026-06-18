@@ -232,13 +232,19 @@ export async function processJob(
 
     async function uploadToComfy(key: string, prefix: string): Promise<string> {
       const bytes = await r2Download(key);
-      const ext = key.split('.').pop() ?? 'jpg';
+      // M8: derive the extension from a strict allow-list, never from the raw
+      // key. The filename sent to ComfyUI /upload/image is built only from our
+      // own `prefix` + `jobId` + a known-safe ext, so no key content (path
+      // separators, traversal) can reach the worker filesystem.
+      const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
+      const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
       return uploadImageToComfy(
         w.url,
         workerApiKey,
         bytes,
         `${prefix}_${jobId}.${ext}`,
-        `image/${ext === 'png' ? 'png' : 'jpeg'}`,
+        mime,
         jobLog,
       );
     }

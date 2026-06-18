@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { keys } from '@aivastra/storage';
 import { PresignUploadBody } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
-import { z } from 'zod';
+import type { z } from 'zod';
+
+/** How long an issued upload key stays bound to its user (24h) — covers slow wizard sessions. */
+const UPLOAD_OWNER_TTL_SEC = 24 * 60 * 60;
 
 export async function uploadsRoutes(app: FastifyInstance) {
   app.post(
@@ -21,20 +24,12 @@ export async function uploadsRoutes(app: FastifyInstance) {
         contentLength,
         300,
       );
+      // Bind the issued key to this user so createJob can reject keys the caller
+      // was never granted (prevents using another user's / an internal asset key
+      // as a job input — H2). TTL covers the time a user spends in the wizard
+      // between upload and submit.
+      await app.redis.set(`upload:owner:${r2Key}`, req.userId, 'EX', UPLOAD_OWNER_TTL_SEC);
       return { uploadUrl: url, r2Key, expiresIn };
-    },
-  );
-
-  app.get(
-    '/v1/uploads/thumbnail',
-    {
-      preHandler: app.requireUser,
-      schema: { querystring: z.object({ key: z.string().min(1) }) },
-    },
-    async (req) => {
-      const { key } = req.query as { key: string };
-      const { url, expiresIn } = await app.storage.presignGet(key, 3600);
-      return { thumbnailUrl: url, expiresIn };
     },
   );
 }

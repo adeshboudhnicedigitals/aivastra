@@ -192,9 +192,18 @@ export async function authRoutes(app: FastifyInstance) {
           );
           return { kind: 'reissue', userId: successor.userId } as const;
         }
+        // Reuse of an already-rotated token with NO active successor signals
+        // theft (the legitimate chain would have left a live successor). Revoke
+        // the entire family so a stolen token can't keep the session alive —
+        // forces re-login. (The successor branch above is the benign concurrent-
+        // refresh race and is intentionally not revoked.)
+        await tx
+          .update(schema.refreshTokens)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.refreshTokens.familyId, row.familyId));
         app.log.warn(
           { familyId: row.familyId, generation: row.generation, ageMs },
-          'stale refresh token with no active successor — possible replay attack',
+          'stale refresh token reuse — revoking family (possible theft)',
         );
         return { kind: 'invalid' } as const;
       }
