@@ -491,6 +491,7 @@ export default function StudioPage(): React.ReactElement {
   }, [resolution]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [submitError, setSubmitError] = useState('');
   const [activeGeneration, setActiveGeneration] = useState<{
     catalogueId: string;
@@ -678,6 +679,7 @@ export default function StudioPage(): React.ReactElement {
   const RESOLUTION_COSTS = { HD: 25, '2K': 35, '4K': 40 } as const;
 
   async function handleSubmit() {
+    if (isSubmittingRef.current) return;
     if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0 || !resolution) return;
 
     // Amazon main listing + multiple poses → show picker modal to choose main image.
@@ -688,6 +690,7 @@ export default function StudioPage(): React.ReactElement {
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError('');
     try {
@@ -735,15 +738,19 @@ export default function StudioPage(): React.ReactElement {
           };
         }),
       });
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     } catch (e) {
       setSubmitError((e as Error).message);
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   }
 
   async function submitAmazonPose(mainPoseId: string) {
+    if (isSubmittingRef.current) return;
     setAmazonPoseModalOpen(false);
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError('');
     try {
@@ -812,9 +819,11 @@ export default function StudioPage(): React.ReactElement {
           };
         }),
       });
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     } catch (e) {
       setSubmitError((e as Error).message);
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   }
