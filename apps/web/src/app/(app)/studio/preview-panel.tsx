@@ -2,6 +2,7 @@
 import { SparkleIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 const BENEFITS = ['No photoshoots required', 'No model coordination', 'No editing hassle'];
 
 export function PreviewPanel() {
@@ -48,24 +49,27 @@ export function PreviewPanel() {
             flexDirection: 'column',
             justifyContent: 'space-between',
             alignItems: 'center',
+            overflow: 'hidden',
           }}
         >
           <div
             style={{
               width: '100%',
-              flex: 1,
-              minHeight: 200,
+              aspectRatio: 816 / 421,
+              flexShrink: 0,
               borderRadius: 8,
-              background:
-                'repeating-linear-gradient(135deg, rgb(245,245,246) 0 14px, rgb(239,239,241) 14px 28px)',
+              overflow: 'hidden',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <span style={{ fontFamily: 'monospace', fontSize: 12, color: C.light }}>
-              generated preview
-            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`${BASE}/assets/studio-right-div-placeholder.png`}
+              alt=""
+              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+            />
           </div>
           <div
             style={{

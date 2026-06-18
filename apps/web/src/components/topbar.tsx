@@ -1,4 +1,5 @@
 import { C } from './tokens';
+import { UserMenu } from './user-menu';
 
 export function TopBar({
   title,
@@ -46,7 +47,10 @@ export function TopBar({
           )}
         </div>
       )}
-      {right}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        {right}
+        <UserMenu />
+      </div>
     </div>
   );
 }

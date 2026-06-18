@@ -17,6 +17,8 @@ interface SelectGridModalProps<T extends SelectableItem> {
   onSelect: (id: string) => void;
   onClose: () => void;
   cardHeight?: number;
+  aspect?: number;
+  columns?: number;
 }
 
 export function SelectGridModal<T extends SelectableItem>({
@@ -27,6 +29,8 @@ export function SelectGridModal<T extends SelectableItem>({
   onSelect,
   onClose,
   cardHeight = 148,
+  aspect,
+  columns = 4,
 }: SelectGridModalProps<T>) {
   return (
     <div
@@ -46,10 +50,12 @@ export function SelectGridModal<T extends SelectableItem>({
           background: C.white,
           borderRadius: 12,
           padding: 24,
-          width: 680,
+          width: 1180,
+          height: 857,
           maxWidth: '90vw',
-          maxHeight: '80vh',
-          overflow: 'auto',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          boxSizing: 'border-box',
           boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
         }}
         onClick={(e) => e.stopPropagation()}
@@ -84,7 +90,7 @@ export function SelectGridModal<T extends SelectableItem>({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
+              gridTemplateColumns: `repeat(${columns}, 1fr)`,
               gap: 16,
             }}
           >
@@ -100,7 +106,8 @@ export function SelectGridModal<T extends SelectableItem>({
                   <div
                     style={{
                       width: '100%',
-                      height: cardHeight,
+                      height: aspect ? undefined : cardHeight,
+                      aspectRatio: aspect,
                       borderRadius: 8,
                       overflow: 'hidden',
                       position: 'relative',
