@@ -18,7 +18,11 @@ export interface GenerationPanelProps {
   catalogueId: string;
   jobs: GenerationJob[];
   garmentPreviewUrl?: string;
+  /** Called once when every job in this batch reaches a terminal status. */
+  onAllSettled?: () => void;
 }
+
+const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 
 const STATUS_LABEL: Record<string, string> = {
   QUEUED: 'Queued',
@@ -30,7 +34,12 @@ const STATUS_LABEL: Record<string, string> = {
   CANCELLED: 'Cancelled',
 };
 
-export function GenerationPanel({ catalogueId, jobs, garmentPreviewUrl }: GenerationPanelProps) {
+export function GenerationPanel({
+  catalogueId,
+  jobs,
+  garmentPreviewUrl,
+  onAllSettled,
+}: GenerationPanelProps) {
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
     Object.fromEntries(jobs.map((j) => [j.id, 'QUEUED'])),
   );
@@ -47,6 +56,14 @@ export function GenerationPanel({ catalogueId, jobs, garmentPreviewUrl }: Genera
     if (!jobIds.includes(evt.jobId)) return;
     setStatuses((prev) => ({ ...prev, [evt.jobId]: evt.status }));
   });
+
+  // Notify the parent once every job in this batch has reached a terminal
+  // status, so it can re-enable the Generate button while results still render.
+  useEffect(() => {
+    const allSettled =
+      jobs.length > 0 && jobs.every((j) => TERMINAL_STATUSES.has(statuses[j.id] ?? 'QUEUED'));
+    if (allSettled) onAllSettled?.();
+  }, [jobs, statuses, onAllSettled]);
 
   const completedIds = jobs.filter((j) => statuses[j.id] === 'COMPLETED').map((j) => j.id);
   const resultQueries = useQueries({

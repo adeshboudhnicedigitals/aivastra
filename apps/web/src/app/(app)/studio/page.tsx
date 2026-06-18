@@ -497,6 +497,9 @@ export default function StudioPage(): React.ReactElement {
     catalogueId: string;
     jobs: GenerationJob[];
   } | null>(null);
+  // True from the moment a batch is enqueued until every job in it settles —
+  // keeps Generate disabled while the right panel is still rendering progress.
+  const [generationInProgress, setGenerationInProgress] = useState(false);
   const [toast, setToast] = useState('');
   const showToast = useCallback((m: string) => {
     setToast(m);
@@ -738,6 +741,7 @@ export default function StudioPage(): React.ReactElement {
           };
         }),
       });
+      setGenerationInProgress(true);
       isSubmittingRef.current = false;
       setIsSubmitting(false);
     } catch (e) {
@@ -819,6 +823,7 @@ export default function StudioPage(): React.ReactElement {
           };
         }),
       });
+      setGenerationInProgress(true);
       isSubmittingRef.current = false;
       setIsSubmitting(false);
     } catch (e) {
@@ -839,17 +844,20 @@ export default function StudioPage(): React.ReactElement {
     !!backgroundId &&
     !!resolution &&
     !isUploading &&
-    !isSubmitting;
+    !isSubmitting &&
+    !generationInProgress;
 
-  const generateBlocker = isUploading
-    ? 'Waiting for upload to finish…'
-    : !garmentKey
-      ? 'Upload a garment image first'
-      : poseIds.length === 0
-        ? 'Select at least one pose'
-        : !resolution
-          ? 'Select an output resolution'
-          : '';
+  const generateBlocker = generationInProgress
+    ? 'Generation in progress…'
+    : isUploading
+      ? 'Waiting for upload to finish…'
+      : !garmentKey
+        ? 'Upload a garment image first'
+        : poseIds.length === 0
+          ? 'Select at least one pose'
+          : !resolution
+            ? 'Select an output resolution'
+            : '';
 
   return (
     <>
@@ -2055,7 +2063,7 @@ export default function StudioPage(): React.ReactElement {
                   disabled={!canGenerate}
                   style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}
                 >
-                  {isSubmitting ? (
+                  {isSubmitting || generationInProgress ? (
                     <>
                       <SpinnerIcon size={16} /> Generating…
                     </>
@@ -2080,6 +2088,7 @@ export default function StudioPage(): React.ReactElement {
               catalogueId={activeGeneration.catalogueId}
               jobs={activeGeneration.jobs}
               garmentPreviewUrl={garmentPreviewUrl}
+              onAllSettled={() => setGenerationInProgress(false)}
             />
           ) : (
             <PreviewPanel />
