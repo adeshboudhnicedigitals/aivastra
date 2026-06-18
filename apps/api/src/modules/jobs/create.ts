@@ -9,6 +9,34 @@ import { AppError } from '../../lib/errors.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { promptGuard } from './sanitize.js';
 
+/** Max accepted garment upload size — mirrors the presign zod cap. */
+const MAX_GARMENT_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Reject a garment key that was not presigned for this user. The presign route
+ * records `upload:owner:<key> -> userId`; a key bound to nobody (expired/never
+ * issued) or to another user fails here.
+ *
+ * Also enforces the upload size (M2): the presigned PUT can't bind size at sign
+ * time, so we verify the actually-uploaded object via HEAD before accepting the
+ * job. Doubles as an existence check.
+ */
+async function assertOwnsUploadKey(app: FastifyInstance, userId: string, key: string) {
+  const owner = await app.redis.get(`upload:owner:${key}`);
+  if (owner !== userId) {
+    throw new AppError('FORBIDDEN', 403, 'upload key not owned by caller');
+  }
+  let head: { contentLength: number };
+  try {
+    head = await app.storage.headObject(key);
+  } catch {
+    throw new AppError('BAD_UPLOAD', 400, 'uploaded garment not found');
+  }
+  if (head.contentLength > MAX_GARMENT_BYTES) {
+    throw new AppError('BAD_UPLOAD', 413, 'uploaded garment exceeds size limit');
+  }
+}
+
 export async function createJob(
   app: FastifyInstance,
   userId: string,
@@ -28,6 +56,13 @@ export async function createJob(
   const resolution: Resolution = body.resolution;
   const platform: string | undefined = body.platform;
   const COST = RESOLUTION_COSTS[resolution];
+
+  // H2: keys are format-pinned by zod, but the format alone does not prove the
+  // caller owns the object — another user's key has the same shape. Verify each
+  // garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
+  // before any credit/DB mutation.
+  await assertOwnsUploadKey(app, userId, upperGarmentKey);
+  if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
 
   // Amazon platform requires a white background — override user selection with the
   // background tagged as isWhiteBg in the admin panel.

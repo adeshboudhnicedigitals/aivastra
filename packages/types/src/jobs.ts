@@ -8,16 +8,25 @@ export const RESOLUTION_COSTS = {
 
 export type Resolution = keyof typeof RESOLUTION_COSTS;
 
+/**
+ * Shape of a user-uploaded garment R2 key, exactly as issued by
+ * `/v1/uploads/presign` (`inputs/<uuid>/garment.jpg`). Pinning the format here
+ * rejects arbitrary/traversal keys at the API boundary; ownership of the key is
+ * additionally enforced server-side against the issuing user (see createJob).
+ */
+export const INPUT_GARMENT_KEY =
+  /^inputs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/garment\.jpg$/;
+
 export const CreateTryOnJobRequest = z.object({
   catalogueId: z.string().uuid().optional(),
   inputs: z.object({
-    upperGarmentKey: z.string().min(1).max(512),
+    upperGarmentKey: z.string().regex(INPUT_GARMENT_KEY),
     faceId: z.string().uuid(),
     backgroundId: z.string().uuid(),
     poseIds: z.array(z.string().uuid()).min(1).max(6),
     garmentTypeId: z.string().uuid().optional(),
     lowerCatalogId: z.string().uuid().optional(),
-    lowerGarmentKey: z.string().min(1).max(512).optional(),
+    lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
     shoeCatalogId: z.string().uuid().optional(),
   }),
   params: z

@@ -18,8 +18,10 @@ export const authPlugin = fp(async (app) => {
 
   app.decorate('requireUser', async (req, _reply) => {
     const h = req.headers.authorization;
-    const queryToken = (req.query as Record<string, string | undefined>).token;
-    const token = h?.startsWith('Bearer ') ? h.slice(7) : queryToken;
+    // Header-only: access tokens must never travel in the query string (they leak
+    // into proxy/access logs, browser history, Referer). SSE clients use a
+    // fetch-based reader that sends the Authorization header (see web/admin sse.ts).
+    const token = h?.startsWith('Bearer ') ? h.slice(7) : undefined;
     if (!token) throw new AppError('UNAUTH', 401, 'missing bearer');
     let userId: string;
     try {
@@ -44,8 +46,8 @@ export const authPlugin = fp(async (app) => {
 
   app.decorate('requireAdminUser', async (req, _reply) => {
     const h = req.headers.authorization;
-    const queryToken = (req.query as Record<string, string | undefined>).token;
-    const token = h?.startsWith('Bearer ') ? h.slice(7) : queryToken;
+    // Header-only — see requireUser above.
+    const token = h?.startsWith('Bearer ') ? h.slice(7) : undefined;
     if (!token) throw new AppError('UNAUTH', 401, 'missing bearer');
     let userId: string;
     try {

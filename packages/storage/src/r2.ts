@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -79,6 +80,10 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
         chunks.push(chunk);
       }
       return Buffer.concat(chunks);
+    },
+    headObject: async (key) => {
+      const res = await s3.send(new HeadObjectCommand({ Bucket: cfg.bucket, Key: key }));
+      return { contentLength: res.ContentLength ?? 0, contentType: res.ContentType ?? null };
     },
     publicUrl: (key) => `${cfg.publicUrl.replace(/\/$/, '')}/${key}`,
   };

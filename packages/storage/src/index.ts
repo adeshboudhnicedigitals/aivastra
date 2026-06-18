@@ -13,6 +13,8 @@ export interface StorageProvider {
   deleteObject(key: string): Promise<void>;
   putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   getObject(key: string): Promise<Buffer>;
+  /** Object metadata without downloading the body. Throws if the object is absent. */
+  headObject(key: string): Promise<{ contentLength: number; contentType: string | null }>;
   publicUrl(key: string): string;
 }
 export { keys } from './keys.js';

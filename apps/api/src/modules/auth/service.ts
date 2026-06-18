@@ -36,10 +36,10 @@ export async function signAccess(
   return jwt.sign(secret);
 }
 export async function verifyAccess(secret: Uint8Array, token: string) {
-  return (await jwtVerify(token, secret)).payload;
+  return (await jwtVerify(token, secret, { algorithms: ['HS256'] })).payload;
 }
 export async function verifyAdminAccess(secret: Uint8Array, token: string) {
-  return (await jwtVerify(token, secret, { audience: 'admin' })).payload;
+  return (await jwtVerify(token, secret, { audience: 'admin', algorithms: ['HS256'] })).payload;
 }
 
 export function newRefreshToken(): { plain: string; hash: string } {

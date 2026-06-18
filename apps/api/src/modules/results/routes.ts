@@ -31,30 +31,39 @@ export async function resultsRoutes(app: FastifyInstance) {
     }
   }
 
-  app.post('/results/login', { schema: { body: LoginBody } }, async (req, reply) => {
-    const { email, password } = req.body as any;
-    const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
-    if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
-    if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
-    if (!(await verifyPassword(user.passwordHash, password)))
-      throw new AppError('INVALID', 401, 'invalid credentials');
+  app.post(
+    '/results/login',
+    {
+      schema: { body: LoginBody },
+      // Match /v1/auth/login: tight per-route limit so this admin/results login
+      // isn't left under only the lax global 200/min (argon2 slows but no lockout).
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const { email, password } = req.body as any;
+      const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+      if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
+      if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
+      if (!(await verifyPassword(user.passwordHash, password)))
+        throw new AppError('INVALID', 401, 'invalid credentials');
 
-    const [admin] = await app.db
-      .select()
-      .from(schema.adminUsers)
-      .where(eq(schema.adminUsers.userId, user.id));
-    if (!admin) throw new AppError('FORBIDDEN', 403, 'admin access required');
+      const [admin] = await app.db
+        .select()
+        .from(schema.adminUsers)
+        .where(eq(schema.adminUsers.userId, user.id));
+      if (!admin) throw new AppError('FORBIDDEN', 403, 'admin access required');
 
-    const token = await signAccess(secret, user.id, { kind: 'results', role: admin.role }, '8h');
-    reply.setCookie('results_access_token', token, {
-      httpOnly: true,
-      secure: app.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/results',
-      maxAge: 8 * 60 * 60,
-    });
-    return { ok: true };
-  });
+      const token = await signAccess(secret, user.id, { kind: 'results', role: admin.role }, '8h');
+      reply.setCookie('results_access_token', token, {
+        httpOnly: true,
+        secure: app.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/results',
+        maxAge: 8 * 60 * 60,
+      });
+      return { ok: true };
+    },
+  );
 
   app.post('/results/logout', async (_req, reply) => {
     reply.clearCookie('results_access_token', { path: '/results' });
