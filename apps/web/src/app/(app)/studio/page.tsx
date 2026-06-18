@@ -1519,17 +1519,34 @@ export default function StudioPage(): React.ReactElement {
                 </div>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-                  {filteredFaces.slice(0, modelVisibleCount).map((f) => (
-                    <SelCard
-                      key={f.id}
-                      selected={faceId === f.id}
-                      onClick={() => handleFaceSelect(f.id)}
-                      imageUrl={f.thumbnailUrl}
-                      label={f.label}
-                      w="100%"
-                      ratio={215.2 / 212.67}
-                    />
-                  ))}
+                  {(() => {
+                    const inFirstN = filteredFaces
+                      .slice(0, modelVisibleCount)
+                      .some((f) => f.id === faceId);
+                    const selectedFace = faceId
+                      ? filteredFaces.find((f) => f.id === faceId)
+                      : undefined;
+                    const visibleFaces =
+                      selectedFace && !inFirstN
+                        ? [
+                            selectedFace,
+                            ...filteredFaces
+                              .filter((f) => f.id !== faceId)
+                              .slice(0, modelVisibleCount - 1),
+                          ]
+                        : filteredFaces.slice(0, modelVisibleCount);
+                    return visibleFaces.map((f) => (
+                      <SelCard
+                        key={f.id}
+                        selected={faceId === f.id}
+                        onClick={() => handleFaceSelect(f.id)}
+                        imageUrl={f.thumbnailUrl}
+                        label={f.label}
+                        w="100%"
+                        ratio={215.2 / 212.67}
+                      />
+                    ));
+                  })()}
                 </div>
               )}
               {modelModalOpen && faces && (
@@ -1602,17 +1619,34 @@ export default function StudioPage(): React.ReactElement {
                 </p>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
-                  {backgrounds.items.slice(0, backgroundVisibleCount).map((b) => (
-                    <SelCard
-                      key={b.id}
-                      selected={backgroundId === b.id}
-                      onClick={() => handleBackgroundSelect(b.id)}
-                      imageUrl={b.previewUrl || b.thumbnailUrl}
-                      label={b.label}
-                      w="100%"
-                      ratio={1}
-                    />
-                  ))}
+                  {(() => {
+                    const inFirstN = backgrounds.items
+                      .slice(0, backgroundVisibleCount)
+                      .some((b) => b.id === backgroundId);
+                    const selectedBg = backgroundId
+                      ? backgrounds.items.find((b) => b.id === backgroundId)
+                      : undefined;
+                    const visibleBgs =
+                      selectedBg && !inFirstN
+                        ? [
+                            selectedBg,
+                            ...backgrounds.items
+                              .filter((b) => b.id !== backgroundId)
+                              .slice(0, backgroundVisibleCount - 1),
+                          ]
+                        : backgrounds.items.slice(0, backgroundVisibleCount);
+                    return visibleBgs.map((b) => (
+                      <SelCard
+                        key={b.id}
+                        selected={backgroundId === b.id}
+                        onClick={() => handleBackgroundSelect(b.id)}
+                        imageUrl={b.previewUrl || b.thumbnailUrl}
+                        label={b.label}
+                        w="100%"
+                        ratio={1}
+                      />
+                    ));
+                  })()}
                 </div>
               )}
               {backgroundModalOpen && backgrounds && (
@@ -1686,17 +1720,28 @@ export default function StudioPage(): React.ReactElement {
                 </p>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                  {poses.items.slice(0, poseVisibleCount).map((p) => (
-                    <SelCard
-                      key={p.id}
-                      selected={poseIds.includes(p.id)}
-                      onClick={() => handlePoseSelect(p.id)}
-                      imageUrl={p.thumbnailUrl}
-                      label={p.label}
-                      w="100%"
-                      ratio={215.2 / 282}
-                    />
-                  ))}
+                  {(() => {
+                    const firstN = poses.items.slice(0, poseVisibleCount);
+                    const offScreenSelected = poseIds
+                      .filter((id) => !firstN.some((p) => p.id === id))
+                      .map((id) => poses.items.find((p) => p.id === id))
+                      .filter((p): p is PoseItem => !!p);
+                    const visiblePoses = [...offScreenSelected, ...firstN].slice(
+                      0,
+                      poseVisibleCount,
+                    );
+                    return visiblePoses.map((p) => (
+                      <SelCard
+                        key={p.id}
+                        selected={poseIds.includes(p.id)}
+                        onClick={() => handlePoseSelect(p.id)}
+                        imageUrl={p.thumbnailUrl}
+                        label={p.label}
+                        w="100%"
+                        ratio={215.2 / 282}
+                      />
+                    ));
+                  })()}
                 </div>
               )}
               {poseModalOpen && poses && (
@@ -1793,7 +1838,22 @@ export default function StudioPage(): React.ReactElement {
                           gap: 12,
                         }}
                       >
-                        {lowerNodes.slice(0, lowerVisibleCount).map(renderLowerCard)}
+                        {(() => {
+                          const firstN = lowerNodes.slice(0, lowerVisibleCount);
+                          const selectedNode = lowerCatalogId
+                            ? findNodeForItem(lowerCatalog?.tree ?? [], lowerCatalogId)
+                            : null;
+                          const inFirstN =
+                            !!selectedNode && firstN.some((n) => n.id === selectedNode.id);
+                          const visibleNodes =
+                            selectedNode && !inFirstN
+                              ? [
+                                  selectedNode,
+                                  ...firstN.filter((n) => n.id !== selectedNode.id),
+                                ].slice(0, lowerVisibleCount)
+                              : firstN;
+                          return visibleNodes.map(renderLowerCard);
+                        })()}
                       </div>
                     )}
                   </section>
@@ -1878,7 +1938,22 @@ export default function StudioPage(): React.ReactElement {
                           gap: 12,
                         }}
                       >
-                        {shoeNodes.slice(0, shoeVisibleCount).map(renderShoeCard)}
+                        {(() => {
+                          const firstN = shoeNodes.slice(0, shoeVisibleCount);
+                          const selectedNode = shoeCatalogId
+                            ? findNodeForItem(shoesCatalog?.tree ?? [], shoeCatalogId)
+                            : null;
+                          const inFirstN =
+                            !!selectedNode && firstN.some((n) => n.id === selectedNode.id);
+                          const visibleNodes =
+                            selectedNode && !inFirstN
+                              ? [
+                                  selectedNode,
+                                  ...firstN.filter((n) => n.id !== selectedNode.id),
+                                ].slice(0, shoeVisibleCount)
+                              : firstN;
+                          return visibleNodes.map(renderShoeCard);
+                        })()}
                       </div>
                     )}
                   </section>
