@@ -93,6 +93,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           label: schema.modelBackgrounds.label,
           thumbnailKey: schema.modelBackgrounds.thumbnailKey,
           isWhiteBg: schema.modelBackgrounds.isWhiteBg,
+          categoryId: schema.modelBackgrounds.categoryId,
         })
         .from(schema.modelBackgrounds)
         .where(
@@ -115,6 +116,58 @@ export async function modelsRoutes(app: FastifyInstance) {
           thumbnailUrl: app.storage.publicUrl(b.thumbnailKey),
           previewUrl: app.storage.publicUrl(b.thumbnailKey),
           isWhiteBg: b.isWhiteBg,
+          categoryId: b.categoryId,
+        })),
+      };
+    },
+  );
+
+  app.get(
+    '/v1/models/background-categories',
+    {
+      preHandler: app.requireUser,
+      schema: {
+        querystring: z.object({
+          gender: z.enum(['men', 'women', 'boys', 'girls']).optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { gender } = req.query as { gender?: string };
+
+      const rows = await app.db
+        .select({
+          id: schema.catalogCategories.id,
+          slug: schema.catalogCategories.slug,
+          label: schema.catalogCategories.label,
+          thumbnailKey: schema.catalogCategories.thumbnailKey,
+          genderSlug: schema.catalogCategories.genderSlug,
+          sortOrder: schema.catalogCategories.sortOrder,
+          tag: schema.catalogCategories.tag,
+        })
+        .from(schema.catalogCategories)
+        .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id))
+        .where(
+          and(
+            eq(schema.catalogTypes.slug, 'background'),
+            eq(schema.catalogCategories.isActive, true),
+            gender
+              ? or(
+                  isNull(schema.catalogCategories.genderSlug),
+                  eq(schema.catalogCategories.genderSlug, gender),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(schema.catalogCategories.sortOrder);
+
+      return {
+        items: rows.map((c) => ({
+          id: c.id,
+          slug: c.slug,
+          label: c.label,
+          thumbnailUrl: c.thumbnailKey ? app.storage.publicUrl(c.thumbnailKey) : null,
+          tag: c.tag,
         })),
       };
     },

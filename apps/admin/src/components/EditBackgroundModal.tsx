@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
-import type { ModelBackground } from '../types';
+import type { CatalogCategory, ModelBackground } from '../types';
 import { Icon } from './Icons';
 
 interface Props {
   background: ModelBackground;
+  categories: CatalogCategory[];
   storagePublicUrl: string | null;
   onSaved: (updated: ModelBackground) => void;
   onClose: () => void;
@@ -13,6 +14,7 @@ interface Props {
 
 export function EditBackgroundModal({
   background,
+  categories,
   storagePublicUrl,
   onSaved,
   onClose,
@@ -22,6 +24,7 @@ export function EditBackgroundModal({
     label: background.label,
     sortOrder: background.sortOrder,
     genderSlug: background.genderSlug ?? '',
+    categoryId: background.categoryId,
   });
   const [saving, setSaving] = useState(false);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
@@ -36,6 +39,7 @@ export function EditBackgroundModal({
         label: form.label,
         sortOrder: form.sortOrder,
         genderSlug: form.genderSlug || null,
+        categoryId: form.categoryId,
       };
       await apiFetch(`/admin/assets/backgrounds/${background.id}`, {
         method: 'PATCH',
@@ -46,6 +50,7 @@ export function EditBackgroundModal({
         label: form.label,
         sortOrder: form.sortOrder,
         genderSlug: form.genderSlug || null,
+        categoryId: form.categoryId,
       };
       onSaved(updated);
       toast({ title: `${form.label} updated` });
@@ -153,6 +158,27 @@ export function EditBackgroundModal({
               <option value="women">Women</option>
               <option value="boys">Boys</option>
               <option value="girls">Girls</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Category</label>
+            <select
+              className="select"
+              value={form.categoryId ?? ''}
+              disabled={saving}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  categoryId: e.target.value ? Number(e.target.value) : null,
+                }))
+              }
+            >
+              <option value="">Uncategorized</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
             </select>
           </div>
           <div className="field">

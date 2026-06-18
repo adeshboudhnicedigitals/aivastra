@@ -344,6 +344,20 @@
       "when": 1781600000002,
       "tag": "0048_pose_garment_configs",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1781600000003,
+      "tag": "0049_background_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1781600000004,
+      "tag": "0050_category_tag",
+      "breakpoints": true
     }
   ]
 }

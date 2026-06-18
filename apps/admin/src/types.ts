@@ -20,6 +20,7 @@ export interface ModelBackground {
   thumbnailKey: string;
   r2Key: string;
   bgComfyR2Key: string | null;
+  categoryId: number | null;
   isActive: boolean;
   isWhiteBg: boolean;
   sortOrder: number;
@@ -82,6 +83,8 @@ export interface ModelPose {
   updatedAt: string;
 }
 
+export type CategoryTag = 'featured' | 'trending' | 'popular';
+
 export interface CatalogCategory {
   id: number;
   typeId: number;
@@ -92,6 +95,7 @@ export interface CatalogCategory {
   genderSlug: string | null;
   thumbnailKey: string | null;
   thumbnailUrl: string | null;
+  tag: CategoryTag | null;
   sortOrder: number;
   isActive: boolean;
 }

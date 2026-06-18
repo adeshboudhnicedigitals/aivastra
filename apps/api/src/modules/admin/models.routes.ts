@@ -175,10 +175,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     '/admin/assets/backgrounds',
     {
       preHandler: RW,
-      schema: { querystring: z.object({ genderSlug: z.string().optional() }) },
+      schema: {
+        querystring: z.object({
+          genderSlug: z.string().optional(),
+          categoryId: z.coerce.number().int().optional(),
+          uncategorized: z.coerce.boolean().optional(),
+        }),
+      },
     },
     async (req) => {
-      const { genderSlug } = req.query as { genderSlug?: string };
+      const { genderSlug, categoryId, uncategorized } = req.query as {
+        genderSlug?: string;
+        categoryId?: number;
+        uncategorized?: boolean;
+      };
       const rows = await app.db
         .select()
         .from(schema.modelBackgrounds)
@@ -186,6 +196,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           and(
             isNull(schema.modelBackgrounds.deletedAt),
             genderSlug ? eq(schema.modelBackgrounds.genderSlug, genderSlug) : undefined,
+            categoryId ? eq(schema.modelBackgrounds.categoryId, categoryId) : undefined,
+            uncategorized ? isNull(schema.modelBackgrounds.categoryId) : undefined,
           ),
         );
       return { items: rows };
@@ -224,6 +236,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         sortOrder: number;
         genderSlug?: string;
         isWhiteBg?: boolean;
+        categoryId?: number | null;
       };
       // If marking this background as white, unset all other backgrounds' isWhiteBg first
       if (body.isWhiteBg) {
@@ -248,6 +261,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           sortOrder: body.sortOrder,
           genderSlug: body.genderSlug ?? null,
           isWhiteBg: body.isWhiteBg ?? false,
+          categoryId: body.categoryId ?? null,
         })
         .returning();
       return row;
@@ -332,6 +346,36 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .set({ deletedAt: new Date() })
         .where(inArray(schema.modelBackgrounds.id, ids));
       return { deleted: ids.length };
+    },
+  );
+
+  app.patch(
+    '/admin/assets/backgrounds/bulk',
+    {
+      preHandler: RW,
+      schema: {
+        body: z.object({
+          ids: z.array(z.string().uuid()).min(1),
+          categoryId: z.number().int().positive().nullable().optional(),
+          genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { ids, categoryId, genderSlug } = req.body as {
+        ids: string[];
+        categoryId?: number | null;
+        genderSlug?: string | null;
+      };
+      const patch: Record<string, unknown> = { updatedAt: new Date() };
+      if (categoryId !== undefined) patch.categoryId = categoryId;
+      if (genderSlug !== undefined) patch.genderSlug = genderSlug;
+      // isWhiteBg is intentionally excluded — it must stay unique across all backgrounds.
+      await app.db
+        .update(schema.modelBackgrounds)
+        .set(patch)
+        .where(inArray(schema.modelBackgrounds.id, ids));
+      return { updated: ids.length };
     },
   );
 

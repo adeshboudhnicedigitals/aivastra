@@ -11,7 +11,7 @@ import {
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
-import { catalogItems } from './catalog.js';
+import { catalogCategories, catalogItems } from './catalog.js';
 
 export const modelFaces = pgTable('model_faces', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -34,6 +34,7 @@ export const modelBackgrounds = pgTable('model_backgrounds', {
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
   bgComfyR2Key: text('bg_comfy_r2_key'), // ComfyUI-specific background (moved from model_pose_assets)
+  categoryId: integer('category_id').references(() => catalogCategories.id), // nullable — null means uncategorized (pre-existing backgrounds)
   genderSlug: text('gender_slug'), // nullable — null means shown for all genders
   isActive: boolean('is_active').notNull().default(true),
   isWhiteBg: boolean('is_white_bg').notNull().default(false),

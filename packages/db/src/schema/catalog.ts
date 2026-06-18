@@ -16,6 +16,7 @@ export const catalogCategories = pgTable('catalog_categories', {
   label: text('label').notNull(),
   genderSlug: text('gender_slug'), // nullable — null means all genders
   thumbnailKey: text('thumbnail_key'), // nullable — optional category thumbnail shown in studio
+  tag: text('tag'), // nullable — optional badge: 'featured' | 'trending' | 'popular'
   sortOrder: integer('sort_order').notNull().default(0),
   isActive: boolean('is_active').notNull().default(true),
 });
