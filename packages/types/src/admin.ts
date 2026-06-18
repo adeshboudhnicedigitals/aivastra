@@ -17,6 +17,7 @@ export const UpdateUserBody = z.object({
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
 });
+export const CategoryTag = z.enum(['featured', 'trending', 'popular']);
 export const CreateCategoryBody = z.object({
   typeId: z.number().int().positive(),
   parentId: z.number().int().positive().nullable(),
@@ -24,12 +25,14 @@ export const CreateCategoryBody = z.object({
   label: z.string().min(1).max(120),
   genderSlug: z.enum(['men', 'women', 'boys', 'girls']).optional(),
   thumbnailKey: z.string().optional(),
+  tag: CategoryTag.nullable().optional(),
   sortOrder: z.number().int().default(0),
 });
 export const PatchCategoryBody = z.object({
   label: z.string().min(1).max(120).optional(),
   genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
   thumbnailKey: z.string().nullable().optional(),
+  tag: CategoryTag.nullable().optional(),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
 });
@@ -102,6 +105,7 @@ export const ConfirmModelBackgroundBody = z.object({
   sortOrder: z.number().int().default(0),
   genderSlug: GenderEnum.optional(),
   isWhiteBg: z.boolean().optional(),
+  categoryId: CoercedPositiveInt.nullable().optional(),
 });
 export const PatchModelBackgroundBody = z.object({
   label: z.string().min(1).max(120).optional(),
@@ -111,6 +115,7 @@ export const PatchModelBackgroundBody = z.object({
   sortOrder: z.number().int().optional(),
   r2Key: z.string().optional(),
   bgComfyR2Key: z.string().nullable().optional(),
+  categoryId: CoercedPositiveInt.nullable().optional(),
 });
 
 // ── Workflow template schemas ─────────────────────────────────────────────

@@ -8,7 +8,7 @@ import {
   PatchCategoryBody,
   PresignCatalogItemBody,
 } from '@aivastra/types';
-import { and, count, eq, inArray } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -82,6 +82,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         label: schema.catalogCategories.label,
         genderSlug: schema.catalogCategories.genderSlug,
         thumbnailKey: schema.catalogCategories.thumbnailKey,
+        tag: schema.catalogCategories.tag,
         sortOrder: schema.catalogCategories.sortOrder,
         isActive: schema.catalogCategories.isActive,
         typeSlug: schema.catalogTypes.slug,
@@ -267,11 +268,28 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as any;
-      const [{ value }] = await app.db
-        .select({ value: count() })
-        .from(schema.catalogItems)
-        .where(and(eq(schema.catalogItems.categoryId, id), eq(schema.catalogItems.isActive, true)));
-      if (value > 0) throw new AppError('IN_USE', 409, 'category has active items');
+      const [itemsCount, backgroundsCount] = await Promise.all([
+        app.db
+          .select({ value: count() })
+          .from(schema.catalogItems)
+          .where(
+            and(eq(schema.catalogItems.categoryId, id), eq(schema.catalogItems.isActive, true)),
+          )
+          .then((r) => r[0]!.value),
+        app.db
+          .select({ value: count() })
+          .from(schema.modelBackgrounds)
+          .where(
+            and(
+              eq(schema.modelBackgrounds.categoryId, id),
+              eq(schema.modelBackgrounds.isActive, true),
+              isNull(schema.modelBackgrounds.deletedAt),
+            ),
+          )
+          .then((r) => r[0]!.value),
+      ]);
+      if (itemsCount > 0 || backgroundsCount > 0)
+        throw new AppError('IN_USE', 409, 'category has active items');
       await app.db.delete(schema.catalogCategories).where(eq(schema.catalogCategories.id, id));
       return { ok: true };
     },
