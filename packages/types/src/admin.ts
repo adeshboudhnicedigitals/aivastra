@@ -106,6 +106,7 @@ export const ConfirmModelBackgroundBody = z.object({
   genderSlug: GenderEnum.optional(),
   isWhiteBg: z.boolean().optional(),
   categoryId: CoercedPositiveInt.nullable().optional(),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 export const PatchModelBackgroundBody = z.object({
   label: z.string().min(1).max(120).optional(),
@@ -116,6 +117,7 @@ export const PatchModelBackgroundBody = z.object({
   r2Key: z.string().optional(),
   bgComfyR2Key: z.string().nullable().optional(),
   categoryId: CoercedPositiveInt.nullable().optional(),
+  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 
 // ── Workflow template schemas ─────────────────────────────────────────────

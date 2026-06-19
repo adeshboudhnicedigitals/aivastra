@@ -43,6 +43,7 @@ interface BackgroundItem {
   previewUrl: string;
   isWhiteBg?: boolean;
   categoryId?: number | null;
+  tags?: string[];
 }
 interface BackgroundsResponse {
   items: BackgroundItem[];
@@ -87,29 +88,6 @@ const TAG_LABELS: Record<string, string> = {
   trending: 'Trending',
   popular: 'Popular',
 };
-
-function TagBadge({ tag }: { tag?: string | null }) {
-  if (!tag || !TAG_LABELS[tag]) return null;
-  return (
-    <span
-      style={{
-        position: 'absolute',
-        top: 6,
-        left: 6,
-        fontSize: 10,
-        fontWeight: 700,
-        color: C.white,
-        padding: '2px 7px',
-        borderRadius: 999,
-        background: grad,
-        lineHeight: 1.4,
-        zIndex: 1,
-      }}
-    >
-      {TAG_LABELS[tag]}
-    </span>
-  );
-}
 
 function findNodeForItem(tree: CatalogNode[], itemId: string): CatalogNode | null {
   for (const node of tree) {
@@ -251,7 +229,18 @@ function VisualCard({
         )}
       </div>
       {label && (
-        <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>{label}</div>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: C.text,
+            marginTop: 8,
+            overflowWrap: 'anywhere',
+            wordBreak: 'break-word',
+          }}
+        >
+          {label}
+        </div>
       )}
     </div>
   );
@@ -365,12 +354,31 @@ function SelCard({
         )}
         {badges}
       </div>
-      <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>{label}</div>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 500,
+          color: C.text,
+          marginTop: 8,
+          overflowWrap: 'anywhere',
+          wordBreak: 'break-word',
+        }}
+      >
+        {label}
+      </div>
     </div>
   );
 }
 
-function SectionHead({ title, right }: { title: string; right?: React.ReactNode }) {
+function SectionHead({
+  title,
+  titleSuffix,
+  right,
+}: {
+  title: string;
+  titleSuffix?: React.ReactNode;
+  right?: React.ReactNode;
+}) {
   return (
     <div
       style={{
@@ -380,7 +388,10 @@ function SectionHead({ title, right }: { title: string; right?: React.ReactNode 
         marginBottom: 14,
       }}
     >
-      <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>{title}</h3>
+      <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
+        {title}
+        {titleSuffix}
+      </h3>
       {right}
     </div>
   );
@@ -512,6 +523,7 @@ export default function StudioPage(): React.ReactElement {
   const backgroundVisibleCount = 5;
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
+  const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
   const poseVisibleCount = 4;
   const [poseModalOpen, setPoseModalOpen] = useState(false);
 
@@ -638,6 +650,16 @@ export default function StudioPage(): React.ReactElement {
     }
     return nodes;
   }, [backgrounds, backgroundCategories]);
+  const bgTagsById = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const b of backgrounds?.items ?? []) m.set(b.id, b.tags ?? []);
+    return m;
+  }, [backgrounds]);
+  const bgTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of backgrounds?.items ?? []) for (const t of b.tags ?? []) set.add(t);
+    return Array.from(set).sort();
+  }, [backgrounds]);
   const {
     data: poses,
     isError: posesError,
@@ -1662,10 +1684,11 @@ export default function StudioPage(): React.ReactElement {
                 }}
               >
                 <SectionHead title="Select Background" />
-                {bgNodes.length > backgroundVisibleCount && (
+                {(backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
                   <button
                     onClick={() => {
                       setBackgroundItemFilter('');
+                      setBackgroundTagFilter('');
                       setBackgroundModalOpen(true);
                     }}
                     style={{
@@ -1703,57 +1726,38 @@ export default function StudioPage(): React.ReactElement {
                 >
                   <SpinnerIcon />
                 </div>
-              ) : bgNodes.length === 0 ? (
+              ) : backgrounds.items.length === 0 ? (
                 <p style={{ fontSize: 14, color: C.mid }}>
                   No backgrounds available for this model yet. Try a different model.
                 </p>
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
                   {(() => {
-                    const selectedNode = backgroundId
-                      ? findNodeForItem(bgNodes, backgroundId)
-                      : null;
-                    const firstN = bgNodes.slice(0, backgroundVisibleCount);
-                    const inFirstN = !!selectedNode && firstN.some((n) => n.id === selectedNode.id);
-                    const visibleNodes =
-                      selectedNode && !inFirstN
-                        ? [selectedNode, ...firstN.filter((n) => n.id !== selectedNode.id)].slice(
-                            0,
-                            backgroundVisibleCount,
-                          )
+                    const allItems = backgrounds.items;
+                    const firstN = allItems.slice(0, backgroundVisibleCount);
+                    const inFirstN = firstN.some((b) => b.id === backgroundId);
+                    const selected = allItems.find((b) => b.id === backgroundId);
+                    const visibleItems =
+                      selected && !inFirstN
+                        ? [selected, ...firstN].slice(0, backgroundVisibleCount)
                         : firstN;
-                    return visibleNodes.map((node) => {
-                      const nodeItems = flattenNode(node);
-                      const isActive = selectedNode?.id === node.id;
-                      const selectedItem = isActive
-                        ? nodeItems.find((i) => i.id === backgroundId)
-                        : null;
-                      const thumb =
-                        selectedItem?.thumbnailUrl ??
-                        node.thumbnailUrl ??
-                        nodeItems[0]?.thumbnailUrl;
-                      return (
-                        <SelCard
-                          key={node.id}
-                          selected={isActive}
-                          onClick={() => {
-                            setBackgroundItemFilter(node.id);
-                            setBackgroundModalOpen(true);
-                          }}
-                          imageUrl={thumb}
-                          label={node.label}
-                          w="100%"
-                          ratio={1}
-                          badges={<TagBadge tag={node.tag} />}
-                        />
-                      );
-                    });
+                    return visibleItems.map((b) => (
+                      <SelCard
+                        key={b.id}
+                        selected={backgroundId === b.id}
+                        onClick={() => handleBackgroundSelect(b.id)}
+                        imageUrl={b.thumbnailUrl}
+                        label={b.label}
+                        w="100%"
+                        ratio={1}
+                      />
+                    ));
                   })()}
                 </div>
               )}
               {backgroundModalOpen &&
                 (() => {
-                  const filteredItems =
+                  const byCategory =
                     backgroundItemFilter === ''
                       ? bgNodes.flatMap(flattenNode)
                       : flattenNode(
@@ -1765,6 +1769,12 @@ export default function StudioPage(): React.ReactElement {
                             children: [],
                             items: [],
                           },
+                        );
+                  const filteredItems =
+                    backgroundTagFilter === ''
+                      ? byCategory
+                      : byCategory.filter((i) =>
+                          (bgTagsById.get(i.id) ?? []).includes(backgroundTagFilter),
                         );
                   return (
                     <div
@@ -1836,9 +1846,35 @@ export default function StudioPage(): React.ReactElement {
                               style={pill(backgroundItemFilter === node.id)}
                             >
                               {node.label}
+                              {node.tag && TAG_LABELS[node.tag] && (
+                                <span style={{ marginLeft: 6, opacity: 0.7, fontWeight: 700 }}>
+                                  · {TAG_LABELS[node.tag]}
+                                </span>
+                              )}
                             </button>
                           ))}
                         </div>
+                        {bgTags.length > 0 && (
+                          <div
+                            style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}
+                          >
+                            <button
+                              onClick={() => setBackgroundTagFilter('')}
+                              style={pill(backgroundTagFilter === '')}
+                            >
+                              All tags
+                            </button>
+                            {bgTags.map((tag) => (
+                              <button
+                                key={tag}
+                                onClick={() => setBackgroundTagFilter(tag)}
+                                style={pill(backgroundTagFilter === tag)}
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         {filteredItems.length === 0 ? (
                           <p style={{ fontSize: 14, color: C.mid }}>
                             No backgrounds in this category yet.
@@ -1883,7 +1919,16 @@ export default function StudioPage(): React.ReactElement {
                   marginBottom: 14,
                 }}
               >
-                <SectionHead title="Choose Poses" />
+                <SectionHead
+                  title="Choose Poses"
+                  titleSuffix={
+                    poseIds.length > 0 && (
+                      <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
+                        ({poseIds.length} selected)
+                      </span>
+                    )
+                  }
+                />
                 {(poses?.items.length ?? 0) > poseVisibleCount && (
                   <button
                     onClick={() => setPoseModalOpen(true)}
@@ -1961,6 +2006,7 @@ export default function StudioPage(): React.ReactElement {
                   aspect={3 / 4}
                   onSelect={(id) => handlePoseSelect(id)}
                   onClose={() => setPoseModalOpen(false)}
+                  continueLabel="Continue with {count} poses"
                 />
               )}
             </section>
