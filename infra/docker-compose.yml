@@ -71,6 +71,8 @@ services:
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin_dev_pw} &&
       mc mb --ignore-existing local/${R2_BUCKET:-virtual-tryon-dev} &&
       mc anonymous set download local/${R2_BUCKET:-virtual-tryon-dev} &&
+      printf '{\"CORSRules\":[{\"AllowedOrigin\":[\"*\"],\"AllowedMethod\":[\"GET\",\"PUT\",\"POST\",\"HEAD\"],\"AllowedHeader\":[\"*\"],\"ExposeHeader\":[\"ETag\"],\"MaxAgeSeconds\":3000}]}' > /tmp/cors.json &&
+      mc cors set local/${R2_BUCKET:-virtual-tryon-dev} /tmp/cors.json &&
       echo 'minio bucket ready: ${R2_BUCKET:-virtual-tryon-dev}'
       "
     networks:

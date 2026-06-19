@@ -1163,45 +1163,44 @@ export default function StudioPage(): React.ReactElement {
               )}
             </section>
 
-            <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap' }}>
-              <section style={{ flex: 1, minWidth: 280 }}>
-                <SectionHead title="Publishing Platform" />
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  {PLATFORMS.map((p) => (
+            <section>
+              <SectionHead title="Publishing Platform" />
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {PLATFORMS.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => handlePlatformChange(p)}
+                    style={pill(platform === p)}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <SectionHead title="Aspect Ratio" />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {ALL_ASPECTS.map((r) => {
+                  const supported = brandAspects.includes(r);
+                  return (
                     <button
-                      key={p}
-                      onClick={() => handlePlatformChange(p)}
-                      style={pill(platform === p)}
+                      key={r}
+                      onClick={supported ? () => setAspect(r) : undefined}
+                      style={{
+                        ...pill(aspect === r),
+                        ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                      }}
                     >
-                      {p}
+                      {r}
                     </button>
-                  ))}
-                </div>
-              </section>
-              <section style={{ flex: 1, minWidth: 200 }}>
-                <SectionHead title="Aspect Ratio" />
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {ALL_ASPECTS.map((r) => {
-                    const supported = brandAspects.includes(r);
-                    return (
-                      <button
-                        key={r}
-                        onClick={supported ? () => setAspect(r) : undefined}
-                        style={{
-                          ...pill(aspect === r),
-                          ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-                        }}
-                      >
-                        {r}
-                      </button>
-                    );
-                  })}
-                </div>
-                <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                  {ASPECT_DIMS[aspect]}
-                </div>
-              </section>
-            </div>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
+                {ASPECT_DIMS[aspect]}
+              </div>
+            </section>
 
             <section>
               <SectionHead
