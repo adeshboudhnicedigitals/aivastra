@@ -365,6 +365,20 @@
       "when": 1781600000005,
       "tag": "0051_background_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1781600000006,
+      "tag": "0052_background_special_tag",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1781600000007,
+      "tag": "0053_drop_category_tag",
+      "breakpoints": true
     }
   ]
 }

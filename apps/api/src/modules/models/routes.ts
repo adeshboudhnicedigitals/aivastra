@@ -95,6 +95,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           isWhiteBg: schema.modelBackgrounds.isWhiteBg,
           categoryId: schema.modelBackgrounds.categoryId,
           tags: schema.modelBackgrounds.tags,
+          specialTag: schema.modelBackgrounds.specialTag,
         })
         .from(schema.modelBackgrounds)
         .where(
@@ -119,6 +120,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           isWhiteBg: b.isWhiteBg,
           categoryId: b.categoryId,
           tags: b.tags,
+          specialTag: b.specialTag,
         })),
       };
     },
@@ -145,7 +147,6 @@ export async function modelsRoutes(app: FastifyInstance) {
           thumbnailKey: schema.catalogCategories.thumbnailKey,
           genderSlug: schema.catalogCategories.genderSlug,
           sortOrder: schema.catalogCategories.sortOrder,
-          tag: schema.catalogCategories.tag,
         })
         .from(schema.catalogCategories)
         .innerJoin(schema.catalogTypes, eq(schema.catalogCategories.typeId, schema.catalogTypes.id))
@@ -169,7 +170,6 @@ export async function modelsRoutes(app: FastifyInstance) {
           slug: c.slug,
           label: c.label,
           thumbnailUrl: c.thumbnailKey ? app.storage.publicUrl(c.thumbnailKey) : null,
-          tag: c.tag,
         })),
       };
     },

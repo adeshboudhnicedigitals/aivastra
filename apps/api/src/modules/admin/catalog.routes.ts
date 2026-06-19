@@ -82,7 +82,6 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         label: schema.catalogCategories.label,
         genderSlug: schema.catalogCategories.genderSlug,
         thumbnailKey: schema.catalogCategories.thumbnailKey,
-        tag: schema.catalogCategories.tag,
         sortOrder: schema.catalogCategories.sortOrder,
         isActive: schema.catalogCategories.isActive,
         typeSlug: schema.catalogTypes.slug,

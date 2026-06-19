@@ -22,6 +22,7 @@ export interface ModelBackground {
   bgComfyR2Key: string | null;
   categoryId: number | null;
   tags: string[];
+  specialTag: CategoryTag | null;
   isActive: boolean;
   isWhiteBg: boolean;
   sortOrder: number;
@@ -96,7 +97,6 @@ export interface CatalogCategory {
   genderSlug: string | null;
   thumbnailKey: string | null;
   thumbnailUrl: string | null;
-  tag: CategoryTag | null;
   sortOrder: number;
   isActive: boolean;
 }

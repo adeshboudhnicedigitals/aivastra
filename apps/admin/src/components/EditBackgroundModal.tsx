@@ -1,7 +1,13 @@
 import { useRef, useState } from 'react';
 import { apiFetch } from '../lib/data';
-import type { CatalogCategory, ModelBackground } from '../types';
+import type { CatalogCategory, CategoryTag, ModelBackground } from '../types';
 import { Icon } from './Icons';
+
+const SPECIAL_TAG_OPTIONS: { value: CategoryTag; label: string }[] = [
+  { value: 'featured', label: 'Featured' },
+  { value: 'trending', label: 'Trending' },
+  { value: 'popular', label: 'Popular' },
+];
 
 interface Props {
   background: ModelBackground;
@@ -26,6 +32,7 @@ export function EditBackgroundModal({
     genderSlug: background.genderSlug ?? '',
     categoryId: background.categoryId,
     tagsInput: (background.tags ?? []).join(', '),
+    specialTag: background.specialTag ?? ('' as CategoryTag | ''),
   });
   const [saving, setSaving] = useState(false);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
@@ -46,6 +53,7 @@ export function EditBackgroundModal({
         genderSlug: form.genderSlug || null,
         categoryId: form.categoryId,
         tags,
+        specialTag: form.specialTag || null,
       };
       await apiFetch(`/admin/assets/backgrounds/${background.id}`, {
         method: 'PATCH',
@@ -58,6 +66,7 @@ export function EditBackgroundModal({
         genderSlug: form.genderSlug || null,
         categoryId: form.categoryId,
         tags,
+        specialTag: form.specialTag || null,
       };
       onSaved(updated);
       toast({ title: `${form.label} updated` });
@@ -118,7 +127,7 @@ export function EditBackgroundModal({
       <div
         className="modal"
         onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(400px, calc(100vw - 40px))' }}
+        style={{ width: 'min(640px, calc(100vw - 40px))' }}
       >
         <div className="modal-head">
           <h3>Edit background</h3>
@@ -133,80 +142,108 @@ export function EditBackgroundModal({
         </div>
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div className="field">
-            <label>Label</label>
-            <input
-              className="input"
-              value={form.label}
-              disabled={saving}
-              placeholder="e.g. Studio White"
-              onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-            />
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 14,
+            }}
+          >
+            <div className="field">
+              <label>Label</label>
+              <input
+                className="input"
+                value={form.label}
+                disabled={saving}
+                placeholder="e.g. Studio White"
+                onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+              />
+            </div>
+            <div className="field">
+              <label>Sort order</label>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={form.sortOrder}
+                disabled={saving}
+                onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
+              />
+            </div>
+            <div className="field">
+              <label>Gender</label>
+              <select
+                className="select"
+                value={form.genderSlug}
+                disabled={saving}
+                onChange={(e) => setForm((f) => ({ ...f, genderSlug: e.target.value }))}
+              >
+                <option value="">All genders</option>
+                <option value="men">Men</option>
+                <option value="women">Women</option>
+                <option value="boys">Boys</option>
+                <option value="girls">Girls</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Category</label>
+              <select
+                className="select"
+                value={form.categoryId ?? ''}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    categoryId: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+              >
+                <option value="">Uncategorized</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>
+                Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+              </label>
+              <input
+                className="input"
+                value={form.tagsInput}
+                disabled={saving}
+                placeholder="e.g. warm tone, sunset, indoor"
+                onChange={(e) => setForm((f) => ({ ...f, tagsInput: e.target.value }))}
+              />
+            </div>
+            <div className="field">
+              <label>
+                Special tag{' '}
+                <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+              </label>
+              <select
+                className="select"
+                value={form.specialTag}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, specialTag: e.target.value as CategoryTag | '' }))
+                }
+              >
+                <option value="">No tag</option>
+                {SPECIAL_TAG_OPTIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-          <div className="field">
-            <label>Sort order</label>
-            <input
-              className="input"
-              type="number"
-              min={0}
-              value={form.sortOrder}
-              disabled={saving}
-              style={{ width: 100 }}
-              onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
-            />
-          </div>
-          <div className="field">
-            <label>Gender</label>
-            <select
-              className="select"
-              value={form.genderSlug}
-              disabled={saving}
-              onChange={(e) => setForm((f) => ({ ...f, genderSlug: e.target.value }))}
-            >
-              <option value="">All genders</option>
-              <option value="men">Men</option>
-              <option value="women">Women</option>
-              <option value="boys">Boys</option>
-              <option value="girls">Girls</option>
-            </select>
-          </div>
-          <div className="field">
-            <label>Category</label>
-            <select
-              className="select"
-              value={form.categoryId ?? ''}
-              disabled={saving}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  categoryId: e.target.value ? Number(e.target.value) : null,
-                }))
-              }
-            >
-              <option value="">Uncategorized</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label>
-              Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-            </label>
-            <input
-              className="input"
-              value={form.tagsInput}
-              disabled={saving}
-              placeholder="e.g. warm tone, sunset, indoor"
-              onChange={(e) => setForm((f) => ({ ...f, tagsInput: e.target.value }))}
-            />
-            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>
-              Comma-separated. Independent of category — lets you group backgrounds across
-              categories (e.g. all "warm tone" backgrounds).
-            </p>
-          </div>
+          <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
+            Tags are comma-separated and independent of category — lets you group backgrounds across
+            categories (e.g. all "warm tone" backgrounds).
+          </p>
           <div className="field">
             <label>Replace image</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -229,7 +266,7 @@ export function EditBackgroundModal({
                   }}
                 />
               )}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <input
                   ref={replaceRef}
                   type="file"
