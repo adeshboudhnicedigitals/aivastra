@@ -25,6 +25,7 @@ export function EditBackgroundModal({
     sortOrder: background.sortOrder,
     genderSlug: background.genderSlug ?? '',
     categoryId: background.categoryId,
+    tagsInput: (background.tags ?? []).join(', '),
   });
   const [saving, setSaving] = useState(false);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
@@ -35,11 +36,16 @@ export function EditBackgroundModal({
   const handleSave = async () => {
     setSaving(true);
     try {
+      const tags = form.tagsInput
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
       const body: Record<string, unknown> = {
         label: form.label,
         sortOrder: form.sortOrder,
         genderSlug: form.genderSlug || null,
         categoryId: form.categoryId,
+        tags,
       };
       await apiFetch(`/admin/assets/backgrounds/${background.id}`, {
         method: 'PATCH',
@@ -51,6 +57,7 @@ export function EditBackgroundModal({
         sortOrder: form.sortOrder,
         genderSlug: form.genderSlug || null,
         categoryId: form.categoryId,
+        tags,
       };
       onSaved(updated);
       toast({ title: `${form.label} updated` });
@@ -89,7 +96,10 @@ export function EditBackgroundModal({
       });
       onSaved({
         ...background,
-        ...form,
+        label: form.label,
+        sortOrder: form.sortOrder,
+        genderSlug: form.genderSlug || null,
+        categoryId: form.categoryId,
         r2Key: presign.r2Key,
         thumbnailKey: presign.r2Key.replace(/\.jpg$/, '.thumb.jpg'),
       });
@@ -180,6 +190,22 @@ export function EditBackgroundModal({
                 </option>
               ))}
             </select>
+          </div>
+          <div className="field">
+            <label>
+              Tags <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+            </label>
+            <input
+              className="input"
+              value={form.tagsInput}
+              disabled={saving}
+              placeholder="e.g. warm tone, sunset, indoor"
+              onChange={(e) => setForm((f) => ({ ...f, tagsInput: e.target.value }))}
+            />
+            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>
+              Comma-separated. Independent of category — lets you group backgrounds across
+              categories (e.g. all "warm tone" backgrounds).
+            </p>
           </div>
           <div className="field">
             <label>Replace image</label>

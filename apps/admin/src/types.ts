@@ -21,6 +21,7 @@ export interface ModelBackground {
   r2Key: string;
   bgComfyR2Key: string | null;
   categoryId: number | null;
+  tags: string[];
   isActive: boolean;
   isWhiteBg: boolean;
   sortOrder: number;

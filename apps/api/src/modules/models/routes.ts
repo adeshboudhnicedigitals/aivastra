@@ -94,6 +94,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           thumbnailKey: schema.modelBackgrounds.thumbnailKey,
           isWhiteBg: schema.modelBackgrounds.isWhiteBg,
           categoryId: schema.modelBackgrounds.categoryId,
+          tags: schema.modelBackgrounds.tags,
         })
         .from(schema.modelBackgrounds)
         .where(
@@ -117,6 +118,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           previewUrl: app.storage.publicUrl(b.thumbnailKey),
           isWhiteBg: b.isWhiteBg,
           categoryId: b.categoryId,
+          tags: b.tags,
         })),
       };
     },
