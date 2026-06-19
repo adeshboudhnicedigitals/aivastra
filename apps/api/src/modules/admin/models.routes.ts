@@ -238,6 +238,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         isWhiteBg?: boolean;
         categoryId?: number | null;
         tags?: string[];
+        specialTag?: string | null;
       };
       // If marking this background as white, unset all other backgrounds' isWhiteBg first
       if (body.isWhiteBg) {
@@ -264,6 +265,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           isWhiteBg: body.isWhiteBg ?? false,
           categoryId: body.categoryId ?? null,
           tags: body.tags ?? [],
+          specialTag: body.specialTag ?? null,
         })
         .returning();
       return row;

@@ -25,14 +25,12 @@ export const CreateCategoryBody = z.object({
   label: z.string().min(1).max(120),
   genderSlug: z.enum(['men', 'women', 'boys', 'girls']).optional(),
   thumbnailKey: z.string().optional(),
-  tag: CategoryTag.nullable().optional(),
   sortOrder: z.number().int().default(0),
 });
 export const PatchCategoryBody = z.object({
   label: z.string().min(1).max(120).optional(),
   genderSlug: z.enum(['men', 'women', 'boys', 'girls']).nullable().optional(),
   thumbnailKey: z.string().nullable().optional(),
-  tag: CategoryTag.nullable().optional(),
   sortOrder: z.number().int().optional(),
   isActive: z.boolean().optional(),
 });
@@ -107,6 +105,7 @@ export const ConfirmModelBackgroundBody = z.object({
   isWhiteBg: z.boolean().optional(),
   categoryId: CoercedPositiveInt.nullable().optional(),
   tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+  specialTag: CategoryTag.nullable().optional(),
 });
 export const PatchModelBackgroundBody = z.object({
   label: z.string().min(1).max(120).optional(),
@@ -117,6 +116,7 @@ export const PatchModelBackgroundBody = z.object({
   r2Key: z.string().optional(),
   bgComfyR2Key: z.string().nullable().optional(),
   categoryId: CoercedPositiveInt.nullable().optional(),
+  specialTag: CategoryTag.nullable().optional(),
   tags: z.array(z.string().min(1).max(40)).max(20).optional(),
 });
 

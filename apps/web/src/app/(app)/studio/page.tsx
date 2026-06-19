@@ -44,6 +44,7 @@ interface BackgroundItem {
   isWhiteBg?: boolean;
   categoryId?: number | null;
   tags?: string[];
+  specialTag?: 'featured' | 'trending' | 'popular' | null;
 }
 interface BackgroundsResponse {
   items: BackgroundItem[];
@@ -54,7 +55,6 @@ interface BackgroundCategoriesResponse {
     slug: string;
     label: string;
     thumbnailUrl: string | null;
-    tag?: 'featured' | 'trending' | 'popular' | null;
   }[];
 }
 interface PoseItem {
@@ -74,7 +74,6 @@ interface CatalogNode {
   slug: string;
   label: string;
   thumbnailUrl?: string | null;
-  tag?: 'featured' | 'trending' | 'popular' | null;
   children: CatalogNode[];
   items: CatalogItem[];
 }
@@ -88,6 +87,29 @@ const TAG_LABELS: Record<string, string> = {
   trending: 'Trending',
   popular: 'Popular',
 };
+
+function TagBadge({ tag }: { tag?: string | null }) {
+  if (!tag || !TAG_LABELS[tag]) return null;
+  return (
+    <span
+      style={{
+        position: 'absolute',
+        top: 6,
+        left: 6,
+        fontSize: 10,
+        fontWeight: 700,
+        color: C.white,
+        padding: '2px 7px',
+        borderRadius: 999,
+        background: grad,
+        lineHeight: 1.4,
+        zIndex: 1,
+      }}
+    >
+      {TAG_LABELS[tag]}
+    </span>
+  );
+}
 
 function findNodeForItem(tree: CatalogNode[], itemId: string): CatalogNode | null {
   for (const node of tree) {
@@ -517,14 +539,14 @@ export default function StudioPage(): React.ReactElement {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lowerFileInputRef = useRef<HTMLInputElement>(null);
-  const garmentVisibleCount = 4;
-  const modelVisibleCount = 4;
+  const garmentVisibleCount = 5;
+  const modelVisibleCount = 5;
   const [modelModalOpen, setModelModalOpen] = useState(false);
   const backgroundVisibleCount = 5;
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
   const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
-  const poseVisibleCount = 4;
+  const poseVisibleCount = 5;
   const [poseModalOpen, setPoseModalOpen] = useState(false);
 
   const [faceId, setFaceId] = useState('');
@@ -626,17 +648,9 @@ export default function StudioPage(): React.ReactElement {
         slug: c.slug,
         label: c.label,
         thumbnailUrl: c.thumbnailUrl,
-        tag: c.tag,
         children: [],
         items: byCat.get(c.id) ?? [],
       }));
-    const frontIds = new Set(
-      nodes
-        .filter((n) => n.tag)
-        .slice(0, 3)
-        .map((n) => n.id),
-    );
-    nodes.sort((a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1));
     const uncategorized = backgrounds.items.filter((b) => b.categoryId == null);
     if (uncategorized.length > 0) {
       nodes.push({
@@ -653,6 +667,11 @@ export default function StudioPage(): React.ReactElement {
   const bgTagsById = useMemo(() => {
     const m = new Map<string, string[]>();
     for (const b of backgrounds?.items ?? []) m.set(b.id, b.tags ?? []);
+    return m;
+  }, [backgrounds]);
+  const bgSpecialTagById = useMemo(() => {
+    const m = new Map<string, string | null | undefined>();
+    for (const b of backgrounds?.items ?? []) m.set(b.id, b.specialTag);
     return m;
   }, [backgrounds]);
   const bgTags = useMemo(() => {
@@ -697,6 +716,12 @@ export default function StudioPage(): React.ReactElement {
     },
     enabled: needsLower,
   });
+  const lowerRandomItems = useMemo(() => {
+    const allItems = (lowerCatalog?.tree.filter((n) => n.slug !== 'other') ?? []).flatMap(
+      flattenNode,
+    );
+    return [...allItems].sort(() => Math.random() - 0.5).slice(0, lowerVisibleCount);
+  }, [lowerCatalog]);
   const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
     queryKey: ['catalog', 'shoe', gender, garmentTypeId, poseIds.join(',')],
     queryFn: () => {
@@ -711,6 +736,12 @@ export default function StudioPage(): React.ReactElement {
     },
     enabled: needsShoes,
   });
+  const shoeRandomItems = useMemo(() => {
+    const allItems = (shoesCatalog?.tree.filter((n) => n.slug !== 'other') ?? []).flatMap(
+      flattenNode,
+    );
+    return [...allItems].sort(() => Math.random() - 0.5).slice(0, shoeVisibleCount);
+  }, [shoesCatalog]);
   const lowerNodes = useMemo(
     () => lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [],
     [lowerCatalog],
@@ -1085,7 +1116,7 @@ export default function StudioPage(): React.ReactElement {
                   <SpinnerIcon size={16} /> Loading…
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 20 }}>
                   {(() => {
                     const all = garmentTypes.items;
                     const inFirstN = all
@@ -1627,7 +1658,7 @@ export default function StudioPage(): React.ReactElement {
                   <SpinnerIcon />
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
                   {(() => {
                     const inFirstN = filteredFaces
                       .slice(0, modelVisibleCount)
@@ -1664,6 +1695,7 @@ export default function StudioPage(): React.ReactElement {
                   items={filteredFaces}
                   selectedIds={faceId ? [faceId] : []}
                   aspect={1}
+                  columns={5}
                   onSelect={(id) => {
                     handleFaceSelect(id);
                     setModelModalOpen(false);
@@ -1733,7 +1765,12 @@ export default function StudioPage(): React.ReactElement {
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
                   {(() => {
-                    const allItems = backgrounds.items;
+                    const frontIds = new Set(
+                      backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
+                    );
+                    const allItems = [...backgrounds.items].sort(
+                      (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
+                    );
                     const firstN = allItems.slice(0, backgroundVisibleCount);
                     const inFirstN = firstN.some((b) => b.id === backgroundId);
                     const selected = allItems.find((b) => b.id === backgroundId);
@@ -1750,6 +1787,7 @@ export default function StudioPage(): React.ReactElement {
                         label={b.label}
                         w="100%"
                         ratio={1}
+                        badges={<TagBadge tag={b.specialTag} />}
                       />
                     ));
                   })()}
@@ -1846,11 +1884,6 @@ export default function StudioPage(): React.ReactElement {
                               style={pill(backgroundItemFilter === node.id)}
                             >
                               {node.label}
-                              {node.tag && TAG_LABELS[node.tag] && (
-                                <span style={{ marginLeft: 6, opacity: 0.7, fontWeight: 700 }}>
-                                  · {TAG_LABELS[node.tag]}
-                                </span>
-                              )}
                             </button>
                           ))}
                         </div>
@@ -1899,6 +1932,7 @@ export default function StudioPage(): React.ReactElement {
                                 label={i.label}
                                 w="100%"
                                 ratio={1}
+                                badges={<TagBadge tag={bgSpecialTagById.get(i.id)} />}
                               />
                             ))}
                           </div>
@@ -1972,7 +2006,7 @@ export default function StudioPage(): React.ReactElement {
                   No poses for this combination. Go back and try a different background.
                 </p>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
                   {(() => {
                     const firstN = poses.items.slice(0, poseVisibleCount);
                     const offScreenSelected = poseIds
@@ -2004,6 +2038,7 @@ export default function StudioPage(): React.ReactElement {
                   selectedIds={poseIds}
                   multiSelect
                   aspect={3 / 4}
+                  columns={5}
                   onSelect={(id) => handlePoseSelect(id)}
                   onClose={() => setPoseModalOpen(false)}
                   continueLabel="Continue with {count} poses"
@@ -2015,37 +2050,13 @@ export default function StudioPage(): React.ReactElement {
               !requiresLowerUpload &&
               (() => {
                 const lowerNodes = lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
-                const renderLowerCard = (node: CatalogNode) => {
-                  const nodeItems = flattenNode(node);
-                  const isActive =
-                    !!lowerCatalogId &&
-                    findNodeForItem(lowerCatalog?.tree ?? [], lowerCatalogId)?.id === node.id;
-                  const selectedItem = isActive
-                    ? nodeItems.find((i) => i.id === lowerCatalogId)
-                    : null;
-                  const thumb =
-                    selectedItem?.thumbnailUrl ?? node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
-                  return (
-                    <SelCard
-                      key={node.id}
-                      selected={isActive}
-                      onClick={() => {
-                        setLowerItemFilter(node.id);
-                        setLowerItemsOpen(true);
-                      }}
-                      imageUrl={thumb}
-                      label={node.label}
-                      w="100%"
-                      ratio={3 / 4}
-                    />
-                  );
-                };
+                const totalItems = lowerNodes.reduce((n, node) => n + flattenNode(node).length, 0);
                 return (
                   <section>
                     <SectionHead
                       title="Lower Garment"
                       right={
-                        lowerNodes.length > lowerVisibleCount && (
+                        totalItems > lowerVisibleCount && (
                           <button
                             onClick={() => {
                               setLowerItemFilter('');
@@ -2080,7 +2091,7 @@ export default function StudioPage(): React.ReactElement {
                       >
                         <SpinnerIcon />
                       </div>
-                    ) : lowerNodes.length === 0 ? (
+                    ) : totalItems === 0 ? (
                       <p style={{ fontSize: 14, color: C.mid }}>
                         No lower garment options available yet.
                       </p>
@@ -2093,20 +2104,31 @@ export default function StudioPage(): React.ReactElement {
                         }}
                       >
                         {(() => {
-                          const firstN = lowerNodes.slice(0, lowerVisibleCount);
-                          const selectedNode = lowerCatalogId
-                            ? findNodeForItem(lowerCatalog?.tree ?? [], lowerCatalogId)
+                          const allItems = lowerNodes.flatMap(flattenNode);
+                          const selectedItem = lowerCatalogId
+                            ? allItems.find((i) => i.id === lowerCatalogId)
                             : null;
                           const inFirstN =
-                            !!selectedNode && firstN.some((n) => n.id === selectedNode.id);
-                          const visibleNodes =
-                            selectedNode && !inFirstN
+                            !!selectedItem &&
+                            lowerRandomItems.some((i) => i.id === selectedItem.id);
+                          const visibleItems =
+                            selectedItem && !inFirstN
                               ? [
-                                  selectedNode,
-                                  ...firstN.filter((n) => n.id !== selectedNode.id),
+                                  selectedItem,
+                                  ...lowerRandomItems.filter((i) => i.id !== selectedItem.id),
                                 ].slice(0, lowerVisibleCount)
-                              : firstN;
-                          return visibleNodes.map(renderLowerCard);
+                              : lowerRandomItems;
+                          return visibleItems.map((i) => (
+                            <SelCard
+                              key={i.id}
+                              selected={lowerCatalogId === i.id}
+                              onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
+                              imageUrl={i.thumbnailUrl}
+                              label={i.label}
+                              w="100%"
+                              ratio={3 / 4}
+                            />
+                          ));
                         })()}
                       </div>
                     )}
@@ -2117,37 +2139,13 @@ export default function StudioPage(): React.ReactElement {
             {needsShoes &&
               (() => {
                 const shoeNodes = shoesCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
-                const renderShoeCard = (node: CatalogNode) => {
-                  const nodeItems = flattenNode(node);
-                  const isActive =
-                    !!shoeCatalogId &&
-                    findNodeForItem(shoesCatalog?.tree ?? [], shoeCatalogId)?.id === node.id;
-                  const selectedItem = isActive
-                    ? nodeItems.find((i) => i.id === shoeCatalogId)
-                    : null;
-                  const thumb =
-                    selectedItem?.thumbnailUrl ?? node.thumbnailUrl ?? nodeItems[0]?.thumbnailUrl;
-                  return (
-                    <SelCard
-                      key={node.id}
-                      selected={isActive}
-                      onClick={() => {
-                        setShoeItemFilter(node.id);
-                        setShoeItemsOpen(true);
-                      }}
-                      imageUrl={thumb}
-                      label={node.label}
-                      w="100%"
-                      ratio={1}
-                    />
-                  );
-                };
+                const totalItems = shoeNodes.reduce((n, node) => n + flattenNode(node).length, 0);
                 return (
                   <section>
                     <SectionHead
                       title="Footwear"
                       right={
-                        shoeNodes.length > shoeVisibleCount && (
+                        totalItems > shoeVisibleCount && (
                           <button
                             onClick={() => {
                               setShoeItemFilter('');
@@ -2182,7 +2180,7 @@ export default function StudioPage(): React.ReactElement {
                       >
                         <SpinnerIcon />
                       </div>
-                    ) : shoeNodes.length === 0 ? (
+                    ) : totalItems === 0 ? (
                       <p style={{ fontSize: 14, color: C.mid }}>No shoe options available yet.</p>
                     ) : (
                       <div
@@ -2193,20 +2191,30 @@ export default function StudioPage(): React.ReactElement {
                         }}
                       >
                         {(() => {
-                          const firstN = shoeNodes.slice(0, shoeVisibleCount);
-                          const selectedNode = shoeCatalogId
-                            ? findNodeForItem(shoesCatalog?.tree ?? [], shoeCatalogId)
+                          const allItems = shoeNodes.flatMap(flattenNode);
+                          const selectedItem = shoeCatalogId
+                            ? allItems.find((i) => i.id === shoeCatalogId)
                             : null;
                           const inFirstN =
-                            !!selectedNode && firstN.some((n) => n.id === selectedNode.id);
-                          const visibleNodes =
-                            selectedNode && !inFirstN
+                            !!selectedItem && shoeRandomItems.some((i) => i.id === selectedItem.id);
+                          const visibleItems =
+                            selectedItem && !inFirstN
                               ? [
-                                  selectedNode,
-                                  ...firstN.filter((n) => n.id !== selectedNode.id),
+                                  selectedItem,
+                                  ...shoeRandomItems.filter((i) => i.id !== selectedItem.id),
                                 ].slice(0, shoeVisibleCount)
-                              : firstN;
-                          return visibleNodes.map(renderShoeCard);
+                              : shoeRandomItems;
+                          return visibleItems.map((i) => (
+                            <SelCard
+                              key={i.id}
+                              selected={shoeCatalogId === i.id}
+                              onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
+                              imageUrl={i.thumbnailUrl}
+                              label={i.label}
+                              w="100%"
+                              ratio={1}
+                            />
+                          ));
                         })()}
                       </div>
                     )}
@@ -2354,6 +2362,7 @@ export default function StudioPage(): React.ReactElement {
         <SelectGridModal
           title="Choose Garment Type"
           aspect={1}
+          columns={5}
           items={garmentTypes.items.map((s) => ({
             id: s.id,
             label: s.label,

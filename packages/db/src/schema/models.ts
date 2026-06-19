@@ -36,6 +36,7 @@ export const modelBackgrounds = pgTable('model_backgrounds', {
   bgComfyR2Key: text('bg_comfy_r2_key'), // ComfyUI-specific background (moved from model_pose_assets)
   categoryId: integer('category_id').references(() => catalogCategories.id), // nullable — null means uncategorized (pre-existing backgrounds)
   tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`), // free-form entity tags, independent of category (e.g. "warm tone")
+  specialTag: text('special_tag'), // 'featured' | 'trending' | 'popular' | null — per-asset, moved off category level
   genderSlug: text('gender_slug'), // nullable — null means shown for all genders
   isActive: boolean('is_active').notNull().default(true),
   isWhiteBg: boolean('is_white_bg').notNull().default(false),

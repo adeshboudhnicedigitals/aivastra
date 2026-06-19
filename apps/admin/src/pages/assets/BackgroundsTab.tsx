@@ -9,7 +9,7 @@ import { makeThumbnail } from '../../lib/thumbnail';
 import type { CatalogCategory, CategoryTag, GenderSlug, ModelBackground } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
-const CATEGORY_TAG_OPTIONS: { value: CategoryTag; label: string }[] = [
+const SPECIAL_TAG_OPTIONS: { value: CategoryTag; label: string }[] = [
   { value: 'featured', label: 'Featured' },
   { value: 'trending', label: 'Trending' },
   { value: 'popular', label: 'Popular' },
@@ -65,14 +65,12 @@ export function BackgroundsTab() {
     label: string;
     slug: string;
     genderSlug: GenderSlug | '';
-    tag: CategoryTag | '';
     sortOrder: number;
-  }>({ label: '', slug: '', genderSlug: '', tag: '', sortOrder: 0 });
+  }>({ label: '', slug: '', genderSlug: '', sortOrder: 0 });
   const [catImageFile, setCatImageFile] = useState<File | null>(null);
   const [catSaving, setCatSaving] = useState(false);
   const [editingCategory, setEditingCategory] = useState<CatalogCategory | null>(null);
   const [editCatLabel, setEditCatLabel] = useState('');
-  const [editCatTag, setEditCatTag] = useState<CategoryTag | ''>('');
   const [editCatImageFile, setEditCatImageFile] = useState<File | null>(null);
   const [editCatSaving, setEditCatSaving] = useState(false);
   const [confirmDeleteCategory, setConfirmDeleteCategory] = useState<CatalogCategory | null>(null);
@@ -318,7 +316,7 @@ export function BackgroundsTab() {
             <button
               className="btn"
               onClick={() => {
-                setCatForm({ label: '', slug: '', genderSlug: '', tag: '', sortOrder: 0 });
+                setCatForm({ label: '', slug: '', genderSlug: '', sortOrder: 0 });
                 setShowAddCategory(true);
               }}
             >
@@ -411,14 +409,6 @@ export function BackgroundsTab() {
                 </div>
                 <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 10px' }}>
                   slug: {cat.slug}
-                  {cat.tag && (
-                    <span
-                      className="badge"
-                      style={{ marginLeft: 6, background: 'var(--accent-soft, #f0f7ff)' }}
-                    >
-                      {CATEGORY_TAG_OPTIONS.find((t) => t.value === cat.tag)?.label ?? cat.tag}
-                    </span>
-                  )}
                 </p>
                 <div
                   style={{ display: 'flex', gap: 6, alignItems: 'center' }}
@@ -450,7 +440,6 @@ export function BackgroundsTab() {
                     onClick={() => {
                       setEditingCategory(cat);
                       setEditCatLabel(cat.label);
-                      setEditCatTag(cat.tag ?? '');
                     }}
                   >
                     <Icon.Edit />
@@ -642,6 +631,20 @@ export function BackgroundsTab() {
                     <span className="badge dot" style={{ marginTop: 4, display: 'inline-block' }}>
                       {bg.genderSlug ?? 'all'}
                     </span>
+                    {bg.specialTag && (
+                      <span
+                        className="badge"
+                        style={{
+                          marginTop: 4,
+                          marginLeft: 4,
+                          display: 'inline-block',
+                          background: 'var(--accent-soft, #f0f7ff)',
+                        }}
+                      >
+                        {SPECIAL_TAG_OPTIONS.find((t) => t.value === bg.specialTag)?.label ??
+                          bg.specialTag}
+                      </span>
+                    )}
                     <button
                       className={`btn sm ${bg.isWhiteBg ? 'primary' : 'ghost'}`}
                       style={{ width: '100%', marginTop: 6 }}
@@ -1058,25 +1061,6 @@ export function BackgroundsTab() {
                 </select>
               </div>
               <div className="field">
-                <label>
-                  Tag <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-                </label>
-                <select
-                  className="select"
-                  value={catForm.tag}
-                  onChange={(e) =>
-                    setCatForm((f) => ({ ...f, tag: e.target.value as CategoryTag | '' }))
-                  }
-                >
-                  <option value="">No tag</option>
-                  {CATEGORY_TAG_OPTIONS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
                 <label>Sort order</label>
                 <input
                   className="input"
@@ -1185,7 +1169,6 @@ export function BackgroundsTab() {
                         slug: catForm.slug,
                         label: catForm.label,
                         genderSlug: catForm.genderSlug || undefined,
-                        tag: catForm.tag || null,
                         sortOrder: catForm.sortOrder,
                         ...(thumbnailKey ? { thumbnailKey } : {}),
                       }),
@@ -1242,24 +1225,6 @@ export function BackgroundsTab() {
                   onChange={(e) => setEditCatLabel(e.target.value)}
                   disabled={editCatSaving}
                 />
-              </div>
-              <div className="field">
-                <label>
-                  Tag <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-                </label>
-                <select
-                  className="select"
-                  value={editCatTag}
-                  disabled={editCatSaving}
-                  onChange={(e) => setEditCatTag(e.target.value as CategoryTag | '')}
-                >
-                  <option value="">No tag</option>
-                  {CATEGORY_TAG_OPTIONS.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
               </div>
               <div className="field">
                 <label>
@@ -1364,7 +1329,6 @@ export function BackgroundsTab() {
                     }
                     const patch: Record<string, unknown> = {
                       label: editCatLabel.trim(),
-                      tag: editCatTag || null,
                     };
                     if (thumbnailKey !== undefined) patch.thumbnailKey = thumbnailKey;
                     await apiFetch(`/admin/catalog/categories/${editingCategory.id}`, {
@@ -1381,7 +1345,6 @@ export function BackgroundsTab() {
                           ? {
                               ...c,
                               label: editCatLabel.trim(),
-                              tag: editCatTag || null,
                               ...(thumbnailKey !== undefined
                                 ? { thumbnailKey, thumbnailUrl: newThumbUrl }
                                 : {}),
