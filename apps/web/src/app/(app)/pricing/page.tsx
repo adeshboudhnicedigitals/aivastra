@@ -253,8 +253,8 @@ export default function PricingPage(): React.ReactElement {
               width: 130,
               height: 32,
               borderRadius: 8,
-              border: '1px solid #EEEEEE',
-              background: '#FEFEFE',
+              border: `1px solid ${C.border}`,
+              background: C.white,
               fontFamily: 'inherit',
               fontSize: 13,
               fontWeight: 500,
@@ -265,7 +265,7 @@ export default function PricingPage(): React.ReactElement {
           >
             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ display: 'flex', alignItems: 'center' }}>{FLAGS[country]}</span>
-              <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px', color: '#626262' }}>
+              <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px', color: C.mid }}>
                 {COUNTRIES.find((c) => c.code === country)?.name}
               </span>
             </span>
@@ -278,10 +278,10 @@ export default function PricingPage(): React.ReactElement {
                 top: 36,
                 right: 0,
                 width: 200,
-                background: '#FEFEFE',
-                border: '1px solid #EEEEEE',
+                background: C.white,
+                border: `1px solid ${C.border}`,
                 borderRadius: 8,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
                 overflow: 'hidden',
                 zIndex: 10,
               }}
@@ -338,8 +338,8 @@ export default function PricingPage(): React.ReactElement {
               style={{
                 width: 262,
                 height: 178,
-                background: '#F9F9F9',
-                border: '1px solid #EEEEEE',
+                background: C.field,
+                border: `1px solid ${C.border}`,
                 borderRadius: 8,
                 padding: 12,
                 display: 'flex',
@@ -351,9 +351,7 @@ export default function PricingPage(): React.ReactElement {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <SparklesIcon size={18} />
-                <span
-                  style={{ fontSize: 16, fontWeight: 600, lineHeight: '20px', color: '#1F2937' }}
-                >
+                <span style={{ fontSize: 16, fontWeight: 600, lineHeight: '20px', color: C.text }}>
                   Features
                 </span>
               </div>
@@ -365,8 +363,8 @@ export default function PricingPage(): React.ReactElement {
                     style={{
                       width: 262,
                       height: 178,
-                      background: '#F3F4F6',
-                      border: '1px solid #EEEEEE',
+                      background: C.field,
+                      border: `1px solid ${C.border}`,
                       borderRadius: 8,
                       boxSizing: 'border-box',
                     }}
@@ -380,8 +378,8 @@ export default function PricingPage(): React.ReactElement {
                       height: 178,
                       background: plan.isHighlighted
                         ? 'linear-gradient(90deg, #D94D69 0%, #D49332 100%)'
-                        : '#FEEFF266',
-                      border: '1px solid #EEEEEE',
+                        : C.card,
+                      border: plan.isHighlighted ? 'none' : `1px solid ${C.border}`,
                       borderRadius: 8,
                       padding: 12,
                       display: 'flex',
@@ -457,7 +455,7 @@ export default function PricingPage(): React.ReactElement {
                       <span
                         style={{
                           fontSize: 11,
-                          color: plan.isHighlighted ? 'rgba(255,255,255,0.65)' : C.light,
+                          color: plan.isHighlighted ? 'rgba(255,255,255,0.75)' : C.mid,
                         }}
                       >
                         ({paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))}{' '}
@@ -481,14 +479,16 @@ export default function PricingPage(): React.ReactElement {
                           padding: '8px 20px',
                           height: 36,
                           borderRadius: 8,
-                          border: '1px solid #EEEEEE',
+                          border: plan.isHighlighted
+                            ? '1px solid rgba(255,255,255,0.3)'
+                            : `1px solid ${C.border}`,
                           cursor: buying ? 'not-allowed' : 'pointer',
                           fontFamily: 'inherit',
                           fontWeight: 700,
                           fontSize: 14,
                           lineHeight: '20px',
-                          background: '#FEFEFE',
-                          color: '#626262',
+                          background: plan.isHighlighted ? 'rgba(255,255,255,0.15)' : C.white,
+                          color: plan.isHighlighted ? '#ffffff' : C.mid,
                           boxSizing: 'border-box',
                           opacity: buying && buying !== plan.slug ? 0.5 : 1,
                         }}
@@ -549,15 +549,13 @@ export default function PricingPage(): React.ReactElement {
                         textAlign: 'center',
                         fontSize: 13,
                         color:
-                          v === 'No'
-                            ? '#9CA3AF'
-                            : v === 'Yes'
-                              ? C.mint
-                              : v === 'Full'
-                                ? C.pink
-                                : v === 'Limited'
-                                  ? C.amber
-                                  : C.mid,
+                          v === 'Yes'
+                            ? C.mint
+                            : v === 'Full'
+                              ? C.pink
+                              : v === 'Limited'
+                                ? C.amber
+                                : C.mid,
                         fontWeight: ['Yes', 'No', 'Full', 'Limited'].includes(v) ? 500 : 400,
                       }}
                     >
@@ -587,7 +585,7 @@ export default function PricingPage(): React.ReactElement {
                             background: 'rgba(245,92,122,0.12)',
                           }}
                         >
-                          <XIcon size={13} />
+                          <XIcon size={13} color={C.mid} />
                         </span>
                       ) : (
                         v
