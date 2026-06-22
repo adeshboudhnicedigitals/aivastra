@@ -245,7 +245,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .set({ status: 'QUEUED', errorCode: null, attempts: 0 })
         .where(eq(schema.jobs.id, id));
       const stream = job.priority ? 'jobs:priority' : 'jobs:normal';
-      await app.redis.xadd(stream, '*', 'jobId', id, 'userId', job.userId);
+      await app.redis.xadd(stream, '*', 'jobId', id, 'userId', job.userId ?? '');
       return { ok: true };
     },
   );
@@ -263,7 +263,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .update(schema.jobs)
         .set({ status: 'CANCELLED', errorCode: 'ADMIN_CANCEL' })
         .where(eq(schema.jobs.id, id));
-      await refund(app.db, job.userId, job.creditsCharged, id, 'REFUND_ADMIN_CANCEL');
+      if (job.userId) {
+        await refund(app.db, job.userId, job.creditsCharged, id, 'REFUND_ADMIN_CANCEL');
+      }
       return { ok: true };
     },
   );

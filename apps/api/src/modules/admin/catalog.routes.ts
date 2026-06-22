@@ -66,7 +66,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       const subMap = new Map<string, string[]>();
       for (const l of links) {
         if (!subMap.has(l.catalogItemId)) subMap.set(l.catalogItemId, []);
-        subMap.get(l.catalogItemId)!.push(l.subcategoryId);
+        subMap.get(l.catalogItemId)?.push(l.subcategoryId);
       }
       return rows.map((r) => ({ ...r, subcategoryIds: subMap.get(r.id) ?? [] }));
     },
@@ -152,7 +152,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         if (subcategoryIds && subcategoryIds.length > 0) {
           await tx.insert(schema.catalogItemSubcategories).values(
             subcategoryIds.map((sid: string) => ({
-              catalogItemId: inserted!.id,
+              catalogItemId: inserted?.id,
               subcategoryId: sid,
             })),
           );
@@ -249,12 +249,12 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       const typeRow = await app.db
         .select({ slug: schema.catalogTypes.slug })
         .from(schema.catalogTypes)
-        .where(eq(schema.catalogTypes.id, row!.typeId))
+        .where(eq(schema.catalogTypes.id, row?.typeId))
         .then((r) => r[0]);
       return {
         ...row!,
         typeSlug: typeRow?.slug ?? '',
-        thumbnailUrl: row!.thumbnailKey ? app.storage.publicUrl(row!.thumbnailKey) : null,
+        thumbnailUrl: row?.thumbnailKey ? app.storage.publicUrl(row?.thumbnailKey) : null,
       };
     },
   );
@@ -274,7 +274,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
           .where(
             and(eq(schema.catalogItems.categoryId, id), eq(schema.catalogItems.isActive, true)),
           )
-          .then((r) => r[0]!.value),
+          .then((r) => r[0]?.value),
         app.db
           .select({ value: count() })
           .from(schema.modelBackgrounds)
@@ -285,7 +285,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
               isNull(schema.modelBackgrounds.deletedAt),
             ),
           )
-          .then((r) => r[0]!.value),
+          .then((r) => r[0]?.value),
       ]);
       if (itemsCount > 0 || backgroundsCount > 0)
         throw new AppError('IN_USE', 409, 'category has active items');

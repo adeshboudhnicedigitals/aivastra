@@ -122,22 +122,66 @@ export const PatchModelBackgroundBody = z.object({
 
 // ── Workflow template schemas ─────────────────────────────────────────────
 
-export const CreateWorkflowBody = z.object({
-  slug: z
-    .string()
-    .regex(/^[a-z0-9_]+$/, 'Slug must be snake_case (lowercase letters, digits, underscores only)'),
-  label: z.string().min(1).max(120),
-  jsonContent: z.record(z.any()),
-  faceNodeId: z.string().min(1),
-  poseNodeId: z.string().min(1),
-  bgNodeId: z.string().min(1),
-  upperNodeIds: z.array(z.string().min(1)).min(1).max(8),
-  lowerNodeId: z.string().min(1).optional(),
-  shoeNodeId: z.string().min(1).optional(),
-  sizeNodeIds: z.array(z.string().min(1)).min(1),
-  facePhasePromptNode: z.string().min(1),
-  garmentPhasePromptNode: z.string().min(1),
-});
+export const CreateWorkflowBody = z
+  .object({
+    slug: z
+      .string()
+      .regex(
+        /^[a-z0-9_]+$/,
+        'Slug must be snake_case (lowercase letters, digits, underscores only)',
+      ),
+    label: z.string().min(1).max(120),
+    jsonContent: z.record(z.any()),
+    workflowType: z.enum(['regular', 'widget']).default('regular'),
+    // Regular workflow fields (required when workflowType = 'regular')
+    faceNodeId: z.string().min(1).optional(),
+    poseNodeId: z.string().min(1).optional(),
+    bgNodeId: z.string().min(1).optional(),
+    upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+    lowerNodeId: z.string().min(1).optional(),
+    shoeNodeId: z.string().min(1).optional(),
+    sizeNodeIds: z.array(z.string().min(1)).optional(),
+    facePhasePromptNode: z.string().min(1).optional(),
+    garmentPhasePromptNode: z.string().min(1).optional(),
+    // Widget workflow fields (required when workflowType = 'widget')
+    widgetGarmentNodeId: z.string().min(1).optional(),
+    widgetCustomerPhotoNodeId: z.string().min(1).optional(),
+    widgetOutputNodeId: z.string().min(1).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.workflowType === 'regular') {
+      for (const field of [
+        'faceNodeId',
+        'poseNodeId',
+        'bgNodeId',
+        'upperNodeIds',
+        'facePhasePromptNode',
+        'garmentPhasePromptNode',
+      ] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for regular workflows`,
+          });
+        }
+      }
+    } else {
+      for (const field of [
+        'widgetGarmentNodeId',
+        'widgetCustomerPhotoNodeId',
+        'widgetOutputNodeId',
+      ] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for widget workflows`,
+          });
+        }
+      }
+    }
+  });
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
@@ -149,10 +193,10 @@ export const UpdateWorkflowBody = z.object({
     .string()
     .min(1)
     .max(80)
-    .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens')
+    .regex(/^[a-z0-9_]+$/, 'slug must be lowercase alphanumeric with underscores')
     .optional(),
   isActive: z.boolean().optional(),
-  // Allow updating node mappings (not the JSON itself)
+  // Regular workflow node mappings (not the JSON itself)
   faceNodeId: z.string().min(1).optional(),
   poseNodeId: z.string().min(1).optional(),
   bgNodeId: z.string().min(1).optional(),
@@ -160,8 +204,13 @@ export const UpdateWorkflowBody = z.object({
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
+  sizeNodeIds: z.array(z.string().min(1)).optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
+  // Widget workflow node IDs
+  widgetGarmentNodeId: z.string().min(1).nullable().optional(),
+  widgetCustomerPhotoNodeId: z.string().min(1).nullable().optional(),
+  widgetOutputNodeId: z.string().min(1).nullable().optional(),
 });
 
 export const ReassignWorkflowBody = z.object({

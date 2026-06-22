@@ -78,7 +78,7 @@ function buildReverseLinks(
       if (Array.isArray(val) && val.length === 2 && typeof val[0] === 'string') {
         const srcId = val[0] as string;
         if (!rev.has(srcId)) rev.set(srcId, []);
-        rev.get(srcId)!.push({ consumerId, inputName });
+        rev.get(srcId)?.push({ consumerId, inputName });
       }
     }
   }

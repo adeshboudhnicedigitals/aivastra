@@ -2,12 +2,11 @@ import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle
 import { catalogItems } from './catalog.js';
 import { garmentSubcategories, modelBackgrounds, modelFaces, modelPoseAssets } from './models.js';
 import { users } from './users.js';
+import { widgetClients } from './widget.js';
 
 export const jobs = pgTable('jobs', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
   catalogueId: uuid('catalogue_id'),
   status: text('status').notNull().default('QUEUED'),
   workerId: text('worker_id'),
@@ -15,6 +14,10 @@ export const jobs = pgTable('jobs', {
   creditsCharged: integer('credits_charged').notNull().default(1),
   attempts: integer('attempts').notNull().default(0),
   errorCode: text('error_code'),
+  widgetClientId: uuid('widget_client_id').references(() => widgetClients.id, {
+    onDelete: 'set null',
+  }),
+  customerPhotoKey: text('customer_photo_key'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   startedAt: timestamp('started_at', { withTimezone: true }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -25,15 +28,9 @@ export const jobInputs = pgTable('job_inputs', {
     .primaryKey()
     .references(() => jobs.id, { onDelete: 'cascade' }),
   upperGarmentKey: text('upper_garment_key').notNull(),
-  faceId: uuid('face_id')
-    .notNull()
-    .references(() => modelFaces.id),
-  backgroundId: uuid('background_id')
-    .notNull()
-    .references(() => modelBackgrounds.id),
-  poseId: uuid('pose_id')
-    .notNull()
-    .references(() => modelPoseAssets.id),
+  faceId: uuid('face_id').references(() => modelFaces.id),
+  backgroundId: uuid('background_id').references(() => modelBackgrounds.id),
+  poseId: uuid('pose_id').references(() => modelPoseAssets.id),
   garmentTypeId: uuid('garment_type_id').references(() => garmentSubcategories.id, {
     onDelete: 'set null',
   }),

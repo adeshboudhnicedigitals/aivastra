@@ -17,6 +17,7 @@ interface WorkflowDetail extends WorkflowOption {
   defaultFacePhasePrompt: string;
   defaultGarmentPhasePrompt: string;
   jsonContent: Record<string, unknown>;
+  sizeNodeIds: string[];
 }
 
 interface Props {
@@ -37,7 +38,13 @@ export default function WorkflowsPage({ toast }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [jsonCopied, setJsonCopied] = useState(false);
   const [editingWf, setEditingWf] = useState<WorkflowOption | null>(null);
-  const [editForm, setEditForm] = useState({ label: '', slug: '' });
+  const [editForm, setEditForm] = useState({
+    label: '',
+    slug: '',
+    widgetGarmentNodeId: '',
+    widgetCustomerPhotoNodeId: '',
+    widgetOutputNodeId: '',
+  });
   const [editSaving, setEditSaving] = useState(false);
 
   const loadWorkflows = useCallback(async () => {
@@ -145,14 +152,32 @@ export default function WorkflowsPage({ toast }: Props) {
     if (!editingWf) return;
     setEditSaving(true);
     try {
+      const patch: Record<string, unknown> = {
+        label: editForm.label.trim(),
+        slug: editForm.slug.trim(),
+      };
+      if (editingWf.workflowType === 'widget') {
+        patch.widgetGarmentNodeId = editForm.widgetGarmentNodeId.trim() || null;
+        patch.widgetCustomerPhotoNodeId = editForm.widgetCustomerPhotoNodeId.trim() || null;
+        patch.widgetOutputNodeId = editForm.widgetOutputNodeId.trim() || null;
+      }
       await apiFetch(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ label: editForm.label.trim(), slug: editForm.slug.trim() }),
+        body: JSON.stringify(patch),
       });
       setWorkflows((prev) =>
         prev.map((w) =>
           w.id === editingWf.id
-            ? { ...w, label: editForm.label.trim(), slug: editForm.slug.trim() }
+            ? {
+                ...w,
+                label: editForm.label.trim(),
+                slug: editForm.slug.trim(),
+                ...(editingWf.workflowType === 'widget' && {
+                  widgetGarmentNodeId: editForm.widgetGarmentNodeId.trim() || null,
+                  widgetCustomerPhotoNodeId: editForm.widgetCustomerPhotoNodeId.trim() || null,
+                  widgetOutputNodeId: editForm.widgetOutputNodeId.trim() || null,
+                }),
+              }
             : w,
         ),
       );
@@ -226,6 +251,7 @@ export default function WorkflowsPage({ toast }: Props) {
               <tr>
                 <th>Label</th>
                 <th>Slug</th>
+                <th>Type</th>
                 <th>Status</th>
                 <th style={{ textAlign: 'right' }}>Poses</th>
                 <th style={{ textAlign: 'right' }}>Created</th>
@@ -247,6 +273,23 @@ export default function WorkflowsPage({ toast }: Props) {
                     >
                       {wf.slug}
                     </code>
+                  </td>
+                  <td>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        background:
+                          wf.workflowType === 'widget'
+                            ? 'rgba(139,92,246,0.12)'
+                            : 'rgba(37,99,235,0.1)',
+                        color: wf.workflowType === 'widget' ? '#7c3aed' : '#1d4ed8',
+                      }}
+                    >
+                      {wf.workflowType === 'widget' ? 'Widget' : 'Regular'}
+                    </span>
                   </td>
                   <td>
                     <span
@@ -281,9 +324,15 @@ export default function WorkflowsPage({ toast }: Props) {
                         className="btn sm ghost"
                         onClick={() => {
                           setEditingWf(wf);
-                          setEditForm({ label: wf.label, slug: wf.slug });
+                          setEditForm({
+                            label: wf.label,
+                            slug: wf.slug,
+                            widgetGarmentNodeId: wf.widgetGarmentNodeId ?? '',
+                            widgetCustomerPhotoNodeId: wf.widgetCustomerPhotoNodeId ?? '',
+                            widgetOutputNodeId: wf.widgetOutputNodeId ?? '',
+                          });
                         }}
-                        title="Edit label and slug"
+                        title="Edit workflow"
                       >
                         <Icon.Edit /> Edit
                       </button>
@@ -405,23 +454,28 @@ export default function WorkflowsPage({ toast }: Props) {
                       fontSize: 13,
                     }}
                   >
-                    {(
-                      [
-                        ['Face node', viewingDetail.faceNodeId],
-                        ['Pose node', viewingDetail.poseNodeId],
-                        ['Background node', viewingDetail.bgNodeId],
-                        ['Upper nodes', viewingDetail.upperNodeIds.join(', ')],
-                        ['Lower node', viewingDetail.lowerNodeId ?? '—'],
-                        ['Shoe node', viewingDetail.shoeNodeId ?? '—'],
-                        [
-                          'Size nodes',
-                          viewingDetail.sizeNodeIds.length > 0
-                            ? viewingDetail.sizeNodeIds.join(', ')
-                            : '—',
-                        ],
-                        ['Negative prompt node', viewingDetail.facePhasePromptNode],
-                        ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
-                      ] as [string, string][]
+                    {(viewingDetail.workflowType === 'widget'
+                      ? [
+                          ['Garment node', viewingDetail.widgetGarmentNodeId ?? '—'],
+                          ['Customer photo node', viewingDetail.widgetCustomerPhotoNodeId ?? '—'],
+                          ['Output node', viewingDetail.widgetOutputNodeId ?? '—'],
+                        ]
+                      : [
+                          ['Face node', viewingDetail.faceNodeId],
+                          ['Pose node', viewingDetail.poseNodeId],
+                          ['Background node', viewingDetail.bgNodeId],
+                          ['Upper nodes', viewingDetail.upperNodeIds.join(', ')],
+                          ['Lower node', viewingDetail.lowerNodeId ?? '—'],
+                          ['Shoe node', viewingDetail.shoeNodeId ?? '—'],
+                          [
+                            'Size nodes',
+                            viewingDetail.sizeNodeIds.length > 0
+                              ? viewingDetail.sizeNodeIds.join(', ')
+                              : '—',
+                          ],
+                          ['Negative prompt node', viewingDetail.facePhasePromptNode],
+                          ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
+                        ]
                     ).map(([k, v]) => (
                       <>
                         <span key={`k-${k}`} style={{ color: 'var(--muted)', fontWeight: 500 }}>
@@ -623,15 +677,62 @@ export default function WorkflowsPage({ toast }: Props) {
                   className="input"
                   value={editForm.slug}
                   disabled={editSaving}
-                  placeholder="lowercase-with-hyphens"
+                  placeholder="snake_case"
                   onChange={(e) =>
                     setEditForm((f) => ({
                       ...f,
-                      slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                      slug: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'),
                     }))
                   }
                 />
               </div>
+              {editingWf?.workflowType === 'widget' && (
+                <>
+                  <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+                  <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
+                    <strong>Widget node IDs</strong>
+                  </p>
+                  <div className="field">
+                    <label>Garment node ID</label>
+                    <input
+                      className="input"
+                      value={editForm.widgetGarmentNodeId}
+                      disabled={editSaving}
+                      placeholder="e.g. 31"
+                      onChange={(e) =>
+                        setEditForm((f) => ({ ...f, widgetGarmentNodeId: e.target.value.trim() }))
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Customer photo node ID</label>
+                    <input
+                      className="input"
+                      value={editForm.widgetCustomerPhotoNodeId}
+                      disabled={editSaving}
+                      placeholder="e.g. 139"
+                      onChange={(e) =>
+                        setEditForm((f) => ({
+                          ...f,
+                          widgetCustomerPhotoNodeId: e.target.value.trim(),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Output node ID</label>
+                    <input
+                      className="input"
+                      value={editForm.widgetOutputNodeId}
+                      disabled={editSaving}
+                      placeholder="e.g. 134"
+                      onChange={(e) =>
+                        setEditForm((f) => ({ ...f, widgetOutputNodeId: e.target.value.trim() }))
+                      }
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <div className="modal-foot">
               <button

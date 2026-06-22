@@ -90,6 +90,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       id: r.id,
       slug: r.slug,
       label: r.label,
+      workflowType: r.workflowType,
       isActive: r.isActive,
       poseCount: countMap[r.id] ?? 0,
       defaultFacePhasePrompt: r.defaultFacePhasePrompt,
@@ -97,6 +98,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       lowerNodeId: r.lowerNodeId,
       shoeNodeId: r.shoeNodeId,
       sizeNodeIds: r.sizeNodeIds,
+      widgetGarmentNodeId: r.widgetGarmentNodeId,
+      widgetCustomerPhotoNodeId: r.widgetCustomerPhotoNodeId,
+      widgetOutputNodeId: r.widgetOutputNodeId,
       createdAt: r.createdAt,
     }));
   });
@@ -136,48 +140,20 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         slug: string;
         label: string;
         jsonContent: Record<string, unknown>;
-        faceNodeId: string;
-        poseNodeId: string;
-        bgNodeId: string;
-        upperNodeIds: string[];
+        workflowType?: string;
+        faceNodeId?: string;
+        poseNodeId?: string;
+        bgNodeId?: string;
+        upperNodeIds?: string[];
         lowerNodeId?: string;
         shoeNodeId?: string;
         sizeNodeIds?: string[];
-        facePhasePromptNode: string;
-        garmentPhasePromptNode: string;
+        facePhasePromptNode?: string;
+        garmentPhasePromptNode?: string;
+        widgetGarmentNodeId?: string;
+        widgetCustomerPhotoNodeId?: string;
+        widgetOutputNodeId?: string;
       };
-
-      validateNodeExists(body.jsonContent, body.faceNodeId, 'face');
-      validateNodeExists(body.jsonContent, body.poseNodeId, 'pose');
-      validateNodeExists(body.jsonContent, body.bgNodeId, 'background');
-      for (const uid of body.upperNodeIds) {
-        validateNodeExists(body.jsonContent, uid, 'upper garment');
-      }
-      if (body.lowerNodeId) validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment');
-      if (body.shoeNodeId) validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoes');
-      for (const uid of body.sizeNodeIds ?? []) {
-        validateNodeExists(body.jsonContent, uid, 'size');
-      }
-      validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');
-      validateNodeExists(body.jsonContent, body.garmentPhasePromptNode, 'positive prompt');
-
-      validateNodeType(body.jsonContent, body.faceNodeId, 'image', 'face');
-      validateNodeType(body.jsonContent, body.poseNodeId, 'image', 'pose');
-      validateNodeType(body.jsonContent, body.bgNodeId, 'image', 'background');
-      for (const uid of body.upperNodeIds) {
-        validateNodeType(body.jsonContent, uid, 'image', 'upper garment');
-      }
-      if (body.lowerNodeId)
-        validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
-      if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
-      validateNodeType(body.jsonContent, body.facePhasePromptNode, 'prompt', 'negative prompt');
-      validateNodeType(body.jsonContent, body.garmentPhasePromptNode, 'prompt', 'positive prompt');
-
-      const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
-        body.jsonContent,
-        body.facePhasePromptNode,
-        body.garmentPhasePromptNode,
-      );
 
       const [existing] = await app.db
         .select({ id: schema.workflowTemplates.id })
@@ -187,21 +163,102 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         throw new AppError('CONFLICT', 409, `Workflow with slug "${body.slug}" already exists`);
       }
 
+      const workflowType = body.workflowType ?? 'regular';
+
+      if (workflowType === 'widget') {
+        const [row] = await app.db
+          .insert(schema.workflowTemplates)
+          .values({
+            slug: body.slug,
+            label: body.label,
+            jsonContent: body.jsonContent,
+            workflowType: 'widget',
+            faceNodeId: '',
+            poseNodeId: '',
+            bgNodeId: '',
+            upperNodeIds: [],
+            facePhasePromptNode: '',
+            garmentPhasePromptNode: '',
+            defaultFacePhasePrompt: '',
+            defaultGarmentPhasePrompt: '',
+            widgetGarmentNodeId: body.widgetGarmentNodeId ?? null,
+            widgetCustomerPhotoNodeId: body.widgetCustomerPhotoNodeId ?? null,
+            widgetOutputNodeId: body.widgetOutputNodeId ?? null,
+          })
+          .returning();
+
+        return {
+          id: row?.id,
+          slug: row?.slug,
+          label: row?.label,
+          workflowType: row?.workflowType,
+          isActive: row?.isActive,
+          poseCount: 0,
+          defaultFacePhasePrompt: '',
+          defaultGarmentPhasePrompt: '',
+          widgetGarmentNodeId: row?.widgetGarmentNodeId,
+          widgetCustomerPhotoNodeId: row?.widgetCustomerPhotoNodeId,
+          widgetOutputNodeId: row?.widgetOutputNodeId,
+          createdAt: row?.createdAt,
+        };
+      }
+
+      // Regular workflow — full node validation
+      const faceNodeId = body.faceNodeId!;
+      const poseNodeId = body.poseNodeId!;
+      const bgNodeId = body.bgNodeId!;
+      const upperNodeIds = body.upperNodeIds!;
+      const facePhasePromptNode = body.facePhasePromptNode!;
+      const garmentPhasePromptNode = body.garmentPhasePromptNode!;
+
+      validateNodeExists(body.jsonContent, faceNodeId, 'face');
+      validateNodeExists(body.jsonContent, poseNodeId, 'pose');
+      validateNodeExists(body.jsonContent, bgNodeId, 'background');
+      for (const uid of upperNodeIds) {
+        validateNodeExists(body.jsonContent, uid, 'upper garment');
+      }
+      if (body.lowerNodeId) validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment');
+      if (body.shoeNodeId) validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoes');
+      for (const uid of body.sizeNodeIds ?? []) {
+        validateNodeExists(body.jsonContent, uid, 'size');
+      }
+      validateNodeExists(body.jsonContent, facePhasePromptNode, 'negative prompt');
+      validateNodeExists(body.jsonContent, garmentPhasePromptNode, 'positive prompt');
+
+      validateNodeType(body.jsonContent, faceNodeId, 'image', 'face');
+      validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
+      validateNodeType(body.jsonContent, bgNodeId, 'image', 'background');
+      for (const uid of upperNodeIds) {
+        validateNodeType(body.jsonContent, uid, 'image', 'upper garment');
+      }
+      if (body.lowerNodeId)
+        validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
+      if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
+      validateNodeType(body.jsonContent, facePhasePromptNode, 'prompt', 'negative prompt');
+      validateNodeType(body.jsonContent, garmentPhasePromptNode, 'prompt', 'positive prompt');
+
+      const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
+        body.jsonContent,
+        facePhasePromptNode,
+        garmentPhasePromptNode,
+      );
+
       const [row] = await app.db
         .insert(schema.workflowTemplates)
         .values({
           slug: body.slug,
           label: body.label,
           jsonContent: body.jsonContent,
-          faceNodeId: body.faceNodeId,
-          poseNodeId: body.poseNodeId,
-          bgNodeId: body.bgNodeId,
-          upperNodeIds: body.upperNodeIds,
+          workflowType: 'regular',
+          faceNodeId,
+          poseNodeId,
+          bgNodeId,
+          upperNodeIds,
           lowerNodeId: body.lowerNodeId ?? null,
           shoeNodeId: body.shoeNodeId ?? null,
           sizeNodeIds: body.sizeNodeIds ?? [],
-          facePhasePromptNode: body.facePhasePromptNode,
-          garmentPhasePromptNode: body.garmentPhasePromptNode,
+          facePhasePromptNode,
+          garmentPhasePromptNode,
           defaultFacePhasePrompt,
           defaultGarmentPhasePrompt,
         })
@@ -211,10 +268,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         id: row?.id,
         slug: row?.slug,
         label: row?.label,
+        workflowType: row?.workflowType,
         isActive: row?.isActive,
         poseCount: 0,
         defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
         defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
+        lowerNodeId: row?.lowerNodeId,
+        shoeNodeId: row?.shoeNodeId,
+        sizeNodeIds: row?.sizeNodeIds,
         createdAt: row?.createdAt,
       };
     },
@@ -266,6 +327,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         sizeNodeIds?: string[];
         facePhasePromptNode?: string;
         garmentPhasePromptNode?: string;
+        widgetGarmentNodeId?: string | null;
+        widgetCustomerPhotoNodeId?: string | null;
+        widgetOutputNodeId?: string | null;
       };
 
       const [existing] = await app.db
@@ -350,6 +414,12 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.facePhasePromptNode = body.facePhasePromptNode;
       if (body.garmentPhasePromptNode !== undefined)
         updateValues.garmentPhasePromptNode = body.garmentPhasePromptNode;
+      if ('widgetGarmentNodeId' in body)
+        updateValues.widgetGarmentNodeId = body.widgetGarmentNodeId ?? null;
+      if ('widgetCustomerPhotoNodeId' in body)
+        updateValues.widgetCustomerPhotoNodeId = body.widgetCustomerPhotoNodeId ?? null;
+      if ('widgetOutputNodeId' in body)
+        updateValues.widgetOutputNodeId = body.widgetOutputNodeId ?? null;
 
       await app.db
         .update(schema.workflowTemplates)

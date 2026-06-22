@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -52,7 +52,7 @@ describe('dispatcher crash recovery', () => {
       .insert(schema.users)
       .values({ email: `rec-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
       .returning();
-    await env.db.insert(schema.userCredits).values({ userId: user!.id, balance: 5 });
+    await env.db.insert(schema.userCredits).values({ userId: user?.id, balance: 5 });
 
     const [ct] = await env.db
       .insert(schema.catalogTypes)
@@ -60,12 +60,12 @@ describe('dispatcher crash recovery', () => {
       .returning();
     const [cc] = await env.db
       .insert(schema.catalogCategories)
-      .values({ typeId: ct!.id, slug: 'c', label: 'C' })
+      .values({ typeId: ct?.id, slug: 'c', label: 'C' })
       .returning();
     const mkItem = (k: string) =>
       env.db
         .insert(schema.catalogItems)
-        .values({ categoryId: cc!.id, label: 'I', r2Key: k, thumbnailKey: k })
+        .values({ categoryId: cc?.id, label: 'I', r2Key: k, thumbnailKey: k })
         .returning();
     const [[m], [p], [b], [l]] = await Promise.all([
       mkItem('r/m.jpg'),
@@ -76,18 +76,18 @@ describe('dispatcher crash recovery', () => {
 
     const [job] = await env.db
       .insert(schema.jobs)
-      .values({ userId: user!.id, status: 'QUEUED', priority: false, creditsCharged: 1 })
+      .values({ userId: user?.id, status: 'QUEUED', priority: false, creditsCharged: 1 })
       .returning();
     await env.db.insert(schema.jobInputs).values({
-      jobId: job!.id,
-      upperGarmentKey: `inputs/${job!.id}/garment.jpg`,
-      modelCatalogId: m!.id,
-      poseCatalogId: p!.id,
-      backgroundCatalogId: b!.id,
-      lowerCatalogId: l!.id,
+      jobId: job?.id,
+      upperGarmentKey: `inputs/${job?.id}/garment.jpg`,
+      modelCatalogId: m?.id,
+      poseCatalogId: p?.id,
+      backgroundCatalogId: b?.id,
+      lowerCatalogId: l?.id,
     });
     for (const key of [
-      `inputs/${job!.id}/garment.jpg`,
+      `inputs/${job?.id}/garment.jpg`,
       'r/m.jpg',
       'r/p.jpg',
       'r/b.jpg',
@@ -104,7 +104,7 @@ describe('dispatcher crash recovery', () => {
     }
 
     // Simulate a "ghost" consumer reading the message without ACKing it
-    await redis.xadd(STREAM, '*', 'jobId', job!.id, 'userId', user!.id);
+    await redis.xadd(STREAM, '*', 'jobId', job?.id, 'userId', user?.id);
     await redis.xreadgroup(
       'GROUP',
       GROUP,
@@ -137,7 +137,7 @@ describe('dispatcher crash recovery', () => {
 
     await recoverPendingJobs(redis, cfg, 0, log, [STREAM]);
 
-    const [completed] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, job!.id));
-    expect(completed!.status).toBe('COMPLETED');
+    const [completed] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, job?.id));
+    expect(completed?.status).toBe('COMPLETED');
   });
 });

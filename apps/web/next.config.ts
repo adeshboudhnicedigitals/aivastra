@@ -33,9 +33,11 @@ export default withSentryConfig(nextConfig, {
   project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,
   widenClientFileUpload: true,
-  // Don't instrument server components with Sentry's auto-wrapping (avoids bundle bloat).
-  autoInstrumentServerFunctions: false,
   // Disable tunnel route — we're not worried about ad-blocker interference.
   tunnelRoute: undefined,
-  disableLogger: true,
+  webpack: {
+    // Don't instrument server components with Sentry's auto-wrapping (avoids bundle bloat).
+    autoInstrumentServerFunctions: false,
+    treeshake: { removeDebugLogging: true },
+  },
 });

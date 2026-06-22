@@ -19,6 +19,9 @@ const Env = z.object({
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
   SENTRY_DSN: z.string().url().optional(),
+  // Widget VPS — dedicated ComfyUI instance for widget try-on jobs
+  WIDGET_COMFYUI_URL: z.string().url().optional(),
+  WIDGET_COMFYUI_BASIC_AUTH: z.string().optional(), // "user:password"
 });
 
 export type Env = z.infer<typeof Env>;

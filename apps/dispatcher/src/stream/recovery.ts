@@ -44,15 +44,15 @@ export async function recoverPendingJobs(
         const [, fields] = claimed[0]!;
         const fieldMap: Record<string, string> = {};
         for (let i = 0; i < fields.length; i += 2) fieldMap[fields[i]!] = fields[i + 1]!;
-        if (!fieldMap['jobId'] || !fieldMap['userId']) {
+        if (!fieldMap.jobId || !fieldMap.userId) {
           await redis.xack(stream, GROUP, messageId);
           continue;
         }
-        log.info({ jobId: fieldMap['jobId'] }, 'reprocessing claimed pending job');
-        await processJob(cfg, fieldMap['jobId']!, fieldMap['userId']!, stream, messageId);
+        log.info({ jobId: fieldMap.jobId }, 'reprocessing claimed pending job');
+        await processJob(cfg, fieldMap.jobId!, fieldMap.userId!, stream, messageId);
       }
 
-      const lastId = pending[pending.length - 1]![0];
+      const lastId = pending[pending.length - 1]?.[0];
       startId = lastId.replace(/^(\d+)-(\d+)$/, (_, ms, seq) => `${ms}-${Number(seq) + 1}`);
       if (pending.length < 10) break;
     }

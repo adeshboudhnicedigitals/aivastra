@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
-import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -45,7 +45,7 @@ describe('dispatcher happy path', () => {
       .insert(schema.users)
       .values({ email: `happy-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
       .returning();
-    await env.db.insert(schema.userCredits).values({ userId: user!.id, balance: 5 });
+    await env.db.insert(schema.userCredits).values({ userId: user?.id, balance: 5 });
 
     const [ct] = await env.db
       .insert(schema.catalogTypes)
@@ -53,13 +53,13 @@ describe('dispatcher happy path', () => {
       .returning();
     const [cc] = await env.db
       .insert(schema.catalogCategories)
-      .values({ typeId: ct!.id, slug: 'c', label: 'C' })
+      .values({ typeId: ct?.id, slug: 'c', label: 'C' })
       .returning();
 
     const mkItem = (label: string, r2Key: string) =>
       env.db
         .insert(schema.catalogItems)
-        .values({ categoryId: cc!.id, label, r2Key, thumbnailKey: r2Key })
+        .values({ categoryId: cc?.id, label, r2Key, thumbnailKey: r2Key })
         .returning();
 
     const [[m], [p], [b], [l]] = await Promise.all([
@@ -71,21 +71,21 @@ describe('dispatcher happy path', () => {
 
     const [job] = await env.db
       .insert(schema.jobs)
-      .values({ userId: user!.id, status: 'QUEUED', priority: false, creditsCharged: 1 })
+      .values({ userId: user?.id, status: 'QUEUED', priority: false, creditsCharged: 1 })
       .returning();
 
     await env.db.insert(schema.jobInputs).values({
-      jobId: job!.id,
-      upperGarmentKey: `inputs/${job!.id}/garment.jpg`,
-      modelCatalogId: m!.id,
-      poseCatalogId: p!.id,
-      backgroundCatalogId: b!.id,
-      lowerCatalogId: l!.id,
+      jobId: job?.id,
+      upperGarmentKey: `inputs/${job?.id}/garment.jpg`,
+      modelCatalogId: m?.id,
+      poseCatalogId: p?.id,
+      backgroundCatalogId: b?.id,
+      lowerCatalogId: l?.id,
     });
 
     // Upload stub objects to MinIO so presignGet works
     for (const key of [
-      `inputs/${job!.id}/garment.jpg`,
+      `inputs/${job?.id}/garment.jpg`,
       'catalog/m/m.jpg',
       'catalog/p/p.jpg',
       'catalog/b/b.jpg',
@@ -101,7 +101,7 @@ describe('dispatcher happy path', () => {
       );
     }
 
-    return { jobId: job!.id, userId: user!.id };
+    return { jobId: job?.id, userId: user?.id };
   }
 
   it('processes job to COMPLETED — result uploaded to R2, workerId set', async () => {
@@ -126,14 +126,14 @@ describe('dispatcher happy path', () => {
     );
 
     const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    expect(job!.status).toBe('COMPLETED');
-    expect(job!.workerId).toBe(WORKER_ID);
+    expect(job?.status).toBe('COMPLETED');
+    expect(job?.workerId).toBe(WORKER_ID);
 
     const [output] = await env.db
       .select()
       .from(schema.jobOutputs)
       .where(eq(schema.jobOutputs.jobId, jobId));
-    expect(output!.resultKey).toBe(`outputs/${jobId}/result.png`);
+    expect(output?.resultKey).toBe(`outputs/${jobId}/result.png`);
 
     // Verify result file exists in MinIO
     const obj = await env.s3.send(
@@ -144,6 +144,6 @@ describe('dispatcher happy path', () => {
     // Worker should be back to IDLE
     const { getWorkers } = await import('../../src/worker/registry.js');
     const workers = await getWorkers(redis);
-    expect(workers.get(WORKER_ID)!.status).toBe('IDLE');
+    expect(workers.get(WORKER_ID)?.status).toBe('IDLE');
   });
 });

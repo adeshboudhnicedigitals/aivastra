@@ -17,7 +17,7 @@ export async function buildTestApp(c: Containers) {
     R2_ACCESS_KEY_ID: c.r2Key,
     R2_SECRET_ACCESS_KEY: c.r2Secret,
     R2_BUCKET: c.r2Bucket,
-    R2_PUBLIC_URL: c.r2Endpoint + '/' + c.r2Bucket,
+    R2_PUBLIC_URL: `${c.r2Endpoint}/${c.r2Bucket}`,
     R2_FORCE_PATH_STYLE: true,
     CORS_ORIGIN: 'http://localhost:3000',
     COOKIE_SECRET: 'test-cookie-secret-0123456789abcdef-32min',

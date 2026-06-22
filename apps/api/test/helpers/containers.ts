@@ -1,7 +1,6 @@
 import { CreateBucketCommand, DeleteBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import { Redis } from 'ioredis';
 import postgres from 'postgres';
 
 export interface Containers {

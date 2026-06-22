@@ -411,31 +411,71 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
             <table>
               <thead>
                 <tr>
-                  <Th k="displayName" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  <Th
+                    k="displayName"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    style={{ textAlign: 'left' }}
+                  >
                     User
                   </Th>
-                  <Th k="tier" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  <Th
+                    k="tier"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    style={{ textAlign: 'center' }}
+                  >
                     Tier
                   </Th>
-                  <Th k="balance" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  <Th
+                    k="balance"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    style={{ textAlign: 'center' }}
+                  >
                     Balance
                   </Th>
-                  <Th k="totalJobs" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  <Th
+                    k="totalJobs"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    style={{ textAlign: 'center' }}
+                  >
                     Jobs
                   </Th>
-                  <Th k="lastJobAt" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  <Th
+                    k="lastJobAt"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    style={{ textAlign: 'center' }}
+                  >
                     Last job
                   </Th>
-                  <Th k="isBanned" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                  <Th
+                    k="isBanned"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    style={{ textAlign: 'center' }}
+                  >
                     Status
                   </Th>
-                  <th></th>
+                  <th style={{ textAlign: 'center' }}></th>
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((u) => (
-                  <tr key={u.id} onClick={() => openDetail(u)} style={{ cursor: 'pointer' }}>
-                    <td>
+                  <tr
+                    key={u.id}
+                    onClick={() => openDetail(u)}
+                    style={{ cursor: 'pointer', textAlign: 'center' }}
+                  >
+                    <td style={{ textAlign: 'left' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <NameAvatar name={u.displayName ?? u.email} email={u.email} size={34} />
                         <div>
