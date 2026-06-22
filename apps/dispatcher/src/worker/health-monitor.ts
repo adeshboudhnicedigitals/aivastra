@@ -7,7 +7,7 @@ const PROBE_INTERVAL_MS = 15_000;
 const HEALTH_TTL_SEC = 30;
 const JOB_STREAMS = ['jobs:priority', 'jobs:normal'] as const;
 
-async function probeWorker(workerId: string, workerUrl: string, apiKey: string): Promise<boolean> {
+async function probeWorker(_workerId: string, workerUrl: string, apiKey: string): Promise<boolean> {
   try {
     const res = await fetch(`${workerUrl.replace(/\/$/, '')}/system_stats`, {
       headers: { 'X-Api-Key': apiKey },

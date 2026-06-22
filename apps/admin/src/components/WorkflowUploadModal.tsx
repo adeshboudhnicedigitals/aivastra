@@ -119,10 +119,11 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [parsing, setParsing] = useState(false);
   const [showConvention, setShowConvention] = useState(false);
 
+  const [workflowType, setWorkflowType] = useState<'regular' | 'widget'>('regular');
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
 
-  // Mappings — initialised from auto-detection, overridable by admin
+  // Regular workflow mappings — initialised from auto-detection, overridable by admin
   const [faceNodeId, setFaceNodeId] = useState('');
   const [poseNodeId, setPoseNodeId] = useState('');
   const [bgNodeId, setBgNodeId] = useState('');
@@ -132,6 +133,11 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
   const [negativePromptNode, setNegativePromptNode] = useState('');
+
+  // Widget workflow node IDs
+  const [widgetGarmentNodeId, setWidgetGarmentNodeId] = useState('');
+  const [widgetCustomerPhotoNodeId, setWidgetCustomerPhotoNodeId] = useState('');
+  const [widgetOutputNodeId, setWidgetOutputNodeId] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,21 +196,34 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   };
 
   const handleSubmit = async () => {
-    if (!jsonFile || !parsed) return;
+    if (!jsonFile) return;
     if (!slug.trim() || !label.trim()) {
       setError('Slug and label are required');
       return;
     }
-    if (!faceNodeId || !poseNodeId || !bgNodeId || !positivePromptNode || !negativePromptNode) {
-      setError(
-        'Face, pose, background, positive prompt, and negative prompt nodes are all required',
-      );
-      return;
-    }
-    const validUpperIds = upperNodeIds.filter(Boolean);
-    if (validUpperIds.length === 0) {
-      setError('At least one upper garment node is required');
-      return;
+
+    if (workflowType === 'widget') {
+      if (
+        !widgetGarmentNodeId.trim() ||
+        !widgetCustomerPhotoNodeId.trim() ||
+        !widgetOutputNodeId.trim()
+      ) {
+        setError('All three widget node IDs are required');
+        return;
+      }
+    } else {
+      if (!parsed) return;
+      if (!faceNodeId || !poseNodeId || !bgNodeId || !positivePromptNode || !negativePromptNode) {
+        setError(
+          'Face, pose, background, positive prompt, and negative prompt nodes are all required',
+        );
+        return;
+      }
+      const validUpperIds = upperNodeIds.filter(Boolean);
+      if (validUpperIds.length === 0) {
+        setError('At least one upper garment node is required');
+        return;
+      }
     }
 
     setSaving(true);
@@ -213,12 +232,24 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       const text = await jsonFile.text();
       const jsonContent = JSON.parse(text) as Record<string, unknown>;
 
-      const created = await apiFetch<WorkflowOption>('/admin/workflows', {
-        method: 'POST',
-        body: JSON.stringify({
+      let payload: Record<string, unknown>;
+      if (workflowType === 'widget') {
+        payload = {
           slug: slug.trim(),
           label: label.trim(),
           jsonContent,
+          workflowType: 'widget',
+          widgetGarmentNodeId: widgetGarmentNodeId.trim(),
+          widgetCustomerPhotoNodeId: widgetCustomerPhotoNodeId.trim(),
+          widgetOutputNodeId: widgetOutputNodeId.trim(),
+        };
+      } else {
+        const validUpperIds = upperNodeIds.filter(Boolean);
+        payload = {
+          slug: slug.trim(),
+          label: label.trim(),
+          jsonContent,
+          workflowType: 'regular',
           faceNodeId,
           poseNodeId,
           bgNodeId,
@@ -230,7 +261,12 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           // negative → facePhasePromptNode    (DB field name)
           facePhasePromptNode: negativePromptNode,
           garmentPhasePromptNode: positivePromptNode,
-        }),
+        };
+      }
+
+      const created = await apiFetch<WorkflowOption>('/admin/workflows', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       });
       toast({ title: `Workflow "${created.label}" created` });
       onCreated(created);
@@ -260,15 +296,18 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
 
   const canSubmit =
     !saving &&
-    parsed &&
+    jsonFile &&
     slug.trim() &&
     label.trim() &&
-    faceNodeId &&
-    poseNodeId &&
-    bgNodeId &&
-    positivePromptNode &&
-    negativePromptNode &&
-    upperNodeIds.filter(Boolean).length > 0;
+    (workflowType === 'widget'
+      ? widgetGarmentNodeId.trim() && widgetCustomerPhotoNodeId.trim() && widgetOutputNodeId.trim()
+      : parsed &&
+        faceNodeId &&
+        poseNodeId &&
+        bgNodeId &&
+        positivePromptNode &&
+        negativePromptNode &&
+        upperNodeIds.filter(Boolean).length > 0);
 
   return (
     <div className="modal-overlay" onClick={saving || parsing ? undefined : onClose}>
@@ -299,43 +338,65 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
             overflowY: 'auto',
           }}
         >
-          {/* Convention reference */}
-          <div
-            style={{
-              background: 'var(--subtle)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              padding: '8px 12px',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                Node titles in the JSON must follow the <strong>naming convention</strong> for
-                auto-detection.
-              </span>
+          {/* Workflow type selector */}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['regular', 'widget'] as const).map((t) => (
               <button
-                className="btn sm ghost"
-                style={{ fontSize: 11 }}
-                onClick={() => setShowConvention((v) => !v)}
-              >
-                {showConvention ? 'Hide' : 'Show'} convention
-              </button>
-            </div>
-            {showConvention && (
-              <pre
-                style={{
-                  margin: '8px 0 0',
-                  fontSize: 11,
-                  fontFamily: 'monospace',
-                  color: 'var(--muted)',
-                  whiteSpace: 'pre-wrap',
-                  lineHeight: 1.6,
+                key={t}
+                className={`btn sm ${workflowType === t ? 'primary' : 'ghost'}`}
+                disabled={saving}
+                onClick={() => {
+                  setWorkflowType(t);
+                  setError(null);
                 }}
+                style={{ textTransform: 'capitalize' }}
               >
-                {CONVENTION_DOCS}
-              </pre>
-            )}
+                {t === 'widget' ? 'Widget try-on' : 'Regular (pose-based)'}
+              </button>
+            ))}
           </div>
+
+          {/* Convention reference — only for regular */}
+          {workflowType === 'regular' && (
+            <div
+              style={{
+                background: 'var(--subtle)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: '8px 12px',
+              }}
+            >
+              <div
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+              >
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Node titles in the JSON must follow the <strong>naming convention</strong> for
+                  auto-detection.
+                </span>
+                <button
+                  className="btn sm ghost"
+                  style={{ fontSize: 11 }}
+                  onClick={() => setShowConvention((v) => !v)}
+                >
+                  {showConvention ? 'Hide' : 'Show'} convention
+                </button>
+              </div>
+              {showConvention && (
+                <pre
+                  style={{
+                    margin: '8px 0 0',
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    color: 'var(--muted)',
+                    whiteSpace: 'pre-wrap',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {CONVENTION_DOCS}
+                </pre>
+              )}
+            </div>
+          )}
 
           {/* Step 1: JSON file */}
           <div className="field">
@@ -401,14 +462,16 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                   style={{ display: 'none' }}
                 />
               </label>
-              <button
-                className="btn sm primary"
-                onClick={handleParse}
-                disabled={!jsonFile || parsing || saving}
-                style={{ flexShrink: 0 }}
-              >
-                {parsing ? 'Parsing…' : 'Parse'}
-              </button>
+              {workflowType === 'regular' && (
+                <button
+                  className="btn sm primary"
+                  onClick={handleParse}
+                  disabled={!jsonFile || parsing || saving}
+                  style={{ flexShrink: 0 }}
+                >
+                  {parsing ? 'Parsing…' : 'Parse'}
+                </button>
+              )}
             </div>
             {parsed && (
               <span
@@ -429,7 +492,86 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
             )}
           </div>
 
-          {parsed && nodes && (
+          {/* Widget workflow form — shown after file is picked */}
+          {workflowType === 'widget' && jsonFile && (
+            <>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="field">
+                  <label>
+                    Slug <span style={{ color: 'var(--danger)' }}>*</span>
+                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>
+                      (snake_case)
+                    </span>
+                  </label>
+                  <input
+                    className="input"
+                    value={slug}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Label <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={label}
+                    disabled={saving}
+                    onChange={(e) => setLabel(e.target.value)}
+                  />
+                </div>
+              </div>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                <strong>Widget node IDs</strong> — the ComfyUI node numbers for garment input,
+                customer photo input, and output.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <div className="field">
+                  <label>
+                    Garment node ID <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    placeholder="e.g. 31"
+                    value={widgetGarmentNodeId}
+                    disabled={saving}
+                    onChange={(e) => setWidgetGarmentNodeId(e.target.value.trim())}
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Customer photo node ID <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    placeholder="e.g. 139"
+                    value={widgetCustomerPhotoNodeId}
+                    disabled={saving}
+                    onChange={(e) => setWidgetCustomerPhotoNodeId(e.target.value.trim())}
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Output node ID <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    placeholder="e.g. 134"
+                    value={widgetOutputNodeId}
+                    disabled={saving}
+                    onChange={(e) => setWidgetOutputNodeId(e.target.value.trim())}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {parsed && nodes && workflowType === 'regular' && (
             <>
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
 

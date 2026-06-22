@@ -91,6 +91,12 @@ export const workflowTemplates = pgTable('workflow_templates', {
   defaultFacePhasePrompt: text('default_face_phase_prompt').notNull().default(''),
   defaultGarmentPhasePrompt: text('default_garment_phase_prompt').notNull().default(''),
 
+  // Widget workflow node IDs — only set when workflowType = 'widget'
+  workflowType: text('workflow_type').notNull().default('regular'), // 'regular' | 'widget'
+  widgetGarmentNodeId: text('widget_garment_node_id'),
+  widgetCustomerPhotoNodeId: text('widget_customer_photo_node_id'),
+  widgetOutputNodeId: text('widget_output_node_id'),
+
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

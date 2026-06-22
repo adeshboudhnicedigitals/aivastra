@@ -27,6 +27,12 @@ const items: NavItem[] = [
     roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN'],
   },
   { k: 'assets', label: 'Assets', icon: Icon.Image, roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'] },
+  {
+    k: 'widget-clients',
+    label: 'Widget Clients',
+    icon: Icon.Users,
+    roles: ['SUPER_ADMIN', 'ADMIN'],
+  },
   { k: 'workflows', label: 'Workflows', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'] },
   { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'] },

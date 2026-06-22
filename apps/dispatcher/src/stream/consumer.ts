@@ -25,12 +25,13 @@ function parseMessage(
   stream: string,
   result: XReadGroupResult,
 ): { stream: string; messageId: string; jobId: string; userId: string } | null {
-  if (!result || !result[0] || !result[0][1].length) return null;
+  if (!result?.[0]?.[1].length) return null;
   const [messageId, fields] = result[0][1][0]!;
   const fieldMap: Record<string, string> = {};
   for (let i = 0; i < fields.length; i += 2) fieldMap[fields[i]!] = fields[i + 1]!;
-  if (!fieldMap['jobId'] || !fieldMap['userId']) return null;
-  return { stream, messageId, jobId: fieldMap['jobId'], userId: fieldMap['userId'] };
+  // userId is absent for widget jobs (which use widgetClientId from the DB row instead)
+  if (!fieldMap.jobId) return null;
+  return { stream, messageId, jobId: fieldMap.jobId, userId: fieldMap.userId ?? '' };
 }
 
 async function readOne(

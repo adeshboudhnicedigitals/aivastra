@@ -4,3 +4,4 @@ export * from './catalog.js';
 export * from './common.js';
 export * from './credits.js';
 export * from './jobs.js';
+export * from './widget.js';

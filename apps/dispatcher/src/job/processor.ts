@@ -44,6 +44,8 @@ export interface ProcessorConfig {
   s3: S3Client;
   r2Bucket: string;
   workerApiKey: string;
+  widgetComfyUrl?: string;
+  widgetComfyBasicAuth?: string;
   log: Logger;
 }
 
@@ -58,8 +60,18 @@ export async function processJob(
   const jobLog = log.child({ jobId, userId });
   const startedAt = Date.now();
 
-  // 1. Load job + inputs
-  const [job] = await db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+  // 1. Load job + inputs (select only what the processor needs)
+  const [job] = await db
+    .select({
+      id: schema.jobs.id,
+      status: schema.jobs.status,
+      widgetClientId: schema.jobs.widgetClientId,
+      customerPhotoKey: schema.jobs.customerPhotoKey,
+      creditsCharged: schema.jobs.creditsCharged,
+      attempts: schema.jobs.attempts,
+    })
+    .from(schema.jobs)
+    .where(eq(schema.jobs.id, jobId));
   if (!job) {
     jobLog.error('job not found — skipping');
     await redis.xack(stream, 'dispatcher-cg', messageId);
@@ -80,6 +92,27 @@ export async function processJob(
     .where(eq(schema.jobInputs.jobId, jobId));
   if (!inputs) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_INPUTS', jobLog, startedAt);
+    return;
+  }
+
+  // Widget jobs: widgetClientId set, faceId/bgId/poseId are null — route to dedicated processor.
+  if (job.widgetClientId) {
+    await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt);
+    return;
+  }
+
+  // Regular jobs must have all three model references (guards also narrow nullable types below)
+  if (!inputs.faceId || !inputs.backgroundId || !inputs.poseId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MISSING_MODEL_INPUTS',
+      jobLog,
+      startedAt,
+    );
     return;
   }
 
@@ -409,6 +442,290 @@ export async function processJob(
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
   }
 }
+
+// ── Widget job processor ───────────────────────────────────────────────────
+
+type WidgetJob = {
+  id: string;
+  widgetClientId: string | null;
+  customerPhotoKey: string | null;
+  creditsCharged: number;
+};
+
+async function processWidgetJob(
+  cfg: ProcessorConfig,
+  job: WidgetJob,
+  inputs: typeof schema.jobInputs.$inferSelect,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub, s3, r2Bucket, widgetComfyUrl, widgetComfyBasicAuth } = cfg;
+  const jobId = job.id;
+  const widgetClientId = job.widgetClientId!;
+  const { creditsCharged } = job;
+
+  if (!widgetComfyUrl || !widgetComfyBasicAuth) {
+    jobLog.error('WIDGET_COMFYUI_URL / WIDGET_COMFYUI_BASIC_AUTH not configured');
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      widgetClientId,
+      creditsCharged,
+      stream,
+      messageId,
+      'WIDGET_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  if (!job.customerPhotoKey) {
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      widgetClientId,
+      creditsCharged,
+      stream,
+      messageId,
+      'NO_CUSTOMER_PHOTO',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+  const customerPhotoKey = job.customerPhotoKey;
+
+  // Load workflow template from DB (any active widget-type template)
+  const [templateRow] = await db
+    .select({
+      jsonContent: schema.workflowTemplates.jsonContent,
+      widgetGarmentNodeId: schema.workflowTemplates.widgetGarmentNodeId,
+      widgetCustomerPhotoNodeId: schema.workflowTemplates.widgetCustomerPhotoNodeId,
+      widgetOutputNodeId: schema.workflowTemplates.widgetOutputNodeId,
+    })
+    .from(schema.workflowTemplates)
+    .where(
+      and(
+        eq(schema.workflowTemplates.workflowType, 'widget'),
+        eq(schema.workflowTemplates.isActive, true),
+      ),
+    )
+    .limit(1);
+  if (!templateRow) {
+    jobLog.error('no active widget workflow template found in workflow_templates table');
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      widgetClientId,
+      creditsCharged,
+      stream,
+      messageId,
+      'WIDGET_TEMPLATE_MISSING',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const garmentNodeId = templateRow.widgetGarmentNodeId ?? '31';
+  const customerPhotoNodeId = templateRow.widgetCustomerPhotoNodeId ?? '139';
+  const outputNodeId = templateRow.widgetOutputNodeId ?? '134';
+
+  await transitionJob(db, pub, jobId, '', 'PREPROCESSING', {}, jobLog);
+
+  // Basic Auth header for all widget VPS requests
+  const authHeader = `Basic ${Buffer.from(widgetComfyBasicAuth).toString('base64')}`;
+
+  try {
+    // Download both images from R2
+    async function r2Download(key: string): Promise<Uint8Array> {
+      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
+      return res.Body.transformToByteArray();
+    }
+
+    const [customerPhotoBytes, garmentBytes] = await Promise.all([
+      r2Download(customerPhotoKey),
+      r2Download(inputs.upperGarmentKey),
+    ]);
+
+    // Upload to widget ComfyUI VPS (Basic Auth, not X-Api-Key)
+    async function uploadToWidgetComfy(
+      bytes: Uint8Array,
+      filename: string,
+      contentType: string,
+    ): Promise<string> {
+      const form = new FormData();
+      form.append('image', new Blob([bytes], { type: contentType }), filename);
+      form.append('overwrite', 'true');
+      const res = await fetch(`${widgetComfyUrl}/upload/image`, {
+        method: 'POST',
+        headers: { Authorization: authHeader },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!res.ok) throw new Error(`Widget ComfyUI /upload/image failed: ${res.status}`);
+      const json = (await res.json()) as { name: string };
+      return json.name;
+    }
+
+    const garmentExt = inputs.upperGarmentKey.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const garmentMime =
+      garmentExt === 'png' ? 'image/png' : garmentExt === 'webp' ? 'image/webp' : 'image/jpeg';
+    const photoExt = customerPhotoKey.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const photoMime =
+      photoExt === 'png' ? 'image/png' : photoExt === 'webp' ? 'image/webp' : 'image/jpeg';
+
+    jobLog.info('uploading inputs to widget ComfyUI');
+    const [garmentFilename, customerPhotoFilename] = await Promise.all([
+      uploadToWidgetComfy(garmentBytes, `garment_${jobId}.${garmentExt}`, garmentMime),
+      uploadToWidgetComfy(customerPhotoBytes, `photo_${jobId}.${photoExt}`, photoMime),
+    ]);
+    jobLog.info({ garmentFilename, customerPhotoFilename }, 'widget inputs uploaded to VPS');
+
+    // Clone and patch workflow using node IDs from DB
+    const workflow = structuredClone(templateRow.jsonContent) as Record<
+      string,
+      { inputs?: Record<string, unknown> }
+    >;
+    if (workflow[garmentNodeId]?.inputs) workflow[garmentNodeId].inputs!.image = garmentFilename;
+    if (workflow[customerPhotoNodeId]?.inputs)
+      workflow[customerPhotoNodeId].inputs!.image = customerPhotoFilename;
+
+    // Submit prompt
+    await transitionJob(db, pub, jobId, '', 'GENERATING', {}, jobLog);
+    const clientUuid = randomUUID();
+    const promptRes = await fetch(`${widgetComfyUrl}/prompt`, {
+      method: 'POST',
+      headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: workflow, client_id: clientUuid }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!promptRes.ok) throw new Error(`Widget ComfyUI /prompt failed: ${promptRes.status}`);
+    const { prompt_id: promptId } = (await promptRes.json()) as { prompt_id: string };
+    jobLog.info({ promptId }, 'widget prompt submitted');
+
+    // Poll /history every 2s (max 5 min) — WebSocket skipped; Basic Auth + polling matches the PHP approach
+    const RESULT_NODE = outputNodeId;
+    const deadline = Date.now() + 300_000;
+    type ComfyImage = { filename: string; subfolder: string; type: string };
+    let outputImages: ComfyImage[] = [];
+
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 2_000));
+      const histRes = await fetch(`${widgetComfyUrl}/history/${promptId}`, {
+        headers: { Authorization: authHeader },
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null);
+      if (!histRes?.ok) continue;
+
+      type HistEntry = { outputs?: Record<string, { images?: ComfyImage[] }> };
+      const history = (await histRes.json()) as Record<string, HistEntry>;
+      const nodeImages = history[promptId]?.outputs?.[RESULT_NODE]?.images;
+      if (nodeImages?.length) {
+        outputImages = nodeImages.filter((img) => img.type === 'output');
+        break;
+      }
+    }
+    if (!outputImages.length)
+      throw new Error(`Widget ComfyUI timeout — no output images from node ${outputNodeId}`);
+
+    // Download output image from VPS
+    await transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog);
+    const firstImage = outputImages[0]!;
+    const viewUrl = `${widgetComfyUrl}/view?filename=${encodeURIComponent(firstImage.filename)}&subfolder=${encodeURIComponent(firstImage.subfolder)}&type=${encodeURIComponent(firstImage.type)}`;
+    const imgRes = await fetch(viewUrl, {
+      headers: { Authorization: authHeader },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!imgRes.ok) throw new Error(`Widget ComfyUI /view failed: ${imgRes.status}`);
+    const imageBytes = new Uint8Array(await imgRes.arrayBuffer());
+
+    // Upload result to R2
+    const resultKey = `widget-outputs/${jobId}/result.png`;
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: r2Bucket,
+        Key: resultKey,
+        Body: imageBytes,
+        ContentType: 'image/png',
+      }),
+    );
+
+    // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
+    await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog);
+    await pub.publish(
+      `sse:events:widget:${widgetClientId}`,
+      JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
+    );
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('success', startedAt);
+    jobLog.info({ resultKey }, 'widget job completed successfully');
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    jobLog.error({ err }, 'widget job processing error');
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      widgetClientId,
+      creditsCharged,
+      stream,
+      messageId,
+      errMsg.slice(0, 1000),
+      jobLog,
+      startedAt,
+    );
+  }
+}
+
+async function markWidgetFailed(
+  cfg: ProcessorConfig,
+  jobId: string,
+  widgetClientId: string,
+  creditsCharged: number,
+  stream: string,
+  messageId: string,
+  errorCode: string,
+  log: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub } = cfg;
+
+  // Refund widget credits (idempotent)
+  await db.transaction(async (tx) => {
+    const existing = await tx
+      .select()
+      .from(schema.widgetCreditLedger)
+      .where(
+        and(
+          eq(schema.widgetCreditLedger.jobId, jobId),
+          eq(schema.widgetCreditLedger.reason, 'JOB_FAIL_REFUND'),
+        ),
+      );
+    if (existing.length) return;
+    await tx
+      .update(schema.widgetClientCredits)
+      .set({ balance: sql`${schema.widgetClientCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.widgetClientCredits.widgetClientId, widgetClientId));
+    await tx
+      .insert(schema.widgetCreditLedger)
+      .values({ widgetClientId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+  });
+
+  await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log);
+  await pub.publish(
+    `sse:events:widget:${widgetClientId}`,
+    JSON.stringify({ jobId, type: 'STATUS', status: 'FAILED', errorCode }),
+  );
+  await redis.xack(stream, 'dispatcher-cg', messageId);
+  recordJobOutcome('failed', startedAt);
+  log.warn({ jobId, errorCode }, 'widget job FAILED — widget credits refunded');
+}
+
+// ── Regular job failure handling ───────────────────────────────────────────
 
 async function handleFailure(
   cfg: ProcessorConfig,

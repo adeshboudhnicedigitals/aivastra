@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -46,7 +46,7 @@ describe('dispatcher retry + credit refund', () => {
       .values({ email: `retry-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
       .returning();
     // Grant 5 credits — dispatcher does NOT deduct, just refunds
-    await env.db.insert(schema.userCredits).values({ userId: user!.id, balance: 5 });
+    await env.db.insert(schema.userCredits).values({ userId: user?.id, balance: 5 });
 
     const [ct] = await env.db
       .insert(schema.catalogTypes)
@@ -54,12 +54,12 @@ describe('dispatcher retry + credit refund', () => {
       .returning();
     const [cc] = await env.db
       .insert(schema.catalogCategories)
-      .values({ typeId: ct!.id, slug: 'c', label: 'C' })
+      .values({ typeId: ct?.id, slug: 'c', label: 'C' })
       .returning();
     const mkItem = (k: string) =>
       env.db
         .insert(schema.catalogItems)
-        .values({ categoryId: cc!.id, label: 'I', r2Key: k, thumbnailKey: k })
+        .values({ categoryId: cc?.id, label: 'I', r2Key: k, thumbnailKey: k })
         .returning();
     const [[m], [p], [b], [l]] = await Promise.all([
       mkItem('k/m.jpg'),
@@ -70,18 +70,18 @@ describe('dispatcher retry + credit refund', () => {
 
     const [job] = await env.db
       .insert(schema.jobs)
-      .values({ userId: user!.id, status: 'QUEUED', priority: false, creditsCharged: 1 })
+      .values({ userId: user?.id, status: 'QUEUED', priority: false, creditsCharged: 1 })
       .returning();
     await env.db.insert(schema.jobInputs).values({
-      jobId: job!.id,
-      upperGarmentKey: `inputs/${job!.id}/garment.jpg`,
-      modelCatalogId: m!.id,
-      poseCatalogId: p!.id,
-      backgroundCatalogId: b!.id,
-      lowerCatalogId: l!.id,
+      jobId: job?.id,
+      upperGarmentKey: `inputs/${job?.id}/garment.jpg`,
+      modelCatalogId: m?.id,
+      poseCatalogId: p?.id,
+      backgroundCatalogId: b?.id,
+      lowerCatalogId: l?.id,
     });
     for (const key of [
-      `inputs/${job!.id}/garment.jpg`,
+      `inputs/${job?.id}/garment.jpg`,
       'k/m.jpg',
       'k/p.jpg',
       'k/b.jpg',
@@ -96,7 +96,7 @@ describe('dispatcher retry + credit refund', () => {
         }),
       );
     }
-    return { jobId: job!.id, userId: user!.id };
+    return { jobId: job?.id, userId: user?.id };
   }
 
   it('refunds credits after MAX_ATTEMPTS=2 failures', async () => {
@@ -117,8 +117,8 @@ describe('dispatcher retry + credit refund', () => {
     // First attempt — should re-enqueue (attempts=1, status back to QUEUED)
     await processJob(cfg, jobId, userId, 'jobs:normal', 'msg-1');
     const [after1] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    expect(after1!.status).toBe('QUEUED');
-    expect(after1!.attempts).toBe(1);
+    expect(after1?.status).toBe('QUEUED');
+    expect(after1?.attempts).toBe(1);
 
     // Reset worker to IDLE for second attempt
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
@@ -126,15 +126,15 @@ describe('dispatcher retry + credit refund', () => {
     // Second attempt — should mark FAILED and refund
     await processJob(cfg, jobId, userId, 'jobs:normal', 'msg-2');
     const [after2] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    expect(after2!.status).toBe('FAILED');
-    expect(after2!.attempts).toBe(2);
+    expect(after2?.status).toBe('FAILED');
+    expect(after2?.attempts).toBe(2);
 
     // Credit balance increased by creditsCharged=1 (refund)
     const [bal] = await env.db
       .select()
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
-    expect(bal!.balance).toBe(6); // 5 initial + 1 refund
+    expect(bal?.balance).toBe(6); // 5 initial + 1 refund
 
     // JOB_FAIL_REFUND ledger entry exists
     const ledger = await env.db
@@ -150,6 +150,6 @@ describe('dispatcher retry + credit refund', () => {
       .select()
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
-    expect(balAfter!.balance).toBe(6);
+    expect(balAfter?.balance).toBe(6);
   });
 });

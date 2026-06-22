@@ -8,13 +8,13 @@ export function buildTree(cats: Cat[], items: Item[], getUrl?: (key: string) => 
   for (const c of cats) {
     const k = c.parentId ?? null;
     if (!byParent.has(k)) byParent.set(k, []);
-    byParent.get(k)!.push(c);
+    byParent.get(k)?.push(c);
   }
   const itemsByCat = new Map<number, Item[]>();
   for (const i of items) {
     if (i.categoryId == null) continue;
     if (!itemsByCat.has(i.categoryId)) itemsByCat.set(i.categoryId, []);
-    itemsByCat.get(i.categoryId)!.push(i);
+    itemsByCat.get(i.categoryId)?.push(i);
   }
   const walk = (parentId: number | null): unknown[] =>
     (byParent.get(parentId) ?? [])

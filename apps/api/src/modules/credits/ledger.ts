@@ -15,7 +15,7 @@ export async function atomicDeduct(db: DB, userId: string, amount: number, jobId
     await tx
       .insert(schema.creditLedger)
       .values({ userId, delta: -amount, reason: 'JOB_DISPATCH', jobId });
-    return res[0]!.balance;
+    return res[0]?.balance;
   });
   creditsDeductedTotal.inc(amount);
   return balance;

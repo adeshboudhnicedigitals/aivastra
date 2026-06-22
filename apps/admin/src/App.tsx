@@ -11,6 +11,8 @@ import LoginPage from './pages/LoginPage';
 import RecycleBinPage from './pages/RecycleBinPage';
 import SettingsPage from './pages/SettingsPage';
 import UsersPage from './pages/UsersPage';
+import { WidgetClientDetail } from './pages/WidgetClientDetail';
+import { WidgetClients } from './pages/WidgetClients';
 import WorkflowsPage from './pages/WorkflowsPage';
 import type { ToastItem } from './types';
 
@@ -125,6 +127,8 @@ export default function App() {
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
+            <Route path="/widget-clients" element={<WidgetClients {...pageProps} />} />
+            <Route path="/widget-clients/:id" element={<WidgetClientDetail {...pageProps} />} />
             <Route path="*" element={<DashboardPage {...pageProps} />} />
           </Routes>
         </main>

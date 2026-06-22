@@ -47,7 +47,7 @@ export async function creditsRoutes(app: FastifyInstance) {
           note: note ?? null,
         })
         .returning({ id: schema.creditRequests.id });
-      return reply.code(201).send({ id: inserted!.id });
+      return reply.code(201).send({ id: inserted?.id });
     },
   );
 
