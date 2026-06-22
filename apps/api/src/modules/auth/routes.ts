@@ -273,6 +273,7 @@ export async function authRoutes(app: FastifyInstance) {
         id: schema.users.id,
         email: schema.users.email,
         displayName: schema.users.displayName,
+        phone: schema.users.phone,
         tier: schema.users.tier,
         passwordHash: schema.users.passwordHash,
       })
@@ -288,19 +289,26 @@ export async function authRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireUser,
       schema: {
-        body: z.object({ displayName: z.string().min(1).max(60).optional() }),
+        body: z.object({
+          displayName: z.string().min(1).max(60).optional(),
+          phone: z.string().max(20).nullable().optional(),
+        }),
       },
     },
     async (req) => {
-      const { displayName } = req.body as { displayName?: string };
+      const { displayName, phone } = req.body as { displayName?: string; phone?: string | null };
       const [updated] = await app.db
         .update(schema.users)
-        .set({ ...(displayName !== undefined ? { displayName } : {}) })
+        .set({
+          ...(displayName !== undefined ? { displayName } : {}),
+          ...(phone !== undefined ? { phone: phone ?? null } : {}),
+        })
         .where(eq(schema.users.id, req.userId))
         .returning({
           id: schema.users.id,
           email: schema.users.email,
           displayName: schema.users.displayName,
+          phone: schema.users.phone,
           tier: schema.users.tier,
         });
       if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');

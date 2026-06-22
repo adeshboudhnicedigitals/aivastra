@@ -85,8 +85,8 @@ export const PricingIcon = () => (
 export const CheckIcon = ({ color = C.pink, size = 16 }: { color?: string; size?: number }) => (
   <Icon d="M20 6L9 17l-5-5" size={size} color={color} />
 );
-export const XIcon = ({ size = 16 }: { size?: number }) => (
-  <Icon d="M18 6L6 18M6 6l12 12" size={size} />
+export const XIcon = ({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) => (
+  <Icon d="M18 6L6 18M6 6l12 12" size={size} color={color} />
 );
 export const DownloadIcon = ({ size = 24 }: { size?: number }) => (
   <svg

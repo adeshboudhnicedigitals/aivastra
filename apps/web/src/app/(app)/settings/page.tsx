@@ -15,6 +15,7 @@ interface MeResponse {
   id: string;
   email: string;
   displayName: string | null;
+  phone: string | null;
   tier: string;
   hasPassword: boolean;
 }
@@ -176,6 +177,7 @@ export default function SettingsPage(): React.ReactElement {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>('Profile Details');
   const [name, setName] = useState<string | null>(null);
+  const [phone, setPhone] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [curPwd, setCurPwd] = useState('');
@@ -208,6 +210,7 @@ export default function SettingsPage(): React.ReactElement {
 
   const email = me?.email ?? '';
   const nameVal = name ?? me?.displayName ?? '';
+  const phoneVal = phone ?? me?.phone ?? '';
 
   const recent = credits?.recent ?? [];
   const purchased = recent.filter((r) => r.delta > 0).reduce((a, r) => a + r.delta, 0);
@@ -217,7 +220,10 @@ export default function SettingsPage(): React.ReactElement {
   async function saveProfile() {
     setSaving(true);
     try {
-      await api.patch('/v1/me', { displayName: nameVal.trim() || undefined });
+      await api.patch('/v1/me', {
+        displayName: nameVal.trim() || undefined,
+        phone: phoneVal.trim() || null,
+      });
       void qc.invalidateQueries({ queryKey: ['me'] });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -358,7 +364,12 @@ export default function SettingsPage(): React.ReactElement {
               <Row>
                 <Field label="Full Name" value={nameVal} onChange={setName} />
                 <Field label="Email Address" value={email} disabled />
-                <Field label="Phone Number" placeholder="Enter your phone number" />
+                <Field
+                  label="Phone Number"
+                  value={phoneVal}
+                  placeholder="Enter your phone number"
+                  onChange={setPhone}
+                />
               </Row>
               <Row>
                 <Field label="Company Name" placeholder="Enter your company name" />
