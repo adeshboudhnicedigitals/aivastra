@@ -53,6 +53,7 @@ export async function recoverPendingJobs(
       }
 
       const lastId = pending[pending.length - 1]?.[0];
+      if (!lastId) break;
       startId = lastId.replace(/^(\d+)-(\d+)$/, (_, ms, seq) => `${ms}-${Number(seq) + 1}`);
       if (pending.length < 10) break;
     }
