@@ -23,7 +23,7 @@ describe('dispatcher retry + credit refund', () => {
     pub = new Redis('redis://127.0.0.1:6379');
     comfy = await startComfyMock();
 
-    await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url }]);
+    await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url, apiKey: 'test-key' }]);
     await redis.setex(`worker:health:${WORKER_ID}`, 30, '1');
   }, 60_000);
 
@@ -110,7 +110,6 @@ describe('dispatcher retry + credit refund', () => {
       storage: env.storage,
       s3: env.s3,
       r2Bucket: env.r2Bucket,
-      workerApiKey: 'test-key',
       log,
     };
 

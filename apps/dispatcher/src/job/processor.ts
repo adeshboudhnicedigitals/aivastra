@@ -43,7 +43,6 @@ export interface ProcessorConfig {
   storage: StorageProvider;
   s3: S3Client;
   r2Bucket: string;
-  workerApiKey: string;
   widgetComfyUrl?: string;
   widgetComfyBasicAuth?: string;
   log: Logger;
@@ -56,7 +55,7 @@ export async function processJob(
   stream: string,
   messageId: string,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket, workerApiKey, log } = cfg;
+  const { db, redis, pub, s3, r2Bucket, log } = cfg;
   const jobLog = log.child({ jobId, userId });
   const startedAt = Date.now();
 
@@ -272,14 +271,7 @@ export async function processJob(
       const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
       const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
       const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-      return uploadImageToComfy(
-        w.url,
-        workerApiKey,
-        bytes,
-        `${prefix}_${jobId}.${ext}`,
-        mime,
-        jobLog,
-      );
+      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
     }
 
     // 4. Upload only the images that ComfyUI actually needs.
@@ -338,7 +330,7 @@ export async function processJob(
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
-    const { promptId } = await submitPrompt(w.url, workerApiKey, clientUuid, prompt, jobLog);
+    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, prompt, jobLog);
     jobLog.info({ promptId }, 'prompt submitted to ComfyUI');
 
     // Store dispatch summary as a job event so admin can inspect what was sent to ComfyUI.
@@ -378,7 +370,7 @@ export async function processJob(
     // 7. Wait for completion via WebSocket (5 min max)
     await waitForCompletion(
       w.url,
-      workerApiKey,
+      w.apiKey,
       clientUuid,
       promptId,
       300_000,
@@ -391,7 +383,7 @@ export async function processJob(
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
     const outputImages = await fetchHistory(
       w.url,
-      workerApiKey,
+      w.apiKey,
       promptId,
       jobLog,
       resultNodeId ?? undefined,
@@ -399,7 +391,7 @@ export async function processJob(
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images');
 
-    const imageBytes = await downloadOutputImage(w.url, workerApiKey, firstImage.filename);
+    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
 
     // 9. Upload result to R2
     const resultKey = keys.output(jobId);

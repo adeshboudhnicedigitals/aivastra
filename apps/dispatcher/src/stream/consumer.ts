@@ -71,18 +71,34 @@ export async function runConsumer(
   redis: Redis,
   cfg: ProcessorConfig,
   log: Logger,
+  concurrency = 1,
 ): Promise<() => void> {
   await ensureGroups(redis, log);
   let running = true;
+  let inFlight = 0;
+
+  // Caps in-flight jobs to the number of GPU workers so reads don't race ahead of
+  // capacity — processJob already requeues gracefully if no worker is free anyway.
+  async function waitForSlot(): Promise<void> {
+    while (running && inFlight >= concurrency) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
 
   async function loop(): Promise<void> {
     while (running) {
       try {
+        await waitForSlot();
         const msg = await readOne(redis);
         if (!msg) continue;
         const { stream, messageId, jobId, userId } = msg;
         log.info({ jobId, userId, stream }, 'consumed job from stream');
-        await processJob(cfg, jobId, userId, stream, messageId);
+        inFlight++;
+        processJob(cfg, jobId, userId, stream, messageId)
+          .catch((err) => log.error({ err, jobId }, 'job processing failed'))
+          .finally(() => {
+            inFlight--;
+          });
       } catch (err) {
         log.error({ err }, 'consumer loop error — resuming');
         await new Promise((r) => setTimeout(r, 1000));

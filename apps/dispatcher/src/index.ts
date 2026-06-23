@@ -11,7 +11,7 @@ if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   setGlobalDispatcher(new Agent({ connect: { rejectUnauthorized: false } }));
 }
 
-import { loadEnv, workerUrl } from './env.js';
+import { loadEnv, workerApiKey, workerUrl } from './env.js';
 import { startHealthServer } from './health/server.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
@@ -50,7 +50,11 @@ async function main(): Promise<void> {
 
   // Register known workers from env
   const workerIds = env.WORKER_IDS.split(',').map((s) => s.trim());
-  const workers = workerIds.map((id) => ({ id, url: workerUrl(process.env, id) }));
+  const workers = workerIds.map((id) => ({
+    id,
+    url: workerUrl(process.env, id),
+    apiKey: workerApiKey(process.env, id),
+  }));
   await registerWorkers(redis, workers);
   log.info({ workerIds }, 'workers registered');
 
@@ -58,7 +62,7 @@ async function main(): Promise<void> {
   for (const w of workers) {
     try {
       const res = await fetch(`${w.url.replace(/\/$/, '')}/system_stats`, {
-        headers: { 'X-Api-Key': env.WORKER_API_KEY },
+        headers: { 'X-Api-Key': w.apiKey },
         signal: AbortSignal.timeout(5_000),
       });
       if (res.ok) {
@@ -84,7 +88,6 @@ async function main(): Promise<void> {
     storage,
     s3,
     r2Bucket: env.R2_BUCKET,
-    workerApiKey: env.WORKER_API_KEY,
     widgetComfyUrl: env.WIDGET_COMFYUI_URL,
     widgetComfyBasicAuth: env.WIDGET_COMFYUI_BASIC_AUTH,
     log,
@@ -94,8 +97,8 @@ async function main(): Promise<void> {
   await recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
 
   // Start subsystems
-  const stopHealthMonitor = startHealthMonitor(redis, env.WORKER_API_KEY, log);
-  const stopConsumer = await runConsumer(redis, processorCfg, log);
+  const stopHealthMonitor = startHealthMonitor(redis, log);
+  const stopConsumer = await runConsumer(redis, processorCfg, log, workers.length);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 
   log.info('dispatcher ready');

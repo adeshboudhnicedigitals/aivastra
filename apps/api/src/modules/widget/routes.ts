@@ -198,6 +198,12 @@ export async function widgetRoutes(app: FastifyInstance) {
       const sub: Redis = (app as any).redisSub.duplicate();
       const channel = `sse:events:widget:${clientId}`;
 
+      // ioredis throws an uncaught exception (crashing the process) if a connection
+      // emits 'error' with no listener attached — must register one even if a no-op.
+      sub.on('error', (err) => {
+        req.log.warn({ err, channel }, 'sse redis subscriber error');
+      });
+
       await sub.subscribe(channel);
       sub.on('message', (_ch, raw) => {
         try {
@@ -213,7 +219,11 @@ export async function widgetRoutes(app: FastifyInstance) {
 
       req.raw.on('close', async () => {
         clearInterval(heartbeat);
-        await sub.unsubscribe(channel);
+        try {
+          await sub.unsubscribe(channel);
+        } catch {
+          /* connection may already be closed */
+        }
         sub.disconnect();
       });
     },
