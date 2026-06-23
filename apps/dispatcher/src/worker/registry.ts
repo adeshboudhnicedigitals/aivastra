@@ -4,6 +4,7 @@ export type WorkerStatus = 'IDLE' | 'BUSY' | 'DRAINING';
 
 export interface WorkerEntry {
   url: string;
+  apiKey: string;
   status: WorkerStatus;
   lastSeen: number; // unix ms
 }
@@ -42,10 +43,15 @@ export async function setWorkerStatus(
 
 export async function registerWorkers(
   redis: Redis,
-  workers: Array<{ id: string; url: string }>,
+  workers: Array<{ id: string; url: string; apiKey: string }>,
 ): Promise<void> {
   for (const w of workers) {
-    const entry: WorkerEntry = { url: w.url, status: 'IDLE', lastSeen: Date.now() };
+    const entry: WorkerEntry = {
+      url: w.url,
+      apiKey: w.apiKey,
+      status: 'IDLE',
+      lastSeen: Date.now(),
+    };
     await redis.hset(REGISTRY_KEY, w.id, JSON.stringify(entry));
   }
 }

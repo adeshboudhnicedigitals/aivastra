@@ -19,7 +19,7 @@ async function probeWorker(_workerId: string, workerUrl: string, apiKey: string)
   }
 }
 
-export function startHealthMonitor(redis: Redis, apiKey: string, log: Logger): () => void {
+export function startHealthMonitor(redis: Redis, log: Logger): () => void {
   let running = true;
 
   async function tick() {
@@ -27,7 +27,7 @@ export function startHealthMonitor(redis: Redis, apiKey: string, log: Logger): (
     let healthyCount = 0;
     for (const [id, entry] of workers) {
       if (entry.status === 'DRAINING') continue;
-      const healthy = await probeWorker(id, entry.url, apiKey);
+      const healthy = await probeWorker(id, entry.url, entry.apiKey);
       if (healthy) {
         healthyCount++;
         await redis.setex(healthKey(id), HEALTH_TTL_SEC, '1');

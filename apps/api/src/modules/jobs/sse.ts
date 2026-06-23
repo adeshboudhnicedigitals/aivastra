@@ -27,6 +27,12 @@ function makeSubscription(
 ): void {
   const sub: Redis = (req.server as any).redisSub.duplicate();
 
+  // ioredis throws an uncaught exception (crashing the process) if a connection
+  // emits 'error' with no listener attached — must register one even if a no-op.
+  sub.on('error', (err) => {
+    (req.log ?? console).warn?.({ err, channel }, 'sse redis subscriber error');
+  });
+
   sub.subscribe(channel).then(() => {
     sub.on('message', (_ch, raw) => {
       try {
@@ -43,7 +49,11 @@ function makeSubscription(
 
   req.raw.on('close', async () => {
     clearInterval(heartbeat);
-    await sub.unsubscribe(channel);
+    try {
+      await sub.unsubscribe(channel);
+    } catch {
+      /* connection may already be closed */
+    }
     sub.disconnect();
   });
 }
