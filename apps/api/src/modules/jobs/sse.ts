@@ -1,12 +1,21 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Redis } from 'ioredis';
 
-function writeSseHeaders(reply: FastifyReply): void {
+// reply.raw.writeHead() bypasses Fastify's reply pipeline entirely, so headers set by
+// plugins via reply.header() (e.g. @fastify/cors's Access-Control-Allow-Origin) never
+// reach the actual response — the browser then blocks the request as a CORS failure
+// even though the server responded 200. CORS headers must be set explicitly here.
+function writeSseHeaders(req: FastifyRequest, reply: FastifyReply): void {
+  const corsOrigin = (req.server as any).env?.CORS_ORIGIN as string | undefined;
+  const reqOrigin = req.headers.origin;
   reply.raw.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
+    ...(corsOrigin && reqOrigin === corsOrigin
+      ? { 'Access-Control-Allow-Origin': corsOrigin, 'Access-Control-Allow-Credentials': 'true' }
+      : {}),
   });
 }
 
@@ -43,19 +52,19 @@ function makeSubscription(
 export async function sseHandler(this: unknown, req: FastifyRequest, reply: FastifyReply) {
   const { id } = req.params as { id: string };
   const userId = (req as any).userId;
-  writeSseHeaders(reply);
+  writeSseHeaders(req, reply);
   makeSubscription(req, reply, `sse:events:${userId}`, (evt) => evt.jobId === id);
 }
 
 /** User-level stream — all job events for the authenticated user, no jobId filter. */
 export async function userStreamHandler(this: unknown, req: FastifyRequest, reply: FastifyReply) {
   const userId = (req as any).userId;
-  writeSseHeaders(reply);
+  writeSseHeaders(req, reply);
   makeSubscription(req, reply, `sse:events:${userId}`);
 }
 
 /** Admin-level stream — all job events across all users. */
 export async function adminStreamHandler(this: unknown, req: FastifyRequest, reply: FastifyReply) {
-  writeSseHeaders(reply);
+  writeSseHeaders(req, reply);
   makeSubscription(req, reply, 'sse:events:admin');
 }
