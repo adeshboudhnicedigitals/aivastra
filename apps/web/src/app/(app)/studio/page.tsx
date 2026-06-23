@@ -408,6 +408,7 @@ function SectionHead({
         alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: 14,
+        position: 'relative',
       }}
     >
       <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
@@ -423,11 +424,7 @@ function SectionHead({
 function GarmentTipsButton() {
   const [open, setOpen] = useState(false);
   return (
-    <div
-      style={{ position: 'relative' }}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
+    <div onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       <button
         type="button"
         style={{
@@ -436,8 +433,8 @@ function GarmentTipsButton() {
           gap: 6,
           height: 28,
           borderRadius: 14,
-          background: '#F9F9F9',
-          border: '1px solid #EEEEEE',
+          background: C.field,
+          border: `1px solid ${C.border}`,
           color: C.text,
           cursor: 'pointer',
           padding: '0 12px',
@@ -451,11 +448,12 @@ function GarmentTipsButton() {
           style={{
             position: 'absolute',
             top: 'calc(100% + 8px)',
-            right: 0,
+            left: '50%',
+            transform: 'translateX(-50%)',
             width: 600,
-            background: '#FEFEFE',
+            background: C.card,
             borderRadius: 12,
-            border: '1px solid #EEEEEE',
+            border: `1px solid ${C.border}`,
             padding: 20,
             boxSizing: 'border-box',
             zIndex: 50,
@@ -1218,9 +1216,9 @@ export default function StudioPage(): React.ReactElement {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: requiresLowerUpload ? 8 : 0,
-                    background: '#F9F9F9',
+                    background: C.field,
                     borderRadius: 12,
-                    border: '1px dashed #B1B1B1',
+                    border: `1px dashed ${C.border}`,
                     padding: '0 10px',
                     boxSizing: 'border-box',
                   }}
@@ -1236,8 +1234,8 @@ export default function StudioPage(): React.ReactElement {
                       flexDirection: 'column',
                       alignItems: 'center',
                       gap: 12,
-                      background: '#FEFEFE',
-                      border: '1px solid #EEEEEE',
+                      background: C.card,
+                      border: `1px solid ${C.border}`,
                       borderRadius: 8,
                       padding: 12,
                       cursor: 'pointer',
@@ -1374,7 +1372,7 @@ export default function StudioPage(): React.ReactElement {
                             fontSize: requiresLowerUpload ? 11 : 12,
                             fontWeight: 500,
                             lineHeight: '100%',
-                            color: '#141414',
+                            color: C.text,
                             textAlign: 'center',
                           }}
                         >
@@ -1386,7 +1384,7 @@ export default function StudioPage(): React.ReactElement {
                             fontSize: 10,
                             fontWeight: 500,
                             lineHeight: '140%',
-                            color: '#939393',
+                            color: C.mid,
                             textAlign: 'center',
                           }}
                         >
@@ -1407,7 +1405,7 @@ export default function StudioPage(): React.ReactElement {
                               fontSize: 11,
                               fontWeight: 500,
                               lineHeight: '18px',
-                              color: '#141414',
+                              color: C.text,
                             }}
                           >
                             Browse
@@ -1438,8 +1436,8 @@ export default function StudioPage(): React.ReactElement {
                         flexDirection: 'column',
                         alignItems: 'center',
                         gap: 12,
-                        background: '#FEFEFE',
-                        border: '1px solid #EEEEEE',
+                        background: C.card,
+                        border: `1px solid ${C.border}`,
                         borderRadius: 8,
                         padding: 12,
                         cursor: 'pointer',
@@ -1552,7 +1550,7 @@ export default function StudioPage(): React.ReactElement {
                               fontSize: 11,
                               fontWeight: 500,
                               lineHeight: '100%',
-                              color: '#141414',
+                              color: C.text,
                               textAlign: 'center',
                             }}
                           >
@@ -1564,7 +1562,7 @@ export default function StudioPage(): React.ReactElement {
                               fontSize: 10,
                               fontWeight: 500,
                               lineHeight: '140%',
-                              color: '#939393',
+                              color: C.mid,
                               textAlign: 'center',
                             }}
                           >
@@ -1583,7 +1581,7 @@ export default function StudioPage(): React.ReactElement {
                                 fontSize: 11,
                                 fontWeight: 500,
                                 lineHeight: '18px',
-                                color: '#141414',
+                                color: C.text,
                               }}
                             >
                               Browse
@@ -2123,7 +2121,6 @@ export default function StudioPage(): React.ReactElement {
                               selected={lowerCatalogId === i.id}
                               onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
                               imageUrl={i.thumbnailUrl}
-                              label={i.label}
                               w="100%"
                               ratio={3 / 4}
                             />
@@ -2209,7 +2206,6 @@ export default function StudioPage(): React.ReactElement {
                               selected={shoeCatalogId === i.id}
                               onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
                               imageUrl={i.thumbnailUrl}
-                              label={i.label}
                               w="100%"
                               ratio={1}
                             />

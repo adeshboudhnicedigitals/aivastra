@@ -37,6 +37,7 @@ interface Catalogue {
   jobs: JobSummary[];
   createdAt: string;
   genderSlug: string | null;
+  platform: string | null;
   coverUrl: string | null;
   coverThumbUrl: string | null;
 }
@@ -250,6 +251,10 @@ export default function CataloguesPage(): React.ReactElement {
         if (c.genderSlug !== expected) return false;
       }
 
+      if (platformFilter !== 'All Platforms') {
+        if ((c.platform ?? 'Other') !== platformFilter) return false;
+      }
+
       const created = new Date(c.createdAt);
       const now = new Date();
 
@@ -290,7 +295,7 @@ export default function CataloguesPage(): React.ReactElement {
 
       return true;
     });
-  }, [catalogues, search, genderFilter, dateFilter, customFrom, customTo]);
+  }, [catalogues, search, genderFilter, platformFilter, dateFilter, customFrom, customTo]);
 
   // downloadable = selected catalogues that have at least one COMPLETED job
   const downloadableCatalogues = useMemo(
@@ -577,8 +582,8 @@ export default function CataloguesPage(): React.ReactElement {
             position: 'sticky',
             top: 0,
             zIndex: 20,
-            background: 'rgba(255,255,255,0.97)',
-            boxShadow: '0 1px 0 #EEEEEE',
+            background: C.bg,
+            boxShadow: `0 1px 0 ${C.border}`,
             margin: '0 -28px',
             padding: '16px 28px',
           }}
@@ -614,11 +619,12 @@ export default function CataloguesPage(): React.ReactElement {
                   height: 40,
                   padding: '10px 12px 10px 36px',
                   borderRadius: 8,
-                  border: '1px solid #EEEEEE',
+                  border: `1px solid ${C.border}`,
                   fontFamily: 'inherit',
                   fontSize: 13,
                   outline: 'none',
-                  background: '#F9F9F9',
+                  background: C.lighter,
+                  color: C.text,
                 }}
               />
             </div>
@@ -635,8 +641,8 @@ export default function CataloguesPage(): React.ReactElement {
                     height: 40,
                     padding: '0 12px',
                     borderRadius: 8,
-                    border: '1px solid #EEEEEE',
-                    background: '#FEFEFE',
+                    border: `1px solid ${C.border}`,
+                    background: C.bg,
                     fontSize: 13,
                     fontWeight: 500,
                     color: C.text,
@@ -689,8 +695,8 @@ export default function CataloguesPage(): React.ReactElement {
                       padding: '0 14px',
                       height: 40,
                       borderRadius: 8,
-                      border: '1px solid #EEEEEE',
-                      background: '#FEFEFE',
+                      border: `1px solid ${C.border}`,
+                      background: C.bg,
                       fontFamily: 'inherit',
                       fontSize: 13,
                       fontWeight: 500,
@@ -767,8 +773,8 @@ export default function CataloguesPage(): React.ReactElement {
                       width: 162,
                       height: 40,
                       borderRadius: 8,
-                      border: '1px solid #EEEEEE',
-                      background: '#FEFEFE',
+                      border: `1px solid ${C.border}`,
+                      background: C.bg,
                       fontFamily: 'inherit',
                       fontSize: 13,
                       fontWeight: 500,
@@ -792,8 +798,8 @@ export default function CataloguesPage(): React.ReactElement {
                         top: 44,
                         left: 0,
                         width: 162,
-                        background: '#FEFEFE',
-                        border: '1px solid #EEEEEE',
+                        background: C.bg,
+                        border: `1px solid ${C.border}`,
                         borderRadius: 8,
                         boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
                         zIndex: 30,
@@ -837,8 +843,8 @@ export default function CataloguesPage(): React.ReactElement {
                       width: 158,
                       height: 40,
                       borderRadius: 8,
-                      border: '1px solid #EEEEEE',
-                      background: '#FEFEFE',
+                      border: `1px solid ${C.border}`,
+                      background: C.bg,
                       fontFamily: 'inherit',
                       fontSize: 13,
                       fontWeight: 500,
@@ -862,8 +868,8 @@ export default function CataloguesPage(): React.ReactElement {
                         top: 44,
                         left: 0,
                         width: 158,
-                        background: '#FEFEFE',
-                        border: '1px solid #EEEEEE',
+                        background: C.bg,
+                        border: `1px solid ${C.border}`,
                         borderRadius: 8,
                         boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
                         zIndex: 30,
@@ -913,8 +919,8 @@ export default function CataloguesPage(): React.ReactElement {
                       padding: 10,
                       height: 40,
                       borderRadius: 8,
-                      border: `1px solid ${dateFilter !== 'Date' ? C.pink : '#EEEEEE'}`,
-                      background: dateFilter !== 'Date' ? 'rgba(245,92,122,0.04)' : '#FEFEFE',
+                      border: `1px solid ${dateFilter !== 'Date' ? C.pink : C.border}`,
+                      background: dateFilter !== 'Date' ? 'rgba(245,92,122,0.04)' : C.bg,
                       fontFamily: 'inherit',
                       fontSize: 13,
                       fontWeight: 500,
@@ -940,8 +946,8 @@ export default function CataloguesPage(): React.ReactElement {
                         top: 44,
                         left: 0,
                         width: 220,
-                        background: '#FEFEFE',
-                        border: '1px solid #EEEEEE',
+                        background: C.bg,
+                        border: `1px solid ${C.border}`,
                         borderRadius: 8,
                         boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
                         zIndex: 30,
@@ -1025,7 +1031,7 @@ export default function CataloguesPage(): React.ReactElement {
                                 fontWeight: 500,
                                 color: C.light,
                                 cursor: 'pointer',
-                                borderTop: `1px solid #F4F4F4`,
+                                borderTop: `1px solid ${C.border}`,
                               }}
                             >
                               Clear filter
@@ -1052,7 +1058,7 @@ export default function CataloguesPage(): React.ReactElement {
                               color: C.mid,
                               fontFamily: 'inherit',
                               width: '100%',
-                              borderBottom: `1px solid #F4F4F4`,
+                              borderBottom: `1px solid ${C.border}`,
                               marginBottom: 12,
                             }}
                           >
@@ -1096,11 +1102,11 @@ export default function CataloguesPage(): React.ReactElement {
                               height: 34,
                               padding: '0 8px',
                               borderRadius: 6,
-                              border: '1px solid #EEEEEE',
+                              border: `1px solid ${C.border}`,
                               fontFamily: 'inherit',
                               fontSize: 13,
                               color: C.text,
-                              background: '#F9F9F9',
+                              background: C.field,
                               outline: 'none',
                               boxSizing: 'border-box',
                               marginBottom: 10,
@@ -1131,11 +1137,11 @@ export default function CataloguesPage(): React.ReactElement {
                               height: 34,
                               padding: '0 8px',
                               borderRadius: 6,
-                              border: '1px solid #EEEEEE',
+                              border: `1px solid ${C.border}`,
                               fontFamily: 'inherit',
                               fontSize: 13,
                               color: C.text,
-                              background: '#F9F9F9',
+                              background: C.field,
                               outline: 'none',
                               boxSizing: 'border-box',
                               marginBottom: 14,
@@ -1154,7 +1160,7 @@ export default function CataloguesPage(): React.ReactElement {
                                 flex: 1,
                                 height: 32,
                                 borderRadius: 6,
-                                border: '1px solid #EEEEEE',
+                                border: `1px solid ${C.border}`,
                                 background: 'none',
                                 fontFamily: 'inherit',
                                 fontSize: 12,
@@ -1186,7 +1192,7 @@ export default function CataloguesPage(): React.ReactElement {
                                   height: 32,
                                   borderRadius: 6,
                                   border: 'none',
-                                  background: pendingFrom || pendingTo ? '#141414' : '#EEEEEE',
+                                  background: pendingFrom || pendingTo ? C.dark : C.border,
                                   fontFamily: 'inherit',
                                   fontSize: 12,
                                   fontWeight: 600,
@@ -1222,8 +1228,8 @@ export default function CataloguesPage(): React.ReactElement {
                       width: 118,
                       height: 40,
                       borderRadius: 8,
-                      border: '1px solid #EEEEEE',
-                      background: '#FEFEFE',
+                      border: `1px solid ${C.border}`,
+                      background: C.bg,
                       fontFamily: 'inherit',
                       fontSize: 13,
                       fontWeight: 500,
@@ -1271,7 +1277,7 @@ export default function CataloguesPage(): React.ReactElement {
             <div
               style={{
                 height: 3,
-                background: '#EEEEEE',
+                background: C.border,
                 borderRadius: 2,
                 overflow: 'hidden',
                 marginTop: 10,

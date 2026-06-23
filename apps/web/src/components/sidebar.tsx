@@ -68,12 +68,13 @@ export function Sidebar() {
       {/* Logo row */}
       <div
         style={{
-          padding: '20px 0',
+          height: 76,
           borderBottom: '1px solid rgba(255,255,255,0.07)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          minHeight: 68,
+          boxSizing: 'border-box',
+          flexShrink: 0,
         }}
       >
         <Link href="/studio" style={{ display: 'flex', alignItems: 'center' }}>
