@@ -1,7 +1,7 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { FilterIcon, ImagesIcon, SearchIcon, SortIcon, XIcon } from '@/components/icons';
+import { useEffect, useRef, useState } from 'react';
+import { FilterIcon, GarmentIcon, SearchIcon, SortIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -24,7 +24,7 @@ const ctlBtn: React.CSSProperties = {
   padding: '8px 14px',
   borderRadius: 8,
   border: `1px solid ${C.border2}`,
-  background: C.white,
+  background: C.field,
   fontFamily: 'inherit',
   fontSize: 13,
   cursor: 'not-allowed',
@@ -37,6 +37,8 @@ export default function AssetsPage(): React.ReactElement {
   const [zoom, setZoom] = useState<string | null>(null);
   const [zoomVisible, setZoomVisible] = useState(false);
   const [brokenThumbs, setBrokenThumbs] = useState<Set<string>>(new Set());
+  const zoomDialogRef = useRef<HTMLDivElement>(null);
+  const zoomTriggerRef = useRef<HTMLElement | null>(null);
 
   const {
     data: assets = [],
@@ -44,17 +46,40 @@ export default function AssetsPage(): React.ReactElement {
     error: queryError,
   } = useQuery<AssetWithThumbnail[]>({
     queryKey: ['assets'],
-    // /v1/assets now returns presigned thumbnailUrl inline — one request, no N+1.
     queryFn: () => api.get<AssetWithThumbnail[]>('/v1/assets'),
   });
   const error = queryError instanceof Error ? queryError.message : null;
 
   useEffect(() => {
     if (zoom) {
+      zoomTriggerRef.current = document.activeElement as HTMLElement;
       requestAnimationFrame(() => setZoomVisible(true));
     } else {
       setZoomVisible(false);
+      zoomTriggerRef.current?.focus();
     }
+  }, [zoom]);
+
+  // Focus trap for lightbox
+  useEffect(() => {
+    if (!zoom) return;
+    const el = zoomDialogRef.current;
+    if (!el) return;
+    const focusable = el.querySelectorAll<HTMLElement>(
+      'button, [href], input, [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    first?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
+        e.preventDefault();
+        (e.shiftKey ? last : first)?.focus();
+      }
+    };
+    document.addEventListener('keydown', trap);
+    return () => document.removeEventListener('keydown', trap);
   }, [zoom]);
 
   const filtered = assets.filter((a) => a.r2Key.toLowerCase().includes(search.toLowerCase()));
@@ -93,7 +118,8 @@ export default function AssetsPage(): React.ReactElement {
                 fontFamily: 'inherit',
                 fontSize: 13,
                 outline: 'none',
-                background: C.white,
+                background: C.field,
+                color: C.text,
                 opacity: loading ? 0.6 : 1,
               }}
             />
@@ -143,128 +169,123 @@ export default function AssetsPage(): React.ReactElement {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, 370px)',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
               gap: 16,
             }}
           >
-            {filtered.map((asset) => (
-              <div
-                key={asset.r2Key}
-                style={{
-                  width: 370,
-                  height: 376,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                }}
-              >
-                <button
-                  type="button"
-                  disabled={!asset.thumbnailUrl}
-                  style={{
-                    flex: 1,
-                    background: C.lighter,
-                    position: 'relative',
-                    overflow: 'hidden',
-                    borderRadius: 8,
-                    cursor: asset.thumbnailUrl ? 'pointer' : 'default',
-                    border: 'none',
-                    padding: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                  onClick={() => {
-                    if (asset.thumbnailUrl) setZoom(asset.thumbnailUrl);
-                  }}
-                  onMouseOver={(e) => {
-                    if (!asset.thumbnailUrl) return;
-                    e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.12)';
-                    const child = e.currentTarget.querySelector('div');
-                    if (child) child.style.transform = 'scale(1.05)';
-                  }}
-                  onFocus={(e) => {
-                    if (!asset.thumbnailUrl) return;
-                    e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.12)';
-                  }}
-                  onMouseOut={(e) => {
-                    if (!asset.thumbnailUrl) return;
-                    e.currentTarget.style.boxShadow = 'none';
-                    const child = e.currentTarget.querySelector('div');
-                    if (child) child.style.transform = 'scale(1)';
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <div style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
-                    {asset.thumbnailUrl && !brokenThumbs.has(asset.r2Key ?? '') ? (
-                      // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
-                      // biome-ignore lint/performance/noImgElement: presigned R2 URL
-                      <img
-                        src={asset.thumbnailUrl}
-                        alt=""
-                        aria-hidden="true"
-                        onError={() =>
-                          setBrokenThumbs((prev) => new Set([...prev, asset.r2Key ?? '']))
-                        }
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'contain',
-                          objectPosition: 'center',
-                        }}
-                      />
-                    ) : (
-                      <div
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <span style={{ fontSize: 40, opacity: 0.4 }}>👗</span>
-                      </div>
-                    )}
-                  </div>
-                </button>
+            {filtered.map((asset, idx) => {
+              const thumbUrl = asset.thumbnailUrl ?? '';
+              const hasThumb = !!thumbUrl && !brokenThumbs.has(asset.r2Key ?? '');
+              const filename = asset.r2Key.split('/').pop() || 'garment.jpg';
+              return (
                 <div
+                  key={asset.r2Key}
+                  className="prod-card"
                   style={{
-                    height: 16,
-                    padding: '0 14px',
+                    width: '100%',
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
+                    flexDirection: 'column',
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 14,
+                    overflow: 'hidden',
+                    background: C.card,
                   }}
                 >
-                  <span style={{ color: C.mid, display: 'flex' }}>
-                    <ImagesIcon size={16} />
-                  </span>
-                  <span style={{ fontSize: 13, color: C.mid }}>{asset.jobsCount}</span>
-                  <span
+                  <button
+                    type="button"
+                    disabled={!hasThumb}
+                    aria-label={hasThumb ? `Preview ${filename}` : filename}
                     style={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: C.text,
+                      aspectRatio: '3/4',
+                      background: C.lighter,
+                      position: 'relative',
                       overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
+                      cursor: hasThumb ? 'pointer' : 'default',
+                      border: 'none',
+                      padding: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    onClick={() => {
+                      if (thumbUrl) setZoom(thumbUrl);
                     }}
                   >
-                    {asset.r2Key.split('/').pop() || 'garment.jpg'}
-                  </span>
+                    <div className="prod-card-img" style={{ width: '100%', height: '100%' }}>
+                      {hasThumb ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        // biome-ignore lint/performance/noImgElement: presigned R2 URL
+                        <img
+                          src={thumbUrl}
+                          alt={`Uploaded garment — ${filename}`}
+                          width={768}
+                          height={1024}
+                          loading={idx < 3 ? 'eager' : 'lazy'}
+                          onError={() =>
+                            setBrokenThumbs((prev) => new Set([...prev, asset.r2Key ?? '']))
+                          }
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            objectPosition: 'top center',
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: C.mid,
+                            opacity: 0.35,
+                          }}
+                        >
+                          <GarmentIcon size={48} />
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                  <div
+                    style={{
+                      padding: '10px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: C.mid, flexShrink: 0 }}>
+                      {asset.jobsCount} uses
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 500,
+                        color: C.text,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        flex: 1,
+                      }}
+                    >
+                      {filename}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       {zoom && (
         <div
+          ref={zoomDialogRef}
           role="dialog"
+          aria-modal="true"
+          aria-label="Garment image preview"
           onClick={() => setZoom(null)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') setZoom(null);
@@ -283,6 +304,7 @@ export default function AssetsPage(): React.ReactElement {
           <button
             type="button"
             onClick={() => setZoom(null)}
+            aria-label="Close preview"
             style={{
               position: 'absolute',
               top: 20,
@@ -301,12 +323,11 @@ export default function AssetsPage(): React.ReactElement {
           >
             <XIcon size={20} />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: presigned R2 URL */}
           <img
             src={zoom}
-            alt=""
-            aria-hidden="true"
+            alt="Garment preview"
             style={{
               maxWidth: '100%',
               maxHeight: '100%',

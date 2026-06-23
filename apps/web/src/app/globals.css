@@ -19,7 +19,7 @@
   --c-border2: #e8e8e8;
   --c-text: #141414;
   --c-mid: #626262;
-  --c-light: #939393;
+  --c-light: #767676;
   --c-lighter: #eeeeee;
   --c-field: #f9f9f9;
   --c-mint: #209e46;
@@ -127,6 +127,26 @@ a {
   background: linear-gradient(90deg, #f2f2f2 0%, #e6e6e6 50%, #f2f2f2 100%);
   background-size: 200% 100%;
   animation: av-shimmer 1.4s linear infinite;
+}
+
+/* Product card grid — hover & focus via CSS (replaces imperative querySelector) */
+.prod-card {
+  transition: box-shadow 0.15s ease;
+}
+.prod-card:hover {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1);
+}
+.prod-card-img {
+  transition: transform 0.2s ease;
+}
+.prod-card:hover .prod-card-img {
+  transform: scale(1.03);
+}
+a.prod-card-wrapper:focus-visible,
+button.prod-card-wrapper:focus-visible {
+  outline: 2px solid var(--c-pink);
+  outline-offset: 2px;
+  border-radius: 16px;
 }
 
 /* Auth layout — drop the image panel on narrow viewports so the form can breathe */

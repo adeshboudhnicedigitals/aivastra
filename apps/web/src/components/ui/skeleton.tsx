@@ -54,16 +54,20 @@ export function CardGridSkeleton({
   count = 8,
   w = 215.2,
   h = 212.67,
+  fluid = false,
 }: {
   count?: number;
   w?: number;
   h?: number;
+  fluid?: boolean;
 }): React.ReactElement {
   return (
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: `repeat(auto-fill, ${w}px)`,
+        gridTemplateColumns: fluid
+          ? 'repeat(auto-fill, minmax(240px, 1fr))'
+          : `repeat(auto-fill, ${w}px)`,
         gap: 16,
         width: '100%',
       }}
@@ -71,8 +75,13 @@ export function CardGridSkeleton({
       {Array.from({ length: count }).map((_, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: static skeleton list
         <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <Skeleton w={w} h={h} r={8} />
-          <Skeleton w={w * 0.6} h={12} />
+          <Skeleton
+            w={fluid ? '100%' : w}
+            h={fluid ? undefined : h}
+            r={14}
+            style={fluid ? { aspectRatio: '3/4', height: 'auto' } : undefined}
+          />
+          <Skeleton w={fluid ? '60%' : w * 0.6} h={12} />
         </div>
       ))}
     </div>

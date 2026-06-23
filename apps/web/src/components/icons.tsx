@@ -82,6 +82,12 @@ export const PricingIcon = () => (
     size={18}
   />
 );
+export const GarmentIcon = ({ size = 24 }: { size?: number }) => (
+  <Icon
+    d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.57a1 1 0 00.99.86H6v10a2 2 0 002 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.86l.58-3.57a2 2 0 00-1.34-2.23z"
+    size={size}
+  />
+);
 export const CheckIcon = ({ color = C.pink, size = 16 }: { color?: string; size?: number }) => (
   <Icon d="M20 6L9 17l-5-5" size={size} color={color} />
 );

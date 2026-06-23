@@ -1,7 +1,7 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
-import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   DownloadIcon,
@@ -190,7 +190,7 @@ function ImageCard({
     }
   }
 
-  const cardBg = isCompleted ? '#f5f5f5' : '#111';
+  const cardBg = isCompleted ? C.lighter : C.dark;
 
   const stageLabel =
     job.status === 'PREPROCESSING'
@@ -201,20 +201,30 @@ function ImageCard({
 
   return (
     <>
-      <div style={{ width: '100%', height: 316, display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <div style={{ flex: 1, minHeight: 0 }}>
+      <div
+        className="prod-card"
+        style={{
+          width: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          border: `1px solid ${C.border}`,
+          borderRadius: 14,
+          overflow: 'hidden',
+          background: C.card,
+        }}
+      >
+        <div>
           <button
             type="button"
             disabled={!(isCompleted && result?.url)}
             style={{
               width: '100%',
-              height: '100%',
+              aspectRatio: '3/4',
               background: cardBg,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               position: 'relative',
-              borderRadius: 8,
               overflow: 'hidden',
               cursor: isCompleted && result?.url ? 'pointer' : 'default',
               border: 'none',
@@ -254,7 +264,10 @@ function ImageCard({
               // biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible
               <img
                 src={thumb?.url ?? result?.url}
-                alt={`#${job.id.slice(0, 8)}`}
+                alt={`Generated look — job ${job.id.slice(0, 8)}`}
+                width={768}
+                height={1024}
+                loading="lazy"
                 onError={(e) => {
                   // Presigned URL expired — invalidate so next render re-fetches
                   e.currentTarget.style.display = 'none';
@@ -264,8 +277,8 @@ function ImageCard({
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'contain',
-                  objectPosition: 'center',
+                  objectFit: 'cover',
+                  objectPosition: 'top center',
                 }}
               />
             ) : (
@@ -390,16 +403,36 @@ function ImageCard({
         </div>
         <div
           style={{
-            height: 28,
-            padding: '0 4px',
+            padding: '8px 10px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
-            #{job.id.slice(0, 8)}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: isCompleted ? 'var(--c-mint)' : isFailed ? C.pink : 'var(--c-amber)',
+                background: isCompleted
+                  ? 'rgba(32,158,70,0.1)'
+                  : isFailed
+                    ? 'rgba(245,92,122,0.1)'
+                    : 'rgba(246,181,83,0.1)',
+                padding: '2px 7px',
+                borderRadius: 20,
+              }}
+            >
+              {isCompleted ? 'Ready' : isFailed ? 'Failed' : isQueued ? 'Queued' : 'Generating'}
+            </span>
+            <span style={{ fontSize: 11, color: C.light }}>
+              {new Date(job.createdAt).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+              })}
+            </span>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {TERMINAL.includes(job.status) && (
               <button
@@ -433,8 +466,7 @@ function ImageCard({
                     width: 28,
                     height: 28,
                     borderRadius: 8,
-                    background: '#EEEEEE',
-                    backdropFilter: 'blur(10px)',
+                    background: C.lighter,
                     border: 'none',
                     cursor: 'pointer',
                     color: C.mid,
@@ -481,8 +513,8 @@ function ImageCard({
                     height: 28,
                     borderRadius: 8,
                     background: downloading
-                      ? '#ccc'
-                      : 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+                      ? C.border
+                      : 'linear-gradient(135deg, var(--c-pink), var(--c-amber))',
                     cursor: downloading ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -525,13 +557,39 @@ export default function CataloguePage({
   const [zoomVisible, setZoomVisible] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadErr, setDownloadErr] = useState<string | null>(null);
+  const zoomDialogRef = useRef<HTMLDivElement>(null);
+  const zoomTriggerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (zoom) {
+      zoomTriggerRef.current = document.activeElement as HTMLElement;
       requestAnimationFrame(() => setZoomVisible(true));
     } else {
       setZoomVisible(false);
+      zoomTriggerRef.current?.focus();
     }
+  }, [zoom]);
+
+  // Focus trap for zoom lightbox
+  useEffect(() => {
+    if (!zoom) return;
+    const el = zoomDialogRef.current;
+    if (!el) return;
+    const focusable = el.querySelectorAll<HTMLElement>(
+      'button, [href], input, [tabindex]:not([tabindex="-1"])',
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    first?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
+        e.preventDefault();
+        (e.shiftKey ? last : first)?.focus();
+      }
+    };
+    document.addEventListener('keydown', trap);
+    return () => document.removeEventListener('keydown', trap);
   }, [zoom]);
 
   useEffect(() => {
@@ -708,23 +766,20 @@ export default function CataloguePage({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 10,
-                padding: '12px 20px',
-                height: 44,
-                width: 133,
+                padding: '0 20px',
+                height: 38,
                 borderRadius: 8,
-                border: '1px solid #EEEEEE',
-                background: '#F9F9F9',
-                color: '#626262',
+                border: `1px solid ${C.border}`,
+                background: C.field,
+                color: C.mid,
                 fontFamily: 'inherit',
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: 500,
-                lineHeight: '20px',
-                cursor: 'pointer',
                 boxSizing: 'border-box',
                 textDecoration: 'none',
               }}
             >
-              <MonitorPlayIcon size={20} /> Preview
+              <MonitorPlayIcon size={18} /> Preview
             </Link>
             <button
               type="button"
@@ -734,21 +789,20 @@ export default function CataloguePage({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 10,
-                padding: '12px 20px',
-                height: 44,
-                width: 177,
+                gap: 8,
+                padding: '0 20px',
+                height: 38,
                 borderRadius: 8,
                 border: 'none',
-                background: '#141414',
-                color: '#FEFEFE',
+                background: C.dark,
+                color: C.onDark,
                 fontFamily: 'inherit',
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: 600,
-                lineHeight: '20px',
                 cursor: downloading || completedCount === 0 ? 'not-allowed' : 'pointer',
                 opacity: downloading || completedCount === 0 ? 0.5 : 1,
                 boxSizing: 'border-box',
+                whiteSpace: 'nowrap',
               }}
             >
               {downloading ? (
@@ -776,7 +830,7 @@ export default function CataloguePage({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, 369.33px)',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
               gap: 16,
               width: '100%',
             }}
@@ -797,8 +851,10 @@ export default function CataloguePage({
 
       {zoom && (
         <div
+          ref={zoomDialogRef}
           role="dialog"
           aria-modal="true"
+          aria-label="Image preview"
           onClick={() => setZoom(null)}
           onKeyDown={(e) => {
             if (e.key === 'Escape') setZoom(null);
