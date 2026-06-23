@@ -9,7 +9,7 @@ export default function Loading(): React.ReactElement {
         <Skeleton w={120} h={38} />
         <Skeleton w={140} h={38} style={{ marginLeft: 'auto' }} />
       </div>
-      <CardGridSkeleton count={9} w={370} h={376} />
+      <CardGridSkeleton count={9} fluid />
     </PageSkeleton>
   );
 }

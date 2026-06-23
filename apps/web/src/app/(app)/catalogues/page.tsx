@@ -78,6 +78,19 @@ async function concurrentPool<T>(
   return results;
 }
 
+// ─── status badge ─────────────────────────────────────────────────────────────
+
+function catalogueStatus(jobs: JobSummary[]): { label: string; color: string } {
+  if (jobs.length === 0) return { label: 'Empty', color: 'var(--c-light)' };
+  const allCompleted = jobs.every((j) => j.status === 'COMPLETED');
+  if (allCompleted) return { label: 'Ready', color: 'var(--c-mint)' };
+  const allFailed = jobs.every((j) => j.status === 'FAILED');
+  if (allFailed) return { label: 'Failed', color: 'var(--c-pink)' };
+  const hasActive = jobs.some((j) => !TERMINAL.includes(j.status));
+  if (hasActive) return { label: 'In Progress', color: 'var(--c-amber)' };
+  return { label: 'Partial', color: 'var(--c-amber)' };
+}
+
 // ─── catalogue cover ──────────────────────────────────────────────────────────
 
 function Cover({
@@ -100,9 +113,12 @@ function Cover({
       // biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible
       <img
         src={displayUrl}
-        alt=""
+        alt="Catalogue preview"
+        width={768}
+        height={1024}
+        loading="lazy"
         onError={() => setImgError(true)}
-        style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center' }}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }}
       />
     );
   }
@@ -773,11 +789,11 @@ export default function CataloguesPage(): React.ReactElement {
                       height: 40,
                       padding: '0 16px',
                       borderRadius: 12,
-                      background: canDownload ? '#141414' : '#141414',
+                      background: C.dark,
                       opacity: canDownload ? 1 : 0.4,
                       border: 'none',
                       cursor: canDownload ? 'pointer' : 'not-allowed',
-                      color: '#FFFFFF',
+                      color: C.onDark,
                       fontSize: 13,
                       fontWeight: 500,
                       fontFamily: 'inherit',
@@ -1292,11 +1308,11 @@ export default function CataloguesPage(): React.ReactElement {
                       height: 40,
                       padding: '12px 20px',
                       borderRadius: 12,
-                      background: '#141414',
+                      background: C.dark,
                       opacity: 0.4,
                       border: 'none',
                       cursor: 'not-allowed',
-                      color: '#FFFFFF',
+                      color: C.onDark,
                       boxSizing: 'border-box',
                     }}
                   >
@@ -1392,8 +1408,8 @@ export default function CataloguesPage(): React.ReactElement {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, 370px)',
-                  gap: 8,
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                  gap: 16,
                   width: '100%',
                 }}
               >
@@ -1401,29 +1417,30 @@ export default function CataloguesPage(): React.ReactElement {
                   const isSelected = selected.has(cat.catalogueId);
                   const showCheckbox = isSelectionMode || hoveredId === cat.catalogueId;
 
+                  const { label: statusLabel, color: statusColor } = catalogueStatus(cat.jobs);
                   const cardContent = (
                     <div
                       key={cat.catalogueId}
+                      className="prod-card"
                       style={{
-                        width: 370,
-                        height: 376,
+                        width: '100%',
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: 8,
+                        border: isSelected ? `2px solid ${C.pink}` : `1px solid ${C.border}`,
+                        borderRadius: 14,
+                        overflow: 'hidden',
+                        background: C.card,
                         pointerEvents: downloading ? 'none' : 'auto',
                       }}
                     >
                       {/* image area */}
                       <div
                         style={{
-                          flex: 1,
+                          aspectRatio: '3/4',
                           background: C.lighter,
                           position: 'relative',
                           overflow: 'hidden',
-                          borderRadius: 8,
                           cursor: 'pointer',
-                          border: isSelected ? `2px solid ${C.pink}` : '2px solid transparent',
-                          boxSizing: 'border-box',
                         }}
                         onMouseEnter={() => {
                           setHoveredId(cat.catalogueId);
@@ -1433,28 +1450,15 @@ export default function CataloguesPage(): React.ReactElement {
                           });
                         }}
                         onMouseLeave={() => setHoveredId(null)}
-                        onMouseOver={(e) => {
-                          if (!isSelectionMode) {
-                            e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.12)';
-                            const child = e.currentTarget.querySelector(
-                              '[data-scale]',
-                            ) as HTMLElement | null;
-                            if (child) child.style.transform = 'scale(1.05)';
-                          }
-                        }}
-                        onMouseOut={(e) => {
-                          if (!isSelectionMode) {
-                            e.currentTarget.style.boxShadow = 'none';
-                            const child = e.currentTarget.querySelector(
-                              '[data-scale]',
-                            ) as HTMLElement | null;
-                            if (child) child.style.transform = 'scale(1)';
-                          }
-                        }}
                       >
-                        {/* checkbox */}
+                        {/* checkbox — button with ARIA semantics */}
                         {showCheckbox && (
-                          <div
+                          // biome-ignore lint/a11y/useSemanticElements: styled checkbox button with full ARIA; <input type="checkbox"> conflicts with absolute-positioned overlay design
+                          <button
+                            type="button"
+                            role="checkbox"
+                            aria-checked={isSelected}
+                            aria-label={isSelected ? 'Deselect catalogue' : 'Select catalogue'}
                             onClick={(e) => {
                               e.stopPropagation();
                               e.preventDefault();
@@ -1476,6 +1480,7 @@ export default function CataloguesPage(): React.ReactElement {
                               cursor: 'pointer',
                               boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
                               flexShrink: 0,
+                              padding: 0,
                             }}
                           >
                             {isSelected && (
@@ -1495,7 +1500,7 @@ export default function CataloguesPage(): React.ReactElement {
                                 />
                               </svg>
                             )}
-                          </div>
+                          </button>
                         )}
 
                         {/* selection tint */}
@@ -1511,10 +1516,7 @@ export default function CataloguesPage(): React.ReactElement {
                           />
                         )}
 
-                        <div
-                          data-scale=""
-                          style={{ width: '100%', height: '100%', transition: 'transform .3s' }}
-                        >
+                        <div className="prod-card-img" style={{ width: '100%', height: '100%' }}>
                           <Cover
                             jobs={cat.jobs}
                             coverUrl={cat.coverUrl}
@@ -1523,22 +1525,47 @@ export default function CataloguesPage(): React.ReactElement {
                         </div>
                       </div>
 
-                      {/* metadata row */}
+                      {/* metadata row — status badge + count + date */}
                       <div
                         style={{
-                          height: 16,
-                          padding: '0 14px',
+                          padding: '10px 14px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: 8,
                         }}
                       >
-                        <span style={{ color: C.mid, display: 'flex' }}>
-                          <ImagesIcon size={16} />
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: statusColor,
+                            background: `color-mix(in srgb, ${statusColor} 12%, transparent)`,
+                            padding: '2px 7px',
+                            borderRadius: 20,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {statusLabel}
                         </span>
-                        <span style={{ fontSize: 13, color: C.mid }}>{cat.jobs.length}</span>
-                        <span style={{ fontSize: 13, fontWeight: 500, color: C.text }}>
-                          #{cat.catalogueId.slice(0, 8)}
+                        <span style={{ color: C.mid, display: 'flex', flexShrink: 0 }}>
+                          <ImagesIcon size={14} />
+                        </span>
+                        <span style={{ fontSize: 12, color: C.mid, flexShrink: 0 }}>
+                          {cat.jobs.length}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: C.light,
+                            marginLeft: 'auto',
+                            flexShrink: 0,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {new Date(cat.createdAt).toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                          })}
                         </span>
                       </div>
                     </div>
@@ -1548,6 +1575,7 @@ export default function CataloguesPage(): React.ReactElement {
                     <button
                       key={cat.catalogueId}
                       type="button"
+                      className="prod-card-wrapper"
                       onClick={(e) => toggleCard(cat.catalogueId, e.shiftKey)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') toggleCard(cat.catalogueId, false);
@@ -1568,7 +1596,8 @@ export default function CataloguesPage(): React.ReactElement {
                     <Link
                       key={cat.catalogueId}
                       href={`/catalogues/${cat.catalogueId}`}
-                      style={{ textDecoration: 'none' }}
+                      className="prod-card-wrapper"
+                      style={{ textDecoration: 'none', display: 'block', outline: 'none' }}
                     >
                       {cardContent}
                     </Link>
@@ -1590,7 +1619,7 @@ export default function CataloguesPage(): React.ReactElement {
             transform: 'translateX(-50%)',
             zIndex: 1000,
             background:
-              toast.type === 'success' ? '#141414' : toast.type === 'warning' ? '#8B5C00' : C.pink,
+              toast.type === 'success' ? C.dark : toast.type === 'warning' ? '#8B5C00' : C.pink,
             color: '#fff',
             padding: '10px 20px',
             borderRadius: 10,
