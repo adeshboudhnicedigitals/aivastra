@@ -315,7 +315,7 @@ export async function processJob(
     );
 
     // 5. Patch workflow template with ComfyUI filenames (loads from DB with 5-min TTL cache)
-    const prompt = await patchWorkflow(
+    const { prompt, resultNodeId } = await patchWorkflow(
       {
         workflowTemplateId,
         upperGarmentFile,
@@ -389,7 +389,13 @@ export async function processJob(
 
     // 8. Fetch output metadata + download image
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
-    const outputImages = await fetchHistory(w.url, workerApiKey, promptId, jobLog);
+    const outputImages = await fetchHistory(
+      w.url,
+      workerApiKey,
+      promptId,
+      jobLog,
+      resultNodeId ?? undefined,
+    );
     const [firstImage] = outputImages;
     if (!firstImage) throw new Error('ComfyUI returned no output images');
 

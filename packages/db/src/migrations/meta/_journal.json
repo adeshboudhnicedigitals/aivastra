@@ -400,6 +400,20 @@
       "when": 1781600000010,
       "tag": "0056_user_phone",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1781600000011,
+      "tag": "0057_dual_size_workflow_nodes",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1781600000012,
+      "tag": "0058_output_max_px_default_2048",
+      "breakpoints": true
     }
   ]
 }

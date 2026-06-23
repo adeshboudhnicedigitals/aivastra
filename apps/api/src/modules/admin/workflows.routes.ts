@@ -98,6 +98,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       lowerNodeId: r.lowerNodeId,
       shoeNodeId: r.shoeNodeId,
       sizeNodeIds: r.sizeNodeIds,
+      latentSizeNodeIds: r.latentSizeNodeIds,
+      latentMaxPx: r.latentMaxPx,
+      outputSizeNodeIds: r.outputSizeNodeIds,
+      outputMaxPx: r.outputMaxPx,
+      resultNodeId: r.resultNodeId,
       widgetGarmentNodeId: r.widgetGarmentNodeId,
       widgetCustomerPhotoNodeId: r.widgetCustomerPhotoNodeId,
       widgetOutputNodeId: r.widgetOutputNodeId,
@@ -148,6 +153,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         lowerNodeId?: string;
         shoeNodeId?: string;
         sizeNodeIds?: string[];
+        latentSizeNodeIds?: string[];
+        latentMaxPx?: number;
+        outputSizeNodeIds?: string[];
+        outputMaxPx?: number;
+        resultNodeId?: string;
         facePhasePromptNode?: string;
         garmentPhasePromptNode?: string;
         widgetGarmentNodeId?: string;
@@ -257,6 +267,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           lowerNodeId: body.lowerNodeId ?? null,
           shoeNodeId: body.shoeNodeId ?? null,
           sizeNodeIds: body.sizeNodeIds ?? [],
+          latentSizeNodeIds: body.latentSizeNodeIds ?? [],
+          ...(body.latentMaxPx !== undefined ? { latentMaxPx: body.latentMaxPx } : {}),
+          outputSizeNodeIds: body.outputSizeNodeIds ?? [],
+          ...(body.outputMaxPx !== undefined ? { outputMaxPx: body.outputMaxPx } : {}),
+          resultNodeId: body.resultNodeId ?? null,
           facePhasePromptNode,
           garmentPhasePromptNode,
           defaultFacePhasePrompt,
@@ -276,6 +291,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         lowerNodeId: row?.lowerNodeId,
         shoeNodeId: row?.shoeNodeId,
         sizeNodeIds: row?.sizeNodeIds,
+        latentSizeNodeIds: row?.latentSizeNodeIds,
+        outputSizeNodeIds: row?.outputSizeNodeIds,
+        resultNodeId: row?.resultNodeId,
         createdAt: row?.createdAt,
       };
     },
@@ -325,6 +343,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         lowerNodeId?: string | null;
         shoeNodeId?: string | null;
         sizeNodeIds?: string[];
+        latentSizeNodeIds?: string[];
+        latentMaxPx?: number;
+        outputSizeNodeIds?: string[];
+        outputMaxPx?: number;
+        resultNodeId?: string | null;
         facePhasePromptNode?: string;
         garmentPhasePromptNode?: string;
         widgetGarmentNodeId?: string | null;
@@ -410,6 +433,13 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if ('lowerNodeId' in body) updateValues.lowerNodeId = body.lowerNodeId ?? null;
       if ('shoeNodeId' in body) updateValues.shoeNodeId = body.shoeNodeId ?? null;
       if ('sizeNodeIds' in body) updateValues.sizeNodeIds = body.sizeNodeIds ?? [];
+      if ('latentSizeNodeIds' in body)
+        updateValues.latentSizeNodeIds = body.latentSizeNodeIds ?? [];
+      if (body.latentMaxPx !== undefined) updateValues.latentMaxPx = body.latentMaxPx;
+      if ('outputSizeNodeIds' in body)
+        updateValues.outputSizeNodeIds = body.outputSizeNodeIds ?? [];
+      if (body.outputMaxPx !== undefined) updateValues.outputMaxPx = body.outputMaxPx;
+      if ('resultNodeId' in body) updateValues.resultNodeId = body.resultNodeId ?? null;
       if (body.facePhasePromptNode !== undefined)
         updateValues.facePhasePromptNode = body.facePhasePromptNode;
       if (body.garmentPhasePromptNode !== undefined)

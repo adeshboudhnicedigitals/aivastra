@@ -83,6 +83,14 @@ export const workflowTemplates = pgTable('workflow_templates', {
   sizeNodeId: text('size_node_id'), // kept for backward compat — use sizeNodeIds
   sizeNodeIds: text('size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`), // all nodes controlling output dimensions
 
+  // Dual-size-group templates (build_model_main v2+) — both groups derive their width/height
+  // from the same aspectRatio enum, just at different max edges. Empty = use sizeNodeIds above.
+  latentSizeNodeIds: text('latent_size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`), // [widthNodeId, heightNodeId]
+  latentMaxPx: integer('latent_max_px').notNull().default(2048),
+  outputSizeNodeIds: text('output_size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`), // [widthNodeId, heightNodeId]
+  outputMaxPx: integer('output_max_px').notNull().default(2048), // matches latentMaxPx by default — full resolution, not downscaled
+  resultNodeId: text('result_node_id'), // SaveImage node holding the final deliverable image, when ambiguous
+
   // Prompt node IDs
   facePhasePromptNode: text('face_phase_prompt_node').notNull(),
   garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),

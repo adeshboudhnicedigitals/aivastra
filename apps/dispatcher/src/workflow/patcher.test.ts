@@ -366,3 +366,101 @@ describe('aspect ratio', () => {
     expect(wf['1345:874']?.inputs.height).toBe(1536);
   });
 });
+
+// ── Dual-size-group templates (build_model_main v2) ──────────────────────
+
+describe('dual-size groups', () => {
+  function makeDualSizeWorkflow() {
+    return {
+      ...makeWorkflow(),
+      'max-width': {
+        inputs: { value: 2048 },
+        class_type: 'PrimitiveInt',
+        _meta: { title: 'max-width' },
+      },
+      'max-height': {
+        inputs: { value: 2048 },
+        class_type: 'PrimitiveInt',
+        _meta: { title: 'max-height' },
+      },
+      'result-width': {
+        inputs: { value: 1024 },
+        class_type: 'PrimitiveInt',
+        _meta: { title: 'result-width' },
+      },
+      'result-height': {
+        inputs: { value: 1024 },
+        class_type: 'PrimitiveInt',
+        _meta: { title: 'result-height' },
+      },
+    };
+  }
+
+  it('patches the latent group via resizeToMax, and the output group via the literal ASPECT_DIMENSIONS lookup', () => {
+    const wf = makeDualSizeWorkflow();
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({
+        latentSizeNodeIds: ['max-width', 'max-height'],
+        latentMaxPx: 2048,
+        outputSizeNodeIds: ['result-width', 'result-height'],
+      }),
+      { ...BASE_INPUTS, aspectRatio: '2:3' },
+    );
+    // Latent group: resizeToMax(2, 3, 2048) — portrait, width = round(max * 2/3)
+    expect(wf['max-width']?.inputs.value).toBe(Math.round(2048 * (2 / 3)));
+    expect(wf['max-height']?.inputs.value).toBe(2048);
+    // Output group: the literal selected dimensions, not derived via resizeToMax
+    expect(wf['result-width']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.width);
+    expect(wf['result-height']?.inputs.value).toBe(ASPECT_DIMENSIONS['2:3']?.height);
+  });
+
+  it('warns and skips the output group for an unknown aspect ratio, leaving the node untouched', () => {
+    const wf = makeDualSizeWorkflow();
+    const warn = vi.fn();
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({
+        latentSizeNodeIds: ['max-width', 'max-height'],
+        outputSizeNodeIds: ['result-width', 'result-height'],
+      }),
+      { ...BASE_INPUTS, aspectRatio: '7:3' },
+      { warn },
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('output size patch'));
+    expect(wf['result-width']?.inputs.value).toBe(1024);
+    expect(wf['result-height']?.inputs.value).toBe(1024);
+  });
+
+  it('does not run the legacy sizeNodeIds path when a dual-size group is mapped', () => {
+    const wf = {
+      ...makeDualSizeWorkflow(),
+      // legacy size node still present in JSON, should be left untouched
+      '1345:874': {
+        inputs: { width: 1536, height: 1536, batch_size: 1 },
+        class_type: 'EmptyLatentImage',
+        _meta: { title: 'size' },
+      },
+    };
+    applyWorkflowPatch(
+      wf,
+      makeTemplate({
+        sizeNodeIds: ['1345:874'],
+        latentSizeNodeIds: ['max-width', 'max-height'],
+        outputSizeNodeIds: ['result-width', 'result-height'],
+      }),
+      { ...BASE_INPUTS, aspectRatio: '1:1' },
+    );
+    expect(wf['1345:874']?.inputs.width).toBe(1536);
+    expect(wf['1345:874']?.inputs.height).toBe(1536);
+  });
+
+  it('falls back to legacy sizeNodeIds path when dual-size columns are empty', () => {
+    const wf = makeWorkflow();
+    applyWorkflowPatch(wf, makeTemplate({ latentSizeNodeIds: [], outputSizeNodeIds: [] }), {
+      ...BASE_INPUTS,
+      aspectRatio: '1:1',
+    });
+    expect(wf['1345:874']?.inputs.width).toBe(ASPECT_DIMENSIONS['1:1']?.width);
+  });
+});

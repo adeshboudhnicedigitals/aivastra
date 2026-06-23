@@ -252,6 +252,76 @@ describe('edge cases', () => {
 
 // ── Returned node lists ───────────────────────────────────────────────────
 
+// ── Dual-size-group titles (build_model_main v2) ──────────────────────────
+
+describe('dual-size-group node detection', () => {
+  function primitiveIntNode(title: string) {
+    return { class_type: 'PrimitiveInt', _meta: { title }, inputs: { value: 1024 } };
+  }
+  function saveImageNode(title: string) {
+    return { class_type: 'SaveImage', _meta: { title }, inputs: {} };
+  }
+
+  it('detects latentSizeNodeIds from max-width/max-height titles, ordered [width, height]', () => {
+    const wf = {
+      '733': primitiveIntNode('max-width'),
+      '734': primitiveIntNode('max-height'),
+    };
+    const { detected } = detectMappings(wf);
+    expect(detected.latentSizeNodeIds).toEqual(['733', '734']);
+  });
+
+  it('detects outputSizeNodeIds from result-width/result-height titles, ordered [width, height]', () => {
+    const wf = {
+      '1034': primitiveIntNode('result-width'),
+      '736': primitiveIntNode('result-height'),
+    };
+    const { detected } = detectMappings(wf);
+    expect(detected.outputSizeNodeIds).toEqual(['1034', '736']);
+  });
+
+  it('leaves both groups empty when only one half of a pair is present', () => {
+    const wf = { '733': primitiveIntNode('max-width') };
+    const { detected } = detectMappings(wf);
+    expect(detected.latentSizeNodeIds).toEqual([]);
+  });
+
+  it('with a single SaveImage(output) node, resultNodeId stays undefined (no ambiguity)', () => {
+    const wf = { '617': saveImageNode('model-result') };
+    const { detected } = detectMappings(wf);
+    expect(detected.resultNodeId).toBeUndefined();
+  });
+
+  it('suppresses legacy sizeNodeIds auto-fill when both dual-size groups are detected', () => {
+    const wf = {
+      '733': primitiveIntNode('max-width'),
+      '734': primitiveIntNode('max-height'),
+      '1034': primitiveIntNode('result-width'),
+      '736': primitiveIntNode('result-height'),
+      // Unrelated internal resize step — must NOT end up in sizeNodeIds
+      '691:674': {
+        class_type: 'ResizeAndPadImage',
+        _meta: { title: 'footwear-resize' },
+        inputs: {},
+      },
+      '1044:1031': latentNode('size'),
+    };
+    const { detected } = detectMappings(wf);
+    expect(detected.latentSizeNodeIds).toEqual(['733', '734']);
+    expect(detected.outputSizeNodeIds).toEqual(['1034', '736']);
+    expect(detected.sizeNodeIds).toEqual([]);
+  });
+
+  it('with two SaveImage nodes, picks the one whose title contains "customer" as resultNodeId', () => {
+    const wf = {
+      '617': saveImageNode('model-result'),
+      '739': saveImageNode('customer-result-Image'),
+    };
+    const { detected } = detectMappings(wf);
+    expect(detected.resultNodeId).toBe('739');
+  });
+});
+
 describe('returned node lists are correctly populated', () => {
   it('allImageNodes contains only LoadImage nodes', () => {
     const { allImageNodes } = detectMappings(makeCanonicalWorkflow());

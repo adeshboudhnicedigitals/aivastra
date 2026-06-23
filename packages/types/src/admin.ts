@@ -141,6 +141,13 @@ export const CreateWorkflowBody = z
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
+    // Dual-size-group templates (build_model_main v2+) — server-computed from node
+    // titles at parse time, not manually edited via the admin form.
+    latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
+    latentMaxPx: z.number().int().positive().optional(),
+    outputSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
+    outputMaxPx: z.number().int().positive().optional(),
+    resultNodeId: z.string().min(1).optional(),
     facePhasePromptNode: z.string().min(1).optional(),
     garmentPhasePromptNode: z.string().min(1).optional(),
     // Widget workflow fields (required when workflowType = 'widget')
@@ -205,6 +212,11 @@ export const UpdateWorkflowBody = z.object({
   shoeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeIds: z.array(z.string().min(1)).optional(),
+  latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
+  latentMaxPx: z.number().int().positive().optional(),
+  outputSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
+  outputMaxPx: z.number().int().positive().optional(),
+  resultNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
   // Widget workflow node IDs

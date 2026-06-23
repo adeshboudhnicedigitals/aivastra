@@ -20,6 +20,9 @@ interface DetectedMappings {
   sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
+  latentSizeNodeIds: string[];
+  outputSizeNodeIds: string[];
+  resultNodeId?: string;
 }
 
 interface ParseResult {
@@ -134,6 +137,11 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [positivePromptNode, setPositivePromptNode] = useState('');
   const [negativePromptNode, setNegativePromptNode] = useState('');
 
+  // Dual-size-group + result-node — auto-detected only, no manual UI exposure
+  const [latentSizeNodeIds, setLatentSizeNodeIds] = useState<string[]>([]);
+  const [outputSizeNodeIds, setOutputSizeNodeIds] = useState<string[]>([]);
+  const [resultNodeId, setResultNodeId] = useState('');
+
   // Widget workflow node IDs
   const [widgetGarmentNodeId, setWidgetGarmentNodeId] = useState('');
   const [widgetCustomerPhotoNodeId, setWidgetCustomerPhotoNodeId] = useState('');
@@ -188,6 +196,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       setSizeNodeIds(d.sizeNodeIds ?? []);
       setPositivePromptNode(d.positivePromptNode ?? '');
       setNegativePromptNode(d.negativePromptNode ?? '');
+      setLatentSizeNodeIds(d.latentSizeNodeIds ?? []);
+      setOutputSizeNodeIds(d.outputSizeNodeIds ?? []);
+      setResultNodeId(d.resultNodeId ?? '');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to parse workflow');
     } finally {
@@ -257,6 +268,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
           sizeNodeIds: sizeNodeIds.filter(Boolean),
+          ...(latentSizeNodeIds.length === 2 ? { latentSizeNodeIds } : {}),
+          ...(outputSizeNodeIds.length === 2 ? { outputSizeNodeIds } : {}),
+          ...(resultNodeId ? { resultNodeId } : {}),
           // positive → garmentPhasePromptNode (DB field name)
           // negative → facePhasePromptNode    (DB field name)
           facePhasePromptNode: negativePromptNode,
@@ -746,54 +760,40 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 />
               </div>
 
-              {/* Size nodes — multi-select: all nodes controlling output dimensions */}
-              {nodes.latent.length > 0 && (
+              {/* Size nodes — read-only, fully auto-detected (no manual override).
+                  Dual-size-group templates (max-width/max-height + result-width/result-height
+                  titles) take priority over the legacy single-group sizeNodeIds list. */}
+              {(latentSizeNodeIds.length === 2 ||
+                outputSizeNodeIds.length === 2 ||
+                sizeNodeIds.length > 0) && (
                 <div className="field" style={{ margin: 0 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-                    Size nodes (optional)
+                    Size nodes (auto-detected)
                   </label>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--muted)',
-                      display: 'block',
-                      marginBottom: 6,
-                    }}
-                  >
-                    All nodes that control output dimensions (EmptyLatentImage,
-                    ResizeImageMaskNode…). All checked nodes will be patched per aspect ratio.
-                  </span>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {nodes.latent.map((n) => (
-                      <label
-                        key={n.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          fontSize: 12,
-                          cursor: saving ? 'default' : 'pointer',
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          disabled={saving}
-                          checked={sizeNodeIds.includes(n.id)}
-                          onChange={(e) =>
-                            setSizeNodeIds((prev) =>
-                              e.target.checked ? [...prev, n.id] : prev.filter((id) => id !== n.id),
-                            )
-                          }
-                        />
-                        <span className="mono" style={{ fontSize: 11, color: 'var(--accent)' }}>
-                          [{n.id}]
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                    {latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2 ? (
+                      <>
+                        <span>
+                          Latent size:{' '}
+                          <span className="mono" style={{ color: 'var(--accent)' }}>
+                            [{latentSizeNodeIds.join(', ') || '—'}]
+                          </span>
                         </span>
-                        <span>{n.title}</span>
-                        <span style={{ color: 'var(--muted)', fontSize: 11 }}>
-                          ({n.class_type})
+                        <span>
+                          Output size:{' '}
+                          <span className="mono" style={{ color: 'var(--accent)' }}>
+                            [{outputSizeNodeIds.join(', ') || '—'}]
+                          </span>
                         </span>
-                      </label>
-                    ))}
+                      </>
+                    ) : (
+                      <span>
+                        Size nodes:{' '}
+                        <span className="mono" style={{ color: 'var(--accent)' }}>
+                          [{sizeNodeIds.join(', ')}]
+                        </span>
+                      </span>
+                    )}
                   </div>
                 </div>
               )}

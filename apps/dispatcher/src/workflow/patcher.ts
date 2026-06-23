@@ -1,5 +1,6 @@
 import { type DB, schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
+import { resizeToMax } from './resize-to-max.js';
 
 type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta?: unknown };
 type Workflow = Record<string, WorkflowNode>;
@@ -53,10 +54,31 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
   return node;
 }
 
+function patchSizeGroup(
+  workflow: Workflow,
+  nodeIds: string[],
+  aspectRatio: string,
+  max: number,
+  log?: PatchLog,
+): void {
+  const [widthId, heightId] = nodeIds;
+  if (!widthId || !heightId) return;
+  const [rw, rh] = aspectRatio.split(':').map(Number);
+  if (!rw || !rh) {
+    log?.warn(`patchSizeGroup: unparsable aspectRatio "${aspectRatio}" — skipping`);
+    return;
+  }
+  const dims = resizeToMax(rw, rh, max);
+  const wNode = workflow[widthId];
+  const hNode = workflow[heightId];
+  if (wNode) wNode.inputs.value = dims.width;
+  if (hNode) hNode.inputs.value = dims.height;
+}
+
 // ── Aspect ratio dimensions ───────────────────────────────────────────────
 
 export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
-  '1:1': { width: 1536, height: 1536 },
+  '1:1': { width: 2048, height: 2048 },
   '2:3': { width: 1365, height: 2048 },
   '3:4': { width: 1331, height: 1774 },
   '4:5': { width: 1375, height: 1718 },
@@ -148,9 +170,34 @@ export function applyWorkflowPatch(
   }
   // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
 
-  // Aspect ratio — patch all size-controlling nodes based on their class_type.
-  // PrimitiveInt nodes: sizeNodeIds[0] = width node, sizeNodeIds[1] = height node.
-  if (inputs.aspectRatio && tmpl.sizeNodeIds.length > 0) {
+  // Dual-size-group templates. Latent group (max-width/max-height) is derived from the
+  // raw aspectRatio numbers via resizeToMax, capped at latentMaxPx — this is the diffusion
+  // canvas size and doesn't need to match any fixed enum value. Output group (result-width/
+  // result-height) uses the literal ASPECT_DIMENSIONS lookup instead — the exact pixel
+  // dimensions the studio aspect-ratio picker maps to — NOT a separate resizeToMax/max-edge
+  // calc, so the delivered image always matches what the user actually selected.
+  const latentSizeNodeIds = tmpl.latentSizeNodeIds ?? [];
+  const outputSizeNodeIds = tmpl.outputSizeNodeIds ?? [];
+  if (inputs.aspectRatio && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {
+    patchSizeGroup(workflow, latentSizeNodeIds, inputs.aspectRatio, tmpl.latentMaxPx ?? 2048, log);
+
+    if (outputSizeNodeIds.length === 2) {
+      const dims = ASPECT_DIMENSIONS[inputs.aspectRatio];
+      if (!dims) {
+        log?.warn(
+          `patchWorkflow: unknown aspectRatio "${inputs.aspectRatio}" — skipping output size patch`,
+        );
+      } else {
+        const [widthId, heightId] = outputSizeNodeIds;
+        const wNode = widthId ? workflow[widthId] : undefined;
+        const hNode = heightId ? workflow[heightId] : undefined;
+        if (wNode) wNode.inputs.value = dims.width;
+        if (hNode) hNode.inputs.value = dims.height;
+      }
+    }
+  } else if (inputs.aspectRatio && tmpl.sizeNodeIds.length > 0) {
+    // Aspect ratio — patch all size-controlling nodes based on their class_type.
+    // PrimitiveInt nodes: sizeNodeIds[0] = width node, sizeNodeIds[1] = height node.
     const dims = ASPECT_DIMENSIONS[inputs.aspectRatio];
     if (!dims) {
       log?.warn(`patchWorkflow: unknown aspectRatio "${inputs.aspectRatio}" — skipping size patch`);
@@ -180,6 +227,11 @@ export function applyWorkflowPatch(
   return workflow as unknown as Record<string, unknown>;
 }
 
+export interface PatchedWorkflow {
+  prompt: Record<string, unknown>;
+  resultNodeId: string | null;
+}
+
 /**
  * Loads the workflow template from the DB (with 5-min TTL cache), deep-clones
  * the JSON, and delegates to applyWorkflowPatch.
@@ -188,8 +240,9 @@ export async function patchWorkflow(
   inputs: WorkflowInputs,
   db: DB,
   log?: PatchLog,
-): Promise<Record<string, unknown>> {
+): Promise<PatchedWorkflow> {
   const tmpl = await loadWorkflow(db, inputs.workflowTemplateId);
   const workflow = JSON.parse(JSON.stringify(tmpl.jsonContent)) as Workflow;
-  return applyWorkflowPatch(workflow, tmpl, inputs, log);
+  const prompt = applyWorkflowPatch(workflow, tmpl, inputs, log);
+  return { prompt, resultNodeId: tmpl.resultNodeId };
 }

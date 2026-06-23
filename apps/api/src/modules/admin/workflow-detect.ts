@@ -7,6 +7,12 @@
 //                       lower_garment, shoes/shoe
 //     TextEncode titles: positive_prompt, negative_prompt
 //     Latent titles: size, empty_latent_image (or auto-assigned by class_type)
+//     Dual-size-group titles (build_model_main v2+): max-width/max-height
+//                       (latent group), result-width/result-height (output group)
+//     SaveImage titles: when more than one SaveImage(type=output) node exists,
+//                       the one whose title contains "customer" is the deliverable
+//                       result — disambiguates the transitional "model-result" +
+//                       "customer-result-image" pair until templates drop the former.
 //
 //   Pass 2 — connection-based fallback for anything unresolved after pass 1:
 //     positive_prompt: TextEncode node whose output → KSampler*.positive
@@ -34,6 +40,9 @@ export interface DetectedMappings {
   sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
+  latentSizeNodeIds: string[]; // [widthNodeId, heightNodeId] — dual-size-group templates only
+  outputSizeNodeIds: string[]; // [widthNodeId, heightNodeId] — dual-size-group templates only
+  resultNodeId?: string; // disambiguates multiple SaveImage(type=output) nodes
 }
 
 // Node class_types that control output dimensions (EmptyLatentImage + resize nodes)
@@ -91,10 +100,21 @@ export function detectMappings(json: Record<string, unknown>): {
   allPromptNodes: ParsedNode[];
   allLatentNodes: ParsedNode[];
 } {
-  const detected: DetectedMappings = { upperNodeIds: [], sizeNodeIds: [] };
+  const detected: DetectedMappings = {
+    upperNodeIds: [],
+    sizeNodeIds: [],
+    latentSizeNodeIds: [],
+    outputSizeNodeIds: [],
+  };
   const allImageNodes: ParsedNode[] = [];
   const allPromptNodes: ParsedNode[] = [];
   const allLatentNodes: ParsedNode[] = [];
+  const saveImageNodes: ParsedNode[] = [];
+
+  let maxWidthId: string | undefined;
+  let maxHeightId: string | undefined;
+  let resultWidthId: string | undefined;
+  let resultHeightId: string | undefined;
 
   // ── Pass 1: title-based detection ────────────────────────────────────────
   for (const [nodeId, raw] of Object.entries(json)) {
@@ -130,6 +150,27 @@ export function detectMappings(json: Record<string, unknown>): {
     } else if (category === 'latent') {
       allLatentNodes.push({ id: nodeId, class_type: classType, title, category });
     }
+
+    // Dual-size-group titles — independent of class_type (these are PrimitiveInt
+    // nodes, not classified 'latent' by classifyNode).
+    if (norm === 'max_width') maxWidthId = nodeId;
+    else if (norm === 'max_height') maxHeightId = nodeId;
+    else if (norm === 'result_width') resultWidthId = nodeId;
+    else if (norm === 'result_height') resultHeightId = nodeId;
+
+    if (classType === 'SaveImage') {
+      saveImageNodes.push({ id: nodeId, class_type: classType, title, category: 'other' });
+    }
+  }
+
+  if (maxWidthId && maxHeightId) detected.latentSizeNodeIds = [maxWidthId, maxHeightId];
+  if (resultWidthId && resultHeightId) detected.outputSizeNodeIds = [resultWidthId, resultHeightId];
+
+  // Multiple SaveImage nodes — prefer the one whose title contains "customer"
+  // (the deliverable result) over a raw/intermediate one (e.g. "model-result").
+  if (saveImageNodes.length > 1) {
+    const customerNode = saveImageNodes.find((n) => normaliseTitle(n.title).includes('customer'));
+    if (customerNode) detected.resultNodeId = customerNode.id;
   }
 
   // ── Pass 2: connection-based fallback for unresolved prompt nodes ─────────
@@ -157,10 +198,14 @@ export function detectMappings(json: Record<string, unknown>): {
   allPromptNodes.sort((a, b) => a.title.localeCompare(b.title));
   allLatentNodes.sort((a, b) => a.title.localeCompare(b.title));
 
-  // Always use ALL latent nodes as sizeNodeIds.
-  // A partial list (e.g. only EmptyLatentImage) leaves ResizeAndPadImage /
-  // ResizeImageMaskNode nodes at stale hardcoded dimensions when aspectRatio changes.
-  detected.sizeNodeIds = allLatentNodes.map((n) => n.id);
+  // Always use ALL latent nodes as sizeNodeIds — EXCEPT for dual-size-group
+  // templates, where the real patch targets are the PrimitiveInt nodes already
+  // captured in latentSizeNodeIds/outputSizeNodeIds. Auto-filling sizeNodeIds
+  // here too would surface unrelated ResizeAndPadImage/EmptyLatentImage nodes
+  // (e.g. internal garment-resize steps) as if they were output-size candidates.
+  const isDualSizeGroupTemplate =
+    detected.latentSizeNodeIds.length === 2 && detected.outputSizeNodeIds.length === 2;
+  detected.sizeNodeIds = isDualSizeGroupTemplate ? [] : allLatentNodes.map((n) => n.id);
 
   return { detected, allImageNodes, allPromptNodes, allLatentNodes };
 }
