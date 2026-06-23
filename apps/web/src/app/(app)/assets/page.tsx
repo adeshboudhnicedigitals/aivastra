@@ -36,6 +36,7 @@ export default function AssetsPage(): React.ReactElement {
   const [search, setSearch] = useState('');
   const [zoom, setZoom] = useState<string | null>(null);
   const [zoomVisible, setZoomVisible] = useState(false);
+  const [brokenThumbs, setBrokenThumbs] = useState<Set<string>>(new Set());
 
   const {
     data: assets = [],
@@ -197,13 +198,16 @@ export default function AssetsPage(): React.ReactElement {
                   }}
                 >
                   <div style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
-                    {asset.thumbnailUrl ? (
+                    {asset.thumbnailUrl && !brokenThumbs.has(asset.r2Key ?? '') ? (
                       // eslint-disable-next-line @next/next/no-img-element, jsx-a11y/alt-text
                       // biome-ignore lint/performance/noImgElement: presigned R2 URL
                       <img
                         src={asset.thumbnailUrl}
                         alt=""
                         aria-hidden="true"
+                        onError={() =>
+                          setBrokenThumbs((prev) => new Set([...prev, asset.r2Key ?? '']))
+                        }
                         style={{
                           width: '100%',
                           height: '100%',

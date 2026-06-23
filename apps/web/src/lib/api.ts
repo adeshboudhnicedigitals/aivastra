@@ -103,7 +103,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string, options?: RequestInit) => request<T>(path, options),
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
   patch: <T>(path: string, body: unknown) =>
@@ -126,6 +126,7 @@ export const api = {
     uploadUrl: string,
     file: File,
     onProgress: (pct: number) => void,
+    signal?: AbortSignal,
   ): Promise<void> => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -139,6 +140,14 @@ export const api = {
           ? resolve()
           : reject(new Error(`Upload failed: ${xhr.status}`));
       xhr.onerror = () => reject(new Error('Upload failed'));
+      xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
+      if (signal) {
+        if (signal.aborted) {
+          xhr.abort();
+          return;
+        }
+        signal.addEventListener('abort', () => xhr.abort(), { once: true });
+      }
       xhr.send(file);
     });
   },

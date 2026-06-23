@@ -22,7 +22,7 @@ export async function uploadsRoutes(app: FastifyInstance) {
         r2Key,
         contentType,
         contentLength,
-        300,
+        1800,
       );
       // Bind the issued key to this user so createJob can reject keys the caller
       // was never granted (prevents using another user's / an internal asset key

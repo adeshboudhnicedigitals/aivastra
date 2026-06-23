@@ -18,6 +18,28 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 
+async function concurrentPool<T>(
+  fns: Array<() => Promise<T>>,
+  concurrency: number,
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = [];
+  let i = 0;
+  async function worker() {
+    while (i < fns.length) {
+      const idx = i++;
+      const fn = fns[idx];
+      if (!fn) continue;
+      try {
+        results[idx] = { status: 'fulfilled', value: await fn() };
+      } catch (reason) {
+        results[idx] = { status: 'rejected', reason };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, fns.length) }, worker));
+  return results;
+}
+
 interface Job {
   id: string;
   status: string;
@@ -132,6 +154,7 @@ function ImageCard({
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const qc = useQueryClient();
 
   const pct = useAnimatedProgress(job.status);
@@ -140,7 +163,7 @@ function ImageCard({
     queryKey: ['job-result', job.id],
     queryFn: () => api.get(`/v1/jobs/${job.id}/result`),
     enabled: isCompleted,
-    staleTime: 4 * 60 * 1000,
+    staleTime: 55 * 60 * 1000,
   });
 
   // Thumbnail for card display — smaller file, faster grid load.
@@ -149,7 +172,7 @@ function ImageCard({
     queryKey: ['job-thumb', job.id],
     queryFn: () => api.get(`/v1/jobs/${job.id}/thumbnail`),
     enabled: isCompleted,
-    staleTime: 4 * 60 * 1000,
+    staleTime: 55 * 60 * 1000,
   });
 
   async function handleDelete() {
@@ -210,6 +233,9 @@ function ImageCard({
                   src={garmentUrl}
                   alt=""
                   aria-hidden="true"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
                   style={{
                     position: 'absolute',
                     inset: 0,
@@ -229,6 +255,12 @@ function ImageCard({
               <img
                 src={thumb?.url ?? result?.url}
                 alt={`#${job.id.slice(0, 8)}`}
+                onError={(e) => {
+                  // Presigned URL expired — invalidate so next render re-fetches
+                  e.currentTarget.style.display = 'none';
+                  qc.invalidateQueries({ queryKey: ['job-result', job.id] });
+                  qc.invalidateQueries({ queryKey: ['job-thumb', job.id] });
+                }}
                 style={{
                   width: '100%',
                   height: '100%',
@@ -414,25 +446,54 @@ function ImageCard({
                 >
                   <FullscreenIcon />
                 </button>
-                <a
-                  href={result.url}
-                  download={`aivastra-${job.id.slice(0, 8)}.jpg`}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  disabled={downloading}
+                  title="Download"
+                  onClick={async () => {
+                    if (downloading) return;
+                    setDownloading(true);
+                    try {
+                      const res = await fetch(result.url);
+                      if (!res.ok) throw new Error(`${res.status}`);
+                      const blob = await res.blob();
+                      const objectUrl = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = objectUrl;
+                      a.download = `aivastra-${job.id.slice(0, 8)}.jpg`;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      URL.revokeObjectURL(objectUrl);
+                    } catch (e) {
+                      const msg = (e as Error).message ?? '';
+                      alert(
+                        msg.includes('403')
+                          ? 'Download link expired. Please refresh the page and try again.'
+                          : 'Download failed. Please try again.',
+                      );
+                    } finally {
+                      setDownloading(false);
+                    }
+                  }}
                   style={{
                     width: 28,
                     height: 28,
                     borderRadius: 8,
-                    background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
-                    cursor: 'pointer',
+                    background: downloading
+                      ? '#ccc'
+                      : 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+                    cursor: downloading ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: C.white,
+                    border: 'none',
+                    padding: 0,
                   }}
                 >
-                  <DownloadIcon size={16} />
-                </a>
+                  {downloading ? <SpinnerIcon size={14} /> : <DownloadIcon size={16} />}
+                </button>
               </>
             )}
           </div>
@@ -482,8 +543,14 @@ export default function CataloguePage({
   const { data, isLoading } = useQuery<CatalogueDetail>({
     queryKey: ['catalogue', id],
     queryFn: () => api.get(`/v1/catalogues/${id}`),
-    // Long-interval fallback; real-time updates come from useJobStream below.
-    refetchInterval: 5 * 60 * 1000,
+    // Poll every 5s while any job is still active; fall back to 5-min interval
+    // once all are terminal. Real-time updates also come from useJobStream below.
+    refetchInterval: (query) => {
+      const d = query.state.data as CatalogueDetail | undefined;
+      if (!d) return false;
+      const hasActive = d.jobs.some((j) => !TERMINAL.includes(j.status));
+      return hasActive ? 5_000 : 5 * 60 * 1000;
+    },
   });
 
   useJobStream(
@@ -504,12 +571,12 @@ export default function CataloguePage({
           qc.prefetchQuery({
             queryKey: ['job-result', evt.jobId],
             queryFn: () => api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/result`),
-            staleTime: 4 * 60 * 1000,
+            staleTime: 55 * 60 * 1000,
           });
           qc.prefetchQuery({
             queryKey: ['job-thumb', evt.jobId],
             queryFn: () => api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/thumbnail`),
-            staleTime: 4 * 60 * 1000,
+            staleTime: 55 * 60 * 1000,
           });
         }
       },
@@ -536,34 +603,67 @@ export default function CataloguePage({
     if (completed.length === 0) return;
     setDownloading(true);
     setDownloadErr(null);
-    let failures = 0;
-    for (const job of completed) {
-      try {
-        const { url } = await qc.fetchQuery<{ url: string }>({
-          queryKey: ['job-result', job.id],
-          queryFn: () => api.get(`/v1/jobs/${job.id}/result`),
-          staleTime: 4 * 60 * 1000,
-        });
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('fetch failed');
-        const blob = await res.blob();
+
+    try {
+      // Phase 1: fetch all presigned URLs in parallel (fast API calls, no network to R2)
+      const urlResults = await Promise.allSettled(
+        completed.map((job) =>
+          api
+            .get<{ url: string; expiresIn: number }>(`/v1/jobs/${job.id}/result`)
+            .then((res) => ({ jobId: job.id, url: res.url, expiresIn: res.expiresIn })),
+        ),
+      );
+
+      const phase1Elapsed = 0; // allSettled is near-instant relative to expiresIn
+      const validEntries = urlResults
+        .filter(
+          (r): r is PromiseFulfilledResult<{ jobId: string; url: string; expiresIn: number }> =>
+            r.status === 'fulfilled',
+        )
+        .filter((r) => r.value.expiresIn - phase1Elapsed > 10)
+        .map((r) => r.value);
+
+      // Phase 2: fetch blobs with concurrency=5
+      const blobResults = await concurrentPool(
+        validEntries.map(({ jobId, url }) => async () => {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          return { jobId, blob };
+        }),
+        5,
+      );
+
+      const succeeded = blobResults
+        .filter(
+          (r): r is PromiseFulfilledResult<{ jobId: string; blob: Blob }> =>
+            r.status === 'fulfilled',
+        )
+        .map((r) => r.value);
+
+      const failures = completed.length - succeeded.length;
+
+      // Trigger individual downloads
+      for (const { jobId, blob } of succeeded) {
         const objectUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = objectUrl;
-        a.download = `aivastra-${job.id.slice(0, 8)}.jpg`;
+        a.download = `aivastra-${jobId.slice(0, 8)}.jpg`;
         document.body.appendChild(a);
         a.click();
         a.remove();
         URL.revokeObjectURL(objectUrl);
-      } catch {
-        failures += 1;
       }
-    }
-    setDownloading(false);
-    if (failures > 0) {
-      setDownloadErr(
-        `${failures} of ${completed.length} image${completed.length !== 1 ? 's' : ''} failed to download.`,
-      );
+
+      if (failures > 0) {
+        setDownloadErr(
+          `${failures} of ${completed.length} image${completed.length !== 1 ? 's' : ''} failed to download.`,
+        );
+      }
+    } catch {
+      setDownloadErr('Download failed. Please try again.');
+    } finally {
+      setDownloading(false);
     }
   }
 
