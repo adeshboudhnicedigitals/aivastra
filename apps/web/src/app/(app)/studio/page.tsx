@@ -531,12 +531,31 @@ export default function StudioPage(): React.ReactElement {
   }, [garmentPreviewUrl]);
   const [garmentKey, setGarmentKey] = useState('');
   const [lowerGarmentFile, setLowerGarmentFile] = useState<File | null>(null);
+  const lowerGarmentPreviewUrl = useMemo(
+    () => (lowerGarmentFile ? URL.createObjectURL(lowerGarmentFile) : ''),
+    [lowerGarmentFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (lowerGarmentPreviewUrl) URL.revokeObjectURL(lowerGarmentPreviewUrl);
+    };
+  }, [lowerGarmentPreviewUrl]);
   const [lowerGarmentKey, setLowerGarmentKey] = useState('');
   const [isUploadingLower, setIsUploadingLower] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lowerFileInputRef = useRef<HTMLInputElement>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
+  const lowerUploadAbortRef = useRef<AbortController | null>(null);
+
+  // Abort any in-flight XHR uploads when the component unmounts (user navigates away)
+  useEffect(() => {
+    return () => {
+      uploadAbortRef.current?.abort();
+      lowerUploadAbortRef.current?.abort();
+    };
+  }, []);
   const garmentVisibleCount = 5;
   const modelVisibleCount = 5;
   const [modelModalOpen, setModelModalOpen] = useState(false);
@@ -574,9 +593,11 @@ export default function StudioPage(): React.ReactElement {
   // keeps Generate disabled while the right panel is still rendering progress.
   const [generationInProgress, setGenerationInProgress] = useState(false);
   const [toast, setToast] = useState('');
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((m: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToast(m);
-    setTimeout(() => setToast(''), 1800);
+    toastTimerRef.current = setTimeout(() => setToast(''), 5000);
   }, []);
 
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({
@@ -751,20 +772,62 @@ export default function StudioPage(): React.ReactElement {
   const [lowerItemFilter, setLowerItemFilter] = useState<number | ''>('');
   const [shoeItemFilter, setShoeItemFilter] = useState<number | ''>('');
 
+  async function isSupportedImageBytes(file: File): Promise<boolean> {
+    const buf = await file.slice(0, 12).arrayBuffer();
+    const b = new Uint8Array(buf);
+    const isJpeg = b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+    const isPng =
+      b[0] === 0x89 &&
+      b[1] === 0x50 &&
+      b[2] === 0x4e &&
+      b[3] === 0x47 &&
+      b[4] === 0x0d &&
+      b[5] === 0x0a &&
+      b[6] === 0x1a &&
+      b[7] === 0x0a;
+    const isWebp =
+      b[0] === 0x52 &&
+      b[1] === 0x49 &&
+      b[2] === 0x46 &&
+      b[3] === 0x46 &&
+      b[8] === 0x57 &&
+      b[9] === 0x45 &&
+      b[10] === 0x42 &&
+      b[11] === 0x50;
+    return isJpeg || isPng || isWebp;
+  }
+
   async function handleGarmentUpload(file: File) {
+    if (isUploading) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
     setGarmentFile(file);
     setIsUploading(true);
     setUploadProgress(0);
+    const abort = new AbortController();
+    uploadAbortRef.current = abort;
     try {
       const { uploadUrl, r2Key } = await api.post<{
         uploadUrl: string;
         r2Key: string;
         expiresIn: number;
       }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
-      await api.uploadToR2WithProgress(uploadUrl, file, setUploadProgress);
+      await api.uploadToR2WithProgress(uploadUrl, file, setUploadProgress, abort.signal);
       setGarmentKey(r2Key);
     } catch (e) {
-      showToast(`Upload failed: ${(e as Error).message}`);
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = (e as Error).message ?? '';
+      showToast(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-select your image and try again.'
+          : `Upload failed: ${msg}`,
+      );
       setGarmentFile(null);
     } finally {
       setIsUploading(false);
@@ -772,19 +835,37 @@ export default function StudioPage(): React.ReactElement {
   }
 
   async function handleLowerGarmentUpload(file: File) {
+    if (isUploadingLower) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
     setLowerGarmentFile(file);
     setIsUploadingLower(true);
+    const lowerAbort = new AbortController();
+    lowerUploadAbortRef.current = lowerAbort;
     try {
       const { uploadUrl, r2Key } = await api.post<{
         uploadUrl: string;
         r2Key: string;
         expiresIn: number;
       }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
-      await api.uploadToR2WithProgress(uploadUrl, file, () => {});
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {}, lowerAbort.signal);
       setLowerGarmentKey(r2Key);
     } catch (e) {
-      showToast(`Lower garment upload failed: ${(e as Error).message}`);
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = (e as Error).message ?? '';
+      showToast(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-select your image and try again.'
+          : `Lower garment upload failed: ${msg}`,
+      );
       setLowerGarmentFile(null);
+      setLowerGarmentKey('');
     } finally {
       setIsUploadingLower(false);
     }
@@ -981,6 +1062,7 @@ export default function StudioPage(): React.ReactElement {
     !!backgroundId &&
     !!resolution &&
     !isUploading &&
+    !isUploadingLower &&
     !isSubmitting &&
     !generationInProgress;
 
@@ -1254,7 +1336,7 @@ export default function StudioPage(): React.ReactElement {
                       <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
-                          src={URL.createObjectURL(garmentFile)}
+                          src={garmentPreviewUrl}
                           alt={garmentFile.name}
                           style={{
                             width: '100%',
@@ -1456,7 +1538,7 @@ export default function StudioPage(): React.ReactElement {
                         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={URL.createObjectURL(lowerGarmentFile)}
+                            src={lowerGarmentPreviewUrl}
                             alt={lowerGarmentFile.name}
                             style={{
                               width: '100%',
@@ -2764,13 +2846,34 @@ export default function StudioPage(): React.ReactElement {
             transform: 'translateX(-50%)',
             background: C.dark,
             color: C.white,
-            padding: '10px 20px',
+            padding: '10px 16px',
             borderRadius: 8,
             fontSize: 13,
             zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            maxWidth: 480,
           }}
         >
-          {toast}
+          <span>{toast}</span>
+          <button
+            type="button"
+            onClick={() => setToast('')}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'rgba(255,255,255,0.6)',
+              cursor: 'pointer',
+              fontSize: 16,
+              lineHeight: 1,
+              padding: 0,
+              flexShrink: 0,
+            }}
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
         </div>
       )}
     </>

@@ -1,5 +1,5 @@
 'use client';
-import { useQueries } from '@tanstack/react-query';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { DownloadIcon, FullscreenIcon, SpinnerIcon, XIcon } from '@/components/icons';
@@ -40,10 +40,12 @@ export function GenerationPanel({
   garmentPreviewUrl,
   onAllSettled,
 }: GenerationPanelProps) {
+  const qc = useQueryClient();
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
     Object.fromEntries(jobs.map((j) => [j.id, 'QUEUED'])),
   );
   const [selected, setSelected] = useState(0);
+  const [downloading, setDownloading] = useState(false);
 
   // Reset local status map + selection whenever a new batch of jobs arrives.
   useEffect(() => {
@@ -55,6 +57,32 @@ export function GenerationPanel({
   useJobStream((evt) => {
     if (!jobIds.includes(evt.jobId)) return;
     setStatuses((prev) => ({ ...prev, [evt.jobId]: evt.status }));
+
+    // Keep the catalogue detail cache in sync so navigating to /catalogues/:id
+    // shows the correct status immediately without waiting for a re-fetch.
+    qc.setQueryData(
+      ['catalogue', catalogueId],
+      (old: { jobs: { id: string; status: string }[] } | undefined) => {
+        if (!old) return old;
+        return {
+          ...old,
+          jobs: old.jobs.map((j) => (j.id === evt.jobId ? { ...j, status: evt.status } : j)),
+        };
+      },
+    );
+
+    if (evt.status === 'COMPLETED') {
+      qc.prefetchQuery({
+        queryKey: ['job-result', evt.jobId],
+        queryFn: () => api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/result`),
+        staleTime: 55 * 60 * 1000,
+      });
+      qc.prefetchQuery({
+        queryKey: ['job-thumb', evt.jobId],
+        queryFn: () => api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/thumbnail`),
+        staleTime: 55 * 60 * 1000,
+      });
+    }
   });
 
   // Notify the parent once every job in this batch has reached a terminal
@@ -71,7 +99,7 @@ export function GenerationPanel({
       queryKey: ['job-result', j.id],
       queryFn: () => api.get<{ url: string }>(`/v1/jobs/${j.id}/result`),
       enabled: completedIds.includes(j.id),
-      staleTime: 4 * 60 * 1000,
+      staleTime: 55 * 60 * 1000,
     })),
   });
   const completedCount = completedIds.length;
@@ -90,16 +118,30 @@ export function GenerationPanel({
   }
 
   async function downloadImage(url: string, jobId: string) {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = objectUrl;
-    a.download = `aivastra-${jobId.slice(0, 8)}.jpg`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(objectUrl);
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `aivastra-${jobId.slice(0, 8)}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      const msg = (e as Error).message ?? '';
+      alert(
+        msg.includes('403')
+          ? 'Download link expired. Please refresh the page and try again.'
+          : 'Download failed. Please try again.',
+      );
+    } finally {
+      setDownloading(false);
+    }
   }
 
   return (
@@ -140,6 +182,7 @@ export function GenerationPanel({
         {currentCompleted && currentResultUrl && (
           <button
             type="button"
+            disabled={downloading}
             onClick={() => current && downloadImage(currentResultUrl, current.id)}
             style={{
               display: 'flex',
@@ -154,10 +197,11 @@ export function GenerationPanel({
               fontFamily: 'inherit',
               fontSize: 13,
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: downloading ? 'not-allowed' : 'pointer',
+              opacity: downloading ? 0.6 : 1,
             }}
           >
-            <DownloadIcon size={16} /> Download
+            <DownloadIcon size={16} /> {downloading ? 'Downloading…' : 'Download'}
           </button>
         )}
       </div>
@@ -183,6 +227,9 @@ export function GenerationPanel({
             <img
               src={currentResultUrl}
               alt={current.label}
+              onError={() => {
+                qc.invalidateQueries({ queryKey: ['job-result', current.id] });
+              }}
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : current ? (
@@ -335,6 +382,9 @@ export function GenerationPanel({
                   <img
                     src={resultUrl}
                     alt={job.label}
+                    onError={() => {
+                      qc.invalidateQueries({ queryKey: ['job-result', job.id] });
+                    }}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
                 ) : (

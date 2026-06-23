@@ -92,13 +92,16 @@ function Cover({
   const hasActive = jobs.some((j) => !TERMINAL.includes(j.status));
   const allFailed = jobs.length > 0 && jobs.every((j) => j.status === 'FAILED');
 
-  const displayUrl = coverThumbUrl ?? coverUrl;
+  const [imgError, setImgError] = useState(false);
+  const displayUrl = imgError ? null : (coverThumbUrl ?? coverUrl);
   if (displayUrl) {
     // eslint-disable-next-line @next/next/no-img-element
     return (
+      // biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible
       <img
         src={displayUrl}
         alt=""
+        onError={() => setImgError(true)}
         style={{ width: '100%', height: '100%', objectFit: 'contain', objectPosition: 'center' }}
       />
     );
@@ -217,24 +220,43 @@ export default function CataloguesPage(): React.ReactElement {
             );
             const justCompleted = evt.status === 'COMPLETED' && prevStatus !== 'COMPLETED';
             if (justCompleted) {
-              // Refetch to get the server-presigned coverUrl for this catalogue
-              setTimeout(() => qc.invalidateQueries({ queryKey: ['catalogues'] }), 0);
+              // Fetch cover URLs for only this job, then patch only this catalogue in cache.
+              // Avoids re-presigning every catalogue's cover on each completion event.
+              Promise.all([
+                api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/result`).catch(() => null),
+                api.get<{ url: string }>(`/v1/jobs/${evt.jobId}/thumbnail`).catch(() => null),
+              ]).then(([result, thumb]) => {
+                if (!result) return;
+                qc.setQueryData<Catalogue[]>(['catalogues'], (prev) => {
+                  if (!prev) return prev;
+                  return prev.map((c) =>
+                    c.catalogueId === cat.catalogueId
+                      ? { ...c, coverUrl: result.url, coverThumbUrl: thumb?.url ?? result.url }
+                      : c,
+                  );
+                });
+              });
             }
             return { ...cat, jobs: updatedJobs };
           });
           return updated;
         });
-        // Also keep the detail view in sync if it's mounted
-        qc.setQueryData<{ catalogueId: string; jobs: { id: string; status: string }[] }>(
-          ['catalogue'],
-          (old) => {
-            if (!old) return old;
-            return {
-              ...old,
-              jobs: old.jobs.map((j) => (j.id === evt.jobId ? { ...j, status: evt.status } : j)),
-            };
-          },
-        );
+        // Also keep the detail view in sync if it's mounted.
+        // Look up the catalogueId from the list cache so we target the right key.
+        const cats = qc.getQueryData<Catalogue[]>(['catalogues']);
+        const ownerCat = cats?.find((c) => c.jobs.some((j) => j.id === evt.jobId));
+        if (ownerCat) {
+          qc.setQueryData<{ catalogueId: string; jobs: { id: string; status: string }[] }>(
+            ['catalogue', ownerCat.catalogueId],
+            (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                jobs: old.jobs.map((j) => (j.id === evt.jobId ? { ...j, status: evt.status } : j)),
+              };
+            },
+          );
+        }
       },
       [qc],
     ),
@@ -432,28 +454,40 @@ export default function CataloguesPage(): React.ReactElement {
     setToast(null);
 
     try {
-      // Phase 1: fetch presigned URLs (fast API calls — no abort signal needed)
+      // Phase 1: fetch presigned URLs — abort signal forwarded so cancellation stops API calls too
       const completedJobs = snapshotCatalogues.flatMap((cat) =>
         cat.jobs
           .filter((j) => j.status === 'COMPLETED')
           .map((j) => ({ catalogueId: cat.catalogueId, jobId: j.id })),
       );
 
+      const phase1Start = Date.now();
       const urlResults = await Promise.allSettled(
         completedJobs.map(({ catalogueId, jobId }) =>
           api
-            .get<{ url: string; expiresIn: number }>(`/v1/jobs/${jobId}/result`)
-            .then((res) => ({ catalogueId, url: res.url, jobId })),
+            .get<{ url: string; expiresIn: number }>(`/v1/jobs/${jobId}/result`, {
+              signal: abort.signal,
+            })
+            .then((res) => ({ catalogueId, url: res.url, expiresIn: res.expiresIn, jobId })),
         ),
       );
 
       if (abort.signal.aborted) return;
 
+      const phase1ElapsedSec = (Date.now() - phase1Start) / 1000;
       const validEntries = urlResults
         .filter(
-          (r): r is PromiseFulfilledResult<{ catalogueId: string; url: string; jobId: string }> =>
-            r.status === 'fulfilled',
+          (
+            r,
+          ): r is PromiseFulfilledResult<{
+            catalogueId: string;
+            url: string;
+            expiresIn: number;
+            jobId: string;
+          }> => r.status === 'fulfilled',
         )
+        // Drop any URL whose remaining TTL won't cover the blob fetch
+        .filter((r) => r.value.expiresIn - phase1ElapsedSec > 10)
         .map((r) => r.value);
 
       if (validEntries.length === 0) {
@@ -547,6 +581,7 @@ export default function CataloguesPage(): React.ReactElement {
           message: `Downloaded ${totalImages} image${totalImages !== 1 ? 's' : ''} from ${totalCats} catalogue${totalCats !== 1 ? 's' : ''}.`,
           type: 'success',
         });
+        setSelected(new Set());
       }
     } catch (err) {
       // Abort is intentional cancellation — silently exit, no toast
