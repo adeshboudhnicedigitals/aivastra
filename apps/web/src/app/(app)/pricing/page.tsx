@@ -38,6 +38,51 @@ const FLAGS: Record<string, React.ReactElement> = {
 
 const GST_RATE = 0.18;
 
+// Currency metadata per country
+const CURRENCY: Record<string, { code: string; locale: string }> = {
+  IN: { code: 'INR', locale: 'en-IN' },
+  US: { code: 'USD', locale: 'en-US' },
+  GB: { code: 'GBP', locale: 'en-GB' },
+  AE: { code: 'AED', locale: 'en-AE' },
+};
+
+// Fallback rates (INR → target) used when live fetch fails
+const FALLBACK_RATES: Record<string, number> = {
+  IN: 1,
+  US: 0.012,
+  GB: 0.0095,
+  AE: 0.044,
+};
+
+function detectCountry(): string {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const lang = navigator.language ?? '';
+    if (tz.startsWith('Asia/Kolkata') || tz.startsWith('Asia/Calcutta') || lang === 'en-IN')
+      return 'IN';
+    if (tz.startsWith('Asia/Dubai') || tz.startsWith('Asia/Muscat')) return 'AE';
+    if (tz.startsWith('Europe/London') || lang.startsWith('en-GB')) return 'GB';
+    if (tz.startsWith('America/') || lang.startsWith('en-US')) return 'US';
+  } catch {
+    /* SSR or restricted env */
+  }
+  return 'IN';
+}
+
+function formatPrice(paise: number, country: string, rates: Record<string, number>): string {
+  const inr = paise / 100;
+  const rate = rates[country] ?? 1;
+  const converted = inr * rate;
+  const { code, locale } = CURRENCY[country] ?? { code: 'INR', locale: 'en-IN' };
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: code,
+    maximumFractionDigits: code === 'INR' ? 0 : 2,
+    minimumFractionDigits: code === 'INR' ? 0 : 2,
+  }).format(converted);
+}
+
+// INR display used in the buy button disclaimer
 function paise(p: number) {
   return `₹${(p / 100).toLocaleString('en-IN')}`;
 }
@@ -109,6 +154,8 @@ export default function PricingPage(): React.ReactElement {
   const [buying, setBuying] = useState<string | null>(null);
   const [country, setCountry] = useState('IN');
   const [showCountry, setShowCountry] = useState(false);
+  const [rates, setRates] = useState<Record<string, number>>(FALLBACK_RATES);
+  const [ratesLoading, setRatesLoading] = useState(true);
   const countryRef = useRef<HTMLDivElement>(null);
 
   const { data: plans = [], isLoading: plansLoading } = useQuery<CreditPlan[]>({
@@ -117,6 +164,29 @@ export default function PricingPage(): React.ReactElement {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Auto-detect country from browser locale + timezone on mount
+  useEffect(() => {
+    setCountry(detectCountry());
+  }, []);
+
+  // Fetch live exchange rates from frankfurter.app (free, no API key)
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('https://api.frankfurter.app/latest?from=INR&to=USD,GBP,AED', {
+      signal: controller.signal,
+    })
+      .then((r) => r.json())
+      .then((data: { rates: Record<string, number> }) => {
+        setRates({ IN: 1, ...data.rates });
+      })
+      .catch(() => {
+        /* silently fall back to FALLBACK_RATES */
+      })
+      .finally(() => setRatesLoading(false));
+    return () => controller.abort();
+  }, []);
+
+  // Close country dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (countryRef.current && !countryRef.current.contains(e.target as Node))
@@ -132,6 +202,18 @@ export default function PricingPage(): React.ReactElement {
     { code: 'GB', label: 'United Kingdom (£)', name: 'UK' },
     { code: 'AE', label: 'UAE (د.إ)', name: 'UAE' },
   ];
+
+  const isNonIn = country !== 'IN';
+
+  function displayTotal(basePaise: number): string {
+    return formatPrice(basePaise + Math.round(basePaise * GST_RATE), country, rates);
+  }
+  function displayBase(basePaise: number): string {
+    return formatPrice(basePaise, country, rates);
+  }
+  function displayTax(basePaise: number): string {
+    return formatPrice(Math.round(basePaise * GST_RATE), country, rates);
+  }
 
   async function buy(plan: CreditPlan) {
     if (buying) return;
@@ -337,7 +419,7 @@ export default function PricingPage(): React.ReactElement {
             <div
               style={{
                 width: 262,
-                height: 178,
+                minHeight: 178,
                 background: C.field,
                 border: `1px solid ${C.border}`,
                 borderRadius: 8,
@@ -362,7 +444,7 @@ export default function PricingPage(): React.ReactElement {
                     key={i}
                     style={{
                       width: 262,
-                      height: 178,
+                      minHeight: 178,
                       background: C.field,
                       border: `1px solid ${C.border}`,
                       borderRadius: 8,
@@ -375,7 +457,7 @@ export default function PricingPage(): React.ReactElement {
                     key={plan.slug}
                     style={{
                       width: 262,
-                      height: 178,
+                      minHeight: 178,
                       background: plan.isHighlighted
                         ? 'linear-gradient(90deg, #D94D69 0%, #D49332 100%)'
                         : C.card,
@@ -448,20 +530,35 @@ export default function PricingPage(): React.ReactElement {
                           fontSize: 15,
                           fontWeight: 700,
                           color: plan.isHighlighted ? '#FFFFFF' : C.text,
+                          opacity: ratesLoading && isNonIn ? 0.4 : 1,
+                          transition: 'opacity 0.2s',
                         }}
                       >
-                        {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}
+                        {displayTotal(plan.basePaise)}
                       </span>
                       <span
                         style={{
                           fontSize: 11,
                           color: plan.isHighlighted ? 'rgba(255,255,255,0.75)' : C.mid,
+                          opacity: ratesLoading && isNonIn ? 0.4 : 1,
+                          transition: 'opacity 0.2s',
                         }}
                       >
-                        ({paise(plan.basePaise)} + {paise(Math.round(plan.basePaise * GST_RATE))}{' '}
-                        GST)
+                        {`(${displayBase(plan.basePaise)} + ${displayTax(plan.basePaise)} ${isNonIn ? 'Indian GST' : 'GST'})`}
                       </span>
                     </div>
+                    {isNonIn && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: plan.isHighlighted ? 'rgba(255,255,255,0.6)' : C.light,
+                          marginBottom: 6,
+                        }}
+                      >
+                        Billed as {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}{' '}
+                        INR
+                      </div>
+                    )}
                     <Tooltip
                       tip={
                         buying && buying !== plan.slug
@@ -495,7 +592,7 @@ export default function PricingPage(): React.ReactElement {
                       >
                         {buying === plan.slug
                           ? 'Processing…'
-                          : `Buy — ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}`}
+                          : `Buy — ${displayTotal(plan.basePaise)}`}
                       </button>
                     </Tooltip>
                   </div>
@@ -598,6 +695,19 @@ export default function PricingPage(): React.ReactElement {
           ))}
         </div>
       </div>
+
+      {isNonIn && (
+        <div
+          style={{
+            textAlign: 'center',
+            fontSize: 12,
+            color: C.light,
+            marginBottom: 32,
+          }}
+        >
+          💳 Payment processed via Razorpay (India). International cards may not be supported.
+        </div>
+      )}
 
       {toast && (
         <div

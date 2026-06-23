@@ -12,7 +12,7 @@ export function PreviewPanel() {
         width: '100%',
         height: '100%',
         borderRadius: 20,
-        background: 'rgba(245,245,245,0.4)',
+        background: C.card,
         boxShadow: `inset 0 0 0 1px ${C.border2}, 0 4px 15px rgba(0,0,0,0.08)`,
         overflow: 'hidden',
         display: 'flex',

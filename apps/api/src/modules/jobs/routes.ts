@@ -33,6 +33,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         createdAt: schema.jobs.createdAt,
         creditsCharged: schema.jobs.creditsCharged,
         genderSlug: schema.modelPoseAssets.genderSlug,
+        params: schema.jobInputs.params,
       })
       .from(schema.jobs)
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
@@ -52,9 +53,10 @@ export async function jobsRoutes(app: FastifyInstance) {
 
     const groups = Array.from(map.entries()).map(([catalogueId, cJobs]) => ({
       catalogueId,
-      // genderSlug comes from the first job that has one (all jobs in a catalogue share the same gender)
+      // genderSlug + platform come from the first job that has one (all jobs in a catalogue share these)
       genderSlug: cJobs.find((j) => j.genderSlug)?.genderSlug ?? null,
-      jobs: cJobs.map(({ genderSlug: _g, ...j }) => j),
+      platform: ((cJobs[0]?.params as Record<string, unknown> | null)?.platform as string) ?? null,
+      jobs: cJobs.map(({ genderSlug: _g, params: _p, ...j }) => j),
       createdAt: cJobs[cJobs.length - 1].createdAt,
     }));
 
