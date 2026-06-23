@@ -129,7 +129,7 @@ export default function RegisterPage(): React.ReactElement {
     <div
       style={{
         minHeight: '100vh',
-        background: '#000',
+        background: `#000 url('${BASE}/assets/auth-screen-bg.png') center center / cover no-repeat`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
