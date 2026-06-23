@@ -129,7 +129,7 @@ function LoginFormInner() {
     <div
       style={{
         minHeight: '100vh',
-        background: '#000',
+        background: `#000 url('${BASE}/assets/auth-screen-bg.png') center center / cover no-repeat`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -316,7 +316,16 @@ function LoginFormInner() {
 
 export default function LoginPage(): React.ReactElement {
   return (
-    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#000' }} />}>
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: '100vh',
+            background: `#000 url('${BASE}/assets/auth-screen-bg.png') center center / cover no-repeat`,
+          }}
+        />
+      }
+    >
       <LoginFormInner />
     </Suspense>
   );

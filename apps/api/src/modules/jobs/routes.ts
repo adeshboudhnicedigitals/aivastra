@@ -210,7 +210,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
       if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
       if (job.status !== 'COMPLETED') throw new AppError('NOT_READY', 409, 'job not complete');
-      const { url, expiresIn } = await app.storage.presignGet(keys.output(id), 300);
+      const { url, expiresIn } = await app.storage.presignGet(keys.output(id), 3600);
       return { url, expiresIn };
     },
   );
@@ -237,7 +237,7 @@ export async function jobsRoutes(app: FastifyInstance) {
 
       // Fall back to full result if no thumbnail generated yet (e.g. backfill pending)
       const r2Key = output?.thumbnailKey ?? keys.output(id);
-      const { url, expiresIn } = await app.storage.presignGet(r2Key, 300);
+      const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
       return { url, expiresIn };
     },
   );
