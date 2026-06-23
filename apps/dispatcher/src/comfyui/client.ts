@@ -45,6 +45,7 @@ export async function fetchHistory(
   apiKey: string,
   promptId: string,
   log?: { info: (obj: unknown, msg: string) => void },
+  resultNodeId?: string,
 ): Promise<ComfyOutputImage[]> {
   const url = `${workerUrl.replace(/\/$/, '')}/history/${promptId}`;
   log?.info({ url }, 'GET /history → ComfyUI');
@@ -58,6 +59,16 @@ export async function fetchHistory(
     | { outputs?: Record<string, { images?: ComfyOutputImage[] }> }
     | undefined;
   if (!entry?.outputs) return [];
+
+  // Templates with more than one SaveImage node disambiguate via resultNodeId —
+  // otherwise the result is whichever output node happens to sort first.
+  if (resultNodeId) {
+    const node = entry.outputs[resultNodeId];
+    const images = node?.images?.filter((img) => img.type === 'output') ?? [];
+    log?.info({ promptId, resultNodeId, outputCount: images.length }, 'ComfyUI history fetched');
+    return images;
+  }
+
   const images: ComfyOutputImage[] = [];
   for (const node of Object.values(entry.outputs)) {
     // Only collect SaveImage outputs (type=output); skip PreviewImage (type=temp)

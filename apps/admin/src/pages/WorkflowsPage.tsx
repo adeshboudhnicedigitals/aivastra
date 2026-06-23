@@ -18,6 +18,11 @@ interface WorkflowDetail extends WorkflowOption {
   defaultGarmentPhasePrompt: string;
   jsonContent: Record<string, unknown>;
   sizeNodeIds: string[];
+  latentSizeNodeIds: string[];
+  latentMaxPx: number;
+  outputSizeNodeIds: string[];
+  outputMaxPx: number;
+  resultNodeId: string | null;
 }
 
 interface Props {
@@ -473,6 +478,19 @@ export default function WorkflowsPage({ toast }: Props) {
                               ? viewingDetail.sizeNodeIds.join(', ')
                               : '—',
                           ],
+                          [
+                            'Latent size nodes',
+                            viewingDetail.latentSizeNodeIds.length > 0
+                              ? `${viewingDetail.latentSizeNodeIds.join(', ')} (max ${viewingDetail.latentMaxPx}px)`
+                              : '—',
+                          ],
+                          [
+                            'Output size nodes',
+                            viewingDetail.outputSizeNodeIds.length > 0
+                              ? `${viewingDetail.outputSizeNodeIds.join(', ')} (max ${viewingDetail.outputMaxPx}px)`
+                              : '—',
+                          ],
+                          ['Result node', viewingDetail.resultNodeId ?? '—'],
                           ['Negative prompt node', viewingDetail.facePhasePromptNode],
                           ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
                         ]
