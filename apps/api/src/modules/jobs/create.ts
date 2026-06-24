@@ -238,7 +238,8 @@ export async function createJob(
     try {
       await app.redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
       jobsCreatedTotal.inc({ priority: priority ? 'priority' : 'normal' });
-    } catch {
+    } catch (err) {
+      app.log.error({ err, jobId }, 'redis xadd failed — job will be refunded');
       failedEnqueues.push(jobId);
     }
   }

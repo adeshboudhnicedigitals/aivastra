@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
     const response = NextResponse.json({ ok: true });
     setAuthCookies(response, typed.accessToken!, res.headers.get('set-cookie'));
     return response;
-  } catch {
+  } catch (err) {
+    console.error('register BFF route failed:', err);
     return NextResponse.json({ error: { message: 'Service unavailable' } }, { status: 503 });
   }
 }

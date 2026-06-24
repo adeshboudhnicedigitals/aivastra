@@ -766,7 +766,10 @@ async function handleFailure(
     await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('failed', startedAt);
-    log.warn({ jobId, attempts: newAttempts }, 'job FAILED after max retries — credits refunded');
+    log.warn(
+      { jobId, attempts: newAttempts, errorCode },
+      'job FAILED after max retries — credits refunded',
+    );
   } else {
     // Re-enqueue for retry
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));

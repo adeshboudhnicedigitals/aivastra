@@ -35,7 +35,8 @@ export async function POST(req: NextRequest) {
     }
 
     return response;
-  } catch {
+  } catch (err) {
+    console.error('merchant login BFF route failed:', err);
     return NextResponse.json({ error: { message: 'Service unavailable' } }, { status: 503 });
   }
 }
