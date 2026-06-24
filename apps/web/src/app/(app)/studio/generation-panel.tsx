@@ -230,7 +230,12 @@ export function GenerationPanel({
               onError={() => {
                 qc.invalidateQueries({ queryKey: ['job-result', current.id] });
               }}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'top center',
+              }}
             />
           ) : current ? (
             <>
@@ -243,6 +248,7 @@ export function GenerationPanel({
                   width: '100%',
                   height: '100%',
                   objectFit: 'cover',
+                  objectPosition: 'top center',
                   filter: currentFailed ? 'none' : 'blur(6px)',
                   opacity: currentFailed ? 0.5 : 0.7,
                 }}
@@ -385,7 +391,12 @@ export function GenerationPanel({
                     onError={() => {
                       qc.invalidateQueries({ queryKey: ['job-result', job.id] });
                     }}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      objectPosition: 'top center',
+                    }}
                   />
                 ) : (
                   <>
@@ -398,6 +409,7 @@ export function GenerationPanel({
                         width: '100%',
                         height: '100%',
                         objectFit: 'cover',
+                        objectPosition: 'top center',
                         filter: isFailed ? 'none' : 'blur(3px)',
                         opacity: isFailed ? 0.5 : 0.7,
                       }}
