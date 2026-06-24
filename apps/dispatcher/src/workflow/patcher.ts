@@ -5,25 +5,15 @@ import { resizeToMax } from './resize-to-max.js';
 type WorkflowNode = { inputs: Record<string, unknown>; class_type: string; _meta?: unknown };
 type Workflow = Record<string, WorkflowNode>;
 
-// ── TTL cache ─────────────────────────────────────────────────────────────
-
-interface CacheEntry {
-  record: typeof schema.workflowTemplates.$inferSelect;
-  expiresAt: number;
-}
-
-const workflowCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 5 * 60 * 1000;
+// ── Template loading ──────────────────────────────────────────────────────
+// No caching here — admin can edit a template's JSON/node mappings at any time,
+// and a stale in-memory copy would silently keep patching jobs with old prompt
+// defaults. This is one indexed SELECT per job, negligible next to GPU gen time.
 
 async function loadWorkflow(
   db: DB,
   workflowTemplateId: string,
 ): Promise<typeof schema.workflowTemplates.$inferSelect> {
-  const cached = workflowCache.get(workflowTemplateId);
-  if (cached && Date.now() < cached.expiresAt) {
-    return cached.record;
-  }
-
   const [record] = await db
     .select()
     .from(schema.workflowTemplates)
@@ -33,12 +23,7 @@ async function loadWorkflow(
     throw new Error(`Workflow template "${workflowTemplateId}" not found in database`);
   }
 
-  workflowCache.set(workflowTemplateId, { record, expiresAt: Date.now() + CACHE_TTL_MS });
   return record;
-}
-
-export function evictWorkflowCache(workflowTemplateId: string): void {
-  workflowCache.delete(workflowTemplateId);
 }
 
 // ── Patch helpers ─────────────────────────────────────────────────────────
