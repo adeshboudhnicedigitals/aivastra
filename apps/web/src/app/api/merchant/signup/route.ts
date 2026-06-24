@@ -37,7 +37,8 @@ export async function POST(req: NextRequest) {
     const response = NextResponse.json({ ok: true });
     setMerchantCookie(response, setCookieStr);
     return response;
-  } catch {
+  } catch (err) {
+    console.error('merchant signup BFF route failed:', err);
     return NextResponse.json({ error: { message: 'Service unavailable' } }, { status: 503 });
   }
 }

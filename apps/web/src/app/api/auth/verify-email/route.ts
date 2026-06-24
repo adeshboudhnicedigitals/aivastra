@@ -20,7 +20,8 @@ export async function GET(req: NextRequest) {
       : res.headers.get('set-cookie');
     setAuthCookies(response, typed.accessToken!, setCookieStr);
     return response;
-  } catch {
+  } catch (err) {
+    console.error('verify-email BFF route failed:', err);
     return NextResponse.json({ error: { message: 'Service unavailable' } }, { status: 503 });
   }
 }

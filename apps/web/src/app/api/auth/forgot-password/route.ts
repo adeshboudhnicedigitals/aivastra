@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
     });
     const [data] = await safeJson(res);
     return NextResponse.json(data, { status: res.status });
-  } catch {
+  } catch (err) {
+    console.error('forgot-password BFF route failed:', err);
     return NextResponse.json({ error: { message: 'Service unavailable' } }, { status: 503 });
   }
 }

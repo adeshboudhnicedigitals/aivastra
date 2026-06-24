@@ -83,6 +83,10 @@ export async function buildServer(env: Env) {
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {
+      app.log.warn(
+        { code: err.code, statusCode: err.statusCode, msg: err.message, url: _req.url },
+        'app error',
+      );
       return reply.code(err.statusCode).send({ error: { code: err.code, message: err.message } });
     }
     if ((err as { validation?: unknown }).validation) {
