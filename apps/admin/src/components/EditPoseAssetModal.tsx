@@ -333,12 +333,9 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
               onChange={(e) => {
                 const newId = e.target.value;
                 setWorkflowTemplateId(newId);
-                const prevDefault =
-                  workflows.find((w) => w.id === workflowTemplateId)?.defaultGarmentPhasePrompt ??
-                  '';
-                if (!prompt || prompt === prevDefault) {
-                  setPrompt(workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '');
-                }
+                // Always follow the newly selected workflow's default prompt — admin can
+                // still hand-edit the textarea below before saving if they want an override.
+                setPrompt(workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '');
               }}
             >
               <option value="">— none —</option>

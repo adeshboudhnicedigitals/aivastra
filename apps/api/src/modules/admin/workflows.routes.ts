@@ -50,6 +50,14 @@ function validateNodeType(
   }
 }
 
+// Different ComfyUI node types store their text under different input keys —
+// standard CLIPTextEncode uses "text", custom nodes (e.g. TextEncodeQwenImageEditPlusPro)
+// use "prompt". Try both rather than assuming one.
+function extractPromptText(node: WorkflowNode | undefined): string {
+  const inputs = node?.inputs;
+  return (inputs?.prompt as string | undefined) ?? (inputs?.text as string | undefined) ?? '';
+}
+
 function extractDefaultPrompts(
   json: Record<string, unknown>,
   negativePromptNode: string,
@@ -58,8 +66,8 @@ function extractDefaultPrompts(
   const negNode = json[negativePromptNode] as WorkflowNode | undefined;
   const posNode = json[positivePromptNode] as WorkflowNode | undefined;
   return {
-    defaultFacePhasePrompt: (negNode?.inputs?.prompt as string | undefined) ?? '',
-    defaultGarmentPhasePrompt: (posNode?.inputs?.prompt as string | undefined) ?? '',
+    defaultFacePhasePrompt: extractPromptText(negNode),
+    defaultGarmentPhasePrompt: extractPromptText(posNode),
   };
 }
 
@@ -482,14 +490,20 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (!source) throw new AppError('NOT_FOUND', 404, 'source workflow not found');
 
       const [target] = await app.db
-        .select({ id: schema.workflowTemplates.id })
+        .select({
+          id: schema.workflowTemplates.id,
+          defaultGarmentPhasePrompt: schema.workflowTemplates.defaultGarmentPhasePrompt,
+        })
         .from(schema.workflowTemplates)
         .where(eq(schema.workflowTemplates.id, targetWorkflowId));
       if (!target) throw new AppError('NOT_FOUND', 404, 'target workflow not found');
 
       const result = await app.db
         .update(schema.modelPoseAssets)
-        .set({ workflowTemplateId: targetWorkflowId })
+        .set({
+          workflowTemplateId: targetWorkflowId,
+          promptGarmentPhase: target.defaultGarmentPhasePrompt ?? null,
+        })
         .where(eq(schema.modelPoseAssets.workflowTemplateId, sourceId))
         .returning({ id: schema.modelPoseAssets.id });
 

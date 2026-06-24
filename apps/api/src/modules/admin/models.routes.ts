@@ -649,13 +649,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         workflowTemplateId: string;
       };
       const [wf] = await app.db
-        .select({ id: schema.workflowTemplates.id })
+        .select({
+          id: schema.workflowTemplates.id,
+          defaultGarmentPhasePrompt: schema.workflowTemplates.defaultGarmentPhasePrompt,
+        })
         .from(schema.workflowTemplates)
         .where(eq(schema.workflowTemplates.id, workflowTemplateId));
       if (!wf) throw new AppError('NOT_FOUND', 404, 'workflow template not found');
       await app.db
         .update(schema.modelPoseAssets)
-        .set({ workflowTemplateId })
+        .set({ workflowTemplateId, promptGarmentPhase: wf.defaultGarmentPhasePrompt ?? null })
         .where(inArray(schema.modelPoseAssets.id, ids));
       return { updated: ids.length };
     },
