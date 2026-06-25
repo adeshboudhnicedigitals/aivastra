@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { PremiumSelect } from '@/components/ui/premium-select';
 import type { MerchantData } from '../../lib';
 
 const ACCENT_HEX = '#7c5cfc';
@@ -287,16 +288,25 @@ export function SettingsContent({ data }: { data: MerchantData }) {
         {field(
           'Button Position',
           undefined,
-          <select
-            value={position}
-            onChange={(e) => setPosition(e.target.value)}
-            style={{ ...inputStyle, cursor: 'pointer' }}
+          <div
+            style={{
+              ...inputStyle,
+              display: 'flex',
+              alignItems: 'center',
+              padding: 0,
+              height: 34,
+              cursor: 'pointer',
+            }}
           >
-            <option>Bottom Right</option>
-            <option>Bottom Left</option>
-            <option>Top Right</option>
-            <option>Top Left</option>
-          </select>,
+            <PremiumSelect
+              value={position}
+              onChange={(v) => setPosition(String(v))}
+              fullWidth
+              height={32}
+              fontSize={13}
+              options={Object.values(POSITION_LABELS).map((l) => ({ value: l, label: l }))}
+            />
+          </div>,
         )}
       </div>
 

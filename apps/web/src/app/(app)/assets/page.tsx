@@ -1,10 +1,9 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { FilterIcon, GarmentIcon, SearchIcon, SortIcon, XIcon } from '@/components/icons';
+import { GarmentIcon, SearchIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
-import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
 interface Asset {
@@ -16,21 +15,6 @@ interface Asset {
 interface AssetWithThumbnail extends Asset {
   thumbnailUrl?: string | null;
 }
-
-const ctlBtn: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '8px 14px',
-  borderRadius: 8,
-  border: `1px solid ${C.border2}`,
-  background: C.field,
-  fontFamily: 'inherit',
-  fontSize: 13,
-  cursor: 'not-allowed',
-  color: C.mid,
-  opacity: 0.5,
-};
 
 export default function AssetsPage(): React.ReactElement {
   const [search, setSearch] = useState('');
@@ -86,10 +70,7 @@ export default function AssetsPage(): React.ReactElement {
 
   return (
     <>
-      <TopBar
-        title="Your Products"
-        subtitle="Manage your uploaded garment images used for catalogue generation."
-      />
+      <TopBar title="Your Products" />
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20 }}>
           <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
@@ -124,16 +105,6 @@ export default function AssetsPage(): React.ReactElement {
               }}
             />
           </div>
-          <Tooltip tip="Filter coming soon" position="bottom">
-            <button type="button" style={ctlBtn} disabled>
-              <FilterIcon /> Filter
-            </button>
-          </Tooltip>
-          <Tooltip tip="Sort coming soon" position="bottom">
-            <button type="button" style={ctlBtn} disabled>
-              <SortIcon /> Sort
-            </button>
-          </Tooltip>
         </div>
 
         {error && (

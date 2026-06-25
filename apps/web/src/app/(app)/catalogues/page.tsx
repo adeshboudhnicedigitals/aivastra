@@ -20,6 +20,7 @@ import {
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { PremiumDateRangePicker } from '@/components/ui/premium-date-range';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
@@ -616,7 +617,6 @@ export default function CataloguesPage(): React.ReactElement {
     <>
       <TopBar
         title="Your Catalogues"
-        subtitle="View, manage, and download your previously generated catalogue images."
         right={
           <Link href="/studio" style={{ textDecoration: 'none' }}>
             <GradBtn style={{ gap: 8 }}>
@@ -858,13 +858,16 @@ export default function CataloguesPage(): React.ReactElement {
                       }}
                     >
                       {GENDERS.map((g) => (
-                        <div
+                        <button
                           key={g}
+                          type="button"
                           onClick={() => {
                             setGenderFilter(g);
                             setShowGenderDropdown(false);
                           }}
                           style={{
+                            width: '100%',
+                            textAlign: 'left',
                             padding: '10px 12px',
                             fontSize: 13,
                             fontWeight: 500,
@@ -872,10 +875,12 @@ export default function CataloguesPage(): React.ReactElement {
                             cursor: 'pointer',
                             background:
                               genderFilter === g ? 'rgba(245,92,122,0.06)' : 'transparent',
+                            border: 'none',
+                            fontFamily: 'inherit',
                           }}
                         >
                           {g}
-                        </div>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -929,13 +934,16 @@ export default function CataloguesPage(): React.ReactElement {
                     >
                       {['All Platforms', 'Amazon', 'Myntra', 'Flipkart', 'Meesho', 'Shopify'].map(
                         (p) => (
-                          <div
+                          <button
                             key={p}
+                            type="button"
                             onClick={() => {
                               setPlatformFilter(p);
                               setShowPlatformDropdown(false);
                             }}
                             style={{
+                              width: '100%',
+                              textAlign: 'left',
                               padding: '10px 12px',
                               fontSize: 13,
                               fontWeight: 500,
@@ -943,10 +951,12 @@ export default function CataloguesPage(): React.ReactElement {
                               cursor: 'pointer',
                               background:
                                 platformFilter === p ? 'rgba(245,92,122,0.06)' : 'transparent',
+                              border: 'none',
+                              fontFamily: 'inherit',
                             }}
                           >
                             {p}
-                          </div>
+                          </button>
                         ),
                       )}
                     </div>
@@ -996,7 +1006,7 @@ export default function CataloguesPage(): React.ReactElement {
                         position: 'absolute',
                         top: 44,
                         left: 0,
-                        width: 220,
+                        width: dateSubPanel === 'custom' ? 296 : 220,
                         background: C.bg,
                         border: `1px solid ${C.border}`,
                         borderRadius: 8,
@@ -1008,8 +1018,9 @@ export default function CataloguesPage(): React.ReactElement {
                       {dateSubPanel === 'presets' ? (
                         <>
                           {['Today', 'Last 7 Days', 'Last 15 Days', 'Last 30 Days'].map((d) => (
-                            <div
+                            <button
                               key={d}
+                              type="button"
                               onClick={() => {
                                 setDateFilter(d);
                                 setCustomFrom('');
@@ -1018,6 +1029,8 @@ export default function CataloguesPage(): React.ReactElement {
                                 setDateSubPanel('presets');
                               }}
                               style={{
+                                width: '100%',
+                                textAlign: 'left',
                                 padding: '10px 12px',
                                 fontSize: 13,
                                 fontWeight: 500,
@@ -1025,19 +1038,24 @@ export default function CataloguesPage(): React.ReactElement {
                                 cursor: 'pointer',
                                 background:
                                   dateFilter === d ? 'rgba(245,92,122,0.06)' : 'transparent',
+                                border: 'none',
+                                fontFamily: 'inherit',
                               }}
                             >
                               {d}
-                            </div>
+                            </button>
                           ))}
                           {/* Custom Range — opens sub-panel, does not close dropdown */}
-                          <div
+                          <button
+                            type="button"
                             onClick={() => {
                               setPendingFrom(customFrom);
                               setPendingTo(customTo);
                               setDateSubPanel('custom');
                             }}
                             style={{
+                              width: '100%',
+                              textAlign: 'left',
                               padding: '10px 12px',
                               fontSize: 13,
                               fontWeight: 500,
@@ -1050,6 +1068,8 @@ export default function CataloguesPage(): React.ReactElement {
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'space-between',
+                              border: 'none',
+                              fontFamily: 'inherit',
                             }}
                           >
                             Custom Range
@@ -1066,10 +1086,11 @@ export default function CataloguesPage(): React.ReactElement {
                             >
                               <path d="M9 18l6-6-6-6" />
                             </svg>
-                          </div>
+                          </button>
                           {/* Clear active filter */}
                           {dateFilter !== 'Date' && (
-                            <div
+                            <button
+                              type="button"
                               onClick={() => {
                                 setDateFilter('Date');
                                 setCustomFrom('');
@@ -1077,16 +1098,23 @@ export default function CataloguesPage(): React.ReactElement {
                                 setShowDateDropdown(false);
                               }}
                               style={{
+                                width: '100%',
+                                textAlign: 'left',
                                 padding: '10px 12px',
                                 fontSize: 12,
                                 fontWeight: 500,
                                 color: C.light,
                                 cursor: 'pointer',
                                 borderTop: `1px solid ${C.border}`,
+                                borderLeft: 'none',
+                                borderRight: 'none',
+                                borderBottom: 'none',
+                                fontFamily: 'inherit',
+                                background: 'none',
                               }}
                             >
                               Clear filter
-                            </div>
+                            </button>
                           )}
                         </>
                       ) : (
@@ -1129,132 +1157,27 @@ export default function CataloguesPage(): React.ReactElement {
                             Custom Range
                           </button>
 
-                          {/* From */}
-                          <label
-                            style={{
-                              display: 'block',
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color: C.light,
-                              marginBottom: 4,
-                              letterSpacing: '0.04em',
-                              textTransform: 'uppercase',
+                          {/* Premium date range picker */}
+                          <PremiumDateRangePicker
+                            from={pendingFrom}
+                            to={pendingTo}
+                            onChange={(f, t) => {
+                              setPendingFrom(f);
+                              setPendingTo(t);
                             }}
-                          >
-                            From
-                          </label>
-                          <input
-                            type="date"
-                            value={pendingFrom}
-                            max={pendingTo || undefined}
-                            onChange={(e) => setPendingFrom(e.target.value)}
-                            style={{
-                              width: '100%',
-                              height: 34,
-                              padding: '0 8px',
-                              borderRadius: 6,
-                              border: `1px solid ${C.border}`,
-                              fontFamily: 'inherit',
-                              fontSize: 13,
-                              color: C.text,
-                              background: C.field,
-                              outline: 'none',
-                              boxSizing: 'border-box',
-                              marginBottom: 10,
+                            onClear={() => {
+                              setPendingFrom('');
+                              setPendingTo('');
+                            }}
+                            onApply={() => {
+                              if (!pendingFrom && !pendingTo) return;
+                              setDateFilter('Custom Range');
+                              setCustomFrom(pendingFrom);
+                              setCustomTo(pendingTo);
+                              setShowDateDropdown(false);
+                              setDateSubPanel('presets');
                             }}
                           />
-
-                          {/* To */}
-                          <label
-                            style={{
-                              display: 'block',
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color: C.light,
-                              marginBottom: 4,
-                              letterSpacing: '0.04em',
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            To
-                          </label>
-                          <input
-                            type="date"
-                            value={pendingTo}
-                            min={pendingFrom || undefined}
-                            onChange={(e) => setPendingTo(e.target.value)}
-                            style={{
-                              width: '100%',
-                              height: 34,
-                              padding: '0 8px',
-                              borderRadius: 6,
-                              border: `1px solid ${C.border}`,
-                              fontFamily: 'inherit',
-                              fontSize: 13,
-                              color: C.text,
-                              background: C.field,
-                              outline: 'none',
-                              boxSizing: 'border-box',
-                              marginBottom: 14,
-                            }}
-                          />
-
-                          {/* actions */}
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPendingFrom('');
-                                setPendingTo('');
-                              }}
-                              style={{
-                                flex: 1,
-                                height: 32,
-                                borderRadius: 6,
-                                border: `1px solid ${C.border}`,
-                                background: 'none',
-                                fontFamily: 'inherit',
-                                fontSize: 12,
-                                fontWeight: 500,
-                                color: C.mid,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Clear
-                            </button>
-                            <Tooltip
-                              tip={
-                                !pendingFrom && !pendingTo ? 'Select at least one date' : undefined
-                              }
-                              position="top"
-                            >
-                              <button
-                                type="button"
-                                disabled={!pendingFrom && !pendingTo}
-                                onClick={() => {
-                                  setDateFilter('Custom Range');
-                                  setCustomFrom(pendingFrom);
-                                  setCustomTo(pendingTo);
-                                  setShowDateDropdown(false);
-                                  setDateSubPanel('presets');
-                                }}
-                                style={{
-                                  flex: 2,
-                                  height: 32,
-                                  borderRadius: 6,
-                                  border: 'none',
-                                  background: pendingFrom || pendingTo ? C.dark : C.border,
-                                  fontFamily: 'inherit',
-                                  fontSize: 12,
-                                  fontWeight: 600,
-                                  color: pendingFrom || pendingTo ? '#fff' : C.light,
-                                  cursor: pendingFrom || pendingTo ? 'pointer' : 'not-allowed',
-                                }}
-                              >
-                                Apply
-                              </button>
-                            </Tooltip>
-                          </div>
                         </div>
                       )}
                     </div>
