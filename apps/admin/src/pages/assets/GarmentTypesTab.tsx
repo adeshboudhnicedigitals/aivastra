@@ -1152,6 +1152,26 @@ function PoseConfigsPanel({
     }
   };
 
+  const applyBulkClearOverride = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkSaving(true);
+    try {
+      await Promise.all(
+        selectedIds.map((id) =>
+          onSave(sub.id, id, {
+            workflowTemplateId: null,
+            promptGarmentPhase: null,
+            promptFacePhase: null,
+          }),
+        ),
+      );
+      clearSelection();
+      setBulkWorkflow('');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   const openEdit = (item: PoseGarmentConfig) => {
     setEditing(item);
     setEditWorkflow(item.config?.workflowTemplateId ?? '');
@@ -1238,6 +1258,13 @@ function PoseConfigsPanel({
                 onClick={() => void applyBulkWorkflow()}
               >
                 {bulkSaving ? 'Applying…' : 'Apply workflow'}
+              </button>
+              <button
+                className="btn sm ghost"
+                disabled={bulkSaving}
+                onClick={() => void applyBulkClearOverride()}
+              >
+                {bulkSaving ? 'Clearing…' : 'Clear override'}
               </button>
               <button className="btn sm ghost" onClick={clearSelection} disabled={bulkSaving}>
                 Clear
