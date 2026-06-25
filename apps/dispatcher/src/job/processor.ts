@@ -123,7 +123,6 @@ export async function processJob(
   const [bgRow] = await db
     .select({
       r2Key: schema.modelBackgrounds.r2Key,
-      bgComfyR2Key: schema.modelBackgrounds.bgComfyR2Key,
     })
     .from(schema.modelBackgrounds)
     .where(eq(schema.modelBackgrounds.id, inputs.backgroundId));
@@ -178,8 +177,8 @@ export async function processJob(
     jobLog.warn({ faceId: inputs.faceId }, 'faceSideR2Key not set — falling back to display r2Key');
   }
 
-  // bgComfyR2Key lives on the background row.
-  // Amazon platform overrides the background — always uses the configured white BG image.
+  // Backgrounds now use a single image (r2Key) for both display and ComfyUI.
+  // (The legacy separate bgComfyR2Key column is no longer used.)
   let params: Record<string, unknown> = {};
   if (inputs.params) {
     params =
@@ -189,12 +188,8 @@ export async function processJob(
   }
   const isAmazon = params.platform === 'Amazon';
   jobLog.info({ platform: params.platform, isAmazon }, 'platform check');
-  const bgKey = isAmazon ? bgRow.r2Key : (bgRow.bgComfyR2Key ?? bgRow.r2Key);
-  const bgSource = isAmazon
-    ? 'amazon-override'
-    : bgRow.bgComfyR2Key
-      ? 'comfy-specific'
-      : 'display-fallback';
+  const bgKey = bgRow.r2Key;
+  const bgSource = isAmazon ? 'amazon-override' : 'single-image';
   const poseKey = poseRow.r2Key;
   const workflowTemplateId = effectiveWorkflowTemplateId;
   if (!workflowTemplateId) {
