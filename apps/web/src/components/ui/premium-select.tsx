@@ -77,7 +77,8 @@ export function PremiumSelect({
       } else if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         if (hoverIdx >= 0 && hoverIdx < options.length) {
-          onChange(options[hoverIdx]?.value);
+          const opt = options[hoverIdx];
+          if (opt) onChange(opt.value);
           setOpen(false);
         }
       }
