@@ -414,6 +414,27 @@
       "when": 1781600000012,
       "tag": "0058_output_max_px_default_2048",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1781600000013,
+      "tag": "0059_admin_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1782296200000,
+      "tag": "0060_widget_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1782296200001,
+      "tag": "0061_merchant_payments",
+      "breakpoints": true
     }
   ]
 }

@@ -74,6 +74,26 @@ export function PoseAssetsTab() {
     total: number;
   } | null>(null);
   const bulkImportXhrRef = useRef<XMLHttpRequest | null>(null);
+  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleImageClick(id: string) {
+    if (singleClickTimerRef.current) {
+      // Second click of a double-click — cancel timer, let onDoubleClick handle it
+      clearTimeout(singleClickTimerRef.current);
+      singleClickTimerRef.current = null;
+      return;
+    }
+    singleClickTimerRef.current = setTimeout(() => {
+      singleClickTimerRef.current = null;
+      setSelectedPoseAssetIds((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      );
+    }, 250);
+  }
+
+  function handleImageDoubleClick(r2Key: string) {
+    setPreviewUrl(`${storagePublicUrl}/${r2Key}`);
+  }
 
   const loadPoseAssets = useCallback(async () => {
     setLoading(true);
@@ -500,17 +520,18 @@ export function PoseAssetsTab() {
                       justifyContent: 'center',
                       alignItems: 'center',
                       aspectRatio: '3/4',
-                      cursor: 'zoom-in',
+                      cursor: 'pointer',
                       position: 'relative',
                     }}
-                    onClick={() => setPreviewUrl(`${storagePublicUrl}/${a.r2Key}`)}
+                    onClick={() => handleImageClick(a.id)}
+                    onDoubleClick={() => handleImageDoubleClick(a.r2Key)}
                   >
                     <AssetThumb
                       thumbnailKey={a.thumbnailKey}
                       r2Key={a.r2Key}
                       label={a.label}
                       storageBase={storagePublicUrl}
-                      onPreview={setPreviewUrl}
+                      cursor="pointer"
                       w={160}
                       h={210}
                     />

@@ -431,3 +431,13 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
+
+export async function patchAdminPreferences(preferences: { theme?: 'light' | 'dark' | 'system' }) {
+  return apiFetch<{ preferences: { theme?: 'light' | 'dark' | 'system' } }>(
+    '/admin/me/preferences',
+    {
+      method: 'PATCH',
+      body: JSON.stringify(preferences),
+    },
+  );
+}

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { LoginBody, RegisterBody } from '@aivastra/types';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -111,6 +111,23 @@ export async function authRoutes(app: FastifyInstance) {
       .values({ email, passwordHash, displayName })
       .returning();
     await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+
+    const configRaw = await app.redis.get('config:system');
+    const freeTrialCredits: number = configRaw
+      ? ((JSON.parse(configRaw) as { freeTrialCredits?: number }).freeTrialCredits ?? 0)
+      : 0;
+    if (freeTrialCredits > 0) {
+      await app.db
+        .update(schema.userCredits)
+        .set({
+          balance: sql`${schema.userCredits.balance} + ${freeTrialCredits}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.userCredits.userId, user.id));
+      await app.db
+        .insert(schema.creditLedger)
+        .values({ userId: user.id, delta: freeTrialCredits, reason: 'FREE_TRIAL' });
+    }
 
     // Send verification email
     const token = makeToken();

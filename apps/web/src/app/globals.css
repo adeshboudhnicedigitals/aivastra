@@ -24,6 +24,34 @@
   --c-field: #f9f9f9;
   --c-mint: #209e46;
   --c-grad-subtle: linear-gradient(135deg, rgba(245, 92, 122, 0.15), rgba(246, 181, 83, 0.15));
+
+  /* Merchant portal tokens */
+  --c-merchant-bg: #f7f8fa;
+  --c-merchant-accent: #7c5cfc;
+  --c-merchant-accent-light: #f3f0ff;
+  --c-merchant-text-secondary: #374151;
+  --c-merchant-text-muted: #6b7280;
+  --c-merchant-text-placeholder: #9ca3af;
+  --c-merchant-border: #ebebeb;
+  --c-merchant-border-light: #e9ecef;
+  --c-merchant-hover: #f3f4f6;
+  --c-merchant-divider: #c4c4cc;
+  --c-merchant-success: #10b981;
+  --c-merchant-danger: #ef4444;
+  --c-merchant-warning: #f59e0b;
+  --c-merchant-code-bg: #f8f9fa;
+  --c-merchant-input-border: #e5e7eb;
+  --c-merchant-toggle-off: #e5e7eb;
+  --c-merchant-status-green: #00a860;
+  --c-merchant-status-red: #d0244a;
+  --c-merchant-status-blue: #6464f0;
+  --c-merchant-scrollbar: #e0e0e0;
+  --c-merchant-success-tint: rgba(16, 185, 129, 0.08);
+  --c-merchant-danger-tint: rgba(239, 68, 68, 0.08);
+  --c-merchant-accent-tint: rgba(124, 92, 252, 0.08);
+  --c-merchant-warning-tint: rgba(245, 158, 11, 0.08);
+  --c-merchant-muted-tint: rgba(107, 114, 128, 0.08);
+  --c-merchant-blue-tint: rgba(100, 100, 240, 0.08);
 }
 
 html.dark {
@@ -41,6 +69,34 @@ html.dark {
   --c-field: #242424;
   --c-mint: #2ecc57;
   --c-grad-subtle: linear-gradient(135deg, rgba(245, 92, 122, 0.2), rgba(246, 181, 83, 0.2));
+
+  /* Merchant portal dark tokens */
+  --c-merchant-bg: #0f0f11;
+  --c-merchant-accent: #7c5cfc;
+  --c-merchant-accent-light: #1f1b33;
+  --c-merchant-text-secondary: #a1a1aa;
+  --c-merchant-text-muted: #71717a;
+  --c-merchant-text-placeholder: #52525b;
+  --c-merchant-border: #27272a;
+  --c-merchant-border-light: #1f1f23;
+  --c-merchant-hover: #222228;
+  --c-merchant-divider: #3f3f46;
+  --c-merchant-success: #2ecc71;
+  --c-merchant-danger: #ff6b6b;
+  --c-merchant-warning: #f0a83e;
+  --c-merchant-code-bg: #1a1a1d;
+  --c-merchant-input-border: #27272a;
+  --c-merchant-toggle-off: #3f3f46;
+  --c-merchant-status-green: #2ecc71;
+  --c-merchant-status-red: #ff6b6b;
+  --c-merchant-status-blue: #8b8bff;
+  --c-merchant-scrollbar: #3f3f46;
+  --c-merchant-success-tint: rgba(46, 204, 113, 0.12);
+  --c-merchant-danger-tint: rgba(255, 107, 107, 0.12);
+  --c-merchant-accent-tint: rgba(124, 92, 252, 0.12);
+  --c-merchant-warning-tint: rgba(240, 168, 62, 0.12);
+  --c-merchant-muted-tint: rgba(161, 161, 170, 0.08);
+  --c-merchant-blue-tint: rgba(139, 139, 255, 0.12);
 }
 
 html {
@@ -80,7 +136,7 @@ a {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #e0e0e0;
+  background: var(--c-merchant-scrollbar);
   border-radius: 3px;
 }
 
@@ -124,7 +180,12 @@ a {
   }
 }
 .av-shimmer {
-  background: linear-gradient(90deg, #f2f2f2 0%, #e6e6e6 50%, #f2f2f2 100%);
+  background: linear-gradient(
+    90deg,
+    var(--c-lighter, #f2f2f2) 0%,
+    var(--c-border, #e6e6e6) 50%,
+    var(--c-lighter, #f2f2f2) 100%
+  );
   background-size: 200% 100%;
   animation: av-shimmer 1.4s linear infinite;
 }
@@ -152,10 +213,10 @@ button.prod-card-wrapper:focus-visible {
 /* Auth layout — drop the image panel on narrow viewports so the form can breathe */
 @media (max-width: 860px) {
   .auth-image-panel {
-    display: none !important;
+    display: none;
   }
   .auth-card {
-    height: auto !important;
-    max-width: 480px !important;
+    height: auto;
+    max-width: 480px;
   }
 }

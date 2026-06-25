@@ -6,6 +6,7 @@ export function AssetThumb({
   h = 64,
   storageBase,
   onPreview,
+  cursor,
 }: {
   thumbnailKey?: string;
   r2Key?: string;
@@ -14,6 +15,7 @@ export function AssetThumb({
   h?: number;
   storageBase: string | null;
   onPreview?: (url: string) => void;
+  cursor?: string;
 }) {
   const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
   const fullUrl = r2Key && storageBase ? `${storageBase}/${r2Key}` : null;
@@ -31,7 +33,7 @@ export function AssetThumb({
           borderRadius: 6,
           flexShrink: 0,
           display: 'block',
-          cursor: fullUrl ? 'zoom-in' : undefined,
+          cursor: cursor ?? (fullUrl ? 'zoom-in' : undefined),
         }}
         onError={(e) => {
           (e.target as HTMLImageElement).style.display = 'none';

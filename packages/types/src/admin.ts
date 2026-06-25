@@ -64,6 +64,7 @@ export const ConfirmCatalogItemBody = z.object({
 export const SystemConfigBody = z.object({
   creditCostPerJob: z.number().int().positive().max(100).optional(),
   maxJobsPerDay: z.number().int().positive().max(10_000).optional(),
+  freeTrialCredits: z.number().int().min(0).max(10_000).optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────

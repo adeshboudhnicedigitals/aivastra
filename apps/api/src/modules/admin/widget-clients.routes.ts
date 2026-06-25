@@ -45,6 +45,7 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
       const [totalRow] = await app.db
         .select({ n: count() })
         .from(schema.widgetClients)
+        // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
         .where(where as any);
 
       const clients = await app.db
@@ -70,6 +71,7 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
           schema.widgetClientCredits,
           eq(schema.widgetClients.id, schema.widgetClientCredits.widgetClientId),
         )
+        // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
         .where(where as any)
         .orderBy(desc(schema.widgetClients.createdAt))
         .limit(l)
@@ -126,11 +128,12 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
 
       if (body.initialCredits && body.initialCredits > 0) {
         await widgetAdminGrant(
+          // biome-ignore lint/suspicious/noExplicitAny: DB type narrowing
           app.db as any,
           client?.id,
           body.initialCredits,
           'Initial grant',
-          (req as any).adminRole ?? 'admin',
+          req.userId,
         );
       }
 
@@ -233,7 +236,14 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { amount, reason } = req.body as z.infer<typeof AdminCreditBody>;
 
-      await widgetAdminGrant(app.db as any, id, amount, reason, (req as any).adminRole ?? 'admin');
+      await widgetAdminGrant(
+        // biome-ignore lint/suspicious/noExplicitAny: DB type narrowing
+        app.db as any,
+        id,
+        amount,
+        reason,
+        req.userId,
+      );
 
       const [credits] = await app.db
         .select({ balance: schema.widgetClientCredits.balance })

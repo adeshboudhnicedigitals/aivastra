@@ -1,7 +1,12 @@
 import { schema } from '@aivastra/db';
-import { WidgetClientLogin, WidgetClientSignup } from '@aivastra/types';
+import {
+  WidgetClientLogin,
+  WidgetClientProfileUpdate,
+  WidgetClientSignup,
+  WidgetSettingsUpdate,
+} from '@aivastra/types';
 import { desc, eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword, signAccess, verifyPassword } from '../auth/service.js';
 
@@ -110,7 +115,7 @@ export async function merchantRoutes(app: FastifyInstance) {
   });
 
   app.get('/v1/merchant/me', { preHandler: app.requireMerchant }, async (req) => {
-    const clientId = (req as any).merchantClientId as string;
+    const clientId = (req as FastifyRequest & { merchantClientId: string }).merchantClientId;
 
     const [client] = await app.db
       .select({
@@ -122,6 +127,8 @@ export async function merchantRoutes(app: FastifyInstance) {
         websiteUrl: schema.widgetClients.websiteUrl,
         widgetKey: schema.widgetClients.widgetKey,
         isActive: schema.widgetClients.isActive,
+        allowedOrigins: schema.widgetClients.allowedOrigins,
+        settings: schema.widgetClients.settings,
         createdAt: schema.widgetClients.createdAt,
         creditBalance: schema.widgetClientCredits.balance,
       })
@@ -137,8 +144,67 @@ export async function merchantRoutes(app: FastifyInstance) {
     return client;
   });
 
+  app.patch(
+    '/v1/merchant/me',
+    { preHandler: app.requireMerchant, schema: { body: WidgetClientProfileUpdate } },
+    async (req) => {
+      const clientId = (req as FastifyRequest & { merchantClientId: string }).merchantClientId;
+      const body = req.body as WidgetClientProfileUpdate;
+
+      const [updated] = await app.db
+        .update(schema.widgetClients)
+        .set({
+          contactName: body.contactName,
+          phone: body.phone,
+          companyName: body.companyName,
+          websiteUrl: body.websiteUrl,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.widgetClients.id, clientId))
+        .returning({
+          id: schema.widgetClients.id,
+          companyName: schema.widgetClients.companyName,
+          contactName: schema.widgetClients.contactName,
+          phone: schema.widgetClients.phone,
+          websiteUrl: schema.widgetClients.websiteUrl,
+        });
+
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+      return updated;
+    },
+  );
+
+  app.patch(
+    '/v1/merchant/settings',
+    { preHandler: app.requireMerchant, schema: { body: WidgetSettingsUpdate } },
+    async (req) => {
+      const clientId = (req as FastifyRequest & { merchantClientId: string }).merchantClientId;
+      const body = req.body as WidgetSettingsUpdate;
+
+      const updates: {
+        settings?: typeof schema.widgetClients.$inferInsert.settings;
+        allowedOrigins?: string[];
+        updatedAt: Date;
+      } = { updatedAt: new Date() };
+      if (body.settings !== undefined) updates.settings = body.settings;
+      if (body.allowedOrigins !== undefined) updates.allowedOrigins = body.allowedOrigins;
+
+      const [updated] = await app.db
+        .update(schema.widgetClients)
+        .set(updates)
+        .where(eq(schema.widgetClients.id, clientId))
+        .returning({
+          settings: schema.widgetClients.settings,
+          allowedOrigins: schema.widgetClients.allowedOrigins,
+        });
+
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+      return updated;
+    },
+  );
+
   app.get('/v1/merchant/jobs', { preHandler: app.requireMerchant }, async (req) => {
-    const clientId = (req as any).merchantClientId as string;
+    const clientId = (req as FastifyRequest & { merchantClientId: string }).merchantClientId;
 
     const jobs = await app.db
       .select({

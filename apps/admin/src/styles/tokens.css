@@ -1,6 +1,6 @@
 :root {
   --bg: oklch(0.985 0.005 80);
-  --surface: #ffffff;
+  --surface: oklch(0.99 0.005 80);
   --surface-2: oklch(0.97 0.005 80);
   --surface-hover: oklch(0.96 0.006 80);
   --border: oklch(0.91 0.006 80);
@@ -16,19 +16,18 @@
 
   --success: oklch(0.58 0.12 145);
   --success-soft: oklch(0.94 0.04 145);
-  --warn: oklch(0.72 0.14 80);
-  --warn-soft: oklch(0.95 0.05 85);
-  --danger: oklch(0.58 0.2 25);
-  --danger-soft: oklch(0.95 0.04 25);
-  --info: oklch(0.55 0.12 240);
-  --info-soft: oklch(0.95 0.03 240);
-
   --success-ink: oklch(0.32 0.1 145);
   --success-border: oklch(0.85 0.06 145);
+  --warn: oklch(0.72 0.14 80);
+  --warn-soft: oklch(0.95 0.05 85);
   --warn-ink: oklch(0.4 0.12 70);
   --warn-border: oklch(0.85 0.08 80);
+  --danger: oklch(0.58 0.2 25);
+  --danger-soft: oklch(0.95 0.04 25);
   --danger-ink: oklch(0.4 0.16 25);
   --danger-border: oklch(0.86 0.08 25);
+  --info: oklch(0.55 0.12 240);
+  --info-soft: oklch(0.95 0.03 240);
   --info-ink: oklch(0.36 0.12 240);
   --info-border: oklch(0.85 0.06 240);
 
@@ -58,48 +57,48 @@
 }
 
 [data-theme="dark"] {
-  --bg: oklch(0.18 0.006 80);
-  --surface: oklch(0.22 0.006 80);
-  --surface-2: oklch(0.25 0.006 80);
-  --surface-hover: oklch(0.28 0.006 80);
-  --border: oklch(0.3 0.006 80);
-  --border-strong: oklch(0.4 0.008 80);
-  --ink: oklch(0.96 0.005 80);
-  --ink-2: oklch(0.85 0.005 80);
-  --muted: oklch(0.62 0.006 80);
-  --muted-2: oklch(0.48 0.006 80);
+  --bg: oklch(0.16 0.006 55);
+  --surface: oklch(0.2 0.006 55);
+  --surface-2: oklch(0.23 0.006 55);
+  --surface-hover: oklch(0.26 0.006 55);
+  --border: oklch(0.3 0.006 55);
+  --border-strong: oklch(0.4 0.008 55);
+  --ink: oklch(0.96 0.005 55);
+  --ink-2: oklch(0.85 0.005 55);
+  --muted: oklch(0.62 0.006 55);
+  --muted-2: oklch(0.48 0.006 55);
 
-  --accent: oklch(0.74 0.16 60);
-  --accent-soft: oklch(0.3 0.05 60);
-  --accent-ink: oklch(0.86 0.13 65);
+  --accent: oklch(0.72 0.14 55);
+  --accent-soft: oklch(0.3 0.05 55);
+  --accent-ink: oklch(0.88 0.12 55);
 
-  --success: oklch(0.68 0.13 145);
+  --success: oklch(0.68 0.12 145);
   --success-soft: oklch(0.27 0.05 145);
   --success-ink: oklch(0.84 0.1 145);
   --success-border: oklch(0.32 0.06 145);
-  --warn: oklch(0.78 0.14 80);
+  --warn: oklch(0.78 0.13 80);
   --warn-soft: oklch(0.28 0.05 80);
   --warn-ink: oklch(0.86 0.12 85);
   --warn-border: oklch(0.34 0.07 80);
-  --danger: oklch(0.65 0.2 25);
+  --danger: oklch(0.65 0.18 25);
   --danger-soft: oklch(0.28 0.07 25);
   --danger-ink: oklch(0.84 0.15 25);
   --danger-border: oklch(0.36 0.1 25);
-  --info: oklch(0.65 0.13 240);
+  --info: oklch(0.65 0.12 240);
   --info-soft: oklch(0.27 0.05 240);
   --info-ink: oklch(0.82 0.1 240);
   --info-border: oklch(0.32 0.07 240);
 
-  --sidebar-bg: oklch(0.14 0.006 80);
-  --sidebar-bg-hover: oklch(0.22 0.006 80);
-  --sidebar-border: oklch(0.22 0.006 80);
-  --sidebar-text: oklch(0.78 0.005 80);
-  --sidebar-text-active: oklch(0.98 0.005 80);
-  --sidebar-text-muted: oklch(0.5 0.005 80);
+  --sidebar-bg: oklch(0.14 0.006 55);
+  --sidebar-bg-hover: oklch(0.22 0.006 55);
+  --sidebar-border: oklch(0.22 0.006 55);
+  --sidebar-text: oklch(0.78 0.005 55);
+  --sidebar-text-active: oklch(0.98 0.005 55);
+  --sidebar-text-muted: oklch(0.5 0.005 55);
 
   --alert-bg: oklch(0.24 0.05 25);
 
-  --shadow-sm: 0 1px 0 0 oklch(0.08 0.005 80 / 0.5);
+  --shadow-sm: 0 1px 0 0 oklch(0.08 0.005 55 / 0.5);
   --shadow-md: 0 1px 2px oklch(0 0 0 / 0.3), 0 4px 12px oklch(0 0 0 / 0.25);
   --shadow-lg: 0 4px 8px oklch(0 0 0 / 0.3), 0 12px 40px oklch(0 0 0 / 0.45);
 
@@ -113,7 +112,7 @@
   background: linear-gradient(
     90deg,
     var(--surface-2) 0%,
-    oklch(0.3 0.006 80) 50%,
+    oklch(0.3 0.006 55) 50%,
     var(--surface-2) 100%
   );
   background-size: 200% 100%;
@@ -125,8 +124,10 @@
 
 html {
   transition:
-    background 200ms ease,
-    color 200ms ease;
+    background-color 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
 }
 
 html,
@@ -199,7 +200,7 @@ svg {
   background: var(--accent);
   display: grid;
   place-items: center;
-  color: oklch(0.18 0.04 55);
+  color: var(--accent-ink);
   font-family: var(--serif);
   font-size: 18px;
   font-weight: 500;
@@ -293,7 +294,7 @@ svg {
 }
 .nav-item.alert .count {
   background: var(--danger);
-  color: #fff;
+  color: var(--bg);
 }
 .nav-item--icon {
   justify-content: center;
@@ -396,7 +397,7 @@ svg {
   display: grid;
   place-items: center;
   font-size: 12px;
-  color: #fff;
+  color: var(--bg);
   font-weight: 500;
 }
 .sidebar-foot .who {
@@ -428,7 +429,7 @@ svg {
   margin-top: 4px;
   font-size: 9.5px;
   background: var(--accent);
-  color: oklch(0.16 0.01 60);
+  color: var(--accent-ink);
   padding: 1px 6px;
   border-radius: 99px;
   font-weight: 600;
@@ -528,7 +529,7 @@ svg {
   height: 7px;
   border-radius: 50%;
   background: var(--success);
-  box-shadow: 0 0 0 3px oklch(0.58 0.12 145 / 0.18);
+  box-shadow: 0 0 0 3px var(--success-soft);
 }
 
 .content {
@@ -1234,7 +1235,7 @@ textarea.input {
   height: 28px;
   border-radius: 50%;
   background: var(--danger);
-  color: #fff;
+  color: var(--bg);
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -1419,7 +1420,7 @@ textarea.input {
   top: 2px;
   width: 4px;
   height: 8px;
-  border: solid #fff;
+  border: solid var(--bg);
   border-width: 0 1.5px 1.5px 0;
   transform: rotate(45deg);
 }
@@ -1437,7 +1438,7 @@ textarea.input {
   position: absolute;
   left: 4px;
   top: -2px;
-  color: #fff;
+  color: var(--bg);
   font-size: 14px;
   line-height: 1;
 }
@@ -1548,7 +1549,8 @@ textarea.input {
 .inactive-overlay {
   position: absolute;
   inset: 0;
-  background: oklch(0.98 0.005 80 / 0.5);
+  background: var(--surface);
+  opacity: 0.5;
   backdrop-filter: grayscale(0.7);
 }
 
@@ -1599,8 +1601,8 @@ textarea.input {
   left: 6px;
   font-family: var(--mono);
   font-size: 10px;
-  background: oklch(0.18 0.005 80 / 0.78);
-  color: oklch(0.95 0.005 80);
+  background: var(--ink);
+  color: var(--bg);
   padding: 2px 6px;
   border-radius: 3px;
   letter-spacing: 0.02em;
@@ -1626,7 +1628,7 @@ textarea.input {
   height: 13px;
   background: var(--bg);
   border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.18);
   transition: transform 120ms ease;
 }
 .switch.on {

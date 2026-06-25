@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -82,6 +82,11 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       picture?: string;
     };
 
+    const configRaw = await app.redis.get('config:system');
+    const freeTrialCredits: number = configRaw
+      ? ((JSON.parse(configRaw) as { freeTrialCredits?: number }).freeTrialCredits ?? 0)
+      : 0;
+
     // Upsert user in a transaction
     const userId = await app.db.transaction(async (tx) => {
       // 1. Find existing OAuth link
@@ -143,6 +148,18 @@ export async function googleAuthRoutes(app: FastifyInstance) {
           .returning({ id: schema.users.id });
         uid = newUser?.id;
         await tx.insert(schema.userCredits).values({ userId: uid, balance: 0 });
+        if (freeTrialCredits > 0) {
+          await tx
+            .update(schema.userCredits)
+            .set({
+              balance: sql`${schema.userCredits.balance} + ${freeTrialCredits}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.userCredits.userId, uid));
+          await tx
+            .insert(schema.creditLedger)
+            .values({ userId: uid, delta: freeTrialCredits, reason: 'FREE_TRIAL' });
+        }
       }
 
       // 4. Create OAuth link (onConflictDoNothing guards against concurrent inserts)

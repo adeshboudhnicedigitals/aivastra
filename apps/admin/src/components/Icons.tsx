@@ -215,6 +215,12 @@ export const Icon: Record<string, () => JSX.Element> = {
       <path d="M8 1v1.5M8 13.5V15M15 8h-1.5M2.5 8H1M13 3l-1.1 1.1M4.1 11.9L3 13M13 13l-1.1-1.1M4.1 4.1L3 3" />
     </svg>
   ),
+  Monitor: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="2" y="2.5" width="12" height="9" rx="1.5" />
+      <path d="M5 14.5h6M8 11.5v3" />
+    </svg>
+  ),
   Moon: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
       <path d="M13.5 10.2A5.5 5.5 0 0 1 5.8 2.5 5.5 5.5 0 1 0 13.5 10.2z" />

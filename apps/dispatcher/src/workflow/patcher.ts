@@ -39,27 +39,6 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
   return node;
 }
 
-function patchSizeGroup(
-  workflow: Workflow,
-  nodeIds: string[],
-  aspectRatio: string,
-  max: number,
-  log?: PatchLog,
-): void {
-  const [widthId, heightId] = nodeIds;
-  if (!widthId || !heightId) return;
-  const [rw, rh] = aspectRatio.split(':').map(Number);
-  if (!rw || !rh) {
-    log?.warn(`patchSizeGroup: unparsable aspectRatio "${aspectRatio}" — skipping`);
-    return;
-  }
-  const dims = resizeToMax(rw, rh, max);
-  const wNode = workflow[widthId];
-  const hNode = workflow[heightId];
-  if (wNode) wNode.inputs.value = dims.width;
-  if (hNode) hNode.inputs.value = dims.height;
-}
-
 // ── Aspect ratio dimensions ───────────────────────────────────────────────
 
 export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
@@ -82,6 +61,10 @@ export interface WorkflowInputs {
   promptFacePhase?: string;
   promptGarmentPhase?: string;
   aspectRatio?: string;
+  /** Custom pixel dimensions from the user — when present, override the
+   *  ASPECT_DIMENSIONS enum lookup so the exact requested resolution is used. */
+  outputWidth?: number;
+  outputHeight?: number;
 }
 
 export type WorkflowTemplate = typeof schema.workflowTemplates.$inferSelect;
@@ -155,58 +138,67 @@ export function applyWorkflowPatch(
   }
   // Negative prompt (facePhasePromptNode) is never overridden — hardcoded per workflow.
 
+  // Resolve output dimensions: custom pixel dims take precedence over the
+  // ASPECT_DIMENSIONS enum lookup. Custom dims come from the user's explicit
+  // width/height selection in the studio; enum dims are the predefined values
+  // for each of the four standard aspect ratios.
+  const customDims =
+    inputs.outputWidth && inputs.outputHeight
+      ? { width: inputs.outputWidth, height: inputs.outputHeight }
+      : null;
+  const enumDims = inputs.aspectRatio ? (ASPECT_DIMENSIONS[inputs.aspectRatio] ?? null) : null;
+  const outputDims = customDims ?? enumDims;
+
   // Dual-size-group templates. Latent group (max-width/max-height) is derived from the
-  // raw aspectRatio numbers via resizeToMax, capped at latentMaxPx — this is the diffusion
+  // raw aspect numbers via resizeToMax, capped at latentMaxPx — this is the diffusion
   // canvas size and doesn't need to match any fixed enum value. Output group (result-width/
-  // result-height) uses the literal ASPECT_DIMENSIONS lookup instead — the exact pixel
-  // dimensions the studio aspect-ratio picker maps to — NOT a separate resizeToMax/max-edge
-  // calc, so the delivered image always matches what the user actually selected.
+  // result-height) uses the resolved outputDims directly.
   const latentSizeNodeIds = tmpl.latentSizeNodeIds ?? [];
   const outputSizeNodeIds = tmpl.outputSizeNodeIds ?? [];
-  if (inputs.aspectRatio && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {
-    patchSizeGroup(workflow, latentSizeNodeIds, inputs.aspectRatio, tmpl.latentMaxPx ?? 2048, log);
+  if (outputDims && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {
+    // Latent: scale so the long edge = latentMaxPx, preserving aspect
+    const latentMax = tmpl.latentMaxPx ?? 2048;
+    const latentDims = resizeToMax(outputDims.width, outputDims.height, latentMax);
+    const [lwId, lhId] = latentSizeNodeIds;
+    const lwNode = lwId ? workflow[lwId] : undefined;
+    const lhNode = lhId ? workflow[lhId] : undefined;
+    if (lwNode) lwNode.inputs.value = latentDims.width;
+    if (lhNode) lhNode.inputs.value = latentDims.height;
 
     if (outputSizeNodeIds.length === 2) {
-      const dims = ASPECT_DIMENSIONS[inputs.aspectRatio];
-      if (!dims) {
-        log?.warn(
-          `patchWorkflow: unknown aspectRatio "${inputs.aspectRatio}" — skipping output size patch`,
-        );
+      const [widthId, heightId] = outputSizeNodeIds;
+      const wNode = widthId ? workflow[widthId] : undefined;
+      const hNode = heightId ? workflow[heightId] : undefined;
+      if (wNode) wNode.inputs.value = outputDims.width;
+      if (hNode) hNode.inputs.value = outputDims.height;
+    }
+  } else if (outputDims && tmpl.sizeNodeIds.length > 0) {
+    // Legacy single-group: patch all size-controlling nodes by class_type.
+    // sizeNodeIds[0] = width node, sizeNodeIds[1] = height node.
+    for (let i = 0; i < tmpl.sizeNodeIds.length; i++) {
+      const nodeId = tmpl.sizeNodeIds[i];
+      if (!nodeId) continue;
+      const node = workflow[nodeId];
+      if (!node) continue;
+      const dimValue = i === 0 ? outputDims.width : outputDims.height;
+      if (node.class_type === 'PrimitiveInt') {
+        node.inputs.value = dimValue;
+      } else if (node.class_type === 'ResizeImageMaskNode') {
+        node.inputs['resize_type.width'] = outputDims.width;
+        node.inputs['resize_type.height'] = outputDims.height;
+      } else if (node.class_type === 'ResizeAndPadImage') {
+        node.inputs.target_width = outputDims.width;
+        node.inputs.target_height = outputDims.height;
       } else {
-        const [widthId, heightId] = outputSizeNodeIds;
-        const wNode = widthId ? workflow[widthId] : undefined;
-        const hNode = heightId ? workflow[heightId] : undefined;
-        if (wNode) wNode.inputs.value = dims.width;
-        if (hNode) hNode.inputs.value = dims.height;
+        // EmptyLatentImage and generic fallback
+        node.inputs.width = outputDims.width;
+        node.inputs.height = outputDims.height;
       }
     }
-  } else if (inputs.aspectRatio && tmpl.sizeNodeIds.length > 0) {
-    // Aspect ratio — patch all size-controlling nodes based on their class_type.
-    // PrimitiveInt nodes: sizeNodeIds[0] = width node, sizeNodeIds[1] = height node.
-    const dims = ASPECT_DIMENSIONS[inputs.aspectRatio];
-    if (!dims) {
-      log?.warn(`patchWorkflow: unknown aspectRatio "${inputs.aspectRatio}" — skipping size patch`);
-    } else {
-      for (let i = 0; i < tmpl.sizeNodeIds.length; i++) {
-        const nodeId = tmpl.sizeNodeIds[i];
-        if (!nodeId) continue;
-        const node = workflow[nodeId];
-        if (!node) continue;
-        if (node.class_type === 'PrimitiveInt') {
-          node.inputs.value = i === 0 ? dims.width : dims.height;
-        } else if (node.class_type === 'ResizeImageMaskNode') {
-          node.inputs['resize_type.width'] = dims.width;
-          node.inputs['resize_type.height'] = dims.height;
-        } else if (node.class_type === 'ResizeAndPadImage') {
-          node.inputs.target_width = dims.width;
-          node.inputs.target_height = dims.height;
-        } else {
-          // EmptyLatentImage and generic fallback
-          node.inputs.width = dims.width;
-          node.inputs.height = dims.height;
-        }
-      }
-    }
+  } else if (inputs.aspectRatio) {
+    log?.warn(
+      `patchWorkflow: no dimensions resolved for aspectRatio "${inputs.aspectRatio}" — skipping size patch`,
+    );
   }
 
   return workflow as unknown as Record<string, unknown>;

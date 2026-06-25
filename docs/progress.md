@@ -1,5 +1,118 @@
 # Project Progress
 
+<<<<<<< Updated upstream
+## 2026-06-24 — Premium dark mode Task 5: refine tokens.css palettes and remove hardcoded colors
+
+### Done
+- Updated `:root` light palette in `apps/admin/src/styles/tokens.css`:
+  - Replaced `--surface: #ffffff` with `oklch(0.99 0.005 80)`.
+  - Reordered semantic status variables so each status group keeps base/soft/ink/border together.
+- Updated `[data-theme="dark"]` to warm charcoal (`hue 55`):
+  - Darkened `--bg`/`--surface`/`--surface-2`/`--surface-hover` and adjusted all greys to hue 55.
+  - Warmed and balanced accent, success, warn, danger, and info values.
+  - Updated shadow tints to hue 55.
+- Replaced six hardcoded color usages with CSS variables:
+  - `.status-dot::before` box-shadow now uses `var(--success-soft)`.
+  - `.nav-item.alert .count` text now uses `var(--bg)`.
+  - `.brand-mark` text now uses `var(--accent-ink)`.
+  - `.role-pill` text now uses `var(--accent-ink)`.
+  - `.inactive-overlay` now uses `var(--surface)` with `opacity: 0.5`.
+  - `.imgpv-cap` background/text now uses `var(--ink)` / `var(--bg)`.
+- Replaced the `html` transition block with `background-color`, `color`, `border-color`, and `box-shadow` transitions.
+- Verified `pnpm --filter @aivastra/admin lint` passes (warnings are pre-existing).
+- Verified `pnpm --filter @aivastra/admin build` succeeds.
+- Committed: `feat(admin): warm-charcoal dark palette and remove hardcoded colors`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-24 — Premium dark mode Task 4: remove local theme state from App.tsx
+
+### Done
+- Removed the local `Theme` type and `readInitialTheme()` helper from `apps/admin/src/App.tsx`.
+- Replaced local `useState` theme state with `useTheme()` from `./context/ThemeContext`.
+- Removed the `useEffect` that synced `data-theme` and `localStorage`; `ThemeProvider` now owns that.
+- Removed the local `toggleTheme` `useCallback`.
+- Updated `settingsProps` to pass `theme` and `setTheme`.
+- Left the `<Topbar ... />` call unchanged as instructed.
+- Updated `apps/admin/src/pages/SettingsPage.tsx` to accept the new `Theme`/`setTheme` props and toggle using `resolvedTheme` from `useTheme()`; this was required to keep the TypeScript build passing after changing `settingsProps`.
+- Applied Biome formatting/import ordering fixes required by the lefthook pre-commit hook.
+- Verified `pnpm --filter @aivastra/admin build` succeeds with no TypeScript errors.
+- Committed: `refactor(admin): App.tsx consumes useTheme instead of owning theme state`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- The task description listed only `apps/admin/src/App.tsx` as modified, but `SettingsPage.tsx` also had to be updated because the new `settingsProps` no longer provides `onToggleTheme`. Task 8 was originally scoped to update `SettingsPage` props; the necessary prop change was pulled forward to keep the build green.
+- `toggleTheme` from `useTheme()` was not destructured in `App.tsx` because it has no consumer until Task 7 wires it into `Topbar`; destructuring it now would trigger `noUnusedLocals`.
+
+## 2026-06-24 — Premium dark mode Task 3: wire ThemeProvider into main.tsx
+
+### Done
+- Updated `apps/admin/src/main.tsx` to import `ThemeProvider` from `./context/ThemeContext.tsx`.
+- Wrapped `<App />` with `<ThemeProvider>` inside `<AuthProvider>` so `useAuth()` is available to `ThemeProvider` and `useTheme()` is available throughout the app.
+- Verified `pnpm --filter @aivastra/admin build` succeeds with no TypeScript errors.
+- Committed: `feat(admin): wrap App with ThemeProvider`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-24 — Premium dark mode Task 2: create ThemeProvider context
+
+### Done
+- Created `apps/admin/src/context/ThemeContext.tsx` with `ThemeProvider` and `useTheme` hook.
+- Implemented localStorage persistence via `aivastra-theme`, system-preference listening, and server preference sync via `/admin/me` and `/admin/me/preferences`.
+- Ensured the server-preference fetch waits for `!isLoading` to avoid duplicating `/admin/me` calls already made by `AuthProvider.fetchRole()`.
+- Applied Biome formatting/import ordering fixes required by the lefthook pre-commit hook.
+- Verified `pnpm --filter @aivastra/admin build` succeeds with no TypeScript errors.
+- Committed: `feat(admin): add ThemeProvider with system preference and server sync`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-24 — Premium dark mode Task 1: expose `isAuthenticated` from AuthContext
+
+### Done
+- Added `isAuthenticated: boolean` to the `AuthState` interface in `apps/admin/src/context/AuthContext.tsx`.
+- Provided `isAuthenticated: !!token` in the `AuthContext.Provider` value object.
+- Verified `pnpm --filter @aivastra/admin build` succeeds with no TypeScript errors.
+- Committed: `feat(admin): expose isAuthenticated from AuthContext`.
+
+## 2026-06-24 — Add $type annotation to admin_users preferences
+
+### Done
+- Added `.$type<{ theme?: 'light' | 'dark' | 'system' }>()` annotation to `preferences` jsonb column in `packages/db/src/schema/admin.ts`.
+- Verified builds pass for both `@aivastra/db` and `@aivastra/api`.
+- Migration `0059_admin_preferences.sql` already existed from prior commit.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-24 — Comprehensive codebase reference document
+
+### Done
+- Analysed the entire Aivastra monorepo: apps (api, dispatcher, web, admin, admin-mobile), packages (db, types, storage, logger, observability), infra, tests, and docs.
+- Created `docs/codebase-reference.md` as an internal reference covering architecture, stack, monorepo layout, DB schema, API/dispatcher/web/admin details, testing, env vars, deployment, invariants, and key files.
+
+### Failed / Not Done
+- Repository-wide `pnpm lint` still reports pre-existing errors/warnings unrelated to the new document (`.opencode/plugins/graphify.js`, `apps/admin/src/components/`, `scripts/seed-admin.ts`, `biome.json` config).
+
+### Open Questions / Decisions
+- Whether to keep `docs/codebase-reference.md` as a living document and how frequently it should be refreshed after large architectural changes.
+
 ## 2026-06-15 - Admin mobile Android emulator ABI fix
 
 ### Done

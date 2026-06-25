@@ -31,6 +31,26 @@ export function CatalogTab() {
 
   const typeSlug = activeTab === 'shoe' ? 'shoe' : 'lower';
 
+  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleImageClick(id: string) {
+    if (singleClickTimerRef.current) {
+      clearTimeout(singleClickTimerRef.current);
+      singleClickTimerRef.current = null;
+      return;
+    }
+    singleClickTimerRef.current = setTimeout(() => {
+      singleClickTimerRef.current = null;
+      setSelectedCatalogItemIds((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      );
+    }, 250);
+  }
+
+  function handleImageDoubleClick(r2Key: string) {
+    setPreviewUrl(`${storagePublicUrl}/${r2Key}`);
+  }
+
   const [catalogItems, setCatalogItems] = useState<CatalogItem[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<CatalogCategory[]>([]);
   const [catalogTypeIds, setCatalogTypeIds] = useState<Record<string, number>>({});
@@ -410,11 +430,8 @@ export function CatalogTab() {
                       : undefined,
                     cursor: 'pointer',
                   }}
-                  onClick={() =>
-                    setSelectedCatalogItemIds((prev) =>
-                      prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id],
-                    )
-                  }
+                  onClick={() => handleImageClick(c.id)}
+                  onDoubleClick={() => handleImageDoubleClick(c.r2Key)}
                 >
                   <div style={{ position: 'relative' }}>
                     <AssetThumb

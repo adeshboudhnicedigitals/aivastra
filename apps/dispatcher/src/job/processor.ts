@@ -288,9 +288,13 @@ export async function processJob(
     const uploaded = await Promise.all(baseTasks);
 
     let idx = 0;
+    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
     const upperGarmentFile = uploaded[idx++]!;
+    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
     const faceSideFile = uploaded[idx++]!;
+    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
     const poseFile = uploaded[idx++]!;
+    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
     const backgroundFile = uploaded[idx++]!;
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
@@ -307,6 +311,13 @@ export async function processJob(
     );
 
     // 5. Patch workflow template with ComfyUI filenames (loads from DB with 5-min TTL cache)
+    const jobParams = (inputs.params as Record<string, unknown> | null) ?? {};
+    const jobAspectRatio = jobParams.aspectRatio as string | undefined;
+    const jobOutputWidth =
+      typeof jobParams.outputWidth === 'number' ? jobParams.outputWidth : undefined;
+    const jobOutputHeight =
+      typeof jobParams.outputHeight === 'number' ? jobParams.outputHeight : undefined;
+
     const { prompt, resultNodeId } = await patchWorkflow(
       {
         workflowTemplateId,
@@ -318,9 +329,9 @@ export async function processJob(
         shoeGarmentFile,
         promptFacePhase: effectivePromptFacePhase ?? undefined,
         promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
-        aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio as
-          | string
-          | undefined,
+        aspectRatio: jobAspectRatio,
+        outputWidth: jobOutputWidth,
+        outputHeight: jobOutputHeight,
       },
       db,
       jobLog,
@@ -352,7 +363,9 @@ export async function processJob(
           shoeGarmentFile,
           promptFacePhase: effectivePromptFacePhase ?? null,
           promptGarmentPhase: effectivePromptGarmentPhase ?? null,
-          aspectRatio: (inputs.params as Record<string, unknown> | null)?.aspectRatio ?? null,
+          aspectRatio: jobAspectRatio ?? null,
+          outputWidth: jobOutputWidth ?? null,
+          outputHeight: jobOutputHeight ?? null,
           _r2Keys: {
             upperGarmentKey: inputs.upperGarmentKey,
             faceSideKey,
@@ -461,6 +474,7 @@ async function processWidgetJob(
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket, widgetComfyUrl, widgetComfyBasicAuth } = cfg;
   const jobId = job.id;
+  // biome-ignore lint/style/noNonNullAssertion: widgetClientId is guaranteed non-null for widget jobs
   const widgetClientId = job.widgetClientId!;
   const { creditsCharged } = job;
 
@@ -589,8 +603,10 @@ async function processWidgetJob(
       string,
       { inputs?: Record<string, unknown> }
     >;
+    // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
     if (workflow[garmentNodeId]?.inputs) workflow[garmentNodeId].inputs!.image = garmentFilename;
     if (workflow[customerPhotoNodeId]?.inputs)
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[customerPhotoNodeId].inputs!.image = customerPhotoFilename;
 
     // Submit prompt
@@ -633,6 +649,7 @@ async function processWidgetJob(
 
     // Download output image from VPS
     await transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog);
+    // biome-ignore lint/style/noNonNullAssertion: outputImages is non-empty (checked by ComfyUI response)
     const firstImage = outputImages[0]!;
     const viewUrl = `${widgetComfyUrl}/view?filename=${encodeURIComponent(firstImage.filename)}&subfolder=${encodeURIComponent(firstImage.subfolder)}&type=${encodeURIComponent(firstImage.type)}`;
     const imgRes = await fetch(viewUrl, {
