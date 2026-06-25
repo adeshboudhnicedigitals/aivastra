@@ -427,7 +427,7 @@ describe('dual-size groups', () => {
       { ...BASE_INPUTS, aspectRatio: '7:3' },
       { warn },
     );
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('output size patch'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('skipping size patch'));
     expect(wf['result-width']?.inputs.value).toBe(1024);
     expect(wf['result-height']?.inputs.value).toBe(1024);
   });
