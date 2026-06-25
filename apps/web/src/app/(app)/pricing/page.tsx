@@ -296,7 +296,7 @@ export default function PricingPage(): React.ReactElement {
                 gap: 8,
                 padding: 8,
                 width: 130,
-                height: 32,
+                height: 38,
                 borderRadius: 8,
                 border: `1px solid ${C.border}`,
                 background: C.white,

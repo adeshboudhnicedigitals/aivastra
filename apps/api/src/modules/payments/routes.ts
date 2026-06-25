@@ -209,7 +209,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
       if (payment.userId !== req.userId) throw new AppError('FORBIDDEN', 403, 'forbidden');
       if (payment.status === 'paid') return { ok: true, alreadyCredited: true };
 
-      // Mark paid + credit user atomically
+      // Mark paid + credit user + promote tier atomically
       await app.db.transaction(async (tx) => {
         await tx
           .update(schema.payments)
@@ -238,6 +238,12 @@ export async function paymentsRoutes(app: FastifyInstance) {
           reason: 'PAYMENT',
           adminId: null,
         });
+
+        // Promote the user's tier to this plan's slug so job queue priority kicks in.
+        await tx
+          .update(schema.users)
+          .set({ tier: payment.planId, updatedAt: new Date() })
+          .where(eq(schema.users.id, req.userId));
       });
 
       const [bal] = await app.db
@@ -358,6 +364,11 @@ export async function paymentsRoutes(app: FastifyInstance) {
             reason: 'PAYMENT',
             adminId: null,
           });
+
+          await tx
+            .update(schema.users)
+            .set({ tier: payment.planId, updatedAt: new Date() })
+            .where(eq(schema.users.id, payment.userId));
         });
 
         app.log.info(

@@ -39,6 +39,7 @@ const EMPTY_FORM = {
   isHighlighted: false,
   badge: '',
   sortOrder: 0,
+  queueStream: 'normal' as 'priority' | 'normal' | 'low',
 };
 
 function PlanModal({
@@ -64,6 +65,7 @@ function PlanModal({
           isHighlighted: plan.isHighlighted,
           badge: plan.badge ?? '',
           sortOrder: plan.sortOrder,
+          queueStream: plan.queueStream ?? ('normal' as 'priority' | 'normal' | 'low'),
         }
       : EMPTY_FORM,
   );
@@ -213,6 +215,20 @@ function PlanModal({
               placeholder="e.g. Best Value  (leave blank for none)"
               onChange={(e) => set('badge', e.target.value)}
             />
+          </div>
+
+          <div className="field">
+            <label>Job Queue Priority</label>
+            <select
+              className="input"
+              value={form.queueStream}
+              disabled={saving}
+              onChange={(e) => set('queueStream', e.target.value as 'priority' | 'normal' | 'low')}
+            >
+              <option value="priority">1st — Priority (jobs processed first)</option>
+              <option value="normal">2nd — Normal</option>
+              <option value="low">3rd — Low (processed last)</option>
+            </select>
           </div>
 
           <div style={{ display: 'flex', gap: 12 }}>
@@ -549,6 +565,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       <th>Slug</th>
                       <th>Credits</th>
                       <th>Price (incl. 18% GST)</th>
+                      <th>Queue Priority</th>
                       <th>Status</th>
                       <th />
                     </tr>
@@ -590,6 +607,17 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                           </span>
                         </td>
                         <td>
+                          <span
+                            className={`badge dot ${p.queueStream === 'priority' ? 'success' : p.queueStream === 'normal' ? 'accent' : ''}`}
+                          >
+                            {p.queueStream === 'priority'
+                              ? '1st'
+                              : p.queueStream === 'normal'
+                                ? '2nd'
+                                : '3rd'}
+                          </span>
+                        </td>
+                        <td>
                           {p.isActive ? (
                             <span className="badge dot success">Active</span>
                           ) : (
@@ -618,7 +646,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     {plans.length === 0 && (
                       <tr>
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}
                         >
                           No plans yet — click "Add plan" to create one.
