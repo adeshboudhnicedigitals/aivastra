@@ -8,8 +8,15 @@ export function Switch({ checked, onChange }: SwitchProps) {
     <span
       className={`switch ${checked ? 'on' : ''}`}
       onClick={() => onChange(!checked)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onChange(!checked);
+        }
+      }}
       role="switch"
       aria-checked={checked}
+      tabIndex={0}
     />
   );
 }

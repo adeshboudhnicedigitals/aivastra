@@ -32,6 +32,7 @@ import { authRoutes } from './modules/auth/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
+import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
 import { merchantRoutes } from './modules/merchant/routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
@@ -107,6 +108,7 @@ export async function buildServer(env: Env) {
   await app.register(uploadsRoutes);
   await app.register(jobsRoutes);
   await app.register(merchantRoutes);
+  await app.register(merchantPaymentsRoutes);
   await app.register(widgetRoutes);
   await app.register(modelsRoutes);
   await app.register(adminAuthRoutes);

@@ -5,22 +5,26 @@ import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
+
+type Theme = 'light' | 'dark' | 'system';
+
 import type { CreditPlan } from '../types';
 
-type SettingsSection = 'appearance' | 'notifications' | 'credit-plans' | 'session';
+type SettingsSection = 'appearance' | 'notifications' | 'credit-plans' | 'system' | 'session';
 
 const SETTING_SECTIONS: { k: SettingsSection; label: string }[] = [
   { k: 'appearance', label: 'Appearance' },
   { k: 'notifications', label: 'Notifications' },
   { k: 'credit-plans', label: 'Credit Plans' },
+  { k: 'system', label: 'System' },
   { k: 'session', label: 'Session' },
 ];
 
 interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
-  theme: 'light' | 'dark';
-  onToggleTheme: () => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
 }
 
 const PAGE_SIZES = [15, 25, 50, 100] as const;
@@ -264,7 +268,7 @@ function PlanModal({
   );
 }
 
-export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleTheme }: Props) {
+export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: Props) {
   const { logout } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const section = (searchParams.get('s') as SettingsSection | null) ?? 'appearance';
@@ -276,6 +280,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
   const [slackWebhook, setSlackWebhook] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
 
+  const [freeTrialCredits, setFreeTrialCredits] = useState(0);
+  const [sysLoading, setSysLoading] = useState(true);
+  const [sysSaving, setSysSaving] = useState(false);
+
   const [plans, setPlans] = useState<CreditPlan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
   const [planModal, setPlanModal] = useState<{ open: boolean; plan: CreditPlan | null }>({
@@ -284,6 +292,28 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
   });
   const [confirmDelete, setConfirmDelete] = useState<CreditPlan | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    apiFetch<{ freeTrialCredits?: number }>('/admin/config')
+      .then((cfg) => setFreeTrialCredits(cfg.freeTrialCredits ?? 0))
+      .catch(() => toast({ kind: 'error', title: 'Failed to load system config' }))
+      .finally(() => setSysLoading(false));
+  }, [toast]);
+
+  const saveSysConfig = async () => {
+    setSysSaving(true);
+    try {
+      await apiFetch('/admin/config', {
+        method: 'PATCH',
+        body: JSON.stringify({ freeTrialCredits }),
+      });
+      toast({ title: 'System config saved' });
+    } catch {
+      toast({ kind: 'error', title: 'Failed to save system config' });
+    } finally {
+      setSysSaving(false);
+    }
+  };
 
   useEffect(() => {
     apiFetch<CreditPlan[]>('/admin/credit-plans')
@@ -364,12 +394,23 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
             <div className="setting-row">
               <div>
                 <div className="setting-lbl">Theme</div>
-                <div className="setting-desc">Switch between light and dark mode.</div>
+                <div className="setting-desc">Choose light, dark, or match your system.</div>
               </div>
-              <button className="btn" onClick={onToggleTheme}>
-                {theme === 'dark' ? <Icon.Sun /> : <Icon.Moon />}
-                Switch to {theme === 'dark' ? 'light' : 'dark'} mode
-              </button>
+              <div className="btn-group">
+                {(['light', 'dark', 'system'] as const).map((t) => (
+                  <button
+                    key={t}
+                    className={`btn sm ${theme === t ? 'primary' : ''}`}
+                    onClick={() => setTheme(t)}
+                    aria-pressed={theme === t}
+                  >
+                    {t === 'light' && <Icon.Sun />}
+                    {t === 'dark' && <Icon.Moon />}
+                    {t === 'system' && <Icon.Monitor />}
+                    {t[0].toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="setting-row">
@@ -587,6 +628,55 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, onToggleThem
                   </tbody>
                 </table>
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* System */}
+      {section === 'system' && (
+        <div className="card settings-card">
+          <div className="card-head">
+            <h3>
+              <Icon.Settings /> System Configuration
+            </h3>
+          </div>
+          <div className="card-body">
+            {sysLoading ? (
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+            ) : (
+              <>
+                <div className="setting-row">
+                  <div>
+                    <div className="setting-lbl">Free trial credits</div>
+                    <div className="setting-desc">
+                      One-time credits granted to every new user on registration. Set to 0 to
+                      disable.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={10000}
+                      style={{ width: 100, textAlign: 'right' }}
+                      value={freeTrialCredits}
+                      disabled={sysSaving}
+                      onChange={(e) => setFreeTrialCredits(Number(e.target.value))}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      credits
+                    </span>
+                  </div>
+                </div>
+
+                <div className="setting-actions">
+                  <button className="btn primary" onClick={saveSysConfig} disabled={sysSaving}>
+                    {sysSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </>
             )}
           </div>
         </div>

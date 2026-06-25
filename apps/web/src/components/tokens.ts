@@ -17,6 +17,38 @@ export const C = {
   mint: 'var(--c-mint)',
 } as const;
 
+export const M = {
+  pageBg: 'var(--c-merchant-bg)',
+  card: 'var(--c-card)',
+  accent: 'var(--c-merchant-accent)',
+  accentLight: 'var(--c-merchant-accent-light)',
+  text: 'var(--c-text)',
+  textSecondary: 'var(--c-merchant-text-secondary)',
+  textMuted: 'var(--c-merchant-text-muted)',
+  textPlaceholder: 'var(--c-merchant-text-placeholder)',
+  border: 'var(--c-merchant-border)',
+  borderLight: 'var(--c-merchant-border-light)',
+  hover: 'var(--c-merchant-hover)',
+  divider: 'var(--c-merchant-divider)',
+  success: 'var(--c-merchant-success)',
+  danger: 'var(--c-merchant-danger)',
+  warning: 'var(--c-merchant-warning)',
+  white: 'var(--c-white)',
+  codeBg: 'var(--c-merchant-code-bg)',
+  inputBorder: 'var(--c-merchant-input-border)',
+  toggleOff: 'var(--c-merchant-toggle-off)',
+  statusGreen: 'var(--c-merchant-status-green)',
+  statusRed: 'var(--c-merchant-status-red)',
+  statusBlue: 'var(--c-merchant-status-blue)',
+  scrollbar: 'var(--c-merchant-scrollbar)',
+  successTint: 'var(--c-merchant-success-tint)',
+  dangerTint: 'var(--c-merchant-danger-tint)',
+  accentTint: 'var(--c-merchant-accent-tint)',
+  warningTint: 'var(--c-merchant-warning-tint)',
+  mutedTint: 'var(--c-merchant-muted-tint)',
+  blueTint: 'var(--c-merchant-blue-tint)',
+} as const;
+
 export const grad = 'linear-gradient(135deg, var(--c-pink), var(--c-amber))';
 export const gradSubtle = 'var(--c-grad-subtle)';
 

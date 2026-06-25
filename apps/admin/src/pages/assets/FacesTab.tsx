@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditFaceModal } from '../../components/EditFaceModal';
 import { Icon } from '../../components/Icons';
@@ -57,6 +57,26 @@ export function FacesTab() {
     setPreviewUrl,
     toast,
   } = useAssetsContext();
+
+  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleImageClick(id: string) {
+    if (singleClickTimerRef.current) {
+      clearTimeout(singleClickTimerRef.current);
+      singleClickTimerRef.current = null;
+      return;
+    }
+    singleClickTimerRef.current = setTimeout(() => {
+      singleClickTimerRef.current = null;
+      setSelectedFaceIds((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      );
+    }, 250);
+  }
+
+  function handleImageDoubleClick(r2Key: string) {
+    setPreviewUrl(`${storagePublicUrl}/${r2Key}`);
+  }
 
   const [selectedFaceIds, setSelectedFaceIds] = useState<string[]>([]);
   const [confirmBulkDeleteFaceIds, setConfirmBulkDeleteFaceIds] = useState<string[]>([]);
@@ -195,7 +215,10 @@ export function FacesTab() {
                   opacity: face.isActive ? 1 : 0.6,
                   padding: 14,
                   outline: selectedFaceIds.includes(face.id) ? '2px solid var(--pink)' : undefined,
+                  cursor: 'pointer',
                 }}
+                onClick={() => handleImageClick(face.id)}
+                onDoubleClick={() => handleImageDoubleClick(face.r2Key)}
               >
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <input
@@ -206,6 +229,7 @@ export function FacesTab() {
                         e.target.checked ? [...prev, face.id] : prev.filter((id) => id !== face.id),
                       )
                     }
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                       accentColor: 'var(--pink)',
                       cursor: 'pointer',
@@ -239,8 +263,10 @@ export function FacesTab() {
                     borderTop: '1px solid var(--border)',
                   }}
                 >
-                  <Switch checked={face.isActive} onChange={() => toggleFace(face.id)} />
-                  <div style={{ display: 'flex', gap: 4 }}>
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <Switch checked={face.isActive} onChange={() => toggleFace(face.id)} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 4 }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn sm ghost" onClick={() => setEditingFace(face)}>
                       <Icon.Edit />
                     </button>

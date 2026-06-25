@@ -37,7 +37,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     if (search) {
       conditions.push(
         or(
-          ilike(schema.jobs.id, `%${search}%`),
+          ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
           ilike(schema.users.email, `%${search}%`),
         ) as ReturnType<typeof eq>,
       );

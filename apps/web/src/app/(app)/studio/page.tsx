@@ -145,6 +145,18 @@ const ASPECT_DIMS: Record<string, string> = {
   '3:4': '1331 × 1774 px',
   '4:5': '1375 × 1718 px',
 };
+const ASPECT_PX: Record<string, { w: number; h: number }> = {
+  '1:1': { w: 2048, h: 2048 },
+  '2:3': { w: 1365, h: 2048 },
+  '3:4': { w: 1331, h: 1774 },
+  '4:5': { w: 1375, h: 1718 },
+};
+function resolutionFromOutputDims(w: number, h: number): 'HD' | '2K' | '4K' {
+  const longer = Math.max(w, h);
+  if (longer <= 1440) return 'HD';
+  if (longer <= 2048) return '2K';
+  return '4K';
+}
 const OUTFIT_IMG: Record<string, string> = {
   kurta: `${BASE}/assets/outfit-kurta.png`,
   saree: `${BASE}/assets/outfit-saree.png`,
@@ -170,13 +182,17 @@ function VisualCard({
   ratio?: number;
 }) {
   return (
-    <div
+    <button
+      type="button"
       onClick={onClick}
       style={{
         cursor: 'pointer',
         textAlign: 'center',
         flexShrink: 0,
         width: typeof width === 'string' ? width : undefined,
+        background: 'none',
+        border: 'none',
+        padding: 0,
       }}
     >
       <div
@@ -203,6 +219,7 @@ function VisualCard({
         >
           {img ? (
             // eslint-disable-next-line @next/next/no-img-element
+            // biome-ignore lint/performance/noImgElement: small UI thumbnail, Next Image not needed
             <img
               src={img}
               alt={label}
@@ -264,7 +281,133 @@ function VisualCard({
           {label}
         </div>
       )}
-    </div>
+    </button>
+  );
+}
+
+// ── Gender card — horizontal landscape layout (SVG/PNG spec: Frame 446) ──
+// border-image + border-radius are incompatible in CSS; gradient border is
+// achieved via a 1px gradient-background wrapper (same visual result).
+function GenderCard({
+  selected,
+  onClick,
+  img,
+  label,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  img: string | null;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        cursor: 'pointer',
+        background: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : '#FEFEFE',
+        borderRadius: 8,
+        padding: selected ? 1 : 0,
+        border: selected ? 'none' : '1px solid #EEEEEE',
+        boxShadow: selected ? '0px 2px 15px 0px #F6B55314' : 'none',
+        height: 72,
+        boxSizing: 'border-box',
+        width: '100%',
+        textAlign: 'left',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: '#FEFEFE',
+          borderRadius: selected ? 7 : 8,
+          padding: '0 12px',
+          position: 'relative',
+          height: '100%',
+        }}
+      >
+        {/* Circular image — gradient ring when selected, grey when not */}
+        <div
+          style={{
+            flexShrink: 0,
+            width: 40,
+            height: 40,
+            borderRadius: 100,
+            padding: 1,
+            background: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : '#B6B6B6',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            style={{
+              width: '100%',
+              height: '100%',
+              borderRadius: 100,
+              overflow: 'hidden',
+              background: C.lighter,
+            }}
+          >
+            {img && (
+              // eslint-disable-next-line @next/next/no-img-element
+              // biome-ignore lint/performance/noImgElement: small UI thumbnail, Next Image not needed
+              <img
+                src={img}
+                alt={label}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  objectPosition: 'top center',
+                  transform: 'scale(1.35)',
+                  transformOrigin: 'center 5%',
+                }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Label */}
+        <span
+          style={{
+            fontFamily: 'Poppins, sans-serif',
+            fontWeight: 500,
+            fontSize: 14,
+            lineHeight: '18px',
+            letterSpacing: 0,
+            color: '#141414',
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {label}
+        </span>
+
+        {/* Selected checkmark badge — top-right corner */}
+        {selected && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 6,
+              right: 6,
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <CheckIcon color={C.white} size={11} />
+          </div>
+        )}
+      </div>
+    </button>
   );
 }
 
@@ -336,6 +479,7 @@ function SelCard({
           {imageUrl ? (
             <div data-zoom style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* biome-ignore lint/performance/noImgElement: small selection card thumbnail */}
               <img
                 src={imageUrl}
                 alt={label}
@@ -478,6 +622,7 @@ function GarmentTipsButton() {
             </span>
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
           <img
             src={`${BASE}/assets/instructions.png`}
             alt="Garment guidelines"
@@ -507,12 +652,45 @@ export default function StudioPage(): React.ReactElement {
   const [garmentModalOpen, setGarmentModalOpen] = useState(false);
   const [platform, setPlatform] = useState('Amazon');
   const [aspect, setAspect] = useState(BRAND_CONFIG.Amazon?.default ?? '1:1');
+  const [customRatio, setCustomRatio] = useState('');
+  const [customWStr, setCustomWStr] = useState('');
+  const [customHStr, setCustomHStr] = useState('');
   const [amazonPoseModalOpen, setAmazonPoseModalOpen] = useState(false);
   const [amazonMainPoseId, setAmazonMainPoseId] = useState('');
   // Bypassed: Amazon no longer forces white bg. Logic kept dormant for future use.
   const [amazonUseWhiteBg, _setAmazonUseWhiteBg] = useState(false);
 
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
+  const effectiveAspect = aspect === 'custom' && customRatio ? customRatio : aspect;
+
+  // Custom dimension validation — computed at component level so handleSubmit and
+  // canGenerate can both reference them without re-deriving inside the render IIFE.
+  const customWNum = Number(customWStr);
+  const customHNum = Number(customHStr);
+  const customWErr =
+    customWStr !== '' && (isNaN(customWNum) || customWNum < 768 || customWNum > 2048);
+  const customHErr =
+    customHStr !== '' && (isNaN(customHNum) || customHNum < 768 || customHNum > 2048);
+  const customDimsReady =
+    aspect !== 'custom' ||
+    (!!customRatio && !!customWStr && !!customHStr && !customWErr && !customHErr);
+  const customParams =
+    aspect === 'custom' && customDimsReady
+      ? { outputWidth: customWNum, outputHeight: customHNum }
+      : {};
+
+  const outputDims: { w: number; h: number } | null = (() => {
+    if (aspect === 'custom') {
+      return customDimsReady && customWNum > 0 && customHNum > 0
+        ? { w: customWNum, h: customHNum }
+        : null;
+    }
+    const d = ASPECT_PX[effectiveAspect];
+    return d ?? null;
+  })();
+  const resolution: 'HD' | '2K' | '4K' | null = outputDims
+    ? resolutionFromOutputDims(outputDims.w, outputDims.h)
+    : null;
 
   const handlePlatformChange = (p: string) => {
     setPlatform(p);
@@ -575,12 +753,6 @@ export default function StudioPage(): React.ReactElement {
   const [shoeItemsOpen, setShoeItemsOpen] = useState(false);
   const lowerVisibleCount = 5;
   const shoeVisibleCount = 5;
-  const [resolution, setResolution] = useState<'HD' | '2K' | '4K' | ''>('');
-  useEffect(() => {
-    if (!resolution) {
-      setResolution('HD');
-    }
-  }, [resolution]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
@@ -939,8 +1111,9 @@ export default function StudioPage(): React.ReactElement {
             lowerGarmentKey: lowerGarmentKey || undefined,
             shoeCatalogId: effectiveShoesId,
           },
-          aspectRatio: aspect,
+          aspectRatio: effectiveAspect,
           resolution,
+          ...(Object.keys(customParams).length ? { params: customParams } : {}),
           ...(effectivePlatform ? { platform: effectivePlatform } : {}),
         },
       );
@@ -998,8 +1171,9 @@ export default function StudioPage(): React.ReactElement {
           lowerGarmentKey: lowerGarmentKey || undefined,
           shoeCatalogId: effectiveShoesId,
         },
-        aspectRatio: aspect,
+        aspectRatio: effectiveAspect,
         resolution,
+        ...(Object.keys(customParams).length ? { params: customParams } : {}),
         platform: 'Amazon',
       });
 
@@ -1019,8 +1193,9 @@ export default function StudioPage(): React.ReactElement {
             lowerGarmentKey: lowerGarmentKey || undefined,
             shoeCatalogId: effectiveShoesId,
           },
-          aspectRatio: aspect,
+          aspectRatio: effectiveAspect,
           resolution,
+          ...(Object.keys(customParams).length ? { params: customParams } : {}),
         });
         remainingJobIds = remaining.jobIds;
       }
@@ -1060,6 +1235,7 @@ export default function StudioPage(): React.ReactElement {
     !!garmentKey &&
     !!faceId &&
     !!backgroundId &&
+    customDimsReady &&
     !!resolution &&
     !isUploading &&
     !isUploadingLower &&
@@ -1074,8 +1250,8 @@ export default function StudioPage(): React.ReactElement {
         ? 'Upload a garment image first'
         : poseIds.length === 0
           ? 'Select at least one pose'
-          : !resolution
-            ? 'Select an output resolution'
+          : !customDimsReady
+            ? 'Enter valid width and height for custom size'
             : '';
 
   return (
@@ -1107,18 +1283,16 @@ export default function StudioPage(): React.ReactElement {
               <SectionHead title="Catalogue For" />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
                 {GENDERS.map((g) => (
-                  <VisualCard
+                  <GenderCard
                     key={g.value}
                     img={g.img}
                     label={g.label}
-                    width="100%"
                     selected={gender === g.value}
                     onClick={() => {
                       setGender(g.value);
                       setGarmentTypeId('');
                       setGarmentModalOpen(false);
                     }}
-                    imgStyle={{ transform: 'scale(1.4)', transformOrigin: 'center 1%' }}
                   />
                 ))}
               </div>
@@ -1260,27 +1434,214 @@ export default function StudioPage(): React.ReactElement {
 
             <section>
               <SectionHead title="Aspect Ratio" />
+
+              {/* ── Pill row: hide presets when custom is active ── */}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {ALL_ASPECTS.map((r) => {
-                  const supported = brandAspects.includes(r);
+                {aspect !== 'custom' &&
+                  ALL_ASPECTS.map((r) => {
+                    const supported = brandAspects.includes(r);
+                    return (
+                      <button
+                        key={r}
+                        onClick={supported ? () => setAspect(r) : undefined}
+                        style={{
+                          ...pill(aspect === r),
+                          ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                        }}
+                      >
+                        {r}
+                      </button>
+                    );
+                  })}
+                <button
+                  onClick={() => {
+                    setAspect('custom');
+                    setCustomRatio('');
+                    setCustomWStr('');
+                    setCustomHStr('');
+                  }}
+                  style={pill(aspect === 'custom')}
+                >
+                  Custom
+                </button>
+              </div>
+
+              {/* ── Custom sub-panel ── */}
+              {aspect === 'custom' &&
+                (() => {
+                  const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
+                  const wErr = customWErr;
+                  const hErr = customHErr;
+                  const wNum = customWNum;
+                  const hNum = customHNum;
+
+                  const handleWChange = (val: string) => {
+                    setCustomWStr(val);
+                    if (rW && rH && val !== '') {
+                      const n = Math.round((Number(val) * rH) / rW);
+                      setCustomHStr(String(n));
+                    }
+                  };
+                  const handleHChange = (val: string) => {
+                    setCustomHStr(val);
+                    if (rW && rH && val !== '') {
+                      const n = Math.round((Number(val) * rW) / rH);
+                      setCustomWStr(String(n));
+                    }
+                  };
+
+                  const inputBase: React.CSSProperties = {
+                    width: 86,
+                    padding: '6px 8px',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    color: C.text,
+                    background: C.bg,
+                    outline: 'none',
+                  };
+
                   return (
-                    <button
-                      key={r}
-                      onClick={supported ? () => setAspect(r) : undefined}
-                      style={{
-                        ...pill(aspect === r),
-                        ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-                      }}
-                    >
-                      {r}
-                    </button>
+                    <div style={{ marginTop: 12 }}>
+                      <p style={{ fontSize: 11, color: C.light, margin: '0 0 6px' }}>
+                        Select aspect ratio
+                      </p>
+                      {/* Ratio pills + inputs in one aligned row */}
+                      <div
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                      >
+                        {ALL_ASPECTS.map((r) => (
+                          <button
+                            key={r}
+                            onClick={() => {
+                              setCustomRatio(r);
+                              setCustomWStr('');
+                              setCustomHStr('');
+                            }}
+                            style={{ ...pill(customRatio === r), flexShrink: 0 }}
+                          >
+                            {r}
+                          </button>
+                        ))}
+
+                        {customRatio && (
+                          <>
+                            <div
+                              style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }}
+                            />
+
+                            <input
+                              type="number"
+                              placeholder="Width"
+                              value={customWStr}
+                              onChange={(e) => handleWChange(e.target.value)}
+                              style={{
+                                ...inputBase,
+                                border: `1px solid ${wErr ? '#F55C7A' : C.border}`,
+                              }}
+                            />
+
+                            <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
+
+                            <input
+                              type="number"
+                              placeholder="Height"
+                              value={customHStr}
+                              onChange={(e) => handleHChange(e.target.value)}
+                              style={{
+                                ...inputBase,
+                                border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
+                              }}
+                            />
+                          </>
+                        )}
+                      </div>
+
+                      {customRatio && (
+                        <p
+                          style={{
+                            fontSize: 11,
+                            color: wErr || hErr ? '#F55C7A' : C.light,
+                            margin: '5px 0 0',
+                          }}
+                        >
+                          {wErr || hErr
+                            ? `${(wErr && wNum < 768) || (hErr && hNum < 768) ? 'Min 768px' : 'Max 2048px'}`
+                            : 'Min 768px · Max 2048px'}
+                        </p>
+                      )}
+                    </div>
                   );
-                })}
-              </div>
-              <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                {ASPECT_DIMS[aspect]}
-              </div>
+                })()}
+
+              {/* ── Dimension hint ── */}
+              {aspect !== 'custom' && (
+                <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
+                  {ASPECT_DIMS[aspect]}
+                </div>
+              )}
             </section>
+
+            {/* ── Resolution (read-only, auto-derived from output dims) ── */}
+            {resolution && (
+              <section>
+                <SectionHead
+                  title="Output Resolution"
+                  right={
+                    <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
+                  }
+                />
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {(
+                    [
+                      { key: 'HD', label: 'HD', credits: 25 },
+                      { key: '2K', label: '2K', credits: 35 },
+                      { key: '4K', label: '4K', credits: 40 },
+                    ] as const
+                  ).map((r) => {
+                    const active = resolution === r.key;
+                    return (
+                      <div
+                        key={r.key}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '8px 16px',
+                          borderRadius: 99,
+                          border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
+                          background: active ? 'rgba(245,92,122,0.04)' : C.white,
+                          boxSizing: 'border-box',
+                          userSelect: 'none',
+                          opacity: active ? 1 : 0.45,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: '50%',
+                            border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
+                            background: C.white,
+                            flexShrink: 0,
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                        <span
+                          style={{ fontSize: 14, fontWeight: 600, color: active ? C.pink : C.text }}
+                        >
+                          {r.label}
+                        </span>
+                        <span
+                          style={{ fontSize: 13, color: active ? C.pink : C.mid, fontWeight: 400 }}
+                        >
+                          ({r.credits} credits)
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             <section>
               <SectionHead
@@ -1335,6 +1696,7 @@ export default function StudioPage(): React.ReactElement {
                     {garmentFile ? (
                       <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
                         <img
                           src={garmentPreviewUrl}
                           alt={garmentFile.name}
@@ -1438,6 +1800,7 @@ export default function StudioPage(): React.ReactElement {
                     ) : (
                       <>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
                         <img
                           src={`${BASE}/assets/upperGarmentRef.png`}
                           alt="Upper garment reference"
@@ -1537,6 +1900,7 @@ export default function StudioPage(): React.ReactElement {
                       {lowerGarmentFile ? (
                         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
+                          {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
                           <img
                             src={lowerGarmentPreviewUrl}
                             alt={lowerGarmentFile.name}
@@ -1621,6 +1985,7 @@ export default function StudioPage(): React.ReactElement {
                       ) : (
                         <>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
+                          {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
                           <img
                             src={`${BASE}/assets/upperGarmentRef.png`}
                             alt="Lower garment reference"
@@ -2298,63 +2663,6 @@ export default function StudioPage(): React.ReactElement {
                   </section>
                 );
               })()}
-
-            {/* ── Resolution ── */}
-            <section>
-              <SectionHead title="Output Resolution" />
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                {(
-                  [
-                    { key: 'HD', label: 'HD', credits: 25 },
-                    { key: '2K', label: '2K', credits: 35 },
-                    { key: '4K', label: '4K', credits: 40 },
-                  ] as const
-                ).map((r) => {
-                  const active = resolution === r.key;
-                  return (
-                    <div
-                      key={r.key}
-                      onClick={() => setResolution(r.key)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '8px 16px',
-                        borderRadius: 99,
-                        border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
-                        background: active ? 'rgba(245,92,122,0.04)' : C.white,
-                        cursor: 'pointer',
-                        boxSizing: 'border-box',
-                        userSelect: 'none',
-                      }}
-                    >
-                      {/* Radio circle */}
-                      <div
-                        style={{
-                          width: 16,
-                          height: 16,
-                          borderRadius: '50%',
-                          border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
-                          background: C.white,
-                          flexShrink: 0,
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                      <span
-                        style={{ fontSize: 14, fontWeight: 600, color: active ? C.pink : C.text }}
-                      >
-                        {r.label}
-                      </span>
-                      <span
-                        style={{ fontSize: 13, color: active ? C.pink : C.mid, fontWeight: 400 }}
-                      >
-                        ({r.credits} credits)
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
           </div>
 
           {/* Footer (pinned, left column only) */}
@@ -2756,6 +3064,7 @@ export default function StudioPage(): React.ReactElement {
                 }}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
+                {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
                 <img
                   src={whiteBg.previewUrl}
                   alt="White background"

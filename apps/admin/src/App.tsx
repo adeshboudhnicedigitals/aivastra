@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { ToastStack } from './components/ToastStack';
 import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
+import { apiFetch, patchAdminPreferences } from './lib/data';
 import AssetsPage from './pages/AssetsPage';
 import DashboardPage from './pages/DashboardPage';
 import JobsPage from './pages/JobsPage';
@@ -16,7 +17,7 @@ import { WidgetClients } from './pages/WidgetClients';
 import WorkflowsPage from './pages/WorkflowsPage';
 import type { ToastItem } from './types';
 
-type Theme = 'light' | 'dark';
+type Theme = 'light' | 'dark' | 'system';
 
 const PATH_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -28,27 +29,83 @@ const PATH_LABELS: Record<string, string> = {
   settings: 'Settings',
 };
 
-function readInitialTheme(): Theme {
-  if (typeof window === 'undefined') return 'dark';
-  return (localStorage.getItem('aivastra-theme') as Theme) || 'dark';
+function readStoredTheme(): Theme {
+  if (typeof window === 'undefined') return 'system';
+  const raw = localStorage.getItem('aivastra-theme');
+  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'system';
+}
+
+function resolveTheme(t: Theme): 'light' | 'dark' {
+  if (t === 'system')
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return t;
 }
 
 export default function App() {
   const { token, role, isLoading } = useAuth();
-  const [theme, setTheme] = useState<Theme>(readInitialTheme);
+  const [theme, setThemeState] = useState<Theme>(readStoredTheme);
+  const skipSyncRef = useRef(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const idRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Apply theme to DOM + persist locally
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-theme', resolveTheme(theme));
     localStorage.setItem('aivastra-theme', theme);
   }, [theme]);
 
+  // Track OS preference changes when in system mode
+  useEffect(() => {
+    if (theme !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = () =>
+      document.documentElement.setAttribute('data-theme', resolveTheme('system'));
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [theme]);
+
+  // Load server preference on login
+  useEffect(() => {
+    if (!token || isLoading) return;
+    let cancelled = false;
+    apiFetch<{ preferences?: { theme?: Theme } }>('/admin/me')
+      .then((me) => {
+        if (cancelled) return;
+        const serverValue = me.preferences?.theme;
+        if (serverValue) {
+          skipSyncRef.current = true;
+          setThemeState(serverValue);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [token, isLoading]);
+
+  // Debounced server sync on user-initiated changes
+  useEffect(() => {
+    if (!token) return;
+    if (skipSyncRef.current) {
+      skipSyncRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      patchAdminPreferences({ theme }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [theme, token]);
+
+  function setTheme(next: Theme) {
+    setThemeState(next);
+  }
+
   const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+    const order: Theme[] = ['light', 'dark', 'system'];
+    setThemeState((t) => order[(order.indexOf(t) + 1) % order.length]);
   }, []);
 
   const toast = useCallback((t: { kind?: 'error'; title: string; body?: string }) => {
@@ -104,7 +161,7 @@ export default function App() {
   const pageLabel = PATH_LABELS[segment] ?? 'Dashboard';
   const trail = ['Aivastra', pageLabel];
   const pageProps = { onNav: handleNavWithFilter, toast };
-  const settingsProps = { onNav: handleNavWithFilter, toast, theme, onToggleTheme: toggleTheme };
+  const settingsProps = { onNav: handleNavWithFilter, toast, theme, setTheme };
 
   return (
     <div className={`app${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
@@ -116,7 +173,12 @@ export default function App() {
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
       />
       <div className="main">
-        <Topbar trail={trail} onNavTrail={(i) => i === 0 && navigate('/dashboard')} />
+        <Topbar
+          trail={trail}
+          onNavTrail={(i) => i === 0 && navigate('/dashboard')}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
         <main className="content">
           <Routes>
             <Route path="/" element={<DashboardPage {...pageProps} />} />

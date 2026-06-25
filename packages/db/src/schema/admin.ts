@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { users } from './users.js';
 
 export const adminUsers = pgTable('admin_users', {
@@ -11,4 +11,5 @@ export const adminUsers = pgTable('admin_users', {
   status: text('status').notNull().default('active'), // pending | active | rejected
   passwordHash: text('password_hash'), // copied from users.passwordHash at approval time
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  preferences: jsonb('preferences').$type<{ theme?: 'light' | 'dark' | 'system' }>().default({}),
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { BackgroundUploadModal } from '../../components/BackgroundUploadModal';
 import { EditBackgroundModal } from '../../components/EditBackgroundModal';
@@ -39,6 +39,26 @@ export function BackgroundsTab() {
     setPreviewUrl,
     toast,
   } = useAssetsContext();
+
+  const singleClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function handleImageClick(id: string) {
+    if (singleClickTimerRef.current) {
+      clearTimeout(singleClickTimerRef.current);
+      singleClickTimerRef.current = null;
+      return;
+    }
+    singleClickTimerRef.current = setTimeout(() => {
+      singleClickTimerRef.current = null;
+      setSelectedBgIds((prev) =>
+        prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+      );
+    }, 250);
+  }
+
+  function handleImageDoubleClick(r2Key: string) {
+    setPreviewUrl(`${storagePublicUrl}/${r2Key}`);
+  }
 
   const [bgView, setBgView] = useState<BgView>({ kind: 'list' });
   const [categories, setCategories] = useState<CatalogCategory[]>([]);
@@ -586,11 +606,8 @@ export function BackgroundsTab() {
                     outline: selectedBgIds.includes(bg.id) ? '2px solid var(--pink)' : undefined,
                     cursor: 'pointer',
                   }}
-                  onClick={() =>
-                    setSelectedBgIds((prev) =>
-                      prev.includes(bg.id) ? prev.filter((id) => id !== bg.id) : [...prev, bg.id],
-                    )
-                  }
+                  onClick={() => handleImageClick(bg.id)}
+                  onDoubleClick={() => handleImageDoubleClick(bg.r2Key)}
                 >
                   <div style={{ position: 'relative' }}>
                     <AssetThumb
