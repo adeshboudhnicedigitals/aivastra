@@ -19,6 +19,7 @@ const PlanBody = z.object({
   isHighlighted: z.boolean().default(false),
   badge: z.string().max(50).nullable().default(null),
   sortOrder: z.number().int().default(0),
+  queueStream: z.enum(['priority', 'normal', 'low']).default('normal'),
 });
 
 export async function adminCreditPlansRoutes(app: FastifyInstance) {

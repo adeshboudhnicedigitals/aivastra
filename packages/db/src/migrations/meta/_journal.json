@@ -435,6 +435,13 @@
       "when": 1782296200001,
       "tag": "0061_merchant_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1782382600000,
+      "tag": "0062_credit_plan_queue_stream",
+      "breakpoints": true
     }
   ]
 }

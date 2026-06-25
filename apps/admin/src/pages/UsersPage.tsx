@@ -31,6 +31,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmSuspend, setConfirmSuspend] = useState<string | null>(null);
   const [grantUserId, setGrantUserId] = useState<string | null>(null);
+  const [grantMode, setGrantMode] = useState<'grant' | 'deduct'>('grant');
   const [grantAmount, setGrantAmount] = useState('');
   const [grantReason, setGrantReason] = useState('');
   const [granting, setGranting] = useState(false);
@@ -112,28 +113,45 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
 
   const handleGrant = async () => {
     if (!grantUserId || !grantAmount) return;
+    const amt = parseInt(grantAmount, 10);
+    if (Number.isNaN(amt) || amt < 1) return;
     setGranting(true);
     try {
-      const body = {
-        userId: grantUserId,
-        amount: parseInt(grantAmount, 10),
-        reason: grantReason.trim() || 'Manual credit grant',
-      };
-      await apiFetch('/admin/credits/grant', { method: 'POST', body: JSON.stringify(body) });
-      setDetail((prev) =>
-        prev ? { ...prev, balance: prev.balance + parseInt(grantAmount, 10) } : null,
-      );
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === grantUserId ? { ...u, balance: u.balance + parseInt(grantAmount, 10) } : u,
-        ),
-      );
-      toast({ title: `Granted ${parseInt(grantAmount, 10).toLocaleString()} credits` });
+      if (grantMode === 'grant') {
+        const body = {
+          userId: grantUserId,
+          amount: amt,
+          reason: grantReason.trim() || 'Manual credit grant',
+        };
+        await apiFetch('/admin/credits/grant', { method: 'POST', body: JSON.stringify(body) });
+        setDetail((prev) => (prev ? { ...prev, balance: prev.balance + amt } : null));
+        setUsers((prev) =>
+          prev.map((u) => (u.id === grantUserId ? { ...u, balance: u.balance + amt } : u)),
+        );
+        toast({ title: `Granted ${amt.toLocaleString()} credits` });
+      } else {
+        const body = {
+          userId: grantUserId,
+          amount: amt,
+          reason: grantReason.trim() || 'Manual credit deduction',
+        };
+        await apiFetch('/admin/credits/deduct', { method: 'POST', body: JSON.stringify(body) });
+        setDetail((prev) => (prev ? { ...prev, balance: prev.balance - amt } : null));
+        setUsers((prev) =>
+          prev.map((u) => (u.id === grantUserId ? { ...u, balance: u.balance - amt } : u)),
+        );
+        toast({ title: `Deducted ${amt.toLocaleString()} credits` });
+      }
       setGrantUserId(null);
       setGrantAmount('');
       setGrantReason('');
-    } catch {
-      toast({ kind: 'error', title: 'Failed to grant credits' });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      toast({
+        kind: 'error',
+        title: grantMode === 'grant' ? 'Failed to grant credits' : 'Failed to deduct credits',
+        body: msg.includes('INSUFFICIENT') ? 'Balance would go below zero' : undefined,
+      });
     } finally {
       setGranting(false);
     }
@@ -170,11 +188,12 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
               className="btn"
               onClick={() => {
                 setGrantUserId(u.id);
+                setGrantMode('grant');
                 setGrantAmount('');
                 setGrantReason('');
               }}
             >
-              <Icon.Plus /> Grant Credits
+              <Icon.Plus /> Adjust Credits
             </button>
             {isSuperAdmin && !u.isAdmin && (
               <button
@@ -328,15 +347,44 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
         )}
 
         {grantUserId && (
-          <div className="modal-overlay" onClick={() => setGrantUserId(null)}>
+          <div
+            className="modal-overlay"
+            onClick={() => {
+              setGrantUserId(null);
+              setGrantMode('grant');
+              setGrantAmount('');
+              setGrantReason('');
+            }}
+          >
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
-                <h3>Grant credits to {u.displayName ?? u.email}</h3>
+                <h3>Adjust credits — {u.displayName ?? u.email}</h3>
               </div>
               <div
                 className="modal-body"
                 style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
               >
+                <div className="field">
+                  <label>Action</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className={`btn${grantMode === 'grant' ? ' primary' : ' ghost'}`}
+                      style={{ flex: 1 }}
+                      onClick={() => setGrantMode('grant')}
+                    >
+                      + Grant
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn${grantMode === 'deduct' ? ' danger' : ' ghost'}`}
+                      style={{ flex: 1 }}
+                      onClick={() => setGrantMode('deduct')}
+                    >
+                      − Deduct
+                    </button>
+                  </div>
+                </div>
                 <div className="field">
                   <label>Amount</label>
                   <input
@@ -346,8 +394,17 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                     max={10000}
                     value={grantAmount}
                     onChange={(e) => setGrantAmount(e.target.value)}
-                    placeholder="Enter credits (max 10,000)"
+                    placeholder={
+                      grantMode === 'grant'
+                        ? 'Credits to add (max 10,000)'
+                        : `Credits to remove (max ${u.balance.toLocaleString()})`
+                    }
                   />
+                  {grantMode === 'deduct' && (
+                    <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                      Current balance: {u.balance.toLocaleString()} credits
+                    </p>
+                  )}
                 </div>
                 <div className="field">
                   <label>Reason</label>
@@ -355,24 +412,40 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                     className="input"
                     value={grantReason}
                     onChange={(e) => setGrantReason(e.target.value)}
-                    placeholder="e.g. Customer support, bulk top-up"
+                    placeholder={
+                      grantMode === 'grant'
+                        ? 'e.g. Customer support, bulk top-up'
+                        : 'e.g. Refund correction, duplicate charge'
+                    }
                     rows={3}
                     style={{ resize: 'vertical' }}
                   />
                 </div>
               </div>
               <div className="modal-foot">
-                <button className="btn ghost" onClick={() => setGrantUserId(null)}>
+                <button
+                  className="btn ghost"
+                  onClick={() => {
+                    setGrantUserId(null);
+                    setGrantMode('grant');
+                    setGrantAmount('');
+                    setGrantReason('');
+                  }}
+                >
                   Cancel
                 </button>
                 <button
-                  className="btn primary"
+                  className={`btn ${grantMode === 'grant' ? 'primary' : 'danger'}`}
                   onClick={handleGrant}
                   disabled={granting || !grantAmount || parseInt(grantAmount, 10) < 1}
                 >
                   {granting
-                    ? 'Granting…'
-                    : `Grant ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`}
+                    ? grantMode === 'grant'
+                      ? 'Granting…'
+                      : 'Deducting…'
+                    : grantMode === 'grant'
+                      ? `Grant ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`
+                      : `Deduct ${grantAmount ? parseInt(grantAmount, 10).toLocaleString() : ''} credits`}
                 </button>
               </div>
             </div>

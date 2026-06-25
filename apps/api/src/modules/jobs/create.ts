@@ -179,9 +179,19 @@ export async function createJob(
     }
   }
 
-  const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
+  const [[user], [planRow]] = await Promise.all([
+    app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
+    app.db
+      .select({ queueStream: schema.creditPlans.queueStream })
+      .from(schema.users)
+      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
+      .where(eq(schema.users.id, userId)),
+  ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
-  const priority = user.tier === 'PRO';
+
+  // Fall back to 'normal' if the user's tier has no matching credit_plans row.
+  const queueStream: string = planRow?.queueStream ?? 'normal';
+  const priority = queueStream === 'priority';
 
   const catalogueId = body.catalogueId ?? randomUUID();
   const jobIds = await app.db.transaction(async (tx) => {
@@ -232,12 +242,12 @@ export async function createJob(
     return created;
   });
 
-  const stream = priority ? 'jobs:priority' : 'jobs:normal';
+  const stream = `jobs:${queueStream}`;
   const failedEnqueues: string[] = [];
   for (const jobId of jobIds) {
     try {
       await app.redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
-      jobsCreatedTotal.inc({ priority: priority ? 'priority' : 'normal' });
+      jobsCreatedTotal.inc({ priority: queueStream });
     } catch (err) {
       app.log.error({ err, jobId }, 'redis xadd failed — job will be refunded');
       failedEnqueues.push(jobId);

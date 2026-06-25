@@ -12,6 +12,8 @@ export const creditPlans = pgTable('credit_plans', {
   isHighlighted: boolean('is_highlighted').notNull().default(false),
   badge: text('badge'),
   sortOrder: integer('sort_order').notNull().default(0),
+  // 'priority' | 'normal' | 'low' — maps users who purchased this plan to a queue tier
+  queueStream: text('queue_stream').notNull().default('normal'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

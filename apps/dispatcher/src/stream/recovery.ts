@@ -6,7 +6,7 @@ import { processJob } from '../job/processor.js';
 
 const GROUP = 'dispatcher-cg';
 const CONSUMER = hostname();
-const DEFAULT_STREAMS = ['jobs:priority', 'jobs:normal'] as const;
+const DEFAULT_STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low'] as const;
 
 type PendingEntry = [string, string, number, number]; // [id, consumer, idleMs, deliveries]
 
@@ -41,15 +41,21 @@ export async function recoverPendingJobs(
         )) as Array<[string, string[]]>;
         if (!claimed.length) continue;
 
-        const [, fields] = claimed[0]!;
+        const claimedEntry = claimed[0];
+        if (!claimedEntry) continue;
+        const [, fields] = claimedEntry;
         const fieldMap: Record<string, string> = {};
-        for (let i = 0; i < fields.length; i += 2) fieldMap[fields[i]!] = fields[i + 1]!;
+        for (let i = 0; i < fields.length; i += 2) {
+          const k = fields[i];
+          const v = fields[i + 1];
+          if (k !== undefined && v !== undefined) fieldMap[k] = v;
+        }
         if (!fieldMap.jobId || !fieldMap.userId) {
           await redis.xack(stream, GROUP, messageId);
           continue;
         }
         log.info({ jobId: fieldMap.jobId }, 'reprocessing claimed pending job');
-        await processJob(cfg, fieldMap.jobId!, fieldMap.userId!, stream, messageId);
+        await processJob(cfg, fieldMap.jobId, fieldMap.userId, stream, messageId);
       }
 
       const lastId = pending[pending.length - 1]?.[0];

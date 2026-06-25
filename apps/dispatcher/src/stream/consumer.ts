@@ -8,7 +8,7 @@ const GROUP = 'dispatcher-cg';
 const CONSUMER = hostname();
 
 async function ensureGroups(redis: Redis, log: Logger): Promise<void> {
-  for (const stream of ['jobs:priority', 'jobs:normal']) {
+  for (const stream of ['jobs:priority', 'jobs:normal', 'jobs:low']) {
     try {
       await redis.xgroup('CREATE', stream, GROUP, '$', 'MKSTREAM');
       log.info({ stream }, 'consumer group created');
@@ -26,9 +26,15 @@ function parseMessage(
   result: XReadGroupResult,
 ): { stream: string; messageId: string; jobId: string; userId: string } | null {
   if (!result?.[0]?.[1].length) return null;
-  const [messageId, fields] = result[0][1][0]!;
+  const entry = result[0][1][0];
+  if (!entry) return null;
+  const [messageId, fields] = entry;
   const fieldMap: Record<string, string> = {};
-  for (let i = 0; i < fields.length; i += 2) fieldMap[fields[i]!] = fields[i + 1]!;
+  for (let i = 0; i < fields.length; i += 2) {
+    const k = fields[i];
+    const v = fields[i + 1];
+    if (k !== undefined && v !== undefined) fieldMap[k] = v;
+  }
   // userId is absent for widget jobs (which use widgetClientId from the DB row instead)
   if (!fieldMap.jobId) return null;
   return { stream, messageId, jobId: fieldMap.jobId, userId: fieldMap.userId ?? '' };
@@ -37,7 +43,7 @@ function parseMessage(
 async function readOne(
   redis: Redis,
 ): Promise<{ stream: string; messageId: string; jobId: string; userId: string } | null> {
-  // Check priority queue first — no BLOCK (truly non-blocking instant check)
+  // 1. Check priority queue — instant, no block
   const priority = (await redis.xreadgroup(
     'GROUP',
     GROUP,
@@ -51,8 +57,22 @@ async function readOne(
   const pMsg = parseMessage('jobs:priority', priority);
   if (pMsg) return pMsg;
 
-  // Block up to 2s on normal queue
+  // 2. Check normal queue — instant, no block
   const normal = (await redis.xreadgroup(
+    'GROUP',
+    GROUP,
+    CONSUMER,
+    'COUNT',
+    '1',
+    'STREAMS',
+    'jobs:normal',
+    '>',
+  )) as XReadGroupResult;
+  const nMsg = parseMessage('jobs:normal', normal);
+  if (nMsg) return nMsg;
+
+  // 3. Block up to 2s on low queue
+  const low = (await redis.xreadgroup(
     'GROUP',
     GROUP,
     CONSUMER,
@@ -61,10 +81,10 @@ async function readOne(
     'BLOCK',
     '2000',
     'STREAMS',
-    'jobs:normal',
+    'jobs:low',
     '>',
   )) as XReadGroupResult;
-  return parseMessage('jobs:normal', normal);
+  return parseMessage('jobs:low', low);
 }
 
 export async function runConsumer(
