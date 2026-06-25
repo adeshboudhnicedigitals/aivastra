@@ -13,6 +13,7 @@ import {
   XIcon,
 } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
+import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
@@ -282,121 +283,95 @@ export default function PricingPage(): React.ReactElement {
 
   return (
     <div style={{ flex: 1, overflowY: 'auto' }}>
-      <div
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'flex-start',
-          justifyContent: 'space-between',
-          marginTop: 40,
-          marginBottom: 40,
-          paddingRight: 28,
-        }}
-      >
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, height: 72 }}>
-          <div
-            style={{
-              width: '100%',
-              height: 40,
-              fontWeight: 600,
-              fontSize: 28,
-              lineHeight: '40px',
-              color: C.text,
-              textAlign: 'center',
-            }}
-          >
-            Simple pricing for catalogue-ready visuals
-          </div>
-          <div
-            style={{
-              width: '100%',
-              height: 20,
-              fontWeight: 500,
-              fontSize: 16,
-              lineHeight: '20px',
-              color: C.mid,
-              textAlign: 'center',
-            }}
-          >
-            Create professional fashion catalogues without photoshoots, models, or editing
-            headaches.
-          </div>
-        </div>
-        <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
-          <button
-            type="button"
-            onClick={() => setShowCountry(!showCountry)}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
-              padding: 8,
-              width: 130,
-              height: 32,
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              background: C.white,
-              fontFamily: 'inherit',
-              fontSize: 13,
-              fontWeight: 500,
-              color: C.text,
-              cursor: 'pointer',
-              boxSizing: 'border-box',
-            }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ display: 'flex', alignItems: 'center' }}>{FLAGS[country]}</span>
-              <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px', color: C.mid }}>
-                {COUNTRIES.find((c) => c.code === country)?.name}
-              </span>
-            </span>
-            <ChevronDown size={14} />
-          </button>
-          {showCountry && (
-            <div
+      <TopBar
+        right={
+          <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setShowCountry(!showCountry)}
               style={{
-                position: 'absolute',
-                top: 36,
-                right: 0,
-                width: 200,
-                background: C.white,
-                border: `1px solid ${C.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: 8,
+                width: 130,
+                height: 32,
                 borderRadius: 8,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-                overflow: 'hidden',
-                zIndex: 10,
+                border: `1px solid ${C.border}`,
+                background: C.white,
+                fontFamily: 'inherit',
+                fontSize: 13,
+                fontWeight: 500,
+                color: C.text,
+                cursor: 'pointer',
+                boxSizing: 'border-box',
               }}
             >
-              {COUNTRIES.map((c) => (
-                <button
-                  key={c.code}
-                  type="button"
-                  onClick={() => {
-                    setCountry(c.code);
-                    setShowCountry(false);
-                  }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '10px 12px',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: country === c.code ? C.pink : C.mid,
-                    cursor: 'pointer',
-                    background: country === c.code ? 'rgba(245,92,122,0.06)' : 'transparent',
-                    border: 'none',
-                    width: '100%',
-                    fontFamily: 'inherit',
-                    textAlign: 'left',
-                  }}
-                >
-                  {FLAGS[c.code]} {c.label}
-                </button>
-              ))}
-            </div>
-          )}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ display: 'flex', alignItems: 'center' }}>{FLAGS[country]}</span>
+                <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px', color: C.mid }}>
+                  {COUNTRIES.find((c) => c.code === country)?.name}
+                </span>
+              </span>
+              <ChevronDown size={14} />
+            </button>
+            {showCountry && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 36,
+                  right: 0,
+                  width: 200,
+                  background: C.white,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                  overflow: 'hidden',
+                  zIndex: 10,
+                }}
+              >
+                {COUNTRIES.map((c) => (
+                  <button
+                    key={c.code}
+                    type="button"
+                    onClick={() => {
+                      setCountry(c.code);
+                      setShowCountry(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '10px 12px',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: country === c.code ? C.pink : C.mid,
+                      cursor: 'pointer',
+                      background: country === c.code ? 'rgba(245,92,122,0.06)' : 'transparent',
+                      border: 'none',
+                      width: '100%',
+                      fontFamily: 'inherit',
+                      textAlign: 'left',
+                    }}
+                  >
+                    {FLAGS[c.code]} {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        }
+      />
+
+      <div style={{ textAlign: 'center', marginTop: 40, marginBottom: 32 }}>
+        <div style={{ fontSize: 28, fontWeight: 600, color: C.text, lineHeight: '40px' }}>
+          Simple pricing for catalogue-ready visuals
+        </div>
+        <div
+          style={{ fontSize: 16, fontWeight: 500, color: C.mid, lineHeight: '20px', marginTop: 8 }}
+        >
+          Create professional fashion catalogues without photoshoots, models, or editing headaches.
         </div>
       </div>
 
@@ -404,7 +379,7 @@ export default function PricingPage(): React.ReactElement {
         style={{
           width: '100%',
           maxWidth: 1140,
-          margin: '0 auto 40px',
+          margin: '40px auto 40px',
           background: C.white,
           border: `1px solid ${C.border}`,
           borderRadius: 12,

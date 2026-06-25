@@ -111,7 +111,7 @@ function TagBadge({ tag }: { tag?: string | null }) {
   );
 }
 
-function findNodeForItem(tree: CatalogNode[], itemId: string): CatalogNode | null {
+function _findNodeForItem(tree: CatalogNode[], itemId: string): CatalogNode | null {
   for (const node of tree) {
     if (flattenNode(node).some((i) => i.id === itemId)) return node;
   }
@@ -203,7 +203,9 @@ function VisualCard({
           overflow: 'hidden',
           position: 'relative',
           border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
-          backgroundImage: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : 'none',
+          backgroundImage: selected
+            ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))'
+            : 'none',
           padding: selected ? 2 : 0,
           boxSizing: 'border-box',
         }}
@@ -257,7 +259,7 @@ function VisualCard({
               width: 20,
               height: 20,
               borderRadius: '50%',
-              background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -305,11 +307,11 @@ function GenderCard({
       onClick={onClick}
       style={{
         cursor: 'pointer',
-        background: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : '#FEFEFE',
+        background: selected ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))' : C.white,
         borderRadius: 8,
         padding: selected ? 1 : 0,
-        border: selected ? 'none' : '1px solid #EEEEEE',
-        boxShadow: selected ? '0px 2px 15px 0px #F6B55314' : 'none',
+        border: selected ? 'none' : `1px solid ${C.border}`,
+        boxShadow: selected ? '0px 2px 15px 0px rgba(246,181,83,0.08)' : 'none',
         height: 72,
         boxSizing: 'border-box',
         width: '100%',
@@ -321,7 +323,7 @@ function GenderCard({
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          background: '#FEFEFE',
+          background: C.white,
           borderRadius: selected ? 7 : 8,
           padding: '0 12px',
           position: 'relative',
@@ -336,7 +338,7 @@ function GenderCard({
             height: 40,
             borderRadius: 100,
             padding: 1,
-            background: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : '#B6B6B6',
+            background: selected ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))' : C.mid,
             boxSizing: 'border-box',
           }}
         >
@@ -376,7 +378,7 @@ function GenderCard({
             fontSize: 14,
             lineHeight: '18px',
             letterSpacing: 0,
-            color: '#141414',
+            color: C.text,
             flex: 1,
             minWidth: 0,
             overflow: 'hidden',
@@ -397,7 +399,7 @@ function GenderCard({
               width: 20,
               height: 20,
               borderRadius: '50%',
-              background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -451,7 +453,9 @@ function SelCard({
           overflow: 'hidden',
           position: 'relative',
           border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
-          background: selected ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)' : 'transparent',
+          background: selected
+            ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))'
+            : 'transparent',
           padding: selected ? 2 : 0,
           boxSizing: 'border-box',
         }}
@@ -509,7 +513,7 @@ function SelCard({
               width: 20,
               height: 20,
               borderRadius: '50%',
-              background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -668,9 +672,9 @@ export default function StudioPage(): React.ReactElement {
   const customWNum = Number(customWStr);
   const customHNum = Number(customHStr);
   const customWErr =
-    customWStr !== '' && (isNaN(customWNum) || customWNum < 768 || customWNum > 2048);
+    customWStr !== '' && (Number.isNaN(customWNum) || customWNum < 768 || customWNum > 2048);
   const customHErr =
-    customHStr !== '' && (isNaN(customHNum) || customHNum < 768 || customHNum > 2048);
+    customHStr !== '' && (Number.isNaN(customHNum) || customHNum < 768 || customHNum > 2048);
   const customDimsReady =
     aspect !== 'custom' ||
     (!!customRatio && !!customWStr && !!customHStr && !customWErr && !customHErr);
@@ -830,7 +834,7 @@ export default function StudioPage(): React.ReactElement {
     for (const b of backgrounds.items) {
       if (b.categoryId == null) continue;
       if (!byCat.has(b.categoryId)) byCat.set(b.categoryId, []);
-      byCat.get(b.categoryId)!.push(b);
+      byCat.get(b.categoryId)?.push(b);
     }
     const nodes: CatalogNode[] = (backgroundCategories?.items ?? [])
       .filter((c) => byCat.has(c.id))

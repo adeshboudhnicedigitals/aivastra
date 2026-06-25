@@ -52,6 +52,8 @@
   --c-merchant-warning-tint: rgba(245, 158, 11, 0.08);
   --c-merchant-muted-tint: rgba(107, 114, 128, 0.08);
   --c-merchant-blue-tint: rgba(100, 100, 240, 0.08);
+  --c-pink-tint: rgba(245, 92, 122, 0.12);
+  --c-amber-tint: rgba(246, 181, 83, 0.12);
 }
 
 html.dark {
@@ -97,6 +99,8 @@ html.dark {
   --c-merchant-warning-tint: rgba(240, 168, 62, 0.12);
   --c-merchant-muted-tint: rgba(161, 161, 170, 0.08);
   --c-merchant-blue-tint: rgba(139, 139, 255, 0.12);
+  --c-pink-tint: rgba(245, 92, 122, 0.18);
+  --c-amber-tint: rgba(246, 181, 83, 0.18);
 }
 
 html {
