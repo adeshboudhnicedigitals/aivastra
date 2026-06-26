@@ -1,0 +1,158 @@
+import { randomUUID } from 'node:crypto';
+import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
+import {
+  CreateTryonCategoryBody,
+  CreateTryonSampleBody,
+  TryonSamplePresignBody,
+  UpdateTryonCategoryBody,
+} from '@aivastra/types';
+import { asc, eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
+import { requireAdmin } from './guard.js';
+
+export async function adminTryonRoutes(app: FastifyInstance) {
+  const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR']);
+  const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
+  const uuidParam = z.object({ id: z.string().uuid() });
+
+  // GET /admin/tryon-categories — list with workflow label + samples
+  app.get('/admin/tryon-categories', { preHandler: R }, async () => {
+    const cats = await app.db
+      .select()
+      .from(schema.tryonCategories)
+      .orderBy(asc(schema.tryonCategories.sortOrder));
+    const samples = await app.db
+      .select()
+      .from(schema.tryonCategorySamples)
+      .orderBy(asc(schema.tryonCategorySamples.sortOrder));
+    const byCat = new Map<string, typeof samples>();
+    for (const s of samples) {
+      if (!byCat.has(s.categoryId)) byCat.set(s.categoryId, []);
+      byCat.get(s.categoryId)?.push(s);
+    }
+    return cats.map((c) => ({ ...c, samples: byCat.get(c.id) ?? [] }));
+  });
+
+  // POST /admin/tryon-categories
+  app.post(
+    '/admin/tryon-categories',
+    { preHandler: W, schema: { body: CreateTryonCategoryBody } },
+    async (req) => {
+      const body = req.body as z.infer<typeof CreateTryonCategoryBody>;
+      const [existing] = await app.db
+        .select({ id: schema.tryonCategories.id })
+        .from(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.slug, body.slug));
+      if (existing) throw new AppError('CONFLICT', 409, `slug "${body.slug}" already exists`);
+      const [row] = await app.db
+        .insert(schema.tryonCategories)
+        .values({
+          name: body.name,
+          slug: body.slug,
+          workflowTemplateId: body.workflowTemplateId ?? null,
+          sortOrder: body.sortOrder ?? 0,
+          isActive: body.isActive ?? true,
+        })
+        .returning();
+      return { ...row, samples: [] };
+    },
+  );
+
+  // PATCH /admin/tryon-categories/:id
+  app.patch(
+    '/admin/tryon-categories/:id',
+    { preHandler: W, schema: { params: uuidParam, body: UpdateTryonCategoryBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as z.infer<typeof UpdateTryonCategoryBody>;
+      const [row] = await app.db
+        .update(schema.tryonCategories)
+        .set({
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.workflowTemplateId !== undefined
+            ? { workflowTemplateId: body.workflowTemplateId }
+            : {}),
+          ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+          ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.tryonCategories.id, id))
+        .returning();
+      if (!row) throw new AppError('NOT_FOUND', 404, 'category not found');
+      return row;
+    },
+  );
+
+  // DELETE /admin/tryon-categories/:id  (cascades samples)
+  app.delete(
+    '/admin/tryon-categories/:id',
+    { preHandler: W, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      await app.db.delete(schema.tryonCategories).where(eq(schema.tryonCategories.id, id));
+      return { ok: true };
+    },
+  );
+
+  // POST /admin/tryon-categories/:id/samples/presign
+  app.post(
+    '/admin/tryon-categories/:id/samples/presign',
+    { preHandler: W, schema: { params: uuidParam, body: TryonSamplePresignBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { contentType } = req.body as z.infer<typeof TryonSamplePresignBody>;
+      const sampleId = randomUUID();
+      const r2Key = keys.tryonSample(id, sampleId);
+      const thumbKey = keys.tryonSampleThumb(id, sampleId);
+      const [main, thumb] = await Promise.all([
+        app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
+        app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
+      ]);
+      return { r2Key, uploadUrl: main.url, thumbnailKey: thumbKey, thumbnailUploadUrl: thumb.url };
+    },
+  );
+
+  // POST /admin/tryon-categories/:id/samples — record uploaded sample
+  app.post(
+    '/admin/tryon-categories/:id/samples',
+    { preHandler: W, schema: { params: uuidParam, body: CreateTryonSampleBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as z.infer<typeof CreateTryonSampleBody>;
+      const [cat] = await app.db
+        .select({ id: schema.tryonCategories.id })
+        .from(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.id, id));
+      if (!cat) throw new AppError('NOT_FOUND', 404, 'category not found');
+      const [row] = await app.db
+        .insert(schema.tryonCategorySamples)
+        .values({
+          categoryId: id,
+          r2Key: body.r2Key,
+          thumbnailKey: body.thumbnailKey ?? null,
+          sortOrder: body.sortOrder ?? 0,
+        })
+        .returning();
+      return row;
+    },
+  );
+
+  // DELETE /admin/tryon-categories/:id/samples/:sampleId
+  app.delete(
+    '/admin/tryon-categories/:id/samples/:sampleId',
+    {
+      preHandler: W,
+      schema: { params: z.object({ id: z.string().uuid(), sampleId: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { sampleId } = req.params as { id: string; sampleId: string };
+      await app.db
+        .delete(schema.tryonCategorySamples)
+        .where(eq(schema.tryonCategorySamples.id, sampleId));
+      return { ok: true };
+    },
+  );
+}
