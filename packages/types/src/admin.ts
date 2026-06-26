@@ -133,7 +133,7 @@ export const CreateWorkflowBody = z
       ),
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'widget']).default('regular'),
+    workflowType: z.enum(['regular', 'widget', 'tryon']).default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
@@ -155,38 +155,38 @@ export const CreateWorkflowBody = z
     widgetGarmentNodeId: z.string().min(1).optional(),
     widgetCustomerPhotoNodeId: z.string().min(1).optional(),
     widgetOutputNodeId: z.string().min(1).optional(),
+    // Tryon workflow fields (required when workflowType = 'tryon')
+    tryonPersonNodeId: z.string().min(1).optional(),
+    tryonGarmentNodeId: z.string().min(1).optional(),
+    tryonOutputNodeId: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.workflowType === 'regular') {
-      for (const field of [
-        'faceNodeId',
-        'poseNodeId',
-        'bgNodeId',
-        'upperNodeIds',
-        'facePhasePromptNode',
-        'garmentPhasePromptNode',
-      ] as const) {
-        if (!val[field]) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [field],
-            message: `${field} is required for regular workflows`,
-          });
-        }
-      }
-    } else {
-      for (const field of [
-        'widgetGarmentNodeId',
-        'widgetCustomerPhotoNodeId',
-        'widgetOutputNodeId',
-      ] as const) {
-        if (!val[field]) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [field],
-            message: `${field} is required for widget workflows`,
-          });
-        }
+    const required =
+      val.workflowType === 'regular'
+        ? ([
+            'faceNodeId',
+            'poseNodeId',
+            'bgNodeId',
+            'upperNodeIds',
+            'facePhasePromptNode',
+            'garmentPhasePromptNode',
+          ] as const)
+        : val.workflowType === 'widget'
+          ? (['widgetGarmentNodeId', 'widgetCustomerPhotoNodeId', 'widgetOutputNodeId'] as const)
+          : ([
+              'tryonPersonNodeId',
+              'tryonGarmentNodeId',
+              'tryonOutputNodeId',
+              'facePhasePromptNode',
+              'garmentPhasePromptNode',
+            ] as const);
+    for (const field of required) {
+      if (!val[field]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} is required for ${val.workflowType} workflows`,
+        });
       }
     }
   });
