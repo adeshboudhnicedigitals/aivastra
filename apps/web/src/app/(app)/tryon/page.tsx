@@ -265,7 +265,15 @@ function UploadZone({
 
       {/* Tip */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-        <span style={{ fontSize: 10, color: C.pink, flexShrink: 0, marginTop: 1 }}>✦</span>
+        {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
+        <img
+          src="/assets/bulb.svg"
+          alt=""
+          width={12}
+          height={14}
+          style={{ flexShrink: 0, marginTop: 1 }}
+        />
+        <span style={{ fontSize: 10, fontWeight: 600, color: C.pink, flexShrink: 0 }}>Tips</span>
         <span style={{ fontSize: 10, fontWeight: 400, lineHeight: '16px', color: C.mid }}>
           {tip}
         </span>
