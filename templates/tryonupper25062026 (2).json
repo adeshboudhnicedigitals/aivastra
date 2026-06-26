@@ -1,0 +1,560 @@
+{
+  "994": {
+    "inputs": {
+      "filename_prefix": [
+        "1098",
+        0
+      ],
+      "images": [
+        "1036",
+        0
+      ]
+    },
+    "class_type": "Save Image With Callback",
+    "_meta": {
+      "title": "Save Image With Callback"
+    }
+  },
+  "1000": {
+    "inputs": {
+      "image": "ComfyUI_temp_jacsj_00001_.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "person"
+    }
+  },
+  "1006": {
+    "inputs": {
+      "image": "20260617113300_00001_.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "garment"
+    }
+  },
+  "1036": {
+    "inputs": {
+      "top_expand_ratio": 0.05,
+      "bottom_expand_ratio": 0.05,
+      "image": [
+        "1001:8",
+        0
+      ]
+    },
+    "class_type": "AutoPersonCropNode",
+    "_meta": {
+      "title": "Auto Crop Person (Head to Feet + Max 1200px)"
+    }
+  },
+  "1093": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "1107",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "1094": {
+    "inputs": {
+      "coat": true,
+      "jacket": true,
+      "cardigan": true,
+      "vest": true,
+      "sweater": true,
+      "hood": true,
+      "shirt, blouse": true,
+      "top, t-shirt, sweatshirt": true,
+      "sleeve": true,
+      "dress": true,
+      "jumpsuit": false,
+      "cape": false,
+      "pants": false,
+      "shorts": false,
+      "skirt": false,
+      "tights, stockings": false,
+      "sock": false,
+      "shoe": false,
+      "process_res": 512,
+      "mask_blur": 0,
+      "mask_offset": -4,
+      "invert_output": false,
+      "background": "Color",
+      "background_color": "#ffffff",
+      "images": [
+        "1006",
+        0
+      ],
+      "accessories_options": [
+        "1096",
+        0
+      ]
+    },
+    "class_type": "FashionSegmentClothing",
+    "_meta": {
+      "title": "Fashion Segmentation (RMBG)"
+    }
+  },
+  "1096": {
+    "inputs": {
+      "hat": true,
+      "glasses": true,
+      "headband, head covering, hair accessory": true,
+      "scarf": true,
+      "tie": true,
+      "glove": true,
+      "watch": false,
+      "belt": false,
+      "leg warmer": false,
+      "bag, wallet": false,
+      "umbrella": false,
+      "collar": true,
+      "lapel": true,
+      "neckline": true,
+      "epaulette": true,
+      "pocket": true,
+      "buckle": true,
+      "zipper": true,
+      "applique": true,
+      "bow": true,
+      "flower": true,
+      "bead": true,
+      "fringe": true,
+      "ribbon": true,
+      "rivet": true,
+      "ruffle": true,
+      "sequin": true,
+      "tassel": true
+    },
+    "class_type": "FashionSegmentAccessories",
+    "_meta": {
+      "title": "Fashion Accessories Segmentation (RMBG)"
+    }
+  },
+  "1098": {
+    "inputs": {
+      "style": "%Y%m%d%H%M%S"
+    },
+    "class_type": "Get Date Time String (JPS)",
+    "_meta": {
+      "title": "Get Date Time String (JPS)"
+    }
+  },
+  "1104": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 1,
+      "resolution_steps": 64,
+      "image": [
+        "1094",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "ImageScaleToTotalPixels"
+    }
+  },
+  "1107": {
+    "inputs": {
+      "lora_name": "Qwen-Image-Edit-Unblur-Upscale_10.safetensors",
+      "strength_model": 1,
+      "model": [
+        "1108",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "1108": {
+    "inputs": {
+      "unet_name": "qwen-image-edit-2511-Q8_0.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  },
+  "1113": {
+    "inputs": {
+      "coat": true,
+      "jacket": true,
+      "cardigan": true,
+      "vest": true,
+      "sweater": true,
+      "hood": true,
+      "shirt, blouse": true,
+      "top, t-shirt, sweatshirt": true,
+      "sleeve": true,
+      "dress": true,
+      "jumpsuit": false,
+      "cape": false,
+      "pants": false,
+      "shorts": false,
+      "skirt": false,
+      "tights, stockings": false,
+      "sock": false,
+      "shoe": false,
+      "process_res": 512,
+      "mask_blur": 0,
+      "mask_offset": -12,
+      "invert_output": true,
+      "background": "Color",
+      "background_color": "#ffffff",
+      "images": [
+        "1024:456",
+        0
+      ],
+      "accessories_options": [
+        "1114",
+        0
+      ]
+    },
+    "class_type": "FashionSegmentClothing",
+    "_meta": {
+      "title": "Fashion Segmentation (RMBG)"
+    }
+  },
+  "1114": {
+    "inputs": {
+      "hat": true,
+      "glasses": false,
+      "headband, head covering, hair accessory": true,
+      "scarf": true,
+      "tie": true,
+      "glove": true,
+      "watch": false,
+      "belt": false,
+      "leg warmer": false,
+      "bag, wallet": false,
+      "umbrella": false,
+      "collar": true,
+      "lapel": true,
+      "neckline": true,
+      "epaulette": true,
+      "pocket": true,
+      "buckle": true,
+      "zipper": true,
+      "applique": true,
+      "bow": true,
+      "flower": true,
+      "bead": true,
+      "fringe": true,
+      "ribbon": true,
+      "rivet": true,
+      "ruffle": true,
+      "sequin": true,
+      "tassel": true
+    },
+    "class_type": "FashionSegmentAccessories",
+    "_meta": {
+      "title": "Fashion Accessories Segmentation (RMBG)"
+    }
+  },
+  "1117": {
+    "inputs": {
+      "text": "plastics hands, extra or duplicate hands,keep image1 sleeve, keep image1 neck type. duplicate or extra head, extra buttons , extra zip, tuck upperwear, extra or duplicate hands.frayed edges, threads, torn fabric, distorted sleeves, extra cloth, artifacts tucked upperwear, inside pants, tight waist fit, unnatural fold.",
+      "clip": [
+        "1001:38",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "1119": {
+    "inputs": {
+      "masks": [
+        "1113",
+        1
+      ]
+    },
+    "class_type": "Mask Invert",
+    "_meta": {
+      "title": "Mask Invert"
+    }
+  },
+  "1126": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "megapixels": 4,
+      "resolution_steps": 1,
+      "image": [
+        "1000",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "ImageScaleToTotalPixels"
+    }
+  },
+  "1001:809": {
+    "inputs": {
+      "control_net_name": "Qwen-Image-InstantX-ControlNet-Inpainting.safetensors"
+    },
+    "class_type": "ControlNetLoader",
+    "_meta": {
+      "title": "Load ControlNet Model"
+    }
+  },
+  "1001:39": {
+    "inputs": {
+      "vae_name": "Qwen_Image-VAE.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "1001:38": {
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "1024:1037": {
+    "inputs": {
+      "top_expand_ratio": 0.05,
+      "bottom_expand_ratio": 0.05,
+      "image": [
+        "1126",
+        0
+      ]
+    },
+    "class_type": "AutoPersonCropNode",
+    "_meta": {
+      "title": "Auto Crop Person (Head to Feet + Max 1200px)"
+    }
+  },
+  "1024:451": {
+    "inputs": {
+      "image": [
+        "1024:1037",
+        0
+      ]
+    },
+    "class_type": "GetImageSize+",
+    "_meta": {
+      "title": "🔧 Get Image Size"
+    }
+  },
+  "1024:464": {
+    "inputs": {
+      "a": [
+        "1024:451",
+        0
+      ],
+      "b": 12,
+      "operation": "divide"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "Math Int"
+    }
+  },
+  "1024:463": {
+    "inputs": {
+      "a": [
+        "1024:451",
+        1
+      ],
+      "b": 12,
+      "operation": "divide"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "Math Int"
+    }
+  },
+  "1024:465": {
+    "inputs": {
+      "a": [
+        "1024:464",
+        0
+      ],
+      "b": 12,
+      "operation": "multiply"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "Math Int"
+    }
+  },
+  "1024:466": {
+    "inputs": {
+      "a": [
+        "1024:463",
+        0
+      ],
+      "b": 12,
+      "operation": "multiply"
+    },
+    "class_type": "easy mathInt",
+    "_meta": {
+      "title": "Math Int"
+    }
+  },
+  "1024:456": {
+    "inputs": {
+      "target_w": [
+        "1024:465",
+        0
+      ],
+      "target_h": [
+        "1024:466",
+        0
+      ],
+      "crop_position": "center",
+      "offset": 0,
+      "interpolation": "nearest-exact",
+      "sharpening": 0,
+      "image": [
+        "1024:1037",
+        0
+      ]
+    },
+    "class_type": "Crop Image TargetSize (JPS)",
+    "_meta": {
+      "title": "Crop Image TargetSize (JPS)"
+    }
+  },
+  "1001:111": {
+    "inputs": {
+      "prompt": "first remove innerwear and upper wear and saree and dupatta and cloths above the shoulder from image1 person.\nfinally tryon image2 upperwear.\ncondition: if result person trouser then only replace with trouser to match fashionate upper garment.\nremove : scarf and dupatta.\n",
+      "clip": [
+        "1001:38",
+        0
+      ],
+      "vae": [
+        "1001:39",
+        0
+      ],
+      "image1": [
+        "1024:456",
+        0
+      ],
+      "image2": [
+        "1104",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "_meta": {
+      "title": "TextEncodeQwenImageEditPlus"
+    }
+  },
+  "1001:939": {
+    "inputs": {
+      "pixels": [
+        "1024:456",
+        0
+      ],
+      "vae": [
+        "1001:39",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "1001:842": {
+    "inputs": {
+      "strength": 0,
+      "start_percent": 0,
+      "end_percent": 0.1,
+      "positive": [
+        "1001:111",
+        0
+      ],
+      "negative": [
+        "1117",
+        0
+      ],
+      "control_net": [
+        "1001:809",
+        0
+      ],
+      "vae": [
+        "1001:39",
+        0
+      ],
+      "image": [
+        "1024:456",
+        0
+      ],
+      "mask": [
+        "1119",
+        0
+      ]
+    },
+    "class_type": "ControlNetInpaintingAliMamaApply",
+    "_meta": {
+      "title": "ControlNetInpaintingAliMamaApply"
+    }
+  },
+  "1001:3": {
+    "inputs": {
+      "seed": 713998650006000,
+      "steps": 4,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1,
+      "model": [
+        "1093",
+        0
+      ],
+      "positive": [
+        "1001:842",
+        0
+      ],
+      "negative": [
+        "1001:842",
+        1
+      ],
+      "latent_image": [
+        "1001:939",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "1001:8": {
+    "inputs": {
+      "samples": [
+        "1001:3",
+        0
+      ],
+      "vae": [
+        "1001:39",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  }
+}
