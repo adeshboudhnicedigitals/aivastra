@@ -94,11 +94,24 @@ export async function adminTryonRoutes(app: FastifyInstance) {
     { preHandler: W, schema: { params: uuidParam } },
     async (req) => {
       const { id } = req.params as { id: string };
+      const samples = await app.db
+        .select({
+          r2Key: schema.tryonCategorySamples.r2Key,
+          thumbnailKey: schema.tryonCategorySamples.thumbnailKey,
+        })
+        .from(schema.tryonCategorySamples)
+        .where(eq(schema.tryonCategorySamples.categoryId, id));
       const deleted = await app.db
         .delete(schema.tryonCategories)
         .where(eq(schema.tryonCategories.id, id))
         .returning({ id: schema.tryonCategories.id });
       if (!deleted.length) throw new AppError('NOT_FOUND', 404, 'category not found');
+      void Promise.allSettled(
+        samples.flatMap((s) => [
+          app.storage.deleteObject(s.r2Key),
+          s.thumbnailKey ? app.storage.deleteObject(s.thumbnailKey) : Promise.resolve(),
+        ]),
+      );
       return { ok: true };
     },
   );
@@ -160,6 +173,19 @@ export async function adminTryonRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id, sampleId } = req.params as { id: string; sampleId: string };
+      const [sample] = await app.db
+        .select({
+          r2Key: schema.tryonCategorySamples.r2Key,
+          thumbnailKey: schema.tryonCategorySamples.thumbnailKey,
+        })
+        .from(schema.tryonCategorySamples)
+        .where(
+          and(
+            eq(schema.tryonCategorySamples.id, sampleId),
+            eq(schema.tryonCategorySamples.categoryId, id),
+          ),
+        );
+      if (!sample) throw new AppError('NOT_FOUND', 404, 'sample not found');
       await app.db
         .delete(schema.tryonCategorySamples)
         .where(
@@ -168,6 +194,10 @@ export async function adminTryonRoutes(app: FastifyInstance) {
             eq(schema.tryonCategorySamples.categoryId, id),
           ),
         );
+      void Promise.allSettled([
+        app.storage.deleteObject(sample.r2Key),
+        sample.thumbnailKey ? app.storage.deleteObject(sample.thumbnailKey) : Promise.resolve(),
+      ]);
       return { ok: true };
     },
   );
