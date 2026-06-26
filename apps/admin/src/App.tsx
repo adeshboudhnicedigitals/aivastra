@@ -11,6 +11,7 @@ import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
 import RecycleBinPage from './pages/RecycleBinPage';
 import SettingsPage from './pages/SettingsPage';
+import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
 import { WidgetClientDetail } from './pages/WidgetClientDetail';
 import { WidgetClients } from './pages/WidgetClients';
@@ -187,6 +188,7 @@ export default function App() {
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
+            <Route path="/tryon" element={<TryonPage {...pageProps} />} />
             <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
             <Route path="/widget-clients" element={<WidgetClients {...pageProps} />} />
