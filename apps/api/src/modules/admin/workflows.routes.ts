@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
+import { detectTryonMappings } from './tryon-detect.js';
 import { classifyNode, detectMappings, type NodeCategory } from './workflow-detect.js';
 
 type WorkflowNode = {
@@ -114,6 +115,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       widgetGarmentNodeId: r.widgetGarmentNodeId,
       widgetCustomerPhotoNodeId: r.widgetCustomerPhotoNodeId,
       widgetOutputNodeId: r.widgetOutputNodeId,
+      tryonPersonNodeId: r.tryonPersonNodeId,
+      tryonGarmentNodeId: r.tryonGarmentNodeId,
+      tryonOutputNodeId: r.tryonOutputNodeId,
       createdAt: r.createdAt,
     }));
   });
@@ -132,6 +136,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
       if (typeof jsonContent !== 'object' || Array.isArray(jsonContent) || jsonContent === null) {
         throw new AppError('VALIDATION', 400, 'jsonContent must be a JSON object');
+      }
+
+      if ((req.body as { workflowType?: string }).workflowType === 'tryon') {
+        const { detected, allImageNodes, allPromptNodes } = detectTryonMappings(jsonContent);
+        return { detected, allImageNodes, allPromptNodes };
       }
 
       const { detected, allImageNodes, allPromptNodes, allLatentNodes } =
@@ -171,6 +180,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         widgetGarmentNodeId?: string;
         widgetCustomerPhotoNodeId?: string;
         widgetOutputNodeId?: string;
+        tryonPersonNodeId?: string;
+        tryonGarmentNodeId?: string;
+        tryonOutputNodeId?: string;
       };
 
       const [existing] = await app.db
@@ -217,6 +229,66 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           widgetGarmentNodeId: row?.widgetGarmentNodeId,
           widgetCustomerPhotoNodeId: row?.widgetCustomerPhotoNodeId,
           widgetOutputNodeId: row?.widgetOutputNodeId,
+          createdAt: row?.createdAt,
+        };
+      }
+
+      if (workflowType === 'tryon') {
+        const personNodeId = body.tryonPersonNodeId!;
+        const garmentNodeId = body.tryonGarmentNodeId!;
+        const outputNodeId = body.tryonOutputNodeId!;
+        const negNode = body.facePhasePromptNode!;
+        const posNode = body.garmentPhasePromptNode!;
+
+        validateNodeExists(body.jsonContent, personNodeId, 'person');
+        validateNodeExists(body.jsonContent, garmentNodeId, 'garment');
+        validateNodeExists(body.jsonContent, outputNodeId, 'output');
+        validateNodeExists(body.jsonContent, negNode, 'negative prompt');
+        validateNodeExists(body.jsonContent, posNode, 'positive prompt');
+        validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
+        validateNodeType(body.jsonContent, garmentNodeId, 'image', 'garment');
+        validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
+        validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
+
+        const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
+          body.jsonContent,
+          negNode,
+          posNode,
+        );
+
+        const [row] = await app.db
+          .insert(schema.workflowTemplates)
+          .values({
+            slug: body.slug,
+            label: body.label,
+            jsonContent: body.jsonContent,
+            workflowType: 'tryon',
+            faceNodeId: '',
+            poseNodeId: '',
+            bgNodeId: '',
+            upperNodeIds: [],
+            facePhasePromptNode: negNode,
+            garmentPhasePromptNode: posNode,
+            defaultFacePhasePrompt,
+            defaultGarmentPhasePrompt,
+            tryonPersonNodeId: personNodeId,
+            tryonGarmentNodeId: garmentNodeId,
+            tryonOutputNodeId: outputNodeId,
+          })
+          .returning();
+
+        return {
+          id: row?.id,
+          slug: row?.slug,
+          label: row?.label,
+          workflowType: row?.workflowType,
+          isActive: row?.isActive,
+          poseCount: 0,
+          defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
+          defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
+          tryonPersonNodeId: row?.tryonPersonNodeId,
+          tryonGarmentNodeId: row?.tryonGarmentNodeId,
+          tryonOutputNodeId: row?.tryonOutputNodeId,
           createdAt: row?.createdAt,
         };
       }
