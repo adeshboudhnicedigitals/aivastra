@@ -22,4 +22,8 @@ export const keys = {
     `tryon/categories/${categoryId}/${sampleId}.jpg`,
   tryonSampleThumb: (categoryId: string, sampleId: string) =>
     `tryon/categories/${categoryId}/${sampleId}.thumb.jpg`,
+  tryonPersonSample: () => `tryon/global/person-sample.jpg`,
+  tryonPersonSampleThumb: () => `tryon/global/person-sample.thumb.jpg`,
+  tryonGarmentSample: () => `tryon/global/garment-sample.jpg`,
+  tryonGarmentSampleThumb: () => `tryon/global/garment-sample.thumb.jpg`,
 };

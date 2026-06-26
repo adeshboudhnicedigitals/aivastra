@@ -7,6 +7,7 @@
 }
 
 :root {
+  --icon-invert: none;
   --c-pink: #f55c7a;
   --c-amber: #f6b553;
   --c-dark: #141414;
@@ -58,6 +59,7 @@
 
 html.dark {
   color-scheme: dark;
+  --icon-invert: invert(1);
   --c-bg: #111111;
   --c-card: #1c1c1c;
   --c-white: #1c1c1c;

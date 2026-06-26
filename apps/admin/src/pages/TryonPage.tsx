@@ -3,7 +3,7 @@ import { Icon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type { TryonCategory, TryonSample, WorkflowOption } from '../types';
+import type { TryonCategory, WorkflowOption } from '../types';
 
 async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -27,18 +27,34 @@ function toSnakeSlug(name: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
+interface TryonSettings {
+  personSampleUrl: string | null;
+  garmentSampleUrl: string | null;
+}
+
 interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
 }
 
 export default function TryonPage({ toast }: Props) {
-  const { storagePublicUrl } = useAuth();
+  const { storagePublicUrl: _storagePublicUrl } = useAuth();
   const [categories, setCategories] = useState<TryonCategory[]>([]);
   const [tryonWorkflows, setTryonWorkflows] = useState<WorkflowOption[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Modal state
+  // Global settings
+  const [settings, setSettings] = useState<TryonSettings>({
+    personSampleUrl: null,
+    garmentSampleUrl: null,
+  });
+  const [showSamplesModal, setShowSamplesModal] = useState(false);
+  const [uploadingPerson, setUploadingPerson] = useState(false);
+  const [uploadingGarment, setUploadingGarment] = useState(false);
+  const personInputRef = useRef<HTMLInputElement>(null);
+  const garmentInputRef = useRef<HTMLInputElement>(null);
+
+  // Category modal state
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
@@ -53,19 +69,17 @@ export default function TryonPage({ toast }: Props) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirming, setDeleteConfirming] = useState(false);
 
-  // Sample upload state
-  const [uploadingFiles, setUploadingFiles] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [cats, wfs] = await Promise.all([
+      const [cats, wfs, s] = await Promise.all([
         apiFetch<TryonCategory[]>('/admin/tryon-categories'),
         apiFetch<WorkflowOption[]>('/admin/workflows'),
+        apiFetch<TryonSettings>('/admin/tryon-settings'),
       ]);
       setCategories(cats);
       setTryonWorkflows(wfs.filter((w) => w.workflowType === 'tryon'));
+      setSettings(s);
     } catch {
       toast({ kind: 'error', title: 'Failed to load tryon categories' });
     } finally {
@@ -100,7 +114,7 @@ export default function TryonPage({ toast }: Props) {
   };
 
   const closeModal = () => {
-    if (formSaving || uploadingFiles) return;
+    if (formSaving) return;
     setModalMode(null);
     setEditingCategoryId(null);
   };
@@ -148,7 +162,8 @@ export default function TryonPage({ toast }: Props) {
           prev.map((c) => (c.id === updated.id ? { ...updated, samples: c.samples } : c)),
         );
         toast({ title: `Category "${updated.name}" updated` });
-        // Stay open so admin can manage samples
+        setModalMode(null);
+        setEditingCategoryId(null);
       }
     } catch (e) {
       toast({
@@ -179,87 +194,50 @@ export default function TryonPage({ toast }: Props) {
     }
   };
 
-  const handleSampleUpload = async (categoryId: string, files: FileList) => {
-    setUploadingFiles(true);
-    const fileArray = Array.from(files);
-    let successCount = 0;
-    const currentSamples = categories.find((c) => c.id === categoryId)?.samples ?? [];
-
-    for (let i = 0; i < fileArray.length; i++) {
-      const file = fileArray[i];
-      try {
-        const presign = await apiFetch<{
-          r2Key: string;
-          uploadUrl: string;
-          thumbnailKey: string;
-          thumbnailUploadUrl: string;
-        }>(`/admin/tryon-categories/${categoryId}/samples/presign`, {
-          method: 'POST',
-          body: JSON.stringify({ contentType: file.type }),
-        });
-
-        const thumb = await makeThumbnail(file, 200);
-        await Promise.all([
-          putFile(presign.uploadUrl, file),
-          putFile(presign.thumbnailUploadUrl, thumb),
-        ]);
-
-        const sample = await apiFetch<TryonSample>(
-          `/admin/tryon-categories/${categoryId}/samples`,
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              r2Key: presign.r2Key,
-              thumbnailKey: presign.thumbnailKey,
-              sortOrder: currentSamples.length + i,
-            }),
-          },
-        );
-
-        setCategories((prev) =>
-          prev.map((c) => (c.id === categoryId ? { ...c, samples: [...c.samples, sample] } : c)),
-        );
-        successCount++;
-      } catch (e) {
-        toast({
-          kind: 'error',
-          title: `Failed to upload ${file.name}`,
-          body: e instanceof Error ? e.message : String(e),
-        });
-      }
-    }
-
-    if (successCount > 0) {
-      toast({ title: `${successCount} sample${successCount > 1 ? 's' : ''} uploaded` });
-    }
-    setUploadingFiles(false);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const handleDeleteSample = async (categoryId: string, sampleId: string) => {
+  const handleSampleUpload = async (type: 'person' | 'garment', file: File) => {
+    type === 'person' ? setUploadingPerson(true) : setUploadingGarment(true);
     try {
-      await apiFetch(`/admin/tryon-categories/${categoryId}/samples/${sampleId}`, {
-        method: 'DELETE',
+      const presign = await apiFetch<{
+        r2Key: string;
+        uploadUrl: string;
+        thumbnailKey: string;
+        thumbnailUploadUrl: string;
+      }>('/admin/tryon-settings/presign', {
+        method: 'POST',
+        body: JSON.stringify({ type, contentType: file.type }),
       });
-      setCategories((prev) =>
-        prev.map((c) =>
-          c.id === categoryId ? { ...c, samples: c.samples.filter((s) => s.id !== sampleId) } : c,
+
+      const thumb = await makeThumbnail(file, 800);
+      await Promise.all([
+        putFile(presign.uploadUrl, file),
+        putFile(presign.thumbnailUploadUrl, thumb),
+      ]);
+
+      await apiFetch('/admin/tryon-settings', {
+        method: 'PATCH',
+        body: JSON.stringify(
+          type === 'person'
+            ? { personSampleKey: presign.r2Key, personSampleThumbKey: presign.thumbnailKey }
+            : { garmentSampleKey: presign.r2Key, garmentSampleThumbKey: presign.thumbnailKey },
         ),
-      );
-      toast({ title: 'Sample deleted' });
+      });
+
+      // Reload settings to get fresh presigned URLs
+      const updated = await apiFetch<TryonSettings>('/admin/tryon-settings');
+      setSettings(updated);
+      toast({ title: `${type === 'person' ? 'Person' : 'Garment'} sample updated` });
     } catch (e) {
       toast({
         kind: 'error',
-        title: 'Failed to delete sample',
+        title: `Failed to upload ${type} sample`,
         body: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      type === 'person' ? setUploadingPerson(false) : setUploadingGarment(false);
     }
   };
 
   const deletingCategory = deletingId ? categories.find((c) => c.id === deletingId) : null;
-  const modalSamples = editingCategoryId
-    ? (categories.find((c) => c.id === editingCategoryId)?.samples ?? [])
-    : [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -270,12 +248,17 @@ export default function TryonPage({ toast }: Props) {
         <div>
           <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 600 }}>Tryon Categories</h2>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Manage garment type categories and their sample images for try-on.
+            Manage garment type categories for try-on.
           </p>
         </div>
-        <button className="btn primary" onClick={openCreate}>
-          <Icon.Plus /> Add category
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn ghost" onClick={() => setShowSamplesModal(true)}>
+            <Icon.Image /> Edit sample images
+          </button>
+          <button className="btn primary" onClick={openCreate}>
+            <Icon.Plus /> Add category
+          </button>
+        </div>
       </div>
 
       {/* Grid */}
@@ -318,180 +301,213 @@ export default function TryonPage({ toast }: Props) {
                 key={cat.id}
                 className="card"
                 style={{
-                  padding: 0,
-                  overflow: 'hidden',
+                  padding: '12px',
                   display: 'flex',
                   flexDirection: 'column',
+                  gap: 6,
                   opacity: cat.isActive ? 1 : 0.6,
                 }}
               >
-                {/* Sample thumbnails strip */}
                 <div
                   style={{
                     display: 'flex',
-                    gap: 4,
-                    padding: 8,
-                    background: 'var(--bg-2, var(--surface-2))',
-                    minHeight: 80,
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 14,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {cat.name}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: '2px 7px',
+                      borderRadius: 10,
+                      background: cat.isActive
+                        ? 'var(--success-soft, rgba(76,175,80,0.12))'
+                        : 'var(--bg-2)',
+                      color: cat.isActive ? 'var(--success, #4caf50)' : 'var(--muted)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {cat.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    display: 'flex',
+                    gap: 8,
                     flexWrap: 'wrap',
                     alignItems: 'center',
                   }}
                 >
-                  {cat.samples.length === 0 ? (
-                    <div
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'var(--muted)',
-                        fontSize: 12,
-                        gap: 6,
-                      }}
-                    >
-                      <Icon.Image /> No samples
-                    </div>
-                  ) : (
-                    <>
-                      {cat.samples.slice(0, 5).map((s) =>
-                        storagePublicUrl ? (
-                          // biome-ignore lint/performance/noImgElement: admin panel thumbnail
-                          <img
-                            key={s.id}
-                            src={`${storagePublicUrl}/${s.thumbnailKey ?? s.r2Key}`}
-                            alt=""
-                            style={{
-                              width: 56,
-                              height: 72,
-                              objectFit: 'cover',
-                              borderRadius: 4,
-                              border: '1px solid var(--border)',
-                            }}
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        ) : null,
-                      )}
-                      {cat.samples.length > 5 && (
-                        <div
-                          style={{
-                            width: 56,
-                            height: 72,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: 'var(--subtle)',
-                            borderRadius: 4,
-                            border: '1px solid var(--border)',
-                            fontSize: 11,
-                            color: 'var(--muted)',
-                            flexShrink: 0,
-                          }}
-                        >
-                          +{cat.samples.length - 5}
-                        </div>
-                      )}
-                    </>
+                  <span>#{cat.sortOrder}</span>
+                  <code
+                    style={{
+                      fontSize: 10,
+                      background: 'var(--bg-2)',
+                      padding: '1px 5px',
+                      borderRadius: 3,
+                    }}
+                  >
+                    {cat.slug}
+                  </code>
+                  {wfLabel && (
+                    <span style={{ color: 'var(--accent, #6366f1)', fontSize: 11 }}>{wfLabel}</span>
                   )}
                 </div>
 
-                {/* Card info */}
-                <div
-                  style={{
-                    padding: '10px 12px 12px',
-                    flex: 1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 6,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                    }}
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                  <button className="btn sm ghost" onClick={() => openEdit(cat)}>
+                    <Icon.Edit /> Edit
+                  </button>
+                  <button
+                    className="btn sm ghost"
+                    style={{ color: 'var(--danger)', marginLeft: 'auto' }}
+                    onClick={() => setDeletingId(cat.id)}
+                    title="Delete category"
                   >
-                    <span
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 14,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {cat.name}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 600,
-                        padding: '2px 7px',
-                        borderRadius: 10,
-                        background: cat.isActive
-                          ? 'var(--success-soft, rgba(76,175,80,0.12))'
-                          : 'var(--bg-2)',
-                        color: cat.isActive ? 'var(--success, #4caf50)' : 'var(--muted)',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {cat.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </div>
-
-                  <div
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--muted)',
-                      display: 'flex',
-                      gap: 8,
-                      flexWrap: 'wrap',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span>#{cat.sortOrder}</span>
-                    <code
-                      style={{
-                        fontSize: 10,
-                        background: 'var(--bg-2)',
-                        padding: '1px 5px',
-                        borderRadius: 3,
-                      }}
-                    >
-                      {cat.slug}
-                    </code>
-                    {wfLabel && (
-                      <span style={{ color: 'var(--accent, #6366f1)', fontSize: 11 }}>
-                        {wfLabel}
-                      </span>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    {cat.samples.length} sample{cat.samples.length !== 1 ? 's' : ''}
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                    <button className="btn sm ghost" onClick={() => openEdit(cat)}>
-                      <Icon.Edit /> Edit
-                    </button>
-                    <button
-                      className="btn sm ghost"
-                      style={{ color: 'var(--danger)', marginLeft: 'auto' }}
-                      onClick={() => setDeletingId(cat.id)}
-                      title="Delete category"
-                    >
-                      <Icon.Trash />
-                    </button>
-                  </div>
+                    <Icon.Trash />
+                  </button>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Global sample images modal */}
+      {showSamplesModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => !uploadingPerson && !uploadingGarment && setShowSamplesModal(false)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(480px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>Sample images</h3>
+              <button
+                className="btn sm ghost"
+                onClick={() => setShowSamplesModal(false)}
+                disabled={uploadingPerson || uploadingGarment}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icon.Close />
+              </button>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 20 }}
+            >
+              <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
+                These 2 images are shown as reference examples in the try-on upload UI — one for the
+                person photo, one for the garment photo.
+              </p>
+
+              {(['person', 'garment'] as const).map((type) => {
+                const url =
+                  type === 'person' ? settings.personSampleUrl : settings.garmentSampleUrl;
+                const uploading = type === 'person' ? uploadingPerson : uploadingGarment;
+                const inputRef = type === 'person' ? personInputRef : garmentInputRef;
+                return (
+                  <div key={type} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                    {/* Preview */}
+                    <div
+                      style={{
+                        width: 100,
+                        height: 100,
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-2)',
+                        flexShrink: 0,
+                        overflow: 'hidden',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {url ? (
+                        // biome-ignore lint/performance/noImgElement: admin panel thumbnail
+                        <img
+                          src={url}
+                          alt=""
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <Icon.Image />
+                      )}
+                    </div>
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, textTransform: 'capitalize' }}>
+                        {type} sample
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                        {url ? 'Image uploaded' : 'No image yet'}
+                      </div>
+                      <label
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 12px',
+                          border: '1.5px dashed var(--border)',
+                          borderRadius: 7,
+                          cursor: uploading ? 'not-allowed' : 'pointer',
+                          opacity: uploading ? 0.6 : 1,
+                          background: 'var(--surface-2)',
+                          fontSize: 12,
+                          color: 'var(--muted)',
+                          userSelect: 'none',
+                          width: 'fit-content',
+                        }}
+                      >
+                        <Icon.Image />
+                        {uploading ? 'Uploading…' : url ? 'Replace image' : 'Upload image'}
+                        <input
+                          ref={inputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          disabled={uploading}
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) void handleSampleUpload(type, file);
+                            if (inputRef.current) inputRef.current.value = '';
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setShowSamplesModal(false)}
+                disabled={uploadingPerson || uploadingGarment}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -501,7 +517,7 @@ export default function TryonPage({ toast }: Props) {
           <div
             className="modal"
             onClick={(e) => e.stopPropagation()}
-            style={{ width: 'min(520px, calc(100vw - 40px))' }}
+            style={{ width: 'min(480px, calc(100vw - 40px))' }}
           >
             <div className="modal-head">
               <h3>
@@ -512,7 +528,7 @@ export default function TryonPage({ toast }: Props) {
               <button
                 className="btn sm ghost"
                 onClick={closeModal}
-                disabled={formSaving || uploadingFiles}
+                disabled={formSaving}
                 style={{ marginLeft: 'auto' }}
               >
                 <Icon.Close />
@@ -521,13 +537,7 @@ export default function TryonPage({ toast }: Props) {
 
             <div
               className="modal-body"
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 14,
-                maxHeight: '72vh',
-                overflowY: 'auto',
-              }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
             >
               {/* Name */}
               <div className="field">
@@ -622,124 +632,11 @@ export default function TryonPage({ toast }: Props) {
                   Active
                 </label>
               </div>
-
-              {/* Sample uploader — edit mode only */}
-              {modalMode === 'edit' && editingCategoryId && (
-                <>
-                  <hr
-                    style={{
-                      border: 'none',
-                      borderTop: '1px solid var(--border)',
-                      margin: '4px 0',
-                    }}
-                  />
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
-                      Sample images{' '}
-                      <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
-                        ({modalSamples.length} uploaded)
-                      </span>
-                    </div>
-
-                    {/* Upload input */}
-                    <label
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '8px 12px',
-                        border: '1.5px dashed var(--border)',
-                        borderRadius: 8,
-                        cursor: uploadingFiles || formSaving ? 'not-allowed' : 'pointer',
-                        opacity: uploadingFiles || formSaving ? 0.6 : 1,
-                        background: 'var(--surface-2)',
-                        fontSize: 12,
-                        color: 'var(--muted)',
-                        userSelect: 'none',
-                      }}
-                    >
-                      <Icon.Image />
-                      {uploadingFiles ? 'Uploading…' : 'Choose image files to upload'}
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        multiple
-                        disabled={uploadingFiles || formSaving}
-                        style={{ display: 'none' }}
-                        onChange={(e) => {
-                          if (e.target.files && e.target.files.length > 0) {
-                            void handleSampleUpload(editingCategoryId, e.target.files);
-                          }
-                        }}
-                      />
-                    </label>
-
-                    {/* Existing samples */}
-                    {modalSamples.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                        {modalSamples.map((s) => (
-                          <div key={s.id} style={{ position: 'relative', display: 'inline-block' }}>
-                            {storagePublicUrl && (
-                              // biome-ignore lint/performance/noImgElement: admin panel thumbnail
-                              <img
-                                src={`${storagePublicUrl}/${s.thumbnailKey ?? s.r2Key}`}
-                                alt=""
-                                style={{
-                                  width: 72,
-                                  height: 90,
-                                  objectFit: 'cover',
-                                  borderRadius: 5,
-                                  border: '1px solid var(--border)',
-                                  display: 'block',
-                                }}
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).style.display = 'none';
-                                }}
-                              />
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => void handleDeleteSample(editingCategoryId, s.id)}
-                              disabled={formSaving || uploadingFiles}
-                              title="Delete sample"
-                              style={{
-                                position: 'absolute',
-                                top: 2,
-                                right: 2,
-                                background: 'var(--danger)',
-                                color: 'var(--white, #fff)',
-                                border: 'none',
-                                borderRadius: '50%',
-                                width: 18,
-                                height: 18,
-                                cursor: formSaving || uploadingFiles ? 'not-allowed' : 'pointer',
-                                fontSize: 9,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                padding: 0,
-                                lineHeight: 1,
-                              }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
             </div>
 
             <div className="modal-foot">
-              <button
-                className="btn ghost"
-                onClick={closeModal}
-                disabled={formSaving || uploadingFiles}
-              >
-                {modalMode === 'edit' ? 'Close' : 'Cancel'}
+              <button className="btn ghost" onClick={closeModal} disabled={formSaving}>
+                Cancel
               </button>
               <button
                 className="btn primary"
@@ -769,8 +666,7 @@ export default function TryonPage({ toast }: Props) {
             </div>
             <div className="modal-body">
               <p style={{ margin: 0 }}>
-                Delete <strong>"{deletingCategory.name}"</strong>? This will permanently remove the
-                category and all its samples. This cannot be undone.
+                Delete <strong>"{deletingCategory.name}"</strong>? This cannot be undone.
               </p>
             </div>
             <div className="modal-foot">

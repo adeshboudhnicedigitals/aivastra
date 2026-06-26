@@ -201,4 +201,82 @@ export async function adminTryonRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
+
+  // GET /admin/tryon-settings — returns global sample keys + presigned URLs
+  app.get('/admin/tryon-settings', { preHandler: R }, async () => {
+    const [row] = await app.db
+      .select()
+      .from(schema.tryonSettings)
+      .where(eq(schema.tryonSettings.id, SETTINGS_ID));
+    if (!row) return { personSampleUrl: null, garmentSampleUrl: null };
+    const presign = async (key: string | null) => {
+      if (!key) return null;
+      try {
+        return (await app.storage.presignGet(key, 3600)).url;
+      } catch {
+        return null;
+      }
+    };
+    const [personSampleUrl, garmentSampleUrl] = await Promise.all([
+      presign(row.personSampleThumbKey ?? row.personSampleKey),
+      presign(row.garmentSampleThumbKey ?? row.garmentSampleKey),
+    ]);
+    return { personSampleUrl, garmentSampleUrl };
+  });
+
+  // POST /admin/tryon-settings/presign?type=person|garment
+  app.post(
+    '/admin/tryon-settings/presign',
+    {
+      preHandler: W,
+      schema: {
+        body: z.object({ type: z.enum(['person', 'garment']), contentType: z.string() }),
+      },
+    },
+    async (req) => {
+      const { type, contentType } = req.body as { type: 'person' | 'garment'; contentType: string };
+      const r2Key = type === 'person' ? keys.tryonPersonSample() : keys.tryonGarmentSample();
+      const thumbKey =
+        type === 'person' ? keys.tryonPersonSampleThumb() : keys.tryonGarmentSampleThumb();
+      const [main, thumb] = await Promise.all([
+        app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
+        app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),
+      ]);
+      return { r2Key, uploadUrl: main.url, thumbnailKey: thumbKey, thumbnailUploadUrl: thumb.url };
+    },
+  );
+
+  // PATCH /admin/tryon-settings — save person/garment keys after upload
+  app.patch(
+    '/admin/tryon-settings',
+    {
+      preHandler: W,
+      schema: {
+        body: z.object({
+          personSampleKey: z.string().optional(),
+          personSampleThumbKey: z.string().optional(),
+          garmentSampleKey: z.string().optional(),
+          garmentSampleThumbKey: z.string().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const body = req.body as {
+        personSampleKey?: string;
+        personSampleThumbKey?: string;
+        garmentSampleKey?: string;
+        garmentSampleThumbKey?: string;
+      };
+      await app.db
+        .insert(schema.tryonSettings)
+        .values({ id: SETTINGS_ID, ...body, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: schema.tryonSettings.id,
+          set: { ...body, updatedAt: new Date() },
+        });
+      return { ok: true };
+    },
+  );
 }

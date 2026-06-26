@@ -339,20 +339,25 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   };
 
   const nodes = parsed
-    ? { image: parsed.allImageNodes, prompt: parsed.allPromptNodes, latent: parsed.allLatentNodes }
+    ? {
+        image: parsed.allImageNodes,
+        prompt: parsed.allPromptNodes,
+        latent: parsed.allLatentNodes ?? [],
+      }
     : null;
 
-  // Count how many required fields are auto-detected
-  const detectedCount = parsed
-    ? [
-        parsed.detected.faceNodeId,
-        parsed.detected.poseNodeId,
-        parsed.detected.bgNodeId,
-        parsed.detected.upperNodeIds.length > 0,
-        parsed.detected.positivePromptNode,
-        parsed.detected.negativePromptNode,
-      ].filter(Boolean).length
-    : 0;
+  // Count how many required fields are auto-detected (regular only)
+  const detectedCount =
+    parsed && workflowType === 'regular'
+      ? [
+          (parsed.detected as DetectedMappings).faceNodeId,
+          (parsed.detected as DetectedMappings).poseNodeId,
+          (parsed.detected as DetectedMappings).bgNodeId,
+          ((parsed.detected as DetectedMappings).upperNodeIds?.length ?? 0) > 0,
+          (parsed.detected as DetectedMappings).positivePromptNode,
+          (parsed.detected as DetectedMappings).negativePromptNode,
+        ].filter(Boolean).length
+      : 0;
   const requiredCount = 6;
 
   const canSubmit =
@@ -545,7 +550,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 </button>
               )}
             </div>
-            {parsed && (
+            {parsed && workflowType === 'regular' && (
               <span
                 style={{
                   fontSize: 12,

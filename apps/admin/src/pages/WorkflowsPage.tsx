@@ -289,11 +289,22 @@ export default function WorkflowsPage({ toast }: Props) {
                         background:
                           wf.workflowType === 'widget'
                             ? 'rgba(139,92,246,0.12)'
-                            : 'rgba(37,99,235,0.1)',
-                        color: wf.workflowType === 'widget' ? '#7c3aed' : '#1d4ed8',
+                            : wf.workflowType === 'tryon'
+                              ? 'rgba(236,72,153,0.12)'
+                              : 'rgba(37,99,235,0.1)',
+                        color:
+                          wf.workflowType === 'widget'
+                            ? '#7c3aed'
+                            : wf.workflowType === 'tryon'
+                              ? '#be185d'
+                              : '#1d4ed8',
                       }}
                     >
-                      {wf.workflowType === 'widget' ? 'Widget' : 'Regular'}
+                      {wf.workflowType === 'widget'
+                        ? 'Widget'
+                        : wf.workflowType === 'tryon'
+                          ? 'Tryon'
+                          : 'Regular'}
                     </span>
                   </td>
                   <td>
@@ -465,35 +476,41 @@ export default function WorkflowsPage({ toast }: Props) {
                           ['Customer photo node', viewingDetail.widgetCustomerPhotoNodeId ?? '—'],
                           ['Output node', viewingDetail.widgetOutputNodeId ?? '—'],
                         ]
-                      : [
-                          ['Face node', viewingDetail.faceNodeId],
-                          ['Pose node', viewingDetail.poseNodeId],
-                          ['Background node', viewingDetail.bgNodeId],
-                          ['Upper nodes', viewingDetail.upperNodeIds.join(', ')],
-                          ['Lower node', viewingDetail.lowerNodeId ?? '—'],
-                          ['Shoe node', viewingDetail.shoeNodeId ?? '—'],
-                          [
-                            'Size nodes',
-                            viewingDetail.sizeNodeIds.length > 0
-                              ? viewingDetail.sizeNodeIds.join(', ')
-                              : '—',
-                          ],
-                          [
-                            'Latent size nodes',
-                            viewingDetail.latentSizeNodeIds.length > 0
-                              ? `${viewingDetail.latentSizeNodeIds.join(', ')} (max ${viewingDetail.latentMaxPx}px)`
-                              : '—',
-                          ],
-                          [
-                            'Output size nodes',
-                            viewingDetail.outputSizeNodeIds.length > 0
-                              ? `${viewingDetail.outputSizeNodeIds.join(', ')} (max ${viewingDetail.outputMaxPx}px)`
-                              : '—',
-                          ],
-                          ['Result node', viewingDetail.resultNodeId ?? '—'],
-                          ['Negative prompt node', viewingDetail.facePhasePromptNode],
-                          ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
-                        ]
+                      : viewingDetail.workflowType === 'tryon'
+                        ? [
+                            ['Person node', viewingDetail.tryonPersonNodeId ?? '—'],
+                            ['Garment node', viewingDetail.tryonGarmentNodeId ?? '—'],
+                            ['Output node', viewingDetail.tryonOutputNodeId ?? '—'],
+                          ]
+                        : [
+                            ['Face node', viewingDetail.faceNodeId],
+                            ['Pose node', viewingDetail.poseNodeId],
+                            ['Background node', viewingDetail.bgNodeId],
+                            ['Upper nodes', viewingDetail.upperNodeIds.join(', ')],
+                            ['Lower node', viewingDetail.lowerNodeId ?? '—'],
+                            ['Shoe node', viewingDetail.shoeNodeId ?? '—'],
+                            [
+                              'Size nodes',
+                              viewingDetail.sizeNodeIds.length > 0
+                                ? viewingDetail.sizeNodeIds.join(', ')
+                                : '—',
+                            ],
+                            [
+                              'Latent size nodes',
+                              viewingDetail.latentSizeNodeIds.length > 0
+                                ? `${viewingDetail.latentSizeNodeIds.join(', ')} (max ${viewingDetail.latentMaxPx}px)`
+                                : '—',
+                            ],
+                            [
+                              'Output size nodes',
+                              viewingDetail.outputSizeNodeIds.length > 0
+                                ? `${viewingDetail.outputSizeNodeIds.join(', ')} (max ${viewingDetail.outputMaxPx}px)`
+                                : '—',
+                            ],
+                            ['Result node', viewingDetail.resultNodeId ?? '—'],
+                            ['Negative prompt node', viewingDetail.facePhasePromptNode],
+                            ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
+                          ]
                     ).map(([k, v]) => (
                       <>
                         <span key={`k-${k}`} style={{ color: 'var(--muted)', fontWeight: 500 }}>

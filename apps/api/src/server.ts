@@ -17,6 +17,7 @@ import { AppError } from './lib/errors.js';
 import { adminAuthRoutes } from './modules/admin/auth.routes.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
 import { adminConfigRoutes } from './modules/admin/config.routes.js';
+import { adminContactRoutes } from './modules/admin/contact.routes.js';
 import { adminCreditPlansRoutes } from './modules/admin/creditPlans.routes.js';
 import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
@@ -125,6 +126,7 @@ export async function buildServer(env: Env) {
   await app.register(adminGarmentTypesRoutes);
   await app.register(adminWorkflowsRoutes);
   await app.register(adminTryonRoutes);
+  await app.register(adminContactRoutes);
   await app.register(adminWidgetClientsRoutes);
   await app.register(resultsRoutes);
   await app.register(paymentsRoutes);

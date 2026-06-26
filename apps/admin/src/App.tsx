@@ -6,6 +6,7 @@ import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
 import { apiFetch, patchAdminPreferences } from './lib/data';
 import AssetsPage from './pages/AssetsPage';
+import ContactRequestsPage from './pages/ContactRequestsPage';
 import DashboardPage from './pages/DashboardPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
@@ -28,6 +29,7 @@ const PATH_LABELS: Record<string, string> = {
   jobs: 'Jobs',
   workflows: 'Workflows',
   'recycle-bin': 'Recycle bin',
+  contacts: 'Contact Requests',
   settings: 'Settings',
   workers: 'Workers',
 };
@@ -191,6 +193,7 @@ export default function App() {
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />
+            <Route path="/contacts" element={<ContactRequestsPage {...pageProps} />} />
             <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
             <Route path="/widget-clients" element={<WidgetClients {...pageProps} />} />

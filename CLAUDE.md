@@ -182,6 +182,42 @@ Key vars (see `.env.production.example` for full list):
 
 In dev, `R2_*` vars point to MinIO at `http://127.0.0.1:9000`.
 
+## Migration Index Conflicts (diverged branches)
+
+When pulling from `origin/master` onto a feature branch that added migrations, index collisions can occur if both sides independently picked the same next index.
+
+**Detection:** Before merging, run:
+```bash
+git diff --name-only HEAD..origin/master -- packages/db/src/migrations/
+```
+If `origin/master` has a `0063_*.sql` and so does your branch, you have a collision.
+
+**Resolution order:**
+1. Check the highest index on `origin/master`: `git show origin/master:packages/db/src/migrations/meta/_journal.json | python3 -m json.tool | grep '"idx"' | tail -3`
+2. Rename your local migration files to start after that: `git mv 0063_foo.sql 0064_foo.sql`
+3. Do the merge: `git merge origin/master`
+4. In `_journal.json`, resolve the conflict so server entries come first, then yours at the bumped indices
+5. `git add` renamed files + journal, then `git merge --continue`
+6. Run `pnpm db:migrate` — NOTICE "already exists" is safe; it means local DB already has the table
+7. **If `pnpm db:migrate` silently skips a migration** (Drizzle gap problem): happens when earlier-index hash is missing but later-index hashes are already recorded. Apply it manually:
+   ```ts
+   // packages/db/apply-one.ts (delete after use)
+   import postgres from 'postgres';
+   import { createHash } from 'crypto';
+   import { readFileSync } from 'fs';
+   const sql = postgres(process.env.DATABASE_URL!);
+   const migSql = readFileSync('/abs/path/to/NNNN_migration.sql', 'utf8');
+   const hash = createHash('sha256').update(migSql).digest('hex');
+   await sql.begin(async tx => {
+     await tx.unsafe(migSql);
+     await tx`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (${hash}, ${Date.now()})`;
+   });
+   await sql.end();
+   ```
+   Then run it: `node_modules/.bin/tsx --env-file=.env packages/db/apply-one.ts`
+
+**Rule:** Server's migration index is canonical. Your branch always yields and renumbers upward.
+
 ## Git Commit & Push Policy
 
 **Only commit and push when a meaningful unit of work is complete.**
