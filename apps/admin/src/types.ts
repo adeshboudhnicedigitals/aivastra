@@ -283,3 +283,24 @@ export interface ToastItem {
   title: string;
   body?: string;
 }
+
+export interface TryonSample {
+  id: string;
+  categoryId: string;
+  r2Key: string;
+  thumbnailKey: string | null;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface TryonCategory {
+  id: string;
+  name: string;
+  slug: string;
+  workflowTemplateId: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  samples: TryonSample[];
+}
