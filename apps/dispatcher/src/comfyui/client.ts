@@ -51,7 +51,7 @@ export async function fetchHistory(
   log?.info({ url }, 'GET /history → ComfyUI');
   const res = await fetch(url, {
     headers: { 'X-Api-Key': apiKey },
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`ComfyUI /history failed: ${res.status}`);
   const history = (await res.json()) as Record<string, unknown>;
@@ -119,7 +119,7 @@ export async function downloadOutputImage(
   const url = `${workerUrl.replace(/\/$/, '')}/view?filename=${encodeURIComponent(filename)}&type=output`;
   const res = await fetch(url, {
     headers: { 'X-Api-Key': apiKey },
-    signal: AbortSignal.timeout(30_000),
+    signal: AbortSignal.timeout(120_000),
   });
   if (!res.ok) throw new Error(`ComfyUI /view failed: ${res.status}`);
   const buf = await res.arrayBuffer();

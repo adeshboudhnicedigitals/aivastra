@@ -447,14 +447,21 @@
       "idx": 63,
       "version": "7",
       "when": 1782469000000,
-      "tag": "0063_tryon_workflow_nodes",
+      "tag": "0063_workers_table",
       "breakpoints": true
     },
     {
       "idx": 64,
       "version": "7",
       "when": 1782555400000,
-      "tag": "0064_tryon_tables",
+      "tag": "0064_tryon_workflow_nodes",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1782641800000,
+      "tag": "0065_tryon_tables",
       "breakpoints": true
     }
   ]
