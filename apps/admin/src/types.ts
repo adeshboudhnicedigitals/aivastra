@@ -52,7 +52,7 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'widget';
+  workflowType: 'regular' | 'widget' | 'tryon';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
