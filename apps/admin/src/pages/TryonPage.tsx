@@ -552,7 +552,7 @@ export default function TryonPage({ toast }: Props) {
                 <input
                   className="input"
                   value={formSlug}
-                  disabled={formSaving}
+                  disabled={formSaving || modalMode === 'edit'}
                   placeholder="snake_case"
                   onChange={(e) => {
                     setSlugEdited(true);
