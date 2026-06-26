@@ -23,6 +23,7 @@ import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
+import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
 import { adminWidgetClientsRoutes } from './modules/admin/widget-clients.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
@@ -123,6 +124,7 @@ export async function buildServer(env: Env) {
   await app.register(adminAssetsRoutes);
   await app.register(adminGarmentTypesRoutes);
   await app.register(adminWorkflowsRoutes);
+  await app.register(adminTryonRoutes);
   await app.register(adminWidgetClientsRoutes);
   await app.register(resultsRoutes);
   await app.register(paymentsRoutes);
