@@ -122,7 +122,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [parsing, setParsing] = useState(false);
   const [showConvention, setShowConvention] = useState(false);
 
-  const [workflowType, setWorkflowType] = useState<'regular' | 'widget'>('regular');
+  const [workflowType, setWorkflowType] = useState<'regular' | 'widget' | 'tryon'>('regular');
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
 
@@ -146,6 +146,13 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [widgetGarmentNodeId, setWidgetGarmentNodeId] = useState('');
   const [widgetCustomerPhotoNodeId, setWidgetCustomerPhotoNodeId] = useState('');
   const [widgetOutputNodeId, setWidgetOutputNodeId] = useState('');
+
+  // Tryon workflow node IDs + prompts (auto-detected, overridable)
+  const [tryonPersonNodeId, setTryonPersonNodeId] = useState('');
+  const [tryonGarmentNodeId, setTryonGarmentNodeId] = useState('');
+  const [tryonOutputNodeId, setTryonOutputNodeId] = useState('');
+  const [tryonPositivePrompt, setTryonPositivePrompt] = useState('');
+  const [tryonNegativePrompt, setTryonNegativePrompt] = useState('');
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,14 +186,33 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         return;
       }
 
-      const result = await apiFetch<ParseResult>('/admin/workflows/parse', {
-        method: 'POST',
-        body: JSON.stringify({ jsonContent }),
-      });
+      const result = await apiFetch<ParseResult & { detected: Record<string, unknown> }>(
+        '/admin/workflows/parse',
+        { method: 'POST', body: JSON.stringify({ jsonContent, workflowType }) },
+      );
       setParsed(result);
 
-      // Apply auto-detected mappings
-      const d = result.detected;
+      if (workflowType === 'tryon') {
+        const d = result.detected as {
+          personNodeId?: string;
+          garmentNodeId?: string;
+          outputNodeId?: string;
+          positivePromptNode?: string;
+          negativePromptNode?: string;
+          defaultPositivePrompt?: string;
+          defaultNegativePrompt?: string;
+        };
+        setTryonPersonNodeId(d.personNodeId ?? '');
+        setTryonGarmentNodeId(d.garmentNodeId ?? '');
+        setTryonOutputNodeId(d.outputNodeId ?? '');
+        setPositivePromptNode(d.positivePromptNode ?? '');
+        setNegativePromptNode(d.negativePromptNode ?? '');
+        setTryonPositivePrompt(d.defaultPositivePrompt ?? '');
+        setTryonNegativePrompt(d.defaultNegativePrompt ?? '');
+        return;
+      }
+
+      const d = result.detected as DetectedMappings;
       setFaceNodeId(d.faceNodeId ?? '');
       setPoseNodeId(d.poseNodeId ?? '');
       setBgNodeId(d.bgNodeId ?? '');
@@ -222,6 +248,15 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         setError('All three widget node IDs are required');
         return;
       }
+    } else if (workflowType === 'tryon') {
+      if (!tryonPersonNodeId.trim() || !tryonGarmentNodeId.trim() || !tryonOutputNodeId.trim()) {
+        setError('Person, garment, and output node IDs are required');
+        return;
+      }
+      if (!positivePromptNode || !negativePromptNode) {
+        setError('Positive and negative prompt nodes are required');
+        return;
+      }
     } else {
       if (!parsed) return;
       if (!faceNodeId || !poseNodeId || !bgNodeId || !positivePromptNode || !negativePromptNode) {
@@ -253,6 +288,18 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           widgetGarmentNodeId: widgetGarmentNodeId.trim(),
           widgetCustomerPhotoNodeId: widgetCustomerPhotoNodeId.trim(),
           widgetOutputNodeId: widgetOutputNodeId.trim(),
+        };
+      } else if (workflowType === 'tryon') {
+        payload = {
+          slug: slug.trim(),
+          label: label.trim(),
+          jsonContent,
+          workflowType: 'tryon',
+          tryonPersonNodeId: tryonPersonNodeId.trim(),
+          tryonGarmentNodeId: tryonGarmentNodeId.trim(),
+          tryonOutputNodeId: tryonOutputNodeId.trim(),
+          facePhasePromptNode: negativePromptNode,
+          garmentPhasePromptNode: positivePromptNode,
         };
       } else {
         const validUpperIds = upperNodeIds.filter(Boolean);
@@ -315,13 +362,20 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     label.trim() &&
     (workflowType === 'widget'
       ? widgetGarmentNodeId.trim() && widgetCustomerPhotoNodeId.trim() && widgetOutputNodeId.trim()
-      : parsed &&
-        faceNodeId &&
-        poseNodeId &&
-        bgNodeId &&
-        positivePromptNode &&
-        negativePromptNode &&
-        upperNodeIds.filter(Boolean).length > 0);
+      : workflowType === 'tryon'
+        ? parsed &&
+          tryonPersonNodeId &&
+          tryonGarmentNodeId &&
+          tryonOutputNodeId &&
+          positivePromptNode &&
+          negativePromptNode
+        : parsed &&
+          faceNodeId &&
+          poseNodeId &&
+          bgNodeId &&
+          positivePromptNode &&
+          negativePromptNode &&
+          upperNodeIds.filter(Boolean).length > 0);
 
   return (
     <div className="modal-overlay" onClick={saving || parsing ? undefined : onClose}>
@@ -354,7 +408,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         >
           {/* Workflow type selector */}
           <div style={{ display: 'flex', gap: 8 }}>
-            {(['regular', 'widget'] as const).map((t) => (
+            {(['regular', 'widget', 'tryon'] as const).map((t) => (
               <button
                 key={t}
                 className={`btn sm ${workflowType === t ? 'primary' : 'ghost'}`}
@@ -365,7 +419,11 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 }}
                 style={{ textTransform: 'capitalize' }}
               >
-                {t === 'widget' ? 'Widget try-on' : 'Regular (pose-based)'}
+                {t === 'widget'
+                  ? 'Widget try-on'
+                  : t === 'tryon'
+                    ? 'Tryon (person + garment)'
+                    : 'Regular (pose-based)'}
               </button>
             ))}
           </div>
@@ -476,7 +534,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                   style={{ display: 'none' }}
                 />
               </label>
-              {workflowType === 'regular' && (
+              {(workflowType === 'regular' || workflowType === 'tryon') && (
                 <button
                   className="btn sm primary"
                   onClick={handleParse}
@@ -581,6 +639,119 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                     onChange={(e) => setWidgetOutputNodeId(e.target.value.trim())}
                   />
                 </div>
+              </div>
+            </>
+          )}
+
+          {workflowType === 'tryon' && parsed && (
+            <>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="field">
+                  <label>
+                    Slug <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={slug}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Label <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={label}
+                    disabled={saving}
+                    onChange={(e) => setLabel(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <div className="field">
+                  <label>
+                    Person node <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={tryonPersonNodeId}
+                    disabled={saving}
+                    onChange={(e) => setTryonPersonNodeId(e.target.value.trim())}
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Garment node <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={tryonGarmentNodeId}
+                    disabled={saving}
+                    onChange={(e) => setTryonGarmentNodeId(e.target.value.trim())}
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Output node <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={tryonOutputNodeId}
+                    disabled={saving}
+                    onChange={(e) => setTryonOutputNodeId(e.target.value.trim())}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="field">
+                  <label>
+                    Positive prompt node <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={positivePromptNode}
+                    disabled={saving}
+                    onChange={(e) => setPositivePromptNode(e.target.value.trim())}
+                  />
+                </div>
+                <div className="field">
+                  <label>
+                    Negative prompt node <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={negativePromptNode}
+                    disabled={saving}
+                    onChange={(e) => setNegativePromptNode(e.target.value.trim())}
+                  />
+                </div>
+              </div>
+              <div className="field">
+                <label>Positive prompt (default, editable)</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={tryonPositivePrompt}
+                  disabled={saving}
+                  onChange={(e) => setTryonPositivePrompt(e.target.value)}
+                  style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+                />
+              </div>
+              <div className="field">
+                <label>Negative prompt (default, editable)</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={tryonNegativePrompt}
+                  disabled={saving}
+                  onChange={(e) => setTryonNegativePrompt(e.target.value)}
+                  style={{ fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+                />
               </div>
             </>
           )}
