@@ -357,7 +357,7 @@ export default function TryOnPage() {
 
   useEffect(() => {
     if (categories.length > 0 && !selectedCategoryId) {
-      setSelectedCategoryId(categories[0]?.id);
+      setSelectedCategoryId(categories[0]?.id ?? null);
     }
   }, [categories, selectedCategoryId]);
 
