@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { Switch } from '../components/Switch';
 import { apiFetch } from '../lib/data';
 
 interface Worker {
@@ -102,13 +103,16 @@ export default function WorkersPage({ toast }: Props) {
     }
   }
 
-  async function handleDrain(id: string) {
+  async function handleToggleActive(w: Worker) {
     try {
-      await apiFetch(`/admin/workers/${id}/drain`, { method: 'POST' });
-      toast({ title: `Worker ${id} set to DRAINING` });
+      await apiFetch(`/admin/workers/${w.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !w.isActive }),
+      });
+      toast({ title: `Worker ${w.id} ${w.isActive ? 'deactivated' : 'activated'}` });
       void load();
     } catch {
-      toast({ kind: 'error', title: 'Failed to drain worker' });
+      toast({ kind: 'error', title: 'Failed to update worker' });
     }
   }
 
@@ -248,7 +252,15 @@ export default function WorkersPage({ toast }: Props) {
                     {w.apiKeyHint}
                   </td>
                   <td>
-                    <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        justifyContent: 'flex-end',
+                      }}
+                    >
+                      <Switch checked={w.isActive} onChange={() => void handleToggleActive(w)} />
                       <button
                         className="btn btn--ghost btn--sm"
                         onClick={() => openEdit(w)}
@@ -256,20 +268,11 @@ export default function WorkersPage({ toast }: Props) {
                       >
                         <Icon.Edit />
                       </button>
-                      {w.status !== 'DRAINING' && w.isActive && (
-                        <button
-                          className="btn btn--ghost btn--sm"
-                          onClick={() => handleDrain(w.id)}
-                          title="Drain"
-                        >
-                          <Icon.Drain />
-                        </button>
-                      )}
                       <button
                         className="btn btn--ghost btn--sm"
                         onClick={() => handleDelete(w.id)}
                         disabled={w.status === 'BUSY' || deleting === w.id}
-                        title={w.status === 'BUSY' ? 'Drain first before deleting' : 'Delete'}
+                        title={w.status === 'BUSY' ? 'Deactivate first before deleting' : 'Delete'}
                         style={{ color: 'var(--danger)' }}
                       >
                         <Icon.Trash />
