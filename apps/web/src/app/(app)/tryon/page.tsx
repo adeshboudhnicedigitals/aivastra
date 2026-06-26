@@ -329,7 +329,10 @@ export default function TryOnPage() {
   const openContact = () => {
     setContactName(me?.displayName ?? '');
     setContactEmail(me?.email ?? '');
-    setContactPhone(me?.phone ?? '');
+    const rawPhone = (me?.phone ?? '').replace(/\D/g, '').slice(0, 10);
+    setContactPhone(
+      rawPhone.length > 5 ? `${rawPhone.slice(0, 5)} ${rawPhone.slice(5)}` : rawPhone,
+    );
     setContactMessage('');
     setContactDone(false);
     setShowContact(true);
@@ -645,8 +648,15 @@ export default function TryOnPage() {
                 >
                   {generating ? 'Generating…' : 'Generate Try-On'}
                 </span>
+                {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
                 {!generating && (
-                  <span style={{ fontSize: 15, color: canGenerate ? '#fff' : C.light }}>✦</span>
+                  <img
+                    src="/assets/generate-icon.svg"
+                    alt=""
+                    width={20}
+                    height={20}
+                    style={{ opacity: canGenerate ? 1 : 0.4 }}
+                  />
                 )}
               </button>
             </div>
@@ -740,7 +750,13 @@ export default function TryOnPage() {
                     }}
                   >
                     {generating ? (
-                      <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                      <svg
+                        aria-hidden="true"
+                        width="40"
+                        height="40"
+                        viewBox="0 0 40 40"
+                        fill="none"
+                      >
                         <circle cx="20" cy="20" r="16" stroke={C.border2} strokeWidth="3" />
                         <path
                           d="M20 4 A16 16 0 0 1 36 20"
@@ -759,7 +775,13 @@ export default function TryOnPage() {
                         </path>
                       </svg>
                     ) : (
-                      <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                      <svg
+                        aria-hidden="true"
+                        width="48"
+                        height="48"
+                        viewBox="0 0 48 48"
+                        fill="none"
+                      >
                         <circle cx="24" cy="16" r="7" stroke={C.border2} strokeWidth="2" />
                         <path
                           d="M10 40C10 33 16 29 24 29C32 29 38 33 38 40"
@@ -868,7 +890,21 @@ export default function TryOnPage() {
                 <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(124,58,237)' }}>
                   Contact Us
                 </span>
-                <span style={{ fontSize: 13, color: 'rgb(124,58,237)' }}>→</span>
+                <svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="rgb(124,58,237)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
               </button>
             </div>
             <div
@@ -938,7 +974,21 @@ export default function TryOnPage() {
                 <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(249,115,22)' }}>
                   Contact Us
                 </span>
-                <span style={{ fontSize: 13, color: 'rgb(249,115,22)' }}>→</span>
+                <svg
+                  aria-hidden="true"
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="rgb(249,115,22)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M5 12h14" />
+                  <path d="m12 5 7 7-7 7" />
+                </svg>
               </button>
             </div>
             <div
@@ -962,6 +1012,8 @@ export default function TryOnPage() {
 
       {/* Contact Us modal */}
       {showContact && (
+        // biome-ignore lint/a11y/useKeyWithClickEvents: modal backdrop close on click
+        // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop
         <div
           onClick={() => !contactSubmitting && setShowContact(false)}
           style={{
@@ -1154,10 +1206,16 @@ export default function TryOnPage() {
                     <input
                       required
                       type="tel"
+                      inputMode="numeric"
                       value={contactPhone}
-                      onChange={(e) => setContactPhone(e.target.value)}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setContactPhone(
+                          digits.length > 5 ? `${digits.slice(0, 5)} ${digits.slice(5)}` : digits,
+                        );
+                      }}
                       disabled={contactSubmitting}
-                      placeholder="+91 98765 43210"
+                      placeholder="98765 43210"
                       style={{
                         height: 40,
                         borderRadius: 8,
