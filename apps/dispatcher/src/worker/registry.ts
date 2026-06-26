@@ -45,6 +45,17 @@ export async function registerWorkers(
   redis: Redis,
   workers: Array<{ id: string; url: string; apiKey: string }>,
 ): Promise<void> {
+  // Remove stale entries: any worker in Redis but not in the DB list is deleted.
+  // This prevents old env-var workers from lingering after being removed from the DB.
+  const existing = await redis.hkeys(REGISTRY_KEY);
+  const incoming = new Set(workers.map((w) => w.id));
+  for (const id of existing) {
+    if (!incoming.has(id)) {
+      await redis.hdel(REGISTRY_KEY, id);
+      await redis.del(healthKey(id));
+    }
+  }
+
   for (const w of workers) {
     const entry: WorkerEntry = {
       url: w.url,

@@ -37,6 +37,7 @@ const items: NavItem[] = [
   { k: 'tryon', label: 'Tryon', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'] },
   { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'] },
+  { k: 'workers', label: 'Workers', icon: Icon.Server, roles: ['SUPER_ADMIN'] },
   {
     k: 'recycle-bin',
     label: 'Recycle bin',
