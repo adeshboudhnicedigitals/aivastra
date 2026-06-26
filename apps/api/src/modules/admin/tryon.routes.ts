@@ -7,7 +7,7 @@ import {
   TryonSamplePresignBody,
   UpdateTryonCategoryBody,
 } from '@aivastra/types';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -42,22 +42,24 @@ export async function adminTryonRoutes(app: FastifyInstance) {
     { preHandler: W, schema: { body: CreateTryonCategoryBody } },
     async (req) => {
       const body = req.body as z.infer<typeof CreateTryonCategoryBody>;
-      const [existing] = await app.db
-        .select({ id: schema.tryonCategories.id })
-        .from(schema.tryonCategories)
-        .where(eq(schema.tryonCategories.slug, body.slug));
-      if (existing) throw new AppError('CONFLICT', 409, `slug "${body.slug}" already exists`);
-      const [row] = await app.db
-        .insert(schema.tryonCategories)
-        .values({
-          name: body.name,
-          slug: body.slug,
-          workflowTemplateId: body.workflowTemplateId ?? null,
-          sortOrder: body.sortOrder ?? 0,
-          isActive: body.isActive ?? true,
-        })
-        .returning();
-      return { ...row, samples: [] };
+      try {
+        const [row] = await app.db
+          .insert(schema.tryonCategories)
+          .values({
+            name: body.name,
+            slug: body.slug,
+            workflowTemplateId: body.workflowTemplateId ?? null,
+            sortOrder: body.sortOrder ?? 0,
+            isActive: body.isActive ?? true,
+          })
+          .returning();
+        return { ...row, samples: [] };
+      } catch (err) {
+        if ((err as { code?: string }).code === '23505') {
+          throw new AppError('CONFLICT', 409, `slug "${body.slug}" already exists`);
+        }
+        throw err;
+      }
     },
   );
 
@@ -92,7 +94,11 @@ export async function adminTryonRoutes(app: FastifyInstance) {
     { preHandler: W, schema: { params: uuidParam } },
     async (req) => {
       const { id } = req.params as { id: string };
-      await app.db.delete(schema.tryonCategories).where(eq(schema.tryonCategories.id, id));
+      const deleted = await app.db
+        .delete(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.id, id))
+        .returning({ id: schema.tryonCategories.id });
+      if (!deleted.length) throw new AppError('NOT_FOUND', 404, 'category not found');
       return { ok: true };
     },
   );
@@ -103,6 +109,11 @@ export async function adminTryonRoutes(app: FastifyInstance) {
     { preHandler: W, schema: { params: uuidParam, body: TryonSamplePresignBody } },
     async (req) => {
       const { id } = req.params as { id: string };
+      const [cat] = await app.db
+        .select({ id: schema.tryonCategories.id })
+        .from(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.id, id));
+      if (!cat) throw new AppError('NOT_FOUND', 404, 'category not found');
       const { contentType } = req.body as z.infer<typeof TryonSamplePresignBody>;
       const sampleId = randomUUID();
       const r2Key = keys.tryonSample(id, sampleId);
@@ -148,10 +159,15 @@ export async function adminTryonRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid(), sampleId: z.string().uuid() }) },
     },
     async (req) => {
-      const { sampleId } = req.params as { id: string; sampleId: string };
+      const { id, sampleId } = req.params as { id: string; sampleId: string };
       await app.db
         .delete(schema.tryonCategorySamples)
-        .where(eq(schema.tryonCategorySamples.id, sampleId));
+        .where(
+          and(
+            eq(schema.tryonCategorySamples.id, sampleId),
+            eq(schema.tryonCategorySamples.categoryId, id),
+          ),
+        );
       return { ok: true };
     },
   );
