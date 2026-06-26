@@ -31,6 +31,7 @@ export default function WorkersPage({ toast }: Props) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Worker | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -116,8 +117,12 @@ export default function WorkersPage({ toast }: Props) {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm(`Delete worker "${id}"? This cannot be undone.`)) return;
+  async function handleDelete(w: Worker) {
+    setConfirmDelete(w);
+  }
+
+  async function doDelete(id: string) {
+    setConfirmDelete(null);
     setDeleting(id);
     try {
       await apiFetch(`/admin/workers/${id}`, { method: 'DELETE' });
@@ -270,7 +275,7 @@ export default function WorkersPage({ toast }: Props) {
                       </button>
                       <button
                         className="btn btn--ghost btn--sm"
-                        onClick={() => handleDelete(w.id)}
+                        onClick={() => void handleDelete(w)}
                         disabled={w.status === 'BUSY' || deleting === w.id}
                         title={w.status === 'BUSY' ? 'Deactivate first before deleting' : 'Delete'}
                         style={{ color: 'var(--danger)' }}
@@ -386,6 +391,59 @@ export default function WorkersPage({ toast }: Props) {
                 disabled={saving || !canSave}
               >
                 {saving ? 'Saving…' : editTarget ? 'Save Changes' : 'Add Worker'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirmDelete && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 200,
+          }}
+          onClick={(e) => e.target === e.currentTarget && setConfirmDelete(null)}
+        >
+          <div
+            style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 28,
+              width: 380,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0 }}>Delete Worker</h3>
+              <button className="btn btn--ghost btn--sm" onClick={() => setConfirmDelete(null)}>
+                <Icon.Close />
+              </button>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--muted)' }}>
+              Delete{' '}
+              <strong style={{ color: 'var(--text)' }}>
+                {confirmDelete.label || confirmDelete.id}
+              </strong>
+              ? This cannot be undone.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn btn--ghost" onClick={() => setConfirmDelete(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn--primary"
+                style={{ background: 'var(--danger)', borderColor: 'var(--danger)' }}
+                onClick={() => void doDelete(confirmDelete.id)}
+              >
+                Delete
               </button>
             </div>
           </div>
