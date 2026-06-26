@@ -193,6 +193,7 @@ export const CreateWorkflowBody = z
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
+  workflowType: z.enum(['regular', 'widget', 'tryon']).optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
