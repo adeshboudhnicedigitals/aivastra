@@ -18,4 +18,8 @@ export const keys = {
   subcategoryThumb: (id: string) => `models/subcategories/${id}.thumb.jpg`,
   subcategoryTemplate: (id: string) => `models/templates/${id}.jpg`,
   subcategoryTemplateThumb: (id: string) => `models/templates/${id}.thumb.jpg`,
+  tryonSample: (categoryId: string, sampleId: string) =>
+    `tryon/categories/${categoryId}/${sampleId}.jpg`,
+  tryonSampleThumb: (categoryId: string, sampleId: string) =>
+    `tryon/categories/${categoryId}/${sampleId}.thumb.jpg`,
 };
