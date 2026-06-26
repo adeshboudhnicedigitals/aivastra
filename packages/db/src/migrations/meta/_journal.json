@@ -442,6 +442,13 @@
       "when": 1782382600000,
       "tag": "0062_credit_plan_queue_stream",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1782469000000,
+      "tag": "0063_workers_table",
+      "breakpoints": true
     }
   ]
 }
