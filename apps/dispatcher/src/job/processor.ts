@@ -100,6 +100,27 @@ export async function processJob(
     return;
   }
 
+  // Tryon direct jobs: no face/background/pose — person + garment keys stored in params
+  const rawParams =
+    typeof inputs.params === 'string'
+      ? (JSON.parse(inputs.params) as Record<string, unknown>)
+      : ((inputs.params ?? {}) as Record<string, unknown>);
+
+  if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.personKey) {
+    await processTryonDirectJob(
+      cfg,
+      job,
+      inputs,
+      rawParams,
+      userId,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
   // Regular jobs must have all three model references (guards also narrow nullable types below)
   if (!inputs.faceId || !inputs.backgroundId || !inputs.poseId) {
     await markFailed(
@@ -443,6 +464,208 @@ export async function processJob(
     jobLog.info('job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'job processing error');
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  }
+}
+
+// ── Tryon direct job processor ────────────────────────────────────────────
+
+type TryonDirectJob = {
+  id: string;
+  creditsCharged: number;
+  attempts: number;
+};
+
+async function processTryonDirectJob(
+  cfg: ProcessorConfig,
+  job: TryonDirectJob,
+  inputs: typeof schema.jobInputs.$inferSelect,
+  params: Record<string, unknown>,
+  userId: string,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const jobId = job.id;
+
+  const personKey = params.personKey as string;
+  const workflowTemplateId = params.workflowTemplateId as string;
+  const garmentKey = inputs.upperGarmentKey;
+
+  if (!workflowTemplateId) {
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
+    return;
+  }
+
+  // Load tryon workflow template
+  const [template] = await db
+    .select({
+      jsonContent: schema.workflowTemplates.jsonContent,
+      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
+      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
+    })
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+
+  if (!template) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'WORKFLOW_NOT_FOUND',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const personNodeId = template.tryonPersonNodeId;
+  const garmentNodeId = template.tryonGarmentNodeId;
+  const outputNodeId = template.tryonOutputNodeId;
+
+  if (!personNodeId || !garmentNodeId || !outputNodeId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'TRYON_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
+  const worker = await selectWorker(redis);
+  if (!worker) {
+    jobLog.warn('no idle worker — re-enqueuing tryon direct job with backoff');
+    await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+    await new Promise((resolve) => setTimeout(resolve, 10_000));
+    await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('retried', startedAt);
+    return;
+  }
+  const w = worker;
+  jobLog.info({ workerId: w.id }, 'worker claimed for tryon direct');
+
+  try {
+    async function r2Download(key: string): Promise<Uint8Array> {
+      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
+      return res.Body.transformToByteArray();
+    }
+
+    async function uploadToComfy(key: string, prefix: string): Promise<string> {
+      const bytes = await r2Download(key);
+      const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
+      const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+    }
+
+    jobLog.info('uploading tryon direct inputs to ComfyUI');
+    const [personFile, garmentFile] = await Promise.all([
+      uploadToComfy(personKey, 'person'),
+      uploadToComfy(garmentKey, 'garment'),
+    ]);
+    jobLog.info({ personFile, garmentFile }, 'tryon direct inputs uploaded');
+
+    // Clone and patch workflow
+    const workflow = structuredClone(template.jsonContent) as Record<
+      string,
+      { inputs?: Record<string, unknown> }
+    >;
+    if (workflow[personNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[personNodeId].inputs!.image = personFile;
+    }
+    if (workflow[garmentNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[garmentNodeId].inputs!.image = garmentFile;
+    }
+
+    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    const clientUuid = randomUUID();
+    const comfyStartedAt = Date.now();
+    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    jobLog.info({ promptId }, 'tryon direct prompt submitted');
+
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'COMFY_DISPATCH',
+      payload: {
+        promptId,
+        workerId: w.id,
+        workerUrl: w.url,
+        workflowTemplateId,
+        inputs: { personKey, garmentKey, personFile, garmentFile },
+      },
+    });
+
+    await waitForCompletion(
+      w.url,
+      w.apiKey,
+      clientUuid,
+      promptId,
+      300_000,
+      (update) => jobLog.debug(update, 'comfyui progress'),
+      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+    );
+    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const [firstImage] = outputImages;
+    if (!firstImage) throw new Error('ComfyUI returned no output images for tryon direct job');
+
+    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const resultKey = keys.output(jobId);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: r2Bucket,
+        Key: resultKey,
+        Body: imageBytes,
+        ContentType: 'image/png',
+      }),
+    );
+
+    let thumbnailKey: string | undefined;
+    try {
+      const thumbBytes = await sharp(imageBytes)
+        .rotate()
+        .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+      thumbnailKey = keys.outputThumb(jobId);
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: r2Bucket,
+          Key: thumbnailKey,
+          Body: thumbBytes,
+          ContentType: 'image/jpeg',
+        }),
+      );
+    } catch (thumbErr) {
+      jobLog.warn({ err: thumbErr }, 'thumbnail generation failed for tryon direct job');
+    }
+
+    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey, thumbnailKey }, jobLog);
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    recordJobOutcome('success', startedAt);
+    jobLog.info({ resultKey }, 'tryon direct job completed');
+  } catch (err) {
+    jobLog.error({ err }, 'tryon direct job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);

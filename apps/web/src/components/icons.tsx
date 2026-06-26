@@ -533,6 +533,30 @@ export const FlagGB = ({ size = 16 }: { size?: number }) => (
     <path d="M8 3v4h4v1H9v4H8V8H3v-.5l4.5-4.5H8z" fill="#C8102E" opacity="0.7" />
   </svg>
 );
+export const InfoIcon = ({
+  size = 16,
+  color = 'currentColor',
+}: {
+  size?: number;
+  color?: string;
+}) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 16v-4" />
+    <path d="M12 8h.01" />
+  </svg>
+);
+
 export const FlagAE = ({ size = 16 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
     <rect x="2" y="3" width="3" height="10" fill="#FF0000" rx="0.5" />

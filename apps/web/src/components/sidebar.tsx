@@ -10,6 +10,13 @@ const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 const NAV = [
   { id: 'studio', href: '/studio', label: 'Studio', icon: `${BASE}/assets/studio-icon.svg` },
   {
+    id: 'tryon',
+    href: '/tryon',
+    label: 'Try-On',
+    icon: `${BASE}/assets/tryon-icon.svg`,
+    badge: 'New',
+  },
+  {
     id: 'catalogues',
     href: '/catalogues',
     label: 'Catalogues',
@@ -99,7 +106,34 @@ export function Sidebar() {
         {NAV.map((item) => {
           const isActive = activeId === item.id;
           const linkContent = (
-            <>
+            <div
+              style={{
+                position: 'relative',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              {'badge' in item && item.badge && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -8,
+                    background: 'linear-gradient(180deg, #7c3aed 0%, #66479c 100%)',
+                    borderRadius: 4,
+                    padding: '1px 4px',
+                    fontSize: 7,
+                    fontWeight: 600,
+                    color: '#fff',
+                    lineHeight: '11px',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {item.badge}
+                </div>
+              )}
               <span style={{ opacity: isActive ? 1 : 0.6, display: 'flex', flexShrink: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={item.icon} alt="" width={20} height={20} />
@@ -115,7 +149,7 @@ export function Sidebar() {
               >
                 {item.label}
               </span>
-            </>
+            </div>
           );
 
           if (isActive) {

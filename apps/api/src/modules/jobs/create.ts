@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
-import { type CreateTryOnJobRequest, RESOLUTION_COSTS, type Resolution } from '@aivastra/types';
+import {
+  type CreateSimpleTryonRequest,
+  type CreateTryOnJobRequest,
+  RESOLUTION_COSTS,
+  type Resolution,
+  SIMPLE_TRYON_COST,
+} from '@aivastra/types';
 import { aliasedTable, and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
@@ -270,4 +276,100 @@ export async function createJob(
   }
 
   return { catalogueId, jobIds };
+}
+
+export async function createSimpleTryonJob(
+  app: FastifyInstance,
+  userId: string,
+  body: z.infer<typeof CreateSimpleTryonRequest>,
+) {
+  const { personKey, garmentKey, categoryId } = body;
+  const COST = SIMPLE_TRYON_COST;
+
+  await assertOwnsUploadKey(app, userId, personKey);
+  await assertOwnsUploadKey(app, userId, garmentKey);
+
+  const [[user], [planRow]] = await Promise.all([
+    app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
+    app.db
+      .select({ queueStream: schema.creditPlans.queueStream })
+      .from(schema.users)
+      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
+      .where(eq(schema.users.id, userId)),
+  ]);
+  if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
+
+  const queueStream: string = planRow?.queueStream ?? 'normal';
+  const priority = queueStream === 'priority';
+
+  // Resolve workflow template: category → its template → fallback to any active tryon template
+  let workflowTemplateId: string;
+  if (categoryId) {
+    const [cat] = await app.db
+      .select({ workflowTemplateId: schema.tryonCategories.workflowTemplateId })
+      .from(schema.tryonCategories)
+      .where(
+        and(eq(schema.tryonCategories.id, categoryId), eq(schema.tryonCategories.isActive, true)),
+      );
+    if (cat?.workflowTemplateId) {
+      workflowTemplateId = cat.workflowTemplateId;
+    } else {
+      const [tmpl] = await app.db
+        .select({ id: schema.workflowTemplates.id })
+        .from(schema.workflowTemplates)
+        .where(
+          and(
+            eq(schema.workflowTemplates.workflowType, 'tryon'),
+            eq(schema.workflowTemplates.isActive, true),
+          ),
+        )
+        .limit(1);
+      if (!tmpl) throw new AppError('CONFIG', 400, 'no active tryon workflow template configured');
+      workflowTemplateId = tmpl.id;
+    }
+  } else {
+    const [tmpl] = await app.db
+      .select({ id: schema.workflowTemplates.id })
+      .from(schema.workflowTemplates)
+      .where(
+        and(
+          eq(schema.workflowTemplates.workflowType, 'tryon'),
+          eq(schema.workflowTemplates.isActive, true),
+        ),
+      )
+      .limit(1);
+    if (!tmpl) throw new AppError('CONFIG', 400, 'no active tryon workflow template configured');
+    workflowTemplateId = tmpl.id;
+  }
+
+  const catalogueId = randomUUID();
+  const [job] = await app.db.transaction(async (tx) => {
+    const [newJob] = await tx
+      .insert(schema.jobs)
+      .values({ userId, catalogueId, status: 'QUEUED', priority, creditsCharged: COST })
+      .returning();
+    await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
+    await tx.insert(schema.jobInputs).values({
+      jobId: newJob.id,
+      upperGarmentKey: garmentKey,
+      params: { personKey, workflowTemplateId },
+    });
+    return [newJob];
+  });
+
+  const stream = `jobs:${queueStream}`;
+  try {
+    await app.redis.xadd(stream, '*', 'jobId', job.id, 'userId', userId);
+    jobsCreatedTotal.inc({ priority: queueStream });
+  } catch (err) {
+    app.log.error({ err, jobId: job.id }, 'redis xadd failed — simple tryon job will be refunded');
+    await refund(app.db, userId, COST, job.id, 'REFUND_ENQUEUE_FAIL');
+    await app.db
+      .update(schema.jobs)
+      .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
+      .where(eq(schema.jobs.id, job.id));
+    throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
+  }
+
+  return { jobId: job.id, catalogueId };
 }

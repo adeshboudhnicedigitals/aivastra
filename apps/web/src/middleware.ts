@@ -34,7 +34,6 @@ export async function middleware(request: NextRequest) {
 
   // Redirect old route names to new structure
   const REDIRECTS: Record<string, string> = {
-    '/tryon': '/studio',
     '/dashboard': '/catalogues',
     '/jobs': '/catalogues',
     '/credits': '/pricing',

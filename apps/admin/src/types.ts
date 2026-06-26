@@ -63,6 +63,9 @@ export interface WorkflowOption {
   widgetGarmentNodeId: string | null;
   widgetCustomerPhotoNodeId: string | null;
   widgetOutputNodeId: string | null;
+  tryonPersonNodeId: string | null;
+  tryonGarmentNodeId: string | null;
+  tryonOutputNodeId: string | null;
   createdAt: string;
 }
 
@@ -282,6 +285,17 @@ export interface ToastItem {
   kind?: 'error' | 'success';
   title: string;
   body?: string;
+}
+
+export interface ContactRequest {
+  id: string;
+  userId: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  message: string | null;
+  status: 'new' | 'read' | 'done';
+  createdAt: string;
 }
 
 export interface TryonSample {

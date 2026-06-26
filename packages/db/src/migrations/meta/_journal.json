@@ -463,6 +463,20 @@
       "when": 1782641800000,
       "tag": "0065_tryon_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1782700000000,
+      "tag": "0066_tryon_global_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1782710000000,
+      "tag": "0067_contact_requests",
+      "breakpoints": true
     }
   ]
 }

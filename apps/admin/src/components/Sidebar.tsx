@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/data';
 import { Icon } from './Icons';
 
 interface SidebarProps {
@@ -35,6 +37,12 @@ const items: NavItem[] = [
   },
   { k: 'workflows', label: 'Workflows', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'tryon', label: 'Tryon', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
+  {
+    k: 'contacts',
+    label: 'Contacts',
+    icon: Icon.Bell,
+    roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT'],
+  },
   { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'] },
   { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'] },
   { k: 'workers', label: 'Workers', icon: Icon.Server, roles: ['SUPER_ADMIN'] },
@@ -47,7 +55,19 @@ const items: NavItem[] = [
 ];
 
 export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: SidebarProps) {
-  const { email } = useAuth();
+  const { email, token } = useAuth();
+  const [contactBadge, setContactBadge] = useState(0);
+
+  useEffect(() => {
+    if (!token) return;
+    const fetchCount = () =>
+      apiFetch<{ count: number }>('/admin/contact-requests/unread-count')
+        .then(({ count }) => setContactBadge(count))
+        .catch(() => {});
+    void fetchCount();
+    const t = setInterval(fetchCount, 30_000);
+    return () => clearInterval(t);
+  }, [token]);
   const visible = items.filter((item) => item.roles.includes(role));
 
   const emailUser = email ? email.split('@')[0] : 'Admin';
@@ -86,20 +106,23 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
           </button>
         </div>
         <nav>
-          {visible.map((item) => (
-            <button
-              key={item.k}
-              className={`nav-item nav-item--icon ${item.alert ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onNav(item.k);
-              }}
-              title={item.label}
-            >
-              <item.icon />
-              {item.count !== undefined && <span className="count">{item.count}</span>}
-            </button>
-          ))}
+          {visible.map((item) => {
+            const badge = item.k === 'contacts' ? contactBadge : (item.count ?? 0);
+            return (
+              <button
+                key={item.k}
+                className={`nav-item nav-item--icon ${item.alert || (item.k === 'contacts' && contactBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNav(item.k);
+                }}
+                title={item.label}
+              >
+                <item.icon />
+                {badge > 0 && <span className="count">{badge}</span>}
+              </button>
+            );
+          })}
         </nav>
         <div className="sidebar-spacer" />
         {showSettings && (
@@ -147,17 +170,20 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
         </button>
       </div>
       <nav>
-        {visible.map((item) => (
-          <button
-            key={item.k}
-            className={`nav-item ${item.alert ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
-            onClick={() => onNav(item.k)}
-          >
-            {<item.icon />}
-            <span>{item.label}</span>
-            {item.count !== undefined && <span className="count">{item.count}</span>}
-          </button>
-        ))}
+        {visible.map((item) => {
+          const badge = item.k === 'contacts' ? contactBadge : (item.count ?? 0);
+          return (
+            <button
+              key={item.k}
+              className={`nav-item ${item.alert || (item.k === 'contacts' && contactBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
+              onClick={() => onNav(item.k)}
+            >
+              <item.icon />
+              <span>{item.label}</span>
+              {badge > 0 && <span className="count">{badge}</span>}
+            </button>
+          );
+        })}
       </nav>
       <div className="sidebar-spacer" />
       {showSettings && (

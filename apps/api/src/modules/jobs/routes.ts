@@ -1,11 +1,11 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { CreateTryOnJobRequest } from '@aivastra/types';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { CreateSimpleTryonRequest, CreateTryOnJobRequest } from '@aivastra/types';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createJob } from './create.js';
+import { createJob, createSimpleTryonJob } from './create.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
 export async function jobsRoutes(app: FastifyInstance) {
@@ -22,6 +22,53 @@ export async function jobsRoutes(app: FastifyInstance) {
       return result;
     },
   );
+
+  app.post(
+    '/v1/jobs/simple-tryon',
+    { preHandler: app.requireUser, schema: { body: CreateSimpleTryonRequest } },
+    async (req, reply) => {
+      const result = await createSimpleTryonJob(
+        app,
+        req.userId,
+        req.body as z.infer<typeof CreateSimpleTryonRequest>,
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  // GET /v1/tryon/categories — active categories + global person/garment sample URLs
+  app.get('/v1/tryon/categories', { preHandler: app.requireUser }, async () => {
+    const SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
+    const [cats, [settings]] = await Promise.all([
+      app.db
+        .select()
+        .from(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.isActive, true))
+        .orderBy(asc(schema.tryonCategories.sortOrder)),
+      app.db.select().from(schema.tryonSettings).where(eq(schema.tryonSettings.id, SETTINGS_ID)),
+    ]);
+
+    const presign = async (key: string | null | undefined) => {
+      if (!key) return null;
+      try {
+        return (await app.storage.presignGet(key, 3600)).url;
+      } catch {
+        return null;
+      }
+    };
+
+    const [personSampleUrl, garmentSampleUrl] = await Promise.all([
+      presign(settings?.personSampleThumbKey ?? settings?.personSampleKey),
+      presign(settings?.garmentSampleThumbKey ?? settings?.garmentSampleKey),
+    ]);
+
+    return {
+      categories: cats.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
+      personSampleUrl,
+      garmentSampleUrl,
+    };
+  });
 
   // List catalogues — grouped by catalogue_id, ordered newest first
   app.get('/v1/catalogues', { preHandler: app.requireUser }, async (req) => {
@@ -273,6 +320,33 @@ export async function jobsRoutes(app: FastifyInstance) {
       await app.db.delete(schema.jobEvents).where(eq(schema.jobEvents.jobId, id));
       await app.db.delete(schema.jobOutputs).where(eq(schema.jobOutputs.jobId, id));
       await app.db.delete(schema.jobs).where(eq(schema.jobs.id, id));
+      reply.code(204).send();
+    },
+  );
+
+  // Contact form — auth required (tryon page is inside protected app shell)
+  app.post(
+    '/v1/contact',
+    {
+      preHandler: app.requireUser,
+      schema: {
+        body: z.object({
+          name: z.string().min(1).max(200),
+          email: z.string().email().max(200),
+          phone: z.string().min(1).max(50),
+          message: z.string().max(2000).optional(),
+        }),
+      },
+    },
+    async (req, reply) => {
+      const body = req.body as { name: string; email: string; phone: string; message?: string };
+      await app.db.insert(schema.contactRequests).values({
+        userId: req.userId,
+        name: body.name,
+        email: body.email,
+        phone: body.phone,
+        message: body.message ?? null,
+      });
       reply.code(204).send();
     },
   );
