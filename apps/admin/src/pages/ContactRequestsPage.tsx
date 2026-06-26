@@ -56,32 +56,37 @@ export default function ContactRequestsPage({ toast }: Props) {
     notifPermRef.current = true;
   }, []);
 
-  // Initial load + poll every 30s for new requests
+  // Initial load + poll every 5s
   useEffect(() => {
     void load(statusFilter);
 
-    const poll = setInterval(async () => {
-      const { count } = await apiFetch<{ count: number }>(
-        '/admin/contact-requests/unread-count',
-      ).catch(() => ({ count: 0 }));
-      if (prevNewCountRef.current !== null && count > prevNewCountRef.current) {
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('New contact request', {
-            body: `${count - prevNewCountRef.current} new enquir${count - prevNewCountRef.current === 1 ? 'y' : 'ies'} received`,
-            icon: '/favicon.ico',
-          });
-        }
-        void load(statusFilter, true);
-      }
-      prevNewCountRef.current = count;
-    }, 30_000);
-
-    // seed initial count
+    // Seed initial unread count
     apiFetch<{ count: number }>('/admin/contact-requests/unread-count')
       .then(({ count }) => {
         prevNewCountRef.current = count;
       })
       .catch(() => {});
+
+    const poll = setInterval(async () => {
+      const { count } = await apiFetch<{ count: number }>(
+        '/admin/contact-requests/unread-count',
+      ).catch(() => ({ count: 0 }));
+
+      const prev = prevNewCountRef.current;
+      const isNew = prev !== null && count > prev;
+
+      if (isNew && 'Notification' in window && Notification.permission === 'granted') {
+        const delta = count - (prev ?? 0);
+        new Notification('New contact request', {
+          body: `${delta} new enquir${delta === 1 ? 'y' : 'ies'} received`,
+          icon: '/favicon.ico',
+        });
+      }
+
+      // Always reload list silently so page stays fresh
+      void load(statusFilter, true);
+      prevNewCountRef.current = count;
+    }, 5_000);
 
     return () => clearInterval(poll);
   }, [load, statusFilter]);

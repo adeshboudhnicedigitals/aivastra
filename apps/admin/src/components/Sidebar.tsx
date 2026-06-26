@@ -65,7 +65,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
         .then(({ count }) => setContactBadge(count))
         .catch(() => {});
     void fetchCount();
-    const t = setInterval(fetchCount, 30_000);
+    const t = setInterval(fetchCount, 5_000);
     return () => clearInterval(t);
   }, [token]);
   const visible = items.filter((item) => item.roles.includes(role));
