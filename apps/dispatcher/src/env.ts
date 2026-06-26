@@ -12,11 +12,6 @@ const Env = z.object({
   R2_PUBLIC_URL: z.string().url(),
   R2_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
   DISPATCHER_HEALTH_PORT: z.coerce.number().default(4100),
-  // Comma-separated: "worker-a,worker-b"
-  WORKER_IDS: z.string().min(1),
-  // Default Nginx X-Api-Key header value; replaces Cloudflare Access service token.
-  // Per-worker override via WORKER_<ID>_API_KEY (see workerApiKey() below).
-  WORKER_API_KEY: z.string().min(1),
   // How long a pending stream entry must be idle before recovery claims it (ms)
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
   SENTRY_DSN: z.string().url().optional(),
@@ -29,29 +24,4 @@ export type Env = z.infer<typeof Env>;
 
 export function loadEnv(): Env {
   return Env.parse(process.env);
-}
-
-/** Read per-worker URL from env: WORKER_A_URL, WORKER_B_URL, etc. */
-export function workerUrl(env: NodeJS.ProcessEnv, workerId: string): string {
-  const suffix = workerId
-    .replace(/^worker-/i, '')
-    .toUpperCase()
-    .replace(/-/g, '_');
-  const key = `WORKER_${suffix}_URL`;
-  const val = env[key];
-  if (!val) throw new Error(`Missing env var ${key} for worker ${workerId}`);
-  return val;
-}
-
-/**
- * Read per-worker API key: WORKER_A_API_KEY, WORKER_B_API_KEY, etc.
- * Falls back to the shared WORKER_API_KEY when no per-worker override is set.
- */
-export function workerApiKey(env: NodeJS.ProcessEnv, workerId: string): string {
-  const suffix = workerId
-    .replace(/^worker-/i, '')
-    .toUpperCase()
-    .replace(/-/g, '_');
-  const key = `WORKER_${suffix}_API_KEY`;
-  return env[key] || (env.WORKER_API_KEY as string);
 }

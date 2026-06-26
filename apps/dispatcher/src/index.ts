@@ -11,7 +11,9 @@ if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   setGlobalDispatcher(new Agent({ connect: { rejectUnauthorized: false } }));
 }
 
-import { loadEnv, workerApiKey, workerUrl } from './env.js';
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
+import { loadEnv } from './env.js';
 import { startHealthServer } from './health/server.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
@@ -48,15 +50,14 @@ async function main(): Promise<void> {
     forcePathStyle: env.R2_FORCE_PATH_STYLE,
   });
 
-  // Register known workers from env
-  const workerIds = env.WORKER_IDS.split(',').map((s) => s.trim());
-  const workers = workerIds.map((id) => ({
-    id,
-    url: workerUrl(process.env, id),
-    apiKey: workerApiKey(process.env, id),
-  }));
+  // Load workers from DB (source of truth — managed via admin panel)
+  const dbWorkers = await db.select().from(schema.workers).where(eq(schema.workers.isActive, true));
+  const workers = dbWorkers.map((w) => ({ id: w.id, url: w.url, apiKey: w.apiKey }));
+  if (workers.length === 0) {
+    log.warn('No active workers found in DB — add workers via admin panel');
+  }
   await registerWorkers(redis, workers);
-  log.info({ workerIds }, 'workers registered');
+  log.info({ workerIds: workers.map((w) => w.id) }, 'workers registered from DB');
 
   // Startup connectivity check — verify each worker is reachable before accepting jobs
   for (const w of workers) {
@@ -98,7 +99,7 @@ async function main(): Promise<void> {
 
   // Start subsystems
   const stopHealthMonitor = startHealthMonitor(redis, log);
-  const stopConsumer = await runConsumer(redis, processorCfg, log, workers.length);
+  const stopConsumer = await runConsumer(redis, processorCfg, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
 
   log.info('dispatcher ready');
