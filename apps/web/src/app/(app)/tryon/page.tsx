@@ -21,7 +21,6 @@ function UploadZone({
   preview,
   progress,
   label,
-  sublabel,
   tip,
   icon,
   onFile,
@@ -32,7 +31,6 @@ function UploadZone({
   preview: string | null;
   progress: number;
   label: string;
-  sublabel: string;
   tip: string;
   icon: React.ReactNode;
   onFile: (f: File) => void;
@@ -140,9 +138,8 @@ function UploadZone({
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div>
         <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{label}</span>
-        <span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>{sublabel}</span>
       </div>
 
       {/* Drop zone */}
@@ -466,10 +463,7 @@ export default function TryOnPage() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <TopBar
-        title="AI Virtual Try-On"
-        subtitle="Upload a person and garment image to generate realistic virtual try-on previews in seconds."
-      />
+      <TopBar title="AI Virtual Try-On" subtitle="" />
 
       <div
         style={{
@@ -478,545 +472,523 @@ export default function TryOnPage() {
           overflow: 'hidden',
           padding: '20px 20px 24px',
           boxSizing: 'border-box',
-          display: 'flex',
-          flexDirection: 'column',
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gridTemplateRows: '1fr 250px',
           gap: 20,
         }}
       >
-        {/* Main two-column row */}
-        <div style={{ display: 'flex', gap: 20, flex: 1, minHeight: 0 }}>
-          {/* ── Upload panel ── */}
-          <div
-            style={{
-              flex: 1,
-              borderRadius: 24,
-              background: C.white,
-              boxShadow: `inset 0 0 0 1px ${C.border}, 0 4px 15px rgba(0,0,0,0.04)`,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 16,
-              padding: 16,
-              boxSizing: 'border-box',
-              minHeight: 0,
-            }}
-          >
-            {/* Category selector */}
-            {categories.length > 0 && (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
-                {categories.map((cat) => {
-                  const active = cat.id === selectedCategoryId;
-                  return (
-                    <label
-                      key={cat.id}
+        {/* Grid: 2 columns × 2 rows — upload | preview / integrate | kiosk */}
+        {/* ── Upload panel ── */}
+        <div
+          style={{
+            borderRadius: 24,
+            background: C.white,
+            boxShadow: `inset 0 0 0 1px ${C.border}, 0 4px 15px rgba(0,0,0,0.04)`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16,
+            padding: 16,
+            boxSizing: 'border-box',
+            minHeight: 0,
+          }}
+        >
+          {/* Category selector */}
+          {categories.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
+              {categories.map((cat) => {
+                const active = cat.id === selectedCategoryId;
+                return (
+                  <label
+                    key={cat.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '4px 12px',
+                      borderRadius: 20,
+                      cursor: 'pointer',
+                      background: active ? 'rgba(245,92,122,0.12)' : C.bg,
+                      boxShadow: active
+                        ? `inset 0 0 0 1.5px ${C.pink}`
+                        : `inset 0 0 0 1px ${C.border}`,
+                      transition: 'box-shadow .15s, background .15s',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="tryon-category"
+                      value={cat.id}
+                      checked={active}
+                      onChange={() => setSelectedCategoryId(cat.id)}
+                      style={{ display: 'none' }}
+                    />
+                    <span
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        padding: '4px 12px',
-                        borderRadius: 20,
-                        cursor: 'pointer',
-                        background: active ? 'rgba(245,92,122,0.12)' : C.bg,
-                        boxShadow: active
-                          ? `inset 0 0 0 1.5px ${C.pink}`
-                          : `inset 0 0 0 1px ${C.border}`,
-                        transition: 'box-shadow .15s, background .15s',
+                        fontSize: 12,
+                        fontWeight: active ? 600 : 500,
+                        color: active ? C.pink : C.mid,
                       }}
                     >
-                      <input
-                        type="radio"
-                        name="tryon-category"
-                        value={cat.id}
-                        checked={active}
-                        onChange={() => setSelectedCategoryId(cat.id)}
-                        style={{ display: 'none' }}
-                      />
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: active ? 600 : 500,
-                          color: active ? C.pink : C.mid,
-                        }}
-                      >
-                        {cat.name}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Two upload cards */}
-            <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
-              <UploadZone
-                file={personFile}
-                preview={personPreview}
-                progress={personProgress}
-                label="1. Upload Person Image"
-                sublabel="Upload a clear front-facing photo."
-                tip="Front-facing images with good lighting deliver the most accurate results."
-                disabled={generating}
-                sampleUrl={personSampleUrl}
-                onFile={(f) => pickFile(f, setPersonFile, setPersonPreview)}
-                icon={
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="8" r="3.5" stroke={C.mid} strokeWidth="1.2" />
-                    <path
-                      d="M5 20C5 17 8 15 12 15C16 15 19 17 19 20"
-                      stroke={C.mid}
-                      strokeWidth="1.2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                }
-              />
-              <UploadZone
-                file={garmentFile}
-                preview={garmentPreview}
-                progress={garmentProgress}
-                label="2. Upload Garment Image"
-                sublabel="Upload a flat lay or product image."
-                tip="Use clean garment images with minimal background distractions."
-                disabled={generating}
-                sampleUrl={garmentSampleUrl}
-                onFile={(f) => pickFile(f, setGarmentFile, setGarmentPreview)}
-                icon={
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M3 7L7 4H9.5C9.5 5.38 10.62 6.5 12 6.5C13.38 6.5 14.5 5.38 14.5 4H17L21 7L18.5 9.5L17 8V20H7V8L5.5 9.5L3 7Z"
-                      stroke={C.mid}
-                      strokeWidth="1.2"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                }
-              />
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div
-                style={{
-                  fontSize: 13,
-                  color: '#f87171',
-                  padding: '6px 10px',
-                  background: 'rgba(220,38,38,0.12)',
-                  borderRadius: 8,
-                }}
-              >
-                {error}
-              </div>
-            )}
-
-            {/* Footer: credits + generate */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                height: 52,
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/assets/credit.png"
-                  alt=""
-                  width={16}
-                  height={16}
-                  style={{ opacity: 0.6 }}
-                />
-                <span style={{ fontSize: 14, fontWeight: 500, color: C.mid }}>
-                  Uses {CREDITS_COST} credits
-                  {credits && (
-                    <span style={{ color: C.light, marginLeft: 6 }}>
-                      ({credits.balance} available)
+                      {cat.name}
                     </span>
-                  )}
-                </span>
-              </div>
-              <button
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                style={{
-                  height: 52,
-                  paddingInline: 32,
-                  borderRadius: 12,
-                  background: canGenerate ? grad : C.border,
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 10,
-                  cursor: canGenerate ? 'pointer' : 'not-allowed',
-                  boxShadow: canGenerate ? '0 6px 18px rgba(245,92,122,0.28)' : 'none',
-                  transition: 'opacity .15s',
-                  flexShrink: 0,
-                }}
-              >
-                <span
-                  style={{ fontSize: 15, fontWeight: 600, color: canGenerate ? '#fff' : C.light }}
-                >
-                  {generating ? 'Generating…' : 'Generate Try-On'}
-                </span>
-                {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
-                {!generating && (
-                  <img
-                    src="/assets/generate-icon.svg"
-                    alt=""
-                    width={20}
-                    height={20}
-                    style={{ opacity: canGenerate ? 1 : 0.4 }}
-                  />
-                )}
-              </button>
+                  </label>
+                );
+              })}
             </div>
+          )}
+
+          {/* Two upload cards */}
+          <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
+            <UploadZone
+              file={personFile}
+              preview={personPreview}
+              progress={personProgress}
+              label="1. Upload Person Image"
+              tip="Front-facing images with good lighting deliver the most accurate results."
+              disabled={generating}
+              sampleUrl={personSampleUrl}
+              onFile={(f) => pickFile(f, setPersonFile, setPersonPreview)}
+              icon={
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="8" r="3.5" stroke={C.mid} strokeWidth="1.2" />
+                  <path
+                    d="M5 20C5 17 8 15 12 15C16 15 19 17 19 20"
+                    stroke={C.mid}
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              }
+            />
+            <UploadZone
+              file={garmentFile}
+              preview={garmentPreview}
+              progress={garmentProgress}
+              label="2. Upload Garment Image"
+              tip="Use clean garment images with minimal background distractions."
+              disabled={generating}
+              sampleUrl={garmentSampleUrl}
+              onFile={(f) => pickFile(f, setGarmentFile, setGarmentPreview)}
+              icon={
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M3 7L7 4H9.5C9.5 5.38 10.62 6.5 12 6.5C13.38 6.5 14.5 5.38 14.5 4H17L21 7L18.5 9.5L17 8V20H7V8L5.5 9.5L3 7Z"
+                    stroke={C.mid}
+                    strokeWidth="1.2"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              }
+            />
           </div>
 
-          {/* ── Preview panel ── */}
+          {/* Error */}
+          {error && (
+            <div
+              style={{
+                fontSize: 13,
+                color: '#f87171',
+                padding: '6px 10px',
+                background: 'rgba(220,38,38,0.12)',
+                borderRadius: 8,
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Footer: credits + generate */}
           <div
             style={{
-              flex: 1,
-              borderRadius: 24,
-              background: C.bg,
-              boxShadow: `inset 0 0 0 1px ${C.border}, 0 4px 15px rgba(0,0,0,0.04)`,
               display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              minHeight: 0,
+              alignItems: 'center',
+              gap: 12,
+              height: 52,
+              flexShrink: 0,
             }}
           >
-            {/* Header */}
-            <div
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/assets/credit.png"
+                alt=""
+                width={16}
+                height={16}
+                style={{ opacity: 0.6 }}
+              />
+              <span style={{ fontSize: 14, fontWeight: 500, color: C.mid }}>
+                Uses {CREDITS_COST} credits
+                {credits && (
+                  <span style={{ color: C.light, marginLeft: 6 }}>
+                    ({credits.balance} available)
+                  </span>
+                )}
+              </span>
+            </div>
+            <button
+              onClick={handleGenerate}
+              disabled={!canGenerate}
               style={{
-                borderBottom: `1px solid ${C.border}`,
-                padding: 16,
-                boxSizing: 'border-box',
+                height: 52,
+                paddingInline: 32,
+                borderRadius: 12,
+                background: canGenerate ? grad : C.border,
+                border: 'none',
                 display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
+                alignItems: 'center',
                 justifyContent: 'center',
+                gap: 10,
+                cursor: canGenerate ? 'pointer' : 'not-allowed',
+                boxShadow: canGenerate ? '0 6px 18px rgba(245,92,122,0.28)' : 'none',
+                transition: 'opacity .15s',
                 flexShrink: 0,
-                height: 76,
               }}
             >
-              <span style={{ fontSize: 18, fontWeight: 600, color: C.text }}>
-                Your Try-On Preview
+              <span
+                style={{ fontSize: 15, fontWeight: 600, color: canGenerate ? '#fff' : C.light }}
+              >
+                {generating ? 'Generating…' : 'Generate Try-On'}
               </span>
-              <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
-                {resultUrl
-                  ? 'Try-on generated successfully.'
-                  : 'Generated images will appear here.'}
-              </span>
-            </div>
-
-            {/* Body */}
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                padding: 16,
-                boxSizing: 'border-box',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {resultUrl ? (
-                /* Result image */
-                <div style={{ flex: 1, borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={resultUrl}
-                    alt="Try-on result"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  />
-                </div>
-              ) : (
-                /* Empty state */
-                <div
-                  style={{
-                    flex: 1,
-                    borderRadius: 8,
-                    outline: `2px dashed ${C.border2}`,
-                    outlineOffset: -2,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 16,
-                    padding: 24,
-                    boxSizing: 'border-box',
-                  }}
-                >
-                  <div
-                    style={{
-                      width: 120,
-                      height: 120,
-                      borderRadius: '50%',
-                      background: C.bg,
-                      boxShadow: `inset 0 0 0 1px ${C.border}`,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    {generating ? (
-                      <svg
-                        aria-hidden="true"
-                        width="40"
-                        height="40"
-                        viewBox="0 0 40 40"
-                        fill="none"
-                      >
-                        <circle cx="20" cy="20" r="16" stroke={C.border2} strokeWidth="3" />
-                        <path
-                          d="M20 4 A16 16 0 0 1 36 20"
-                          stroke={C.pink}
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                        >
-                          <animateTransform
-                            attributeName="transform"
-                            type="rotate"
-                            from="0 20 20"
-                            to="360 20 20"
-                            dur="1s"
-                            repeatCount="indefinite"
-                          />
-                        </path>
-                      </svg>
-                    ) : (
-                      <svg
-                        aria-hidden="true"
-                        width="48"
-                        height="48"
-                        viewBox="0 0 48 48"
-                        fill="none"
-                      >
-                        <circle cx="24" cy="16" r="7" stroke={C.border2} strokeWidth="2" />
-                        <path
-                          d="M10 40C10 33 16 29 24 29C32 29 38 33 38 40"
-                          stroke={C.border2}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                        <path
-                          d="M28 24L40 36"
-                          stroke={C.border2}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                        <path
-                          d="M36 40L24 28"
-                          stroke={C.border2}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 6,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span
-                      style={{ fontSize: 16, fontWeight: 600, color: C.text, textAlign: 'center' }}
-                    >
-                      {generating ? 'Generating your try-on…' : 'No try-on generated yet'}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: C.mid,
-                        textAlign: 'center',
-                        maxWidth: 340,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {generating
-                        ? 'This may take a moment. Please wait.'
-                        : 'Upload your images and click Generate Try-On to preview the result here.'}
-                    </span>
-                  </div>
-                </div>
+              {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
+              {!generating && (
+                <img
+                  src="/assets/generate-icon.svg"
+                  alt=""
+                  width={20}
+                  height={20}
+                  style={{ opacity: canGenerate ? 1 : 0.4 }}
+                />
               )}
-            </div>
+            </button>
           </div>
         </div>
 
-        {/* ── Bottom cards ── */}
-        <div style={{ display: 'flex', gap: 20, flexShrink: 0, height: 250 }}>
-          {/* Integrate with Website */}
+        {/* ── Preview panel ── */}
+        <div
+          style={{
+            borderRadius: 24,
+            background: C.bg,
+            boxShadow: `inset 0 0 0 1px ${C.border}, 0 4px 15px rgba(0,0,0,0.04)`,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            minHeight: 0,
+          }}
+        >
+          {/* Header */}
           <div
             style={{
-              flex: 1,
-              borderRadius: 12,
-              background: 'rgba(124,58,237,0.08)',
-              boxShadow: `inset 0 0 0 1px rgba(124,58,237,0.18), inset 0 0 0 1px ${C.border}`,
-              display: 'flex',
-              flexDirection: 'row',
-              gap: 12,
-              padding: 20,
+              borderBottom: `1px solid ${C.border}`,
+              padding: 16,
               boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              justifyContent: 'center',
+              flexShrink: 0,
+              height: 76,
             }}
           >
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16,
-                justifyContent: 'center',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
-                  Integrate with Your Website
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 500, color: C.mid, lineHeight: 1.5 }}>
-                  Allow shoppers to try products virtually before purchasing and create a more
-                  engaging shopping experience.
-                </span>
-              </div>
-              <button
-                onClick={() => openContact('Integrate with Website')}
-                style={{
-                  alignSelf: 'flex-start',
-                  height: 38,
-                  borderRadius: 8,
-                  border: '1.5px solid rgb(124,58,237)',
-                  background: 'transparent',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '0 16px',
-                  cursor: 'pointer',
-                }}
-              >
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(124,58,237)' }}>
-                  Contact Us
-                </span>
-                <svg
-                  aria-hidden="true"
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="rgb(124,58,237)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
-              </button>
-            </div>
-            <div
-              style={{
-                alignSelf: 'stretch',
-                borderRadius: 8,
-                overflow: 'hidden',
-                flexShrink: 0,
-              }}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/assets/tryon-left-contactus.png"
-                alt=""
-                style={{ height: '100%', width: 'auto', display: 'block' }}
-              />
-            </div>
+            <span style={{ fontSize: 18, fontWeight: 600, color: C.text }}>
+              Your Try-On Preview
+            </span>
+            {resultUrl && (
+              <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
+                Try-on generated successfully.
+              </span>
+            )}
           </div>
 
-          {/* Retail Store Kiosk */}
+          {/* Body */}
           <div
             style={{
               flex: 1,
-              borderRadius: 12,
-              background: 'rgba(249,115,22,0.08)',
-              boxShadow: `inset 0 0 0 1px rgba(249,115,22,0.18), inset 0 0 0 1px ${C.border}`,
-              display: 'flex',
-              flexDirection: 'row',
-              gap: 12,
-              padding: 20,
+              minHeight: 0,
+              padding: 16,
               boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
             }}
           >
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16,
-                justifyContent: 'center',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
-                  Retail Store Kiosk
-                </span>
-                <span style={{ fontSize: 13, fontWeight: 500, color: C.mid, lineHeight: 1.5 }}>
-                  Offer instant virtual try-on experiences inside your store without the need for
-                  physical trials.
-                </span>
+            {resultUrl ? (
+              /* Result image */
+              <div style={{ flex: 1, borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={resultUrl}
+                  alt="Try-on result"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
               </div>
-              <button
-                onClick={() => openContact('Retail Store Kiosk')}
+            ) : (
+              /* Empty state */
+              <div
                 style={{
-                  alignSelf: 'flex-start',
-                  height: 38,
+                  flex: 1,
                   borderRadius: 8,
-                  border: '1.5px solid rgb(249,115,22)',
-                  background: 'transparent',
+                  outline: `2px dashed ${C.border2}`,
+                  outlineOffset: -2,
                   display: 'flex',
+                  flexDirection: 'column',
                   alignItems: 'center',
-                  gap: 8,
-                  padding: '0 16px',
-                  cursor: 'pointer',
+                  justifyContent: 'center',
+                  gap: 16,
+                  padding: 24,
+                  boxSizing: 'border-box',
                 }}
               >
-                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(249,115,22)' }}>
-                  Contact Us
-                </span>
-                <svg
-                  aria-hidden="true"
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="rgb(249,115,22)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                <div
+                  style={{
+                    width: 120,
+                    height: 120,
+                    borderRadius: '50%',
+                    background: C.bg,
+                    boxShadow: `inset 0 0 0 1px ${C.border}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
                 >
-                  <path d="M5 12h14" />
-                  <path d="m12 5 7 7-7 7" />
-                </svg>
-              </button>
+                  {generating ? (
+                    <svg aria-hidden="true" width="40" height="40" viewBox="0 0 40 40" fill="none">
+                      <circle cx="20" cy="20" r="16" stroke={C.border2} strokeWidth="3" />
+                      <path
+                        d="M20 4 A16 16 0 0 1 36 20"
+                        stroke={C.pink}
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      >
+                        <animateTransform
+                          attributeName="transform"
+                          type="rotate"
+                          from="0 20 20"
+                          to="360 20 20"
+                          dur="1s"
+                          repeatCount="indefinite"
+                        />
+                      </path>
+                    </svg>
+                  ) : (
+                    <svg aria-hidden="true" width="48" height="48" viewBox="0 0 48 48" fill="none">
+                      <circle cx="24" cy="16" r="7" stroke={C.border2} strokeWidth="2" />
+                      <path
+                        d="M10 40C10 33 16 29 24 29C32 29 38 33 38 40"
+                        stroke={C.border2}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M28 24L40 36"
+                        stroke={C.border2}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M36 40L24 28"
+                        stroke={C.border2}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  )}
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    alignItems: 'center',
+                  }}
+                >
+                  <span
+                    style={{ fontSize: 16, fontWeight: 600, color: C.text, textAlign: 'center' }}
+                  >
+                    {generating ? 'Generating your try-on…' : 'No try-on generated yet'}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: C.mid,
+                      textAlign: 'center',
+                      maxWidth: 340,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {generating
+                      ? 'This may take a moment. Please wait.'
+                      : 'Upload your images and click Generate Try-On to preview the result here.'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Integrate with Website */}
+        <div
+          style={{
+            borderRadius: 24,
+            background: 'rgba(124,58,237,0.08)',
+            boxShadow: `inset 0 0 0 1px rgba(124,58,237,0.18), inset 0 0 0 1px ${C.border}`,
+            display: 'flex',
+            flexDirection: 'row',
+            gap: 12,
+            padding: 20,
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              justifyContent: 'center',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
+                Integrate with Your Website
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: C.mid, lineHeight: 1.5 }}>
+                Allow shoppers to try products virtually before purchasing and create a more
+                engaging shopping experience.
+              </span>
             </div>
-            <div
+            <button
+              onClick={() => openContact('Integrate with Website')}
               style={{
-                alignSelf: 'stretch',
+                alignSelf: 'flex-start',
+                height: 38,
                 borderRadius: 8,
-                overflow: 'hidden',
-                flexShrink: 0,
+                border: '1.5px solid rgb(124,58,237)',
+                background: 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '0 16px',
+                cursor: 'pointer',
               }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/assets/tryon-right-contactus.png"
-                alt=""
-                style={{ height: '100%', width: 'auto', display: 'block' }}
-              />
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(124,58,237)' }}>
+                Contact Us
+              </span>
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="rgb(124,58,237)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M5 12h14" />
+                <path d="m12 5 7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          <div
+            style={{
+              alignSelf: 'stretch',
+              borderRadius: 8,
+              overflow: 'hidden',
+              flexShrink: 0,
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/assets/tryon-left-contactus.png"
+              alt=""
+              style={{ height: '100%', width: 'auto', display: 'block' }}
+            />
+          </div>
+        </div>
+
+        {/* Retail Store Kiosk */}
+        <div
+          style={{
+            borderRadius: 24,
+            background: 'rgba(249,115,22,0.08)',
+            boxShadow: `inset 0 0 0 1px rgba(249,115,22,0.18), inset 0 0 0 1px ${C.border}`,
+            display: 'flex',
+            flexDirection: 'row',
+            gap: 12,
+            padding: 20,
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 16,
+              justifyContent: 'center',
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
+                Retail Store Kiosk
+              </span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: C.mid, lineHeight: 1.5 }}>
+                Offer instant virtual try-on experiences inside your store without the need for
+                physical trials.
+              </span>
             </div>
+            <button
+              onClick={() => openContact('Retail Store Kiosk')}
+              style={{
+                alignSelf: 'flex-start',
+                height: 38,
+                borderRadius: 8,
+                border: '1.5px solid rgb(249,115,22)',
+                background: 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '0 16px',
+                cursor: 'pointer',
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(249,115,22)' }}>
+                Contact Us
+              </span>
+              <svg
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="rgb(249,115,22)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M5 12h14" />
+                <path d="m12 5 7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          <div
+            style={{
+              alignSelf: 'stretch',
+              borderRadius: 8,
+              overflow: 'hidden',
+              flexShrink: 0,
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/assets/tryon-right-contactus.png"
+              alt=""
+              style={{ height: '100%', width: 'auto', display: 'block' }}
+            />
           </div>
         </div>
       </div>
