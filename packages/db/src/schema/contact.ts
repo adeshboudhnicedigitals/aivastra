@@ -7,6 +7,7 @@ export const contactRequests = pgTable('contact_requests', {
   name: text('name').notNull(),
   email: text('email').notNull(),
   phone: text('phone').notNull(),
+  source: text('source'),
   message: text('message'),
   status: text('status').notNull().default('new'), // new | read | done
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -309,6 +309,7 @@ export default function TryOnPage() {
 
   // Contact form
   const [showContact, setShowContact] = useState(false);
+  const [contactSource, setContactSource] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
   const [contactPhone, setContactPhone] = useState('');
@@ -324,6 +325,7 @@ export default function TryOnPage() {
         name: contactName,
         email: contactEmail,
         phone: contactPhone,
+        source: contactSource || undefined,
         message: contactMessage || undefined,
       });
       setContactDone(true);
@@ -334,7 +336,8 @@ export default function TryOnPage() {
     }
   };
 
-  const openContact = () => {
+  const openContact = (source: string) => {
+    setContactSource(source);
     setContactName(me?.displayName ?? '');
     setContactEmail(me?.email ?? '');
     const rawPhone = (me?.phone ?? '').replace(/\D/g, '').slice(0, 10);
@@ -881,7 +884,7 @@ export default function TryOnPage() {
                 </span>
               </div>
               <button
-                onClick={openContact}
+                onClick={() => openContact('Integrate with Website')}
                 style={{
                   alignSelf: 'flex-start',
                   height: 38,
@@ -965,7 +968,7 @@ export default function TryOnPage() {
                 </span>
               </div>
               <button
-                onClick={openContact}
+                onClick={() => openContact('Retail Store Kiosk')}
                 style={{
                   alignSelf: 'flex-start',
                   height: 38,

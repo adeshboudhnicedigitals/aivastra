@@ -200,6 +200,24 @@ export default function ContactRequestsPage({ toast }: Props) {
                     </span>
                   </div>
 
+                  {/* Source */}
+                  {r.source && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        padding: '2px 7px',
+                        borderRadius: 8,
+                        background: 'var(--accent, #6366f1)18',
+                        color: 'var(--accent, #6366f1)',
+                        flexShrink: 0,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {r.source}
+                    </span>
+                  )}
+
                   {/* Phone */}
                   <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>
                     {r.phone}

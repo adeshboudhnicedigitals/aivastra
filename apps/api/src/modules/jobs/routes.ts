@@ -334,17 +334,25 @@ export async function jobsRoutes(app: FastifyInstance) {
           name: z.string().min(1).max(200),
           email: z.string().email().max(200),
           phone: z.string().min(1).max(50),
+          source: z.string().max(200).optional(),
           message: z.string().max(2000).optional(),
         }),
       },
     },
     async (req, reply) => {
-      const body = req.body as { name: string; email: string; phone: string; message?: string };
+      const body = req.body as {
+        name: string;
+        email: string;
+        phone: string;
+        source?: string;
+        message?: string;
+      };
       await app.db.insert(schema.contactRequests).values({
         userId: req.userId,
         name: body.name,
         email: body.email,
         phone: body.phone,
+        source: body.source ?? null,
         message: body.message ?? null,
       });
       reply.code(204).send();
