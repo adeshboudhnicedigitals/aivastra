@@ -123,7 +123,8 @@ jobs:
                echo '→ pulling latest code'
                git config --global --add safe.directory ${DEPLOY_PATH}
                cd ${DEPLOY_PATH}
-               git pull https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git master
+               git fetch https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git master
+               git reset --hard FETCH_HEAD
 
                echo '→ building images'
                docker compose -f infra/docker-compose.prod.yml \
@@ -133,7 +134,12 @@ jobs:
                echo '→ applying DB migrations'
                docker compose -f infra/docker-compose.prod.yml \
                  --env-file .env.production \
-                 run --rm api pnpm db:migrate
+                 run --rm api pnpm db:migrate:prod
+
+               echo '→ verifying all migrations applied'
+               docker compose -f infra/docker-compose.prod.yml \
+                 --env-file .env.production \
+                 run --rm api pnpm db:verify:prod
 
                echo '→ restarting services'
                docker compose -f infra/docker-compose.prod.yml \
