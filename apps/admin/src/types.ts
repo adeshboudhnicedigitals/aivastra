@@ -293,6 +293,7 @@ export interface ContactRequest {
   name: string;
   email: string;
   phone: string;
+  source: string | null;
   message: string | null;
   status: 'new' | 'read' | 'done';
   createdAt: string;
