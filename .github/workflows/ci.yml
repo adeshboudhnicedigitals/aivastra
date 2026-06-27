@@ -134,12 +134,16 @@ jobs:
                echo '→ applying DB migrations'
                docker compose -f infra/docker-compose.prod.yml \
                  --env-file .env.production \
-                 run --rm api pnpm db:migrate:prod
+                 run --rm \
+                 -e DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}" \
+                 api pnpm db:migrate:prod
 
                echo '→ verifying all migrations applied'
                docker compose -f infra/docker-compose.prod.yml \
                  --env-file .env.production \
-                 run --rm api pnpm db:verify:prod
+                 run --rm \
+                 -e DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}" \
+                 api pnpm db:verify:prod
 
                echo '→ restarting services'
                docker compose -f infra/docker-compose.prod.yml \
