@@ -65,7 +65,7 @@ export function TopBar({
             padding: '0 10px',
             borderRadius: 8,
             background: 'linear-gradient(180deg, #7C3AED 0%, #310380 100%)',
-            color: C.white,
+            color: '#fff',
             fontSize: 13,
             fontWeight: 600,
             textDecoration: 'none',

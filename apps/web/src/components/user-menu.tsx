@@ -90,12 +90,12 @@ export function UserMenu() {
                 top: popupRect ? popupRect.bottom + 8 : 80,
                 right: popupRect ? popupRect.right : 10,
                 width: 240,
-                background: '#1E1E1E',
-                border: '1px solid rgba(255,255,255,0.1)',
+                background: C.card,
+                border: `1px solid ${C.border}`,
                 borderRadius: 10,
                 overflow: 'hidden',
                 zIndex: 100,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
               }}
             >
               <Link
@@ -110,12 +110,12 @@ export function UserMenu() {
                   gap: 10,
                   padding: '12px 16px',
                   textDecoration: 'none',
-                  color: C.onDark,
+                  color: C.text,
                   fontSize: 13,
                   fontWeight: 500,
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                  e.currentTarget.style.background = C.bg;
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'transparent';
@@ -126,7 +126,7 @@ export function UserMenu() {
                 </span>
                 Settings
               </Link>
-              <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '0 16px' }} />
+              <div style={{ height: 1, background: C.border, margin: '0 16px' }} />
               <button
                 type="button"
                 onClick={(e) => {
