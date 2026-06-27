@@ -20,7 +20,12 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import postgres from 'postgres';
 
-// Postgres "already exists" error codes — the schema change is already in place.
+// Postgres schema-mismatch codes — the migration was already applied or has
+// been superseded by a later migration. Record the hash and move on.
+//
+// "already exists" — object was created by a prior run or manual apply.
+// "does not exist"  — object was created by this migration then dropped by a
+//                     later one; the net effect is already in the DB.
 const ALREADY_EXISTS_CODES = new Set([
   '42P07', // duplicate_table
   '42701', // duplicate_column
@@ -28,6 +33,9 @@ const ALREADY_EXISTS_CODES = new Set([
   '42P04', // duplicate_database
   '42723', // duplicate_function
   '42P06', // duplicate_schema
+  '42P01', // undefined_table  — table no longer exists (dropped by later migration)
+  '42703', // undefined_column — column no longer exists (dropped by later migration)
+  '42704', // undefined_object (e.g. index already dropped)
 ]);
 
 const url = process.env.DATABASE_URL ?? '';
@@ -96,7 +104,9 @@ for (const entry of journal.entries) {
         INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
         VALUES (${hash}, ${entry.when})
       `;
-      console.log(`Recorded ${entry.tag} (schema already present, hash was missing)`);
+      console.log(
+        `Recorded ${entry.tag} (schema mismatch — already applied or superseded, hash was missing)`,
+      );
       skipped++;
     } else {
       await client.end();
