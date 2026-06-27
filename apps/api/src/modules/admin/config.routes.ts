@@ -38,8 +38,8 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       schema: { body: SystemConfigBody },
     },
     async (req) => {
-      const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}');
-      const next = { ...cur, ...req.body };
+      const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}') as Record<string, unknown>;
+      const next = { ...cur, ...(req.body as Record<string, unknown>) };
       await app.redis.set(KEY, JSON.stringify(next));
       return next;
     },
