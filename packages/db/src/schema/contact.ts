@@ -9,6 +9,7 @@ export const contactRequests = pgTable('contact_requests', {
   phone: text('phone').notNull(),
   source: text('source'),
   message: text('message'),
+  attachmentKey: text('attachment_key'),
   status: text('status').notNull().default('new'), // new | read | done
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

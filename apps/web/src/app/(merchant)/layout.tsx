@@ -1,9 +1,11 @@
 'use client';
 
+import { Shirt } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { MoonIcon, SunIcon } from '@/components/icons';
+import { SupportButton } from '@/components/SupportModal';
 
 const AUTH_PATHS = ['/merchant/login', '/merchant/signup'];
 const W = 240;
@@ -484,6 +486,35 @@ export default function MerchantLayout({ children }: { children: ReactNode }) {
               }}
             />
           </div>
+          {/* AI Virtual Try-On button */}
+          <Link
+            href="/merchant/tryon-results"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: 163,
+              height: 40,
+              padding: '0 10px',
+              borderRadius: 8,
+              background: 'linear-gradient(180deg, #7C3AED 0%, #310380 100%)',
+              boxSizing: 'border-box',
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              boxShadow: '0 2px 8px rgba(124,58,237,0.35)',
+            }}
+          >
+            <Shirt size={15} />
+            AI Virtual Try-On
+          </Link>
+
+          {/* Support button */}
+          <SupportButton />
+
           <AdminDropdown />
           <ThemeToggle />
         </header>

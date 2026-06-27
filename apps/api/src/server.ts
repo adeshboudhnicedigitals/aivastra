@@ -39,6 +39,7 @@ import { merchantRoutes } from './modules/merchant/routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
+import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
 import { widgetRoutes } from './modules/widget/routes.js';
 import { authPlugin } from './plugins/auth.js';
@@ -129,6 +130,7 @@ export async function buildServer(env: Env) {
   await app.register(adminContactRoutes);
   await app.register(adminWidgetClientsRoutes);
   await app.register(resultsRoutes);
+  await app.register(supportRoutes);
   await app.register(paymentsRoutes);
 
   app.get('/health', async () => ({ status: 'ok' }));

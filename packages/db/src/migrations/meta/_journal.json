@@ -481,8 +481,15 @@
     {
       "idx": 68,
       "version": "7",
-      "when": 1751066000000,
+      "when": 1782800000000,
       "tag": "0068_contact_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1782900000000,
+      "tag": "0069_contact_attachment",
       "breakpoints": true
     }
   ]
