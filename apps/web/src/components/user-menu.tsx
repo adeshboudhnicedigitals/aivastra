@@ -55,7 +55,7 @@ export function UserMenu() {
           gap: 6,
           textDecoration: 'none',
           padding: '0 14px',
-          height: 38,
+          height: 40,
           boxSizing: 'border-box',
           borderRadius: 8,
           background: C.bg,
@@ -72,10 +72,15 @@ export function UserMenu() {
       <div ref={popupRef} style={{ position: 'relative' }}>
         {popupOpen && (
           <>
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: backdrop closes popup */}
             <div
+              role="presentation"
               onClick={(e) => {
                 e.stopPropagation();
                 setPopupOpen(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setPopupOpen(false);
               }}
               style={{ position: 'fixed', inset: 0, zIndex: 99 }}
             />
@@ -123,6 +128,7 @@ export function UserMenu() {
               </Link>
               <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', margin: '0 16px' }} />
               <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   setPopupOpen(false);
@@ -160,6 +166,7 @@ export function UserMenu() {
         )}
 
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             if (!popupOpen && popupRef.current) {
@@ -184,8 +191,8 @@ export function UserMenu() {
         >
           <div
             style={{
-              width: 38,
-              height: 38,
+              width: 40,
+              height: 40,
               borderRadius: 8,
               background: '#FCE8CA',
               display: 'flex',

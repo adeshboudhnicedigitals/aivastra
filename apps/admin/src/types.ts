@@ -295,6 +295,7 @@ export interface ContactRequest {
   phone: string;
   source: string | null;
   message: string | null;
+  attachmentKey: string | null;
   status: 'new' | 'read' | 'done';
   createdAt: string;
 }

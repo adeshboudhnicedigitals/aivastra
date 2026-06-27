@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import type { ContactRequest } from '../types';
 
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export default function ContactRequestsPage({ toast }: Props) {
+  const { storagePublicUrl } = useAuth();
   const [rows, setRows] = useState<ContactRequest[]>([]);
   const [total, setTotal] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'read' | 'done'>('all');
@@ -257,11 +259,11 @@ export default function ContactRequestsPage({ toast }: Props) {
                         <Icon.Refresh />
                       </button>
                     )}
-                    {r.message && (
+                    {(r.message || r.attachmentKey) && (
                       <button
                         className="btn sm ghost"
                         onClick={() => setExpanded(isExpanded ? null : r.id)}
-                        title={isExpanded ? 'Hide message' : 'Show message'}
+                        title={isExpanded ? 'Hide details' : 'Show details'}
                       >
                         <Icon.MessageSquare />
                       </button>
@@ -270,20 +272,43 @@ export default function ContactRequestsPage({ toast }: Props) {
                 </div>
 
                 {/* Expanded message */}
-                {isExpanded && r.message && (
-                  <div
-                    style={{
-                      background: 'var(--bg-2, var(--surface-2))',
-                      borderRadius: 6,
-                      padding: '10px 12px',
-                      fontSize: 13,
-                      color: 'var(--text)',
-                      lineHeight: 1.6,
-                      whiteSpace: 'pre-wrap',
-                      borderLeft: '3px solid var(--accent, #6366f1)',
-                    }}
-                  >
-                    {r.message}
+                {isExpanded && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {r.message && (
+                      <div
+                        style={{
+                          background: 'var(--bg-2, var(--surface-2))',
+                          borderRadius: 6,
+                          padding: '10px 12px',
+                          fontSize: 13,
+                          color: 'var(--text)',
+                          lineHeight: 1.6,
+                          whiteSpace: 'pre-wrap',
+                          borderLeft: '3px solid var(--accent, #6366f1)',
+                        }}
+                      >
+                        {r.message}
+                      </div>
+                    )}
+                    {r.attachmentKey && storagePublicUrl && (
+                      <a
+                        href={`${storagePublicUrl}/${r.attachmentKey}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 12,
+                          color: 'var(--accent, #6366f1)',
+                          textDecoration: 'none',
+                          fontWeight: 500,
+                        }}
+                      >
+                        <Icon.Eye />
+                        View attachment
+                      </a>
+                    )}
                   </div>
                 )}
               </div>
