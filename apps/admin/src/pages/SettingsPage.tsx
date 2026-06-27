@@ -34,7 +34,7 @@ const EMPTY_FORM = {
   name: '',
   subtext: '',
   credits: 0,
-  basePaise: 0,
+  priceRupees: 0,
   isActive: true,
   isHighlighted: false,
   badge: '',
@@ -60,7 +60,7 @@ function PlanModal({
           name: plan.name,
           subtext: plan.subtext,
           credits: plan.credits,
-          basePaise: plan.basePaise,
+          priceRupees: plan.basePaise / 100,
           isActive: plan.isActive,
           isHighlighted: plan.isHighlighted,
           badge: plan.badge ?? '',
@@ -77,7 +77,12 @@ function PlanModal({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const body = { ...form, badge: form.badge.trim() || null };
+      const { priceRupees, ...rest } = form;
+      const body = {
+        ...rest,
+        basePaise: Math.round(priceRupees * 100),
+        badge: form.badge.trim() || null,
+      };
       const saved = plan
         ? await apiFetch<CreditPlan>(`/admin/credit-plans/${plan.id}`, {
             method: 'PATCH',
@@ -97,7 +102,7 @@ function PlanModal({
     }
   };
 
-  const valid = form.slug.trim() && form.name.trim() && form.credits > 0 && form.basePaise > 0;
+  const valid = form.slug.trim() && form.name.trim() && form.credits > 0 && form.priceRupees > 0;
 
   return (
     <div className="modal-overlay" onClick={saving ? undefined : onClose}>
@@ -185,22 +190,37 @@ function PlanModal({
               />
             </div>
             <div className="field" style={{ flex: 1 }}>
-              <label>Price (paise, excl. GST)</label>
-              <input
-                className="input"
-                type="number"
-                min={1}
-                value={form.basePaise}
-                disabled={saving}
-                placeholder="e.g. 250000 = ₹2,500"
-                onChange={(e) => set('basePaise', Number(e.target.value))}
-              />
-              {form.basePaise > 0 && (
+              <label>Price (₹, excl. GST)</label>
+              <div style={{ position: 'relative' }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: 10,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: 13,
+                    color: 'var(--muted)',
+                    pointerEvents: 'none',
+                  }}
+                >
+                  ₹
+                </span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={form.priceRupees || ''}
+                  disabled={saving}
+                  placeholder="e.g. 2500"
+                  style={{ paddingLeft: 22 }}
+                  onChange={(e) => set('priceRupees', Number(e.target.value))}
+                />
+              </div>
+              {form.priceRupees > 0 && (
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  ₹{(form.basePaise / 100).toLocaleString('en-IN')} + 18% GST = ₹
-                  {((form.basePaise * 1.18) / 100).toLocaleString('en-IN', {
-                    maximumFractionDigits: 2,
-                  })}
+                  ₹{form.priceRupees.toLocaleString('en-IN')} + 18% GST = ₹
+                  {(form.priceRupees * 1.18).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                 </span>
               )}
             </div>
@@ -297,6 +317,13 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [saving, setSaving] = useState<string | null>(null);
 
   const [freeTrialCredits, setFreeTrialCredits] = useState(0);
+  const [resolutions, setResolutions] = useState<
+    Record<string, { enabled: boolean; creditCost: number }>
+  >({
+    HD: { enabled: false, creditCost: 10 },
+    '2K': { enabled: true, creditCost: 25 },
+    '4K': { enabled: true, creditCost: 40 },
+  });
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
 
@@ -310,8 +337,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    apiFetch<{ freeTrialCredits?: number }>('/admin/config')
-      .then((cfg) => setFreeTrialCredits(cfg.freeTrialCredits ?? 0))
+    apiFetch<{
+      freeTrialCredits?: number;
+      resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
+    }>('/admin/config')
+      .then((cfg) => {
+        setFreeTrialCredits(cfg.freeTrialCredits ?? 0);
+        if (cfg.resolutions) setResolutions(cfg.resolutions);
+      })
       .catch(() => toast({ kind: 'error', title: 'Failed to load system config' }))
       .finally(() => setSysLoading(false));
   }, [toast]);
@@ -321,7 +354,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     try {
       await apiFetch('/admin/config', {
         method: 'PATCH',
-        body: JSON.stringify({ freeTrialCredits }),
+        body: JSON.stringify({ freeTrialCredits, resolutions }),
       });
       toast({ title: 'System config saved' });
     } catch {
@@ -696,6 +729,77 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                       credits
                     </span>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Resolution Pricing
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Credit cost per image for each resolution. Disable resolutions to hide them from
+                    the pricing page.
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {(['HD', '2K', '4K'] as const).map((res) => {
+                      const cfg = resolutions[res] ?? { enabled: false, creditCost: 0 };
+                      return (
+                        <div
+                          key={res}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--r)',
+                            background: 'var(--surface-2)',
+                          }}
+                        >
+                          <Switch
+                            checked={cfg.enabled}
+                            onChange={(v) =>
+                              setResolutions((prev) => ({
+                                ...prev,
+                                [res]: { ...cfg, enabled: v },
+                              }))
+                            }
+                          />
+                          <span className="setting-lbl" style={{ width: 32 }}>
+                            {res}
+                          </span>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              marginLeft: 'auto',
+                            }}
+                          >
+                            <input
+                              className="input"
+                              type="number"
+                              min={1}
+                              max={1000}
+                              style={{ width: 80, textAlign: 'right' }}
+                              value={cfg.creditCost}
+                              disabled={sysSaving || !cfg.enabled}
+                              onChange={(e) =>
+                                setResolutions((prev) => ({
+                                  ...prev,
+                                  [res]: { ...cfg, creditCost: Number(e.target.value) },
+                                }))
+                              }
+                            />
+                            <span
+                              style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}
+                            >
+                              credits / image
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 

@@ -61,10 +61,22 @@ export const ConfirmCatalogItemBody = z.object({
   subcategoryIds: z.array(z.string().uuid()).optional(),
   categoryId: CoercedPositiveInt.optional(),
 });
+const ResolutionConfig = z.object({
+  enabled: z.boolean(),
+  creditCost: z.number().int().positive().max(1_000),
+});
+
 export const SystemConfigBody = z.object({
   creditCostPerJob: z.number().int().positive().max(100).optional(),
   maxJobsPerDay: z.number().int().positive().max(10_000).optional(),
   freeTrialCredits: z.number().int().min(0).max(10_000).optional(),
+  resolutions: z
+    .object({
+      HD: ResolutionConfig.optional(),
+      '2K': ResolutionConfig.optional(),
+      '4K': ResolutionConfig.optional(),
+    })
+    .optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────

@@ -1,17 +1,31 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  BarChart2,
+  Building2,
+  Cpu,
+  Download,
+  Headphones,
+  Image,
+  Info,
+  RefreshCw,
+  Rocket,
+  ShieldCheck,
+  Shirt,
+  TrendingUp,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   CheckIcon,
   ChevronDown,
+  ChevronRight,
   FlagAE,
   FlagGB,
   FlagIN,
   FlagUS,
-  SparklesIcon,
-  XIcon,
 } from '@/components/icons';
+import { SupportModal } from '@/components/SupportModal';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -39,7 +53,16 @@ const FLAGS: Record<string, React.ReactElement> = {
 
 const GST_RATE = 0.18;
 
-// Currency metadata per country
+interface ResolutionConfig {
+  enabled: boolean;
+  creditCost: number;
+}
+interface ResolutionConfigs {
+  HD?: ResolutionConfig;
+  '2K'?: ResolutionConfig;
+  '4K'?: ResolutionConfig;
+}
+
 const CURRENCY: Record<string, { code: string; locale: string }> = {
   IN: { code: 'INR', locale: 'en-IN' },
   US: { code: 'USD', locale: 'en-US' },
@@ -47,13 +70,46 @@ const CURRENCY: Record<string, { code: string; locale: string }> = {
   AE: { code: 'AED', locale: 'en-AE' },
 };
 
-// Fallback rates (INR → target) used when live fetch fails
 const FALLBACK_RATES: Record<string, number> = {
   IN: 1,
   US: 0.012,
   GB: 0.0095,
   AE: 0.044,
 };
+
+// Per-plan metadata — index matches sortOrder (0=Starter, 1=Growth, 2=Business)
+const PLAN_META = [
+  { Icon: Rocket, subtext: 'Perfect for Small Businesses', accent: C.pink },
+  { Icon: BarChart2, subtext: 'Best for Growing Businesses', accent: C.mint },
+  { Icon: Building2, subtext: 'Ideal for Large Businesses', accent: C.amber },
+];
+
+const PLAN_FEATURES = [
+  [
+    'Both 2K & 4K Resolution',
+    'Standard AI Models',
+    'Standard Backgrounds',
+    'Single Image Generation',
+    'Product Catalogue Templates',
+    'Email Support',
+  ],
+  [
+    'Both 2K & 4K Resolution',
+    'Premium AI Models',
+    'Premium Backgrounds',
+    'Bulk Image Generation',
+    'Marketplace Templates',
+    'Priority Support',
+  ],
+  [
+    'Both 2K & 4K Resolution',
+    'Premium AI Models',
+    'Premium Backgrounds',
+    'Bulk Image Generation',
+    'Marketplace Templates',
+    'Dedicated Support',
+  ],
+] as const;
 
 function detectCountry(): string {
   try {
@@ -83,52 +139,9 @@ function formatPrice(paise: number, country: string, rates: Record<string, numbe
   }).format(converted);
 }
 
-// INR display used in the buy button disclaimer
 function paise(p: number) {
   return `₹${(p / 100).toLocaleString('en-IN')}`;
 }
-
-const SECTIONS = [
-  {
-    title: '1. ESSENTIAL FEATURES',
-    rows: [
-      { feature: 'Brand-safe Outputs', vals: ['Yes', 'Yes', 'Yes'] },
-      { feature: 'No Watermark', vals: ['Yes', 'Yes', 'Yes'] },
-      { feature: 'AI-powered Photoshoot', vals: ['Yes', 'Yes', 'Yes'] },
-      { feature: 'Model Library Access', vals: ['Yes', 'Yes', 'Yes'] },
-      { feature: 'Background Library', vals: ['Yes', 'Yes', 'Yes'] },
-      { feature: 'Template Library', vals: ['Yes', 'Yes', 'Yes'] },
-      { feature: 'Premium Models Access', vals: ['No', 'Limited', 'Full'] },
-      { feature: 'Premium Backgrounds', vals: ['No', 'Limited', 'Full'] },
-    ],
-  },
-  {
-    title: '2. IMAGE OUTPUT & USAGE',
-    rows: [
-      { feature: 'HD (25 credits)', vals: ['100 Images', '200 Images', '400 Images'] },
-      { feature: '2K (35 credits)', vals: ['71 Images', '142 Images', '285 Images'] },
-      { feature: '4K (40 credits)', vals: ['62 Images', '125 Images', '250 Images'] },
-    ],
-  },
-  {
-    title: '3. SCALING FEATURES',
-    rows: [
-      { feature: 'Bulk Upload', vals: ['No', 'Yes', 'Yes'] },
-      { feature: 'Rendering Priority', vals: ['Standard', 'Faster', 'Fastest'] },
-    ],
-  },
-  {
-    title: '4. SYSTEM LIMITS',
-    rows: [
-      { feature: 'Max Upload File Size', vals: ['10 MB', '20 MB', '50 MB'] },
-      { feature: 'Turnaround Time', vals: ['Immediate', 'Immediate', 'Immediate + Priority'] },
-    ],
-  },
-  {
-    title: '5. CUSTOMER SUPPORT',
-    rows: [{ feature: 'Support', vals: ['Email', 'Email & Chat', 'Email, Chat & Priority'] }],
-  },
-];
 
 type Rzp = { open: () => void };
 declare global {
@@ -153,11 +166,36 @@ export default function PricingPage(): React.ReactElement {
   const qc = useQueryClient();
   const [toast, setToast] = useState('');
   const [buying, setBuying] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'catalogue' | 'tryon'>('catalogue');
+  const [salesModal, setSalesModal] = useState<string | null>(null);
   const [country, setCountry] = useState('IN');
   const [showCountry, setShowCountry] = useState(false);
   const [rates, setRates] = useState<Record<string, number>>(FALLBACK_RATES);
   const [ratesLoading, setRatesLoading] = useState(true);
   const countryRef = useRef<HTMLDivElement>(null);
+
+  const { data: credits } = useQuery<{
+    balance: number;
+    recent: { delta: number; reason: string; createdAt: string }[];
+  }>({
+    queryKey: ['credits'],
+    queryFn: () => api.get('/v1/credits'),
+    staleTime: 60_000,
+  });
+
+  const { data: paymentHistory } = useQuery<{
+    payments: {
+      planId: string;
+      planName: string | null;
+      credits: number;
+      status: string;
+      paidAt: string | null;
+    }[];
+  }>({
+    queryKey: ['payment-history'],
+    queryFn: () => api.get('/v1/payments/history'),
+    staleTime: 5 * 60_000,
+  });
 
   const { data: plans = [], isLoading: plansLoading } = useQuery<CreditPlan[]>({
     queryKey: ['credit-plans'],
@@ -165,12 +203,22 @@ export default function PricingPage(): React.ReactElement {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Auto-detect country from browser locale + timezone on mount
+  const { data: resolutionData } = useQuery<{ resolutions: ResolutionConfigs }>({
+    queryKey: ['resolution-configs'],
+    queryFn: () => api.get('/v1/config/resolutions'),
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const resolutions: ResolutionConfigs = resolutionData?.resolutions ?? {
+    HD: { enabled: false, creditCost: 10 },
+    '2K': { enabled: true, creditCost: 25 },
+    '4K': { enabled: true, creditCost: 40 },
+  };
+
   useEffect(() => {
     setCountry(detectCountry());
   }, []);
 
-  // Fetch live exchange rates from frankfurter.app (free, no API key)
   useEffect(() => {
     const controller = new AbortController();
     fetch('https://api.frankfurter.app/latest?from=INR&to=USD,GBP,AED', {
@@ -180,14 +228,11 @@ export default function PricingPage(): React.ReactElement {
       .then((data: { rates: Record<string, number> }) => {
         setRates({ IN: 1, ...data.rates });
       })
-      .catch(() => {
-        /* silently fall back to FALLBACK_RATES */
-      })
+      .catch(() => {})
       .finally(() => setRatesLoading(false));
     return () => controller.abort();
   }, []);
 
-  // Close country dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (countryRef.current && !countryRef.current.contains(e.target as Node))
@@ -266,7 +311,6 @@ export default function PricingPage(): React.ReactElement {
         rzp.open();
       });
 
-      // Balance changed server-side — refresh it so the sidebar reflects it.
       qc.invalidateQueries({ queryKey: ['credits'] });
       setToast(`${plan.credits.toLocaleString('en-IN')} credits added to your account!`);
       setTimeout(() => router.push('/catalogues'), 1500);
@@ -282,8 +326,11 @@ export default function PricingPage(): React.ReactElement {
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto' }}>
+    <div style={{ flex: 1, overflowY: 'auto', background: C.bg }}>
+      {/* Topbar with country selector */}
       <TopBar
+        title="Pricing & Plan"
+        subtitle="Create professional fashion catalogues without photoshoots, models, or editing headaches."
         right={
           <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button
@@ -296,7 +343,7 @@ export default function PricingPage(): React.ReactElement {
                 gap: 8,
                 padding: 8,
                 width: 130,
-                height: 38,
+                height: 40,
                 borderRadius: 8,
                 border: `1px solid ${C.border}`,
                 background: C.white,
@@ -310,7 +357,7 @@ export default function PricingPage(): React.ReactElement {
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ display: 'flex', alignItems: 'center' }}>{FLAGS[country]}</span>
-                <span style={{ fontSize: 12, fontWeight: 500, lineHeight: '16px', color: C.mid }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>
                   {COUNTRIES.find((c) => c.code === country)?.name}
                 </span>
               </span>
@@ -320,7 +367,7 @@ export default function PricingPage(): React.ReactElement {
               <div
                 style={{
                   position: 'absolute',
-                  top: 36,
+                  top: 44,
                   right: 0,
                   width: 200,
                   background: C.white,
@@ -364,324 +411,1135 @@ export default function PricingPage(): React.ReactElement {
         }
       />
 
-      <div style={{ textAlign: 'center', marginTop: 40, marginBottom: 32 }}>
-        <div style={{ fontSize: 28, fontWeight: 600, color: C.text, lineHeight: '40px' }}>
-          Simple pricing for catalogue-ready visuals
-        </div>
-        <div
-          style={{ fontSize: 16, fontWeight: 500, color: C.mid, lineHeight: '20px', marginTop: 8 }}
-        >
-          Create professional fashion catalogues without photoshoots, models, or editing headaches.
-        </div>
-      </div>
+      {/* Current Plan Banner */}
+      {(() => {
+        const latestPaid = paymentHistory?.payments?.find((p) => p.status === 'paid') ?? null;
+        const planName = latestPaid?.planName ?? 'Free Trial';
+        const balance = credits?.balance ?? 0;
+        // For paid plans use the plan's credit count; for free trial find the FREE_TRIAL ledger entry
+        const freeTrialGrant =
+          credits?.recent?.find((e) => e.reason === 'FREE_TRIAL' && e.delta > 0)?.delta ?? null;
+        const planCredits: number | null = latestPaid?.credits ?? freeTrialGrant;
+        const pct = planCredits ? Math.min(100, Math.round((balance / planCredits) * 100)) : 100;
+        const activatedDate = latestPaid?.paidAt
+          ? new Date(latestPaid.paidAt).toLocaleDateString('en-IN', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+            })
+          : null;
 
-      <div
-        style={{
-          width: '100%',
-          maxWidth: 1140,
-          margin: '40px auto 40px',
-          background: C.white,
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          padding: 16,
-          boxSizing: 'border-box',
-          overflowX: 'auto',
-        }}
-      >
-        <div style={{ minWidth: 1108 }}>
-          {/* Plan headers */}
-          <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
+        return (
+          <div
+            style={{
+              margin: '24px 24px 0',
+              borderRadius: 16,
+              background: grad,
+              display: 'flex',
+              alignItems: 'stretch',
+              overflow: 'hidden',
+              minHeight: 160,
+            }}
+          >
+            {/* Left — plan info */}
             <div
               style={{
-                width: 262,
-                minHeight: 178,
-                background: C.field,
-                border: `1px solid ${C.border}`,
-                borderRadius: 8,
-                padding: 12,
+                flex: 1,
+                padding: '28px 32px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    padding: '3px 12px',
+                    borderRadius: 20,
+                    background: 'rgba(255,255,255,0.25)',
+                    color: C.white,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    marginBottom: 12,
+                    letterSpacing: '0.3px',
+                  }}
+                >
+                  Current Plan
+                </span>
+                <div
+                  style={{
+                    fontSize: 26,
+                    fontWeight: 800,
+                    color: C.white,
+                    lineHeight: 1.2,
+                    marginBottom: 8,
+                  }}
+                >
+                  {planName}
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: 'rgba(255,255,255,0.82)',
+                    lineHeight: '20px',
+                    maxWidth: 480,
+                  }}
+                >
+                  Designed for growing brands creating AI-powered fashion catalogues and virtual
+                  try-ons at scale.
+                </div>
+                {activatedDate && (
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 6 }}>
+                    Plan Activated on {activatedDate}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('catalogue')}
+                style={{
+                  marginTop: 20,
+                  alignSelf: 'flex-start',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 20px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: C.white,
+                  color: C.text,
+                  fontFamily: 'inherit',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                }}
+              >
+                Upgrade Plan <ChevronRight />
+              </button>
+            </div>
+
+            {/* Divider */}
+            <div style={{ width: 1, background: 'rgba(255,255,255,0.2)', margin: '24px 0' }} />
+
+            {/* Right — credits */}
+            <div
+              style={{
+                width: 300,
+                padding: '28px 32px',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'center',
-                alignItems: 'center',
-                boxSizing: 'border-box',
+                gap: 10,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <SparklesIcon size={18} />
-                <span style={{ fontSize: 16, fontWeight: 600, lineHeight: '20px', color: C.text }}>
-                  Features
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'rgba(255,255,255,0.7)',
+                  fontWeight: 600,
+                  letterSpacing: '0.3px',
+                }}
+              >
+                Credits Remaining
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
+                <span style={{ fontSize: 40, fontWeight: 800, color: C.white, lineHeight: 1 }}>
+                  {balance.toLocaleString('en-IN')}
                 </span>
+                {planCredits !== null && (
+                  <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', marginLeft: 2 }}>
+                    /{planCredits.toLocaleString('en-IN')}
+                  </span>
+                )}
+              </div>
+              {/* Progress bar — only shown when on a paid plan */}
+              {planCredits !== null && (
+                <div
+                  style={{
+                    height: 8,
+                    borderRadius: 100,
+                    background: 'rgba(255,255,255,0.25)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      height: '100%',
+                      width: `${pct}%`,
+                      borderRadius: 100,
+                      background: C.white,
+                      transition: 'width 0.4s ease',
+                    }}
+                  />
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: '16px' }}>
+                Credits are shared across AI Catalogue Generation and AI Virtual Try-On.
               </div>
             </div>
+          </div>
+        );
+      })()}
+
+      {/* Tab toggle */}
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 24px 32px' }}>
+        <div
+          style={{
+            display: 'inline-flex',
+            borderRadius: 14,
+            border: `1px solid ${C.border}`,
+            background: C.white,
+            padding: 4,
+            gap: 4,
+          }}
+        >
+          {(
+            [
+              {
+                key: 'catalogue',
+                label: 'AI Catalogue Generation',
+                icon: (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    role="img"
+                    aria-label="AI Catalogue Generation"
+                  >
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                ),
+              },
+              {
+                key: 'tryon',
+                label: 'AI Virtual Try-On',
+                icon: (
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    role="img"
+                    aria-label="AI Virtual Try-On"
+                  >
+                    <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.57a1 1 0 00.99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.57a2 2 0 00-1.34-2.23z" />
+                  </svg>
+                ),
+              },
+            ] as const
+          ).map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '10px 20px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: isActive ? C.dark : 'transparent',
+                  color: isActive ? C.onDark : C.mid,
+                  fontFamily: 'inherit',
+                  fontWeight: 600,
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  transition: 'background 0.18s, color 0.18s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Pricing cards */}
+      <div style={{ background: C.bg }}>
+        {activeTab === 'tryon' && (
+          <div style={{ padding: '0 24px 48px', maxWidth: 1080, margin: '0 auto' }}>
+            {/* Header */}
+            <div style={{ textAlign: 'center', marginBottom: 36 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: C.mid,
+                  letterSpacing: '1.5px',
+                  textTransform: 'uppercase',
+                  marginBottom: 8,
+                }}
+              >
+                Choose the plan that fits your business
+              </div>
+            </div>
+
+            {/* Two option cards */}
+            <div
+              style={{
+                display: 'flex',
+                gap: 20,
+                alignItems: 'stretch',
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+              }}
+            >
+              {/* Option 1 — Virtual Try-On + Catalogue */}
+              <div
+                style={{
+                  flex: '1 1 440px',
+                  maxWidth: 520,
+                  background: C.card,
+                  border: `2px solid color-mix(in srgb, ${C.pink} 40%, transparent)`,
+                  borderRadius: 20,
+                  padding: 32,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 20,
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+                }}
+              >
+                {/* Badge */}
+                <span
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '4px 14px',
+                    borderRadius: 20,
+                    background: `color-mix(in srgb, ${C.pink} 12%, transparent)`,
+                    color: C.pink,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  OPTION 1
+                </span>
+
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: C.mid,
+                      letterSpacing: '0.5px',
+                      textTransform: 'uppercase',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Virtual Try-On &
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+                    Catalogue Creation
+                  </div>
+                </div>
+
+                {/* Price */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span
+                    style={{ fontSize: 42, fontWeight: 900, color: C.text, letterSpacing: '-2px' }}
+                  >
+                    ₹49,999
+                  </span>
+                  <span style={{ fontSize: 15, color: C.mid }}>/month</span>
+                </div>
+
+                {/* Key stats */}
+                <div style={{ display: 'flex', gap: 12 }}>
+                  {(
+                    [
+                      {
+                        icon: <Image size={20} color={C.pink} />,
+                        count: '2,500',
+                        label: 'AI Catalogue Images',
+                      },
+                      {
+                        icon: <Shirt size={20} color={C.pink} />,
+                        count: '25,000',
+                        label: 'Virtual Try-On Sessions',
+                      },
+                    ] as const
+                  ).map((s) => (
+                    <div
+                      key={s.label}
+                      style={{
+                        flex: 1,
+                        background: `color-mix(in srgb, ${C.pink} 8%, transparent)`,
+                        border: `1px solid color-mix(in srgb, ${C.pink} 20%, transparent)`,
+                        borderRadius: 12,
+                        padding: '16px 14px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 8,
+                          background: `color-mix(in srgb, ${C.pink} 18%, transparent)`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {s.icon}
+                      </span>
+                      <div>
+                        <div
+                          style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1 }}
+                        >
+                          {s.count}
+                        </div>
+                        <div
+                          style={{ fontSize: 12, color: C.mid, marginTop: 3, lineHeight: '15px' }}
+                        >
+                          {s.label}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Features */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {['Unlimited AI Models', 'Unlimited AI Backgrounds'].map((f) => (
+                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: '50%',
+                          background: `color-mix(in srgb, ${C.pink} 14%, transparent)`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <CheckIcon size={11} color={C.pink} />
+                      </span>
+                      <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{f}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add-on box */}
+                <div
+                  style={{
+                    background: C.field,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 12,
+                    padding: '14px 16px',
+                  }}
+                >
+                  {/* Price row — visible for Indian customers comparing cost */}
+                  <div
+                    style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 10 }}
+                  >
+                    <span style={{ fontSize: 18, fontWeight: 800, color: C.text }}>₹5,000</span>
+                    <span style={{ fontSize: 12, color: C.mid, fontWeight: 500 }}>
+                      extra / month
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    {(
+                      [
+                        {
+                          icon: <Image size={18} color={C.pink} />,
+                          val: '+500',
+                          label: 'AI Catalogue Creation',
+                        },
+                        {
+                          icon: <Shirt size={18} color={C.pink} />,
+                          val: '+5,000',
+                          label: 'Virtual Try-On Sessions',
+                        },
+                      ] as const
+                    ).map((a) => (
+                      <div
+                        key={a.label}
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}
+                      >
+                        {a.icon}
+                        <div>
+                          <div style={{ fontSize: 18, fontWeight: 800, color: C.text }}>
+                            {a.val}
+                          </div>
+                          <div style={{ fontSize: 11, color: C.mid }}>{a.label}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSalesModal(
+                      "Hi, I'm interested in the Virtual Try-On + Catalogue Creation plan (Option 1 — ₹49,999/month). Please get in touch with more details.",
+                    )
+                  }
+                  style={{
+                    marginTop: 'auto',
+                    width: '100%',
+                    padding: '13px',
+                    borderRadius: 10,
+                    border: `1px solid ${C.border}`,
+                    background: C.white,
+                    color: C.text,
+                    fontFamily: 'inherit',
+                    fontWeight: 700,
+                    fontSize: 15,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  Contact Sales <ChevronRight />
+                </button>
+              </div>
+
+              {/* Option 2 — Only Try-On */}
+              <div
+                style={{
+                  flex: '1 1 380px',
+                  maxWidth: 460,
+                  background: C.card,
+                  border: `2px solid color-mix(in srgb, ${C.mint} 40%, transparent)`,
+                  borderRadius: 20,
+                  padding: 32,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 20,
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+                }}
+              >
+                {/* Badge */}
+                <span
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '4px 14px',
+                    borderRadius: 20,
+                    background: `color-mix(in srgb, ${C.mint} 15%, transparent)`,
+                    color: C.mint,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  OPTION 2
+                </span>
+
+                <div>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: C.mid,
+                      letterSpacing: '0.5px',
+                      textTransform: 'uppercase',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Only
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+                    Try-On
+                  </div>
+                </div>
+
+                {/* Price */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span
+                    style={{ fontSize: 42, fontWeight: 900, color: C.text, letterSpacing: '-2px' }}
+                  >
+                    ₹30,000
+                  </span>
+                  <span style={{ fontSize: 15, color: C.mid }}>/month</span>
+                </div>
+
+                {/* Key stat */}
+                <div
+                  style={{
+                    background: `color-mix(in srgb, ${C.mint} 10%, transparent)`,
+                    border: `1px solid color-mix(in srgb, ${C.mint} 25%, transparent)`,
+                    borderRadius: 12,
+                    padding: '16px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 14,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: 10,
+                      background: `color-mix(in srgb, ${C.mint} 20%, transparent)`,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Shirt size={22} color={C.mint} />
+                  </span>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1 }}>
+                      30,000
+                    </div>
+                    <div style={{ fontSize: 12, color: C.mid, marginTop: 3 }}>
+                      Virtual Try-On Sessions
+                    </div>
+                  </div>
+                </div>
+
+                {/* Features */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {['Unlimited AI Models', 'Unlimited AI Backgrounds', 'White Label'].map((f) => (
+                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: '50%',
+                          background: `color-mix(in srgb, ${C.mint} 16%, transparent)`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <CheckIcon size={11} color={C.mint} />
+                      </span>
+                      <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{f}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Catalogue note — below features */}
+                <div
+                  style={{
+                    background: C.field,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 10,
+                    padding: '12px 14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <span style={{ flexShrink: 0, display: 'flex' }}>
+                    <Image size={18} color={C.mid} />
+                  </span>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+                      ₹15 per new AI Catalogue Image
+                    </div>
+                    <div style={{ fontSize: 11, color: C.mid, marginTop: 2 }}>if they want</div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSalesModal(
+                      "Hi, I'm interested in the Virtual Try-On Only plan (Option 2 — ₹30,000/month). Please get in touch with more details.",
+                    )
+                  }
+                  style={{
+                    marginTop: 'auto',
+                    width: '100%',
+                    padding: '13px',
+                    borderRadius: 10,
+                    border: `1px solid ${C.border}`,
+                    background: C.white,
+                    color: C.text,
+                    fontFamily: 'inherit',
+                    fontWeight: 700,
+                    fontSize: 15,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                  }}
+                >
+                  Contact Sales <ChevronRight />
+                </button>
+              </div>
+            </div>
+
+            {/* Shared features footer */}
+            <div
+              style={{
+                marginTop: 32,
+                borderTop: `1px solid ${C.border}`,
+                padding: '16px 0',
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'center',
+                gap: '4px 24px',
+              }}
+            >
+              {(
+                [
+                  {
+                    icon: <ShieldCheck size={15} color={C.mid} />,
+                    label: 'Enterprise Grade Security',
+                  },
+                  { icon: <Cpu size={15} color={C.mid} />, label: 'High Performance GPU Servers' },
+                  { icon: <Headphones size={15} color={C.mid} />, label: 'Priority Support' },
+                  {
+                    icon: <TrendingUp size={15} color={C.mid} />,
+                    label: 'Scalable for Your Growth',
+                  },
+                  { icon: <RefreshCw size={15} color={C.mid} />, label: 'Regular Feature Updates' },
+                ] as const
+              ).map((f) => (
+                <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {f.icon}
+                  <span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>{f.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {activeTab === 'catalogue' && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 20,
+              justifyContent: 'center',
+              alignItems: 'stretch',
+              flexWrap: 'wrap',
+              maxWidth: 1080,
+              margin: '0 auto',
+              padding: '0 24px',
+            }}
+          >
             {plansLoading
               ? [0, 1, 2].map((i) => (
                   <div
                     key={i}
                     style={{
-                      width: 262,
-                      minHeight: 178,
-                      background: C.field,
+                      width: 320,
+                      minHeight: 560,
+                      background: C.card,
                       border: `1px solid ${C.border}`,
-                      borderRadius: 8,
-                      boxSizing: 'border-box',
+                      borderRadius: 16,
                     }}
                   />
                 ))
-              : plans.map((plan) => (
-                  <div
-                    key={plan.slug}
-                    style={{
-                      width: 262,
-                      minHeight: 178,
-                      background: plan.isHighlighted
-                        ? 'linear-gradient(90deg, #D94D69 0%, #D49332 100%)'
-                        : C.card,
-                      border: plan.isHighlighted ? 'none' : `1px solid ${C.border}`,
-                      borderRadius: 8,
-                      padding: 12,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      boxSizing: 'border-box',
-                      position: 'relative',
-                    }}
-                  >
-                    {plan.badge && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          padding: '3px 10px',
-                          borderRadius: 4,
-                          background: plan.isHighlighted ? 'rgba(255,255,255,0.22)' : grad,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: C.onDark,
-                        }}
-                      >
-                        ⭐ {plan.badge}
-                      </div>
-                    )}
-                    <div
-                      style={{
-                        fontWeight: 700,
-                        fontSize: 15,
-                        color: plan.isHighlighted ? '#FFFFFF' : C.text,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {plan.name}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 13,
-                        color: plan.isHighlighted ? 'rgba(255,255,255,0.8)' : C.mid,
-                        marginBottom: 10,
-                      }}
-                    >
-                      {plan.subtext}
-                    </div>
-                    <div
-                      style={{
-                        fontWeight: 700,
-                        fontSize: 22,
-                        color: plan.isHighlighted ? '#FFFFFF' : C.text,
-                        marginBottom: 2,
-                      }}
-                    >
-                      {plan.credits.toLocaleString('en-IN')} Credits
-                    </div>
-                    <div
-                      style={{
-                        marginBottom: 8,
-                        display: 'flex',
-                        alignItems: 'baseline',
-                        gap: 6,
-                        flexWrap: 'wrap',
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: 15,
-                          fontWeight: 700,
-                          color: plan.isHighlighted ? '#FFFFFF' : C.text,
-                          opacity: ratesLoading && isNonIn ? 0.4 : 1,
-                          transition: 'opacity 0.2s',
-                        }}
-                      >
-                        {displayTotal(plan.basePaise)}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          color: plan.isHighlighted ? 'rgba(255,255,255,0.75)' : C.mid,
-                          opacity: ratesLoading && isNonIn ? 0.4 : 1,
-                          transition: 'opacity 0.2s',
-                        }}
-                      >
-                        {`(${displayBase(plan.basePaise)} + ${displayTax(plan.basePaise)} ${isNonIn ? 'Indian GST' : 'GST'})`}
-                      </span>
-                    </div>
-                    {isNonIn && (
-                      <div
-                        style={{
-                          fontSize: 10,
-                          color: plan.isHighlighted ? 'rgba(255,255,255,0.6)' : C.light,
-                          marginBottom: 6,
-                        }}
-                      >
-                        Billed as {paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))}{' '}
-                        INR
-                      </div>
-                    )}
-                    <Tooltip
-                      tip={
-                        buying && buying !== plan.slug
-                          ? 'Another payment is in progress'
-                          : undefined
-                      }
-                      position="bottom"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => void buy(plan)}
-                        disabled={!!buying}
-                        style={{
-                          width: '100%',
-                          padding: '8px 20px',
-                          height: 36,
-                          borderRadius: 8,
-                          border: plan.isHighlighted
-                            ? '1px solid rgba(255,255,255,0.3)'
-                            : `1px solid ${C.border}`,
-                          cursor: buying ? 'not-allowed' : 'pointer',
-                          fontFamily: 'inherit',
-                          fontWeight: 700,
-                          fontSize: 14,
-                          lineHeight: '20px',
-                          background: plan.isHighlighted ? 'rgba(255,255,255,0.15)' : C.white,
-                          color: plan.isHighlighted ? '#ffffff' : C.mid,
-                          boxSizing: 'border-box',
-                          opacity: buying && buying !== plan.slug ? 0.5 : 1,
-                        }}
-                      >
-                        {buying === plan.slug
-                          ? 'Processing…'
-                          : `Buy — ${displayTotal(plan.basePaise)}`}
-                      </button>
-                    </Tooltip>
-                  </div>
-                ))}
-          </div>
+              : plans.map((plan, idx) => {
+                  // biome-ignore lint/style/noNonNullAssertion: PLAN_META has entries for every plan index
+                  const meta = PLAN_META[idx] ?? PLAN_META[0]!;
+                  const features = PLAN_FEATURES[idx] ?? PLAN_FEATURES[0];
+                  const accent = meta.accent;
+                  const highlighted = plan.isHighlighted;
 
-          {SECTIONS.map((sec) => (
-            <Fragment key={sec.title}>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 20,
-                  background: C.field,
-                  borderBottom: `1px solid ${C.border}`,
-                  padding: '10px 16px',
-                }}
-              >
-                <div
-                  style={{
-                    width: 262,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: C.mid,
-                    letterSpacing: '.5px',
-                  }}
-                >
-                  {sec.title}
-                </div>
-                {plans.map((plan) => (
-                  <div key={plan.slug} style={{ width: 262 }} />
-                ))}
-              </div>
-              {sec.rows.map((row) => (
-                <div
-                  key={row.feature}
-                  style={{
-                    display: 'flex',
-                    gap: 20,
-                    borderBottom: `1px solid ${C.border}`,
-                    padding: '14px 16px',
-                  }}
-                >
-                  <div style={{ width: 262, fontSize: 13, color: C.text, fontWeight: 500 }}>
-                    {row.feature}
-                  </div>
-                  {row.vals.map((v, vi) => (
+                  const cardContent = (
+                    // biome-ignore lint/correctness/useJsxKeyInIterable: cardContent is wrapped by keyed parent in the map return below
                     <div
-                      key={plans[vi]?.slug ?? vi}
                       style={{
-                        width: 262,
-                        textAlign: 'center',
-                        fontSize: 13,
-                        color:
-                          v === 'Yes'
-                            ? C.mint
-                            : v === 'Full'
-                              ? C.pink
-                              : v === 'Limited'
-                                ? C.amber
-                                : C.mid,
-                        fontWeight: ['Yes', 'No', 'Full', 'Limited'].includes(v) ? 500 : 400,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        background: C.card,
+                        borderRadius: highlighted ? 14 : 16,
+                        flex: 1,
+                        position: 'relative',
                       }}
                     >
-                      {v === 'Yes' ? (
-                        <span
+                      {/* Card header */}
+                      <div style={{ padding: '24px 24px 0' }}>
+                        {/* Most Popular badge — absolutely positioned so it doesn't shift card height */}
+                        {highlighted && plan.badge && (
+                          <span
+                            style={{
+                              position: 'absolute',
+                              top: -14,
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              padding: '5px 14px',
+                              borderRadius: 20,
+                              background: grad,
+                              color: C.white,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              whiteSpace: 'nowrap',
+                              boxShadow: '0 2px 10px rgba(245,92,122,0.35)',
+                            }}
+                          >
+                            ⭐ {plan.badge}
+                          </span>
+                        )}
+
+                        {/* Plan name row */}
+                        <div
                           style={{
-                            display: 'inline-flex',
+                            display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center',
-                            width: 22,
-                            height: 22,
-                            borderRadius: '50%',
-                            background: 'rgba(32,158,70,0.12)',
+                            gap: 12,
+                            marginBottom: 10,
                           }}
                         >
-                          <CheckIcon color={C.mint} size={13} />
-                        </span>
-                      ) : v === 'No' ? (
+                          <span
+                            style={{
+                              width: 44,
+                              height: 44,
+                              borderRadius: 12,
+                              background: `color-mix(in srgb, ${accent} 14%, transparent)`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: 22,
+                              flexShrink: 0,
+                            }}
+                          >
+                            <meta.Icon size={22} color={accent} />
+                          </span>
+                          <span style={{ fontSize: 22, fontWeight: 700, color: C.text }}>
+                            {plan.name}
+                          </span>
+                        </div>
+
+                        {/* Subtext pill */}
                         <span
                           style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            width: 22,
-                            height: 22,
-                            borderRadius: '50%',
-                            background: 'rgba(245,92,122,0.12)',
+                            display: 'inline-block',
+                            padding: '3px 12px',
+                            borderRadius: 20,
+                            background: `color-mix(in srgb, ${accent} 14%, transparent)`,
+                            color: accent,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            marginBottom: 22,
                           }}
                         >
-                          <XIcon size={13} color={C.mid} />
+                          {meta.subtext}
                         </span>
-                      ) : (
-                        v
-                      )}
+
+                        {/* Price */}
+                        <div style={{ marginBottom: 20 }}>
+                          <span
+                            style={{
+                              fontSize: 40,
+                              fontWeight: 800,
+                              color: C.text,
+                              letterSpacing: '-1.5px',
+                              opacity: ratesLoading && isNonIn ? 0.5 : 1,
+                              transition: 'opacity 0.2s',
+                            }}
+                          >
+                            {displayBase(plan.basePaise)}
+                          </span>
+                          <span style={{ fontSize: 14, color: C.mid, marginLeft: 4 }}>/ month</span>
+                          <div style={{ fontSize: 11, color: C.light, marginTop: 5 }}>
+                            {isNonIn
+                              ? `Billed as ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))} INR`
+                              : `+ ${displayTax(plan.basePaise)} GST = ${displayTotal(plan.basePaise)} total`}
+                          </div>
+                        </div>
+
+                        {/* Resolution download grid — only enabled resolutions */}
+                        {(() => {
+                          const resCells = (
+                            [
+                              { key: 'HD' as const, label: 'HD' },
+                              { key: '2K' as const, label: '2K' },
+                              { key: '4K' as const, label: '4K' },
+                            ] as const
+                          ).filter((r) => resolutions[r.key]?.enabled);
+                          if (resCells.length === 0) return null;
+                          return (
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: `repeat(${resCells.length}, 1fr)`,
+                                gap: 8,
+                                marginBottom: 20,
+                              }}
+                            >
+                              {resCells.map(({ key, label }) => {
+                                const cost = resolutions[key]?.creditCost ?? 0;
+                                const count = Math.floor(plan.credits / cost).toLocaleString(
+                                  'en-IN',
+                                );
+                                return (
+                                  <div
+                                    key={key}
+                                    style={{
+                                      background: C.field,
+                                      border: `1px solid ${C.border}`,
+                                      borderRadius: 8,
+                                      padding: '10px 12px',
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        marginBottom: 4,
+                                      }}
+                                    >
+                                      <Download size={13} color={accent} />
+                                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                                        {count} × {label}
+                                      </div>
+                                    </div>
+                                    <div style={{ fontSize: 10, color: C.mid }}>Downloads</div>
+                                    <div
+                                      style={{
+                                        fontSize: 10,
+                                        color: accent,
+                                        fontWeight: 600,
+                                        marginTop: 2,
+                                      }}
+                                    >
+                                      {cost} credits each
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Divider */}
+                      <div style={{ height: 1, background: C.border, margin: '0 24px' }} />
+
+                      {/* Feature list */}
+                      <div style={{ padding: '16px 24px', flex: 1 }}>
+                        {/* Dynamic credits line — same style as feature rows */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            marginBottom: 12,
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: '50%',
+                              background: `color-mix(in srgb, ${accent} 16%, transparent)`,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <CheckIcon size={11} color={accent} />
+                          </span>
+                          <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                            {plan.credits.toLocaleString('en-IN')} Credits included
+                          </span>
+                        </div>
+
+                        {features.map((feat) => (
+                          <div
+                            key={feat}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              marginBottom: 12,
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                background: `color-mix(in srgb, ${accent} 16%, transparent)`,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <CheckIcon size={11} color={accent} />
+                            </span>
+                            <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                              {feat}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* CTA button */}
+                      <div style={{ padding: '4px 24px 24px' }}>
+                        <Tooltip
+                          tip={
+                            buying && buying !== plan.slug
+                              ? 'Another payment is in progress'
+                              : undefined
+                          }
+                          position="bottom"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => void buy(plan)}
+                            disabled={!!buying}
+                            style={{
+                              width: '100%',
+                              padding: '13px 20px',
+                              borderRadius: 10,
+                              border: highlighted ? 'none' : `1px solid ${C.border}`,
+                              background: highlighted ? grad : C.white,
+                              color: highlighted ? C.white : C.text,
+                              fontFamily: 'inherit',
+                              fontWeight: 700,
+                              fontSize: 15,
+                              cursor: buying ? 'not-allowed' : 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                              opacity: buying && buying !== plan.slug ? 0.45 : 1,
+                              transition: 'opacity 0.15s',
+                            }}
+                          >
+                            {buying === plan.slug ? 'Processing…' : 'Upgrade'}
+                            {buying !== plan.slug && <ChevronRight />}
+                          </button>
+                        </Tooltip>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              ))}
-            </Fragment>
-          ))}
-        </div>
+                  );
+
+                  return highlighted ? (
+                    <div
+                      key={plan.slug}
+                      style={{
+                        width: 320,
+                        paddingTop: 16,
+                        display: 'flex',
+                        flexDirection: 'column',
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: 2,
+                          borderRadius: 18,
+                          background: grad,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          flex: 1,
+                          boxShadow: '0 6px 28px rgba(245,92,122,0.22)',
+                        }}
+                      >
+                        {cardContent}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={plan.slug}
+                      style={{
+                        width: 320,
+                        paddingTop: 16,
+                        display: 'flex',
+                        flexDirection: 'column',
+                      }}
+                    >
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          borderRadius: 16,
+                          border: `1px solid ${C.border}`,
+                          boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+                        }}
+                      >
+                        {cardContent}
+                      </div>
+                    </div>
+                  );
+                })}
+          </div>
+        )}
+
+        {/* Footer info bar — catalogue tab only */}
+        {activeTab === 'catalogue' && (
+          <div
+            style={{
+              maxWidth: 1080,
+              margin: '32px auto 0',
+              borderTop: `1px solid ${C.border}`,
+              padding: '16px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              flexWrap: 'wrap',
+              fontSize: 12,
+              color: C.mid,
+            }}
+          >
+            <Info size={14} color={C.mid} />
+            <span>
+              All plans include both <span style={{ color: C.pink, fontWeight: 600 }}>2K</span> &{' '}
+              <span style={{ color: C.amber, fontWeight: 600 }}>4K</span> downloads.
+            </span>
+            <span style={{ color: C.lighter, margin: '0 4px' }}>|</span>
+            <span>1 Download Credit = 1 Image</span>
+            <span style={{ color: C.lighter, margin: '0 4px' }}>|</span>
+            <span>
+              Use <span style={{ color: C.pink, fontWeight: 600 }}>2K</span> or{' '}
+              <span style={{ color: C.amber, fontWeight: 600 }}>4K</span>, anytime, as per your
+              need!
+            </span>
+          </div>
+        )}
+
+        {isNonIn && (
+          <div
+            style={{
+              textAlign: 'center',
+              fontSize: 11,
+              color: C.light,
+              padding: '12px 24px 0',
+            }}
+          >
+            💳 Payment processed via Razorpay (India). International cards may not be supported.
+          </div>
+        )}
+
+        <div style={{ height: 48 }} />
       </div>
 
-      {isNonIn && (
-        <div
-          style={{
-            textAlign: 'center',
-            fontSize: 12,
-            color: C.light,
-            marginBottom: 32,
-          }}
-        >
-          💳 Payment processed via Razorpay (India). International cards may not be supported.
-        </div>
+      {salesModal !== null && (
+        <SupportModal initialMessage={salesModal} onClose={() => setSalesModal(null)} />
       )}
 
       {toast && (

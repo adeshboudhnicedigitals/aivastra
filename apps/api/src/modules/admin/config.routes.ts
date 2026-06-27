@@ -6,13 +6,28 @@ import { requireAdmin } from './guard.js';
 
 const KEY = 'config:system';
 
+const DEFAULT_RESOLUTIONS = {
+  HD: { enabled: false, creditCost: 10 },
+  '2K': { enabled: true, creditCost: 25 },
+  '4K': { enabled: true, creditCost: 40 },
+};
+
 export async function adminConfigRoutes(app: FastifyInstance) {
+  // Public — used by the web pricing page (no auth required)
+  app.get('/v1/config/resolutions', async () => {
+    const raw = await app.redis.get(KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    return { resolutions: cfg.resolutions ?? DEFAULT_RESOLUTIONS };
+  });
+
   app.get(
     '/admin/config',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
     async () => {
       const raw = await app.redis.get(KEY);
-      return raw ? JSON.parse(raw) : { creditCostPerJob: 1, maxJobsPerDay: 50 };
+      const cfg = raw ? JSON.parse(raw) : { creditCostPerJob: 1, maxJobsPerDay: 50 };
+      cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTIONS;
+      return cfg;
     },
   );
 
@@ -24,7 +39,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const cur = JSON.parse((await app.redis.get(KEY)) ?? '{}');
-      const next = { ...cur, ...(req.body as any) };
+      const next = { ...cur, ...req.body };
       await app.redis.set(KEY, JSON.stringify(next));
       return next;
     },
@@ -91,7 +106,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
             and(
               eq(schema.jobs.status, 'COMPLETED'),
               gte(schema.jobs.completedAt, yesterday),
-              lt(schema.jobs.completedAt as any, todayStart),
+              lt(schema.jobs.completedAt, todayStart),
             ),
           ),
 

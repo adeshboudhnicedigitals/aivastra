@@ -19,6 +19,7 @@
     "build": "tsc",
     "generate": "tsc && drizzle-kit generate",
     "migrate": "tsx --env-file=../../.env ./src/migrate.ts",
+    "verify": "tsx --env-file=../../.env ./src/verify.ts",
     "studio": "drizzle-kit studio",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

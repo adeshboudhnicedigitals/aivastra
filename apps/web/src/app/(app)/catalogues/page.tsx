@@ -616,7 +616,8 @@ export default function CataloguesPage(): React.ReactElement {
   return (
     <>
       <TopBar
-        title="Your Catalogues"
+        title="Catalogues"
+        subtitle="View, manage, and download your previously generated catalogue images."
         right={
           <Link href="/studio" style={{ textDecoration: 'none' }}>
             <GradBtn style={{ gap: 8 }}>
@@ -814,6 +815,7 @@ export default function CataloguesPage(): React.ReactElement {
                 {/* gender filter */}
                 <div style={{ position: 'relative' }} ref={genderRef}>
                   <button
+                    type="button"
                     onClick={() => setShowGenderDropdown(!showGenderDropdown)}
                     style={{
                       display: 'flex',
@@ -889,6 +891,7 @@ export default function CataloguesPage(): React.ReactElement {
                 {/* platform filter */}
                 <div style={{ position: 'relative' }} ref={platformRef}>
                   <button
+                    type="button"
                     onClick={() => setShowPlatformDropdown(!showPlatformDropdown)}
                     style={{
                       display: 'flex',
@@ -966,6 +969,7 @@ export default function CataloguesPage(): React.ReactElement {
                 {/* date filter */}
                 <div style={{ position: 'relative' }} ref={dateRef}>
                   <button
+                    type="button"
                     onClick={() => {
                       if (!showDateDropdown) {
                         setDateSubPanel('presets');
@@ -1357,6 +1361,7 @@ export default function CataloguesPage(): React.ReactElement {
                       }}
                     >
                       {/* image area */}
+                      {/* biome-ignore lint/a11y/noStaticElementInteractions: hover-only side effects; parent Link/button handles navigation */}
                       <div
                         style={{
                           aspectRatio: '3/4',
