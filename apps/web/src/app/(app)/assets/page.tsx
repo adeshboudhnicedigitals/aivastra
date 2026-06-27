@@ -70,7 +70,10 @@ export default function AssetsPage(): React.ReactElement {
 
   return (
     <>
-      <TopBar title="Your Products" />
+      <TopBar
+        title="My Products"
+        subtitle="Manage uploaded garments and generated catalogue outputs."
+      />
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20 }}>
           <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>

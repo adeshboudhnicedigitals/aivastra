@@ -435,8 +435,12 @@ function SelCard({
 }) {
   const fluid = typeof w === 'string';
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: preview tile; parent button handles keyboard a11y
     <div
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onClick?.();
+      }}
       style={{
         cursor: 'pointer',
         textAlign: 'center',
@@ -444,6 +448,7 @@ function SelCard({
         width: fluid ? w : undefined,
       }}
     >
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: hover zoom only; parent div handles click + keyboard */}
       <div
         style={{
           width: fluid ? '100%' : w,
@@ -463,6 +468,8 @@ function SelCard({
           const zoom = e.currentTarget.querySelector('[data-zoom]') as HTMLElement;
           if (zoom) zoom.style.transform = 'scale(1.05)';
         }}
+        onFocus={() => {}}
+        onBlur={() => {}}
         onMouseOut={(e) => {
           const zoom = e.currentTarget.querySelector('[data-zoom]') as HTMLElement;
           if (zoom) zoom.style.transform = 'scale(1)';
@@ -572,6 +579,7 @@ function SectionHead({
 function GarmentTipsButton() {
   const [open, setOpen] = useState(false);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover dropdown trigger; child button is the actual interactive element
     <div onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       <button
         type="button"
@@ -931,6 +939,19 @@ export default function StudioPage(): React.ReactElement {
     },
     enabled: needsShoes,
   });
+  const { data: resolutionConfigData } = useQuery<{
+    resolutions: Record<string, { enabled: boolean; creditCost: number }>;
+  }>({
+    queryKey: ['resolution-configs'],
+    queryFn: () => api.get('/v1/config/resolutions'),
+    staleTime: 10 * 60 * 1000,
+  });
+  const resolutionConfig = resolutionConfigData?.resolutions ?? {
+    HD: { enabled: true, creditCost: 25 },
+    '2K': { enabled: true, creditCost: 35 },
+    '4K': { enabled: true, creditCost: 40 },
+  };
+
   const shoeRandomItems = useMemo(() => {
     const allItems = (shoesCatalog?.tree.filter((n) => n.slug !== 'other') ?? []).flatMap(
       flattenNode,
@@ -1073,7 +1094,11 @@ export default function StudioPage(): React.ReactElement {
     });
   }
 
-  const RESOLUTION_COSTS = { HD: 25, '2K': 35, '4K': 40 } as const;
+  const RESOLUTION_COSTS = {
+    HD: resolutionConfig.HD?.creditCost ?? 25,
+    '2K': resolutionConfig['2K']?.creditCost ?? 35,
+    '4K': resolutionConfig['4K']?.creditCost ?? 40,
+  } as const;
 
   async function handleSubmit() {
     if (isSubmittingRef.current) return;
@@ -1129,6 +1154,7 @@ export default function StudioPage(): React.ReactElement {
         jobs: poseIds.map((poseId, i) => {
           const pose = poses?.items.find((p) => p.id === poseId);
           return {
+            // biome-ignore lint/style/noNonNullAssertion: jobIds and poseIds are the same length by construction
             id: jobIds[i]!,
             poseId,
             label: pose?.label ?? `Pose ${i + 1}`,
@@ -1213,6 +1239,7 @@ export default function StudioPage(): React.ReactElement {
         jobs: orderedPoseIds.map((poseId, i) => {
           const pose = poses?.items.find((p) => p.id === poseId);
           return {
+            // biome-ignore lint/style/noNonNullAssertion: orderedJobIds and orderedPoseIds are the same length by construction
             id: orderedJobIds[i]!,
             poseId,
             label: pose?.label ?? `Pose ${i + 1}`,
@@ -1260,7 +1287,10 @@ export default function StudioPage(): React.ReactElement {
 
   return (
     <>
-      <TopBar title="Create Catalogue" />
+      <TopBar
+        title="Studio"
+        subtitle="Create premium AI catalogue shoots from flat lay garments in minutes."
+      />
       <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 20, padding: '24px 28px' }}>
         <div
           style={{
@@ -1316,6 +1346,7 @@ export default function StudioPage(): React.ReactElement {
                 </h3>
                 {garmentTypes && garmentTypes.items.length > garmentVisibleCount && (
                   <button
+                    type="button"
                     onClick={() => setGarmentModalOpen(true)}
                     style={{
                       display: 'flex',
@@ -1345,6 +1376,7 @@ export default function StudioPage(): React.ReactElement {
                       height="5"
                       viewBox="0 0 8 5"
                       fill="none"
+                      aria-hidden="true"
                       xmlns="http://www.w3.org/2000/svg"
                       style={{ transform: 'rotate(-90deg)' }}
                     >
@@ -1383,6 +1415,7 @@ export default function StudioPage(): React.ReactElement {
                     const visible =
                       garmentTypeId && !inFirstN
                         ? [
+                            // biome-ignore lint/style/noNonNullAssertion: inFirstN is false here, so the find returns a value
                             all.find((s) => s.id === garmentTypeId)!,
                             ...all
                               .filter((s) => s.id !== garmentTypeId)
@@ -1394,7 +1427,10 @@ export default function StudioPage(): React.ReactElement {
                         (k) =>
                           s.slug.toLowerCase().includes(k) || s.label.toLowerCase().includes(k),
                       );
-                      const img = s.thumbnailUrl ?? (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
+                      const img =
+                        s.thumbnailUrl ??
+                        // biome-ignore lint/style/noNonNullAssertion: fallbackKey is derived from a key in OUTFIT_IMG
+                        (fallbackKey ? OUTFIT_IMG[fallbackKey]! : null);
                       return (
                         <VisualCard
                           key={s.id}
@@ -1426,6 +1462,7 @@ export default function StudioPage(): React.ReactElement {
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {PLATFORMS.map((p) => (
                   <button
+                    type="button"
                     key={p}
                     onClick={() => handlePlatformChange(p)}
                     style={pill(platform === p)}
@@ -1446,6 +1483,7 @@ export default function StudioPage(): React.ReactElement {
                     const supported = brandAspects.includes(r);
                     return (
                       <button
+                        type="button"
                         key={r}
                         onClick={supported ? () => setAspect(r) : undefined}
                         style={{
@@ -1458,6 +1496,7 @@ export default function StudioPage(): React.ReactElement {
                     );
                   })}
                 <button
+                  type="button"
                   onClick={() => {
                     setAspect('custom');
                     setCustomRatio('');
@@ -1515,6 +1554,7 @@ export default function StudioPage(): React.ReactElement {
                       >
                         {ALL_ASPECTS.map((r) => (
                           <button
+                            type="button"
                             key={r}
                             onClick={() => {
                               setCustomRatio(r);
@@ -1597,52 +1637,64 @@ export default function StudioPage(): React.ReactElement {
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   {(
                     [
-                      { key: 'HD', label: 'HD', credits: 25 },
-                      { key: '2K', label: '2K', credits: 35 },
-                      { key: '4K', label: '4K', credits: 40 },
+                      { key: 'HD' as const, label: 'HD' },
+                      { key: '2K' as const, label: '2K' },
+                      { key: '4K' as const, label: '4K' },
                     ] as const
-                  ).map((r) => {
-                    const active = resolution === r.key;
-                    return (
-                      <div
-                        key={r.key}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          padding: '8px 16px',
-                          borderRadius: 99,
-                          border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
-                          background: active ? 'rgba(245,92,122,0.04)' : C.white,
-                          boxSizing: 'border-box',
-                          userSelect: 'none',
-                          opacity: active ? 1 : 0.45,
-                        }}
-                      >
+                  )
+                    .filter((r) => resolutionConfig[r.key]?.enabled !== false)
+                    .map((r) => {
+                      const credits =
+                        resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
+                      const active = resolution === r.key;
+                      return (
                         <div
+                          key={r.key}
                           style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: '50%',
-                            border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
-                            background: C.white,
-                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '8px 16px',
+                            borderRadius: 99,
+                            border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
+                            background: active ? 'rgba(245,92,122,0.04)' : C.white,
                             boxSizing: 'border-box',
+                            userSelect: 'none',
+                            opacity: active ? 1 : 0.45,
                           }}
-                        />
-                        <span
-                          style={{ fontSize: 14, fontWeight: 600, color: active ? C.pink : C.text }}
                         >
-                          {r.label}
-                        </span>
-                        <span
-                          style={{ fontSize: 13, color: active ? C.pink : C.mid, fontWeight: 400 }}
-                        >
-                          ({r.credits} credits)
-                        </span>
-                      </div>
-                    );
-                  })}
+                          <div
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: '50%',
+                              border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
+                              background: C.white,
+                              flexShrink: 0,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: active ? C.pink : C.text,
+                            }}
+                          >
+                            {r.label}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 13,
+                              color: active ? C.pink : C.mid,
+                              fontWeight: 400,
+                            }}
+                          >
+                            ({credits} credits)
+                          </span>
+                        </div>
+                      );
+                    })}
                 </div>
               </section>
             )}
@@ -2069,6 +2121,7 @@ export default function StudioPage(): React.ReactElement {
                 <SectionHead title="Choose your model" />
                 {filteredFaces.length > modelVisibleCount && (
                   <button
+                    type="button"
                     onClick={() => setModelModalOpen(true)}
                     style={{
                       display: 'flex',
@@ -2166,6 +2219,7 @@ export default function StudioPage(): React.ReactElement {
                 <SectionHead title="Select Background" />
                 {(backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
                   <button
+                    type="button"
                     onClick={() => {
                       setBackgroundItemFilter('');
                       setBackgroundTagFilter('');
@@ -2263,7 +2317,9 @@ export default function StudioPage(): React.ReactElement {
                           (bgTagsById.get(i.id) ?? []).includes(backgroundTagFilter),
                         );
                   return (
+                    // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
                     <div
+                      role="presentation"
                       style={{
                         position: 'fixed',
                         inset: 0,
@@ -2274,7 +2330,11 @@ export default function StudioPage(): React.ReactElement {
                         justifyContent: 'center',
                       }}
                       onClick={() => setBackgroundModalOpen(false)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') setBackgroundModalOpen(false);
+                      }}
                     >
+                      {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
                       <div
                         style={{
                           background: C.white,
@@ -2289,6 +2349,7 @@ export default function StudioPage(): React.ReactElement {
                           boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
                         }}
                         onClick={(e) => e.stopPropagation()}
+                        onKeyDown={() => {}}
                       >
                         <div
                           style={{
@@ -2302,6 +2363,7 @@ export default function StudioPage(): React.ReactElement {
                             Select Background
                           </h2>
                           <button
+                            type="button"
                             onClick={() => setBackgroundModalOpen(false)}
                             style={{
                               background: 'none',
@@ -2320,6 +2382,7 @@ export default function StudioPage(): React.ReactElement {
                           style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}
                         >
                           <button
+                            type="button"
                             onClick={() => setBackgroundItemFilter('')}
                             style={pill(backgroundItemFilter === '')}
                           >
@@ -2327,6 +2390,7 @@ export default function StudioPage(): React.ReactElement {
                           </button>
                           {bgNodes.map((node) => (
                             <button
+                              type="button"
                               key={node.id}
                               onClick={() => setBackgroundItemFilter(node.id)}
                               style={pill(backgroundItemFilter === node.id)}
@@ -2340,6 +2404,7 @@ export default function StudioPage(): React.ReactElement {
                             style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}
                           >
                             <button
+                              type="button"
                               onClick={() => setBackgroundTagFilter('')}
                               style={pill(backgroundTagFilter === '')}
                             >
@@ -2347,6 +2412,7 @@ export default function StudioPage(): React.ReactElement {
                             </button>
                             {bgTags.map((tag) => (
                               <button
+                                type="button"
                                 key={tag}
                                 onClick={() => setBackgroundTagFilter(tag)}
                                 style={pill(backgroundTagFilter === tag)}
@@ -2413,6 +2479,7 @@ export default function StudioPage(): React.ReactElement {
                 />
                 {(poses?.items.length ?? 0) > poseVisibleCount && (
                   <button
+                    type="button"
                     onClick={() => setPoseModalOpen(true)}
                     style={{
                       display: 'flex',
@@ -2506,6 +2573,7 @@ export default function StudioPage(): React.ReactElement {
                       right={
                         totalItems > lowerVisibleCount && (
                           <button
+                            type="button"
                             onClick={() => {
                               setLowerItemFilter('');
                               setLowerItemsOpen(true);
@@ -2594,6 +2662,7 @@ export default function StudioPage(): React.ReactElement {
                       right={
                         totalItems > shoeVisibleCount && (
                           <button
+                            type="button"
                             onClick={() => {
                               setShoeItemFilter('');
                               setShoeItemsOpen(true);
@@ -2798,7 +2867,9 @@ export default function StudioPage(): React.ReactElement {
                   },
                 );
           return (
+            // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
             <div
+              role="presentation"
               style={{
                 position: 'fixed',
                 inset: 0,
@@ -2809,7 +2880,11 @@ export default function StudioPage(): React.ReactElement {
                 justifyContent: 'center',
               }}
               onClick={() => setLowerItemsOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setLowerItemsOpen(false);
+              }}
             >
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
               <div
                 style={{
                   background: C.white,
@@ -2824,6 +2899,7 @@ export default function StudioPage(): React.ReactElement {
                   boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
                 }}
                 onClick={(e) => e.stopPropagation()}
+                onKeyDown={() => {}}
               >
                 <div
                   style={{
@@ -2837,6 +2913,7 @@ export default function StudioPage(): React.ReactElement {
                     Lower Garment
                   </h2>
                   <button
+                    type="button"
                     onClick={() => setLowerItemsOpen(false)}
                     style={{
                       background: 'none',
@@ -2853,6 +2930,7 @@ export default function StudioPage(): React.ReactElement {
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
                   <button
+                    type="button"
                     onClick={() => setLowerItemFilter('')}
                     style={pill(lowerItemFilter === '')}
                   >
@@ -2860,6 +2938,7 @@ export default function StudioPage(): React.ReactElement {
                   </button>
                   {lowerNodes.map((node) => (
                     <button
+                      type="button"
                       key={node.id}
                       onClick={() => setLowerItemFilter(node.id)}
                       style={pill(lowerItemFilter === node.id)}
@@ -2915,7 +2994,9 @@ export default function StudioPage(): React.ReactElement {
                   },
                 );
           return (
+            // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
             <div
+              role="presentation"
               style={{
                 position: 'fixed',
                 inset: 0,
@@ -2926,7 +3007,11 @@ export default function StudioPage(): React.ReactElement {
                 justifyContent: 'center',
               }}
               onClick={() => setShoeItemsOpen(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setShoeItemsOpen(false);
+              }}
             >
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
               <div
                 style={{
                   background: C.white,
@@ -2941,6 +3026,7 @@ export default function StudioPage(): React.ReactElement {
                   boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
                 }}
                 onClick={(e) => e.stopPropagation()}
+                onKeyDown={() => {}}
               >
                 <div
                   style={{
@@ -2954,6 +3040,7 @@ export default function StudioPage(): React.ReactElement {
                     Footwear
                   </h2>
                   <button
+                    type="button"
                     onClick={() => setShoeItemsOpen(false)}
                     style={{
                       background: 'none',
@@ -2969,11 +3056,16 @@ export default function StudioPage(): React.ReactElement {
                   </button>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
-                  <button onClick={() => setShoeItemFilter('')} style={pill(shoeItemFilter === '')}>
+                  <button
+                    type="button"
+                    onClick={() => setShoeItemFilter('')}
+                    style={pill(shoeItemFilter === '')}
+                  >
                     All
                   </button>
                   {shoeNodes.map((node) => (
                     <button
+                      type="button"
                       key={node.id}
                       onClick={() => setShoeItemFilter(node.id)}
                       style={pill(shoeItemFilter === node.id)}
@@ -3014,7 +3106,9 @@ export default function StudioPage(): React.ReactElement {
 
       {/* Amazon Pose Picker Modal */}
       {amazonPoseModalOpen && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
         <div
+          role="presentation"
           style={{
             position: 'fixed',
             inset: 0,
@@ -3025,7 +3119,11 @@ export default function StudioPage(): React.ReactElement {
             justifyContent: 'center',
           }}
           onClick={() => setAmazonPoseModalOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setAmazonPoseModalOpen(false);
+          }}
         >
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
           <div
             style={{
               background: C.white,
@@ -3038,6 +3136,7 @@ export default function StudioPage(): React.ReactElement {
               boxShadow: '0 8px 40px rgba(0,0,0,0.15)',
             }}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={() => {}}
           >
             <h2
               style={{
@@ -3116,6 +3215,7 @@ export default function StudioPage(): React.ReactElement {
             </div>
             <div style={{ marginTop: 24, display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
+                type="button"
                 onClick={() => setAmazonPoseModalOpen(false)}
                 style={{
                   padding: '10px 24px',
