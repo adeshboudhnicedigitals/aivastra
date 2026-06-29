@@ -185,13 +185,7 @@ export const CreateWorkflowBody = z
           ] as const)
         : val.workflowType === 'widget'
           ? (['widgetGarmentNodeId', 'widgetCustomerPhotoNodeId', 'widgetOutputNodeId'] as const)
-          : ([
-              'tryonPersonNodeId',
-              'tryonGarmentNodeId',
-              'tryonOutputNodeId',
-              'facePhasePromptNode',
-              'garmentPhasePromptNode',
-            ] as const);
+          : (['facePhasePromptNode', 'garmentPhasePromptNode'] as const);
     for (const field of required) {
       if (!val[field]) {
         ctx.addIssue({
@@ -237,6 +231,10 @@ export const UpdateWorkflowBody = z.object({
   widgetGarmentNodeId: z.string().min(1).nullable().optional(),
   widgetCustomerPhotoNodeId: z.string().min(1).nullable().optional(),
   widgetOutputNodeId: z.string().min(1).nullable().optional(),
+  // Tryon workflow node IDs
+  tryonPersonNodeId: z.string().min(1).nullable().optional(),
+  tryonGarmentNodeId: z.string().min(1).nullable().optional(),
+  tryonOutputNodeId: z.string().min(1).nullable().optional(),
 });
 
 export const ReassignWorkflowBody = z.object({

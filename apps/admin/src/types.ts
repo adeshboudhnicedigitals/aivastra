@@ -176,6 +176,7 @@ export interface Job {
   poseLabel?: string | null;
   hasLower: boolean;
   hasShoe: boolean;
+  jobType?: 'catalogue' | 'tryon' | 'widget';
   outputUrl?: string;
   userHint?: string;
 }

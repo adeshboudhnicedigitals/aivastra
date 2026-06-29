@@ -32,9 +32,6 @@ export function PreviewPanel() {
         }}
       >
         <span style={{ fontSize: 20, fontWeight: 600, color: C.text }}>Your Catalogue Preview</span>
-        <span style={{ fontSize: 14, fontWeight: 500, color: C.mid }}>
-          Generated images will appear here.
-        </span>
       </div>
       <div style={{ flex: 1, padding: 16, boxSizing: 'border-box' }}>
         <div

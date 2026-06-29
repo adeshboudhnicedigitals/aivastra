@@ -432,7 +432,8 @@ export default function PricingPage(): React.ReactElement {
         return (
           <div
             style={{
-              margin: '24px 24px 0',
+              margin: '24px auto 0',
+              maxWidth: 1080,
               borderRadius: 16,
               background: grad,
               display: 'flex',
@@ -924,8 +925,8 @@ export default function PricingPage(): React.ReactElement {
               {/* Option 2 — Only Try-On */}
               <div
                 style={{
-                  flex: '1 1 380px',
-                  maxWidth: 460,
+                  flex: '1 1 440px',
+                  maxWidth: 520,
                   background: C.card,
                   border: `2px solid color-mix(in srgb, ${C.mint} 40%, transparent)`,
                   borderRadius: 20,
@@ -1510,14 +1511,6 @@ export default function PricingPage(): React.ReactElement {
             <span>
               All plans include both <span style={{ color: C.pink, fontWeight: 600 }}>2K</span> &{' '}
               <span style={{ color: C.amber, fontWeight: 600 }}>4K</span> downloads.
-            </span>
-            <span style={{ color: C.lighter, margin: '0 4px' }}>|</span>
-            <span>1 Download Credit = 1 Image</span>
-            <span style={{ color: C.lighter, margin: '0 4px' }}>|</span>
-            <span>
-              Use <span style={{ color: C.pink, fontWeight: 600 }}>2K</span> or{' '}
-              <span style={{ color: C.amber, fontWeight: 600 }}>4K</span>, anytime, as per your
-              need!
             </span>
           </div>
         )}
