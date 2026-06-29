@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import type { z } from 'zod';
-import { GiftIcon, LockIcon, MailIcon } from '@/components/icons';
+import { Eye, EyeOff, GiftIcon, LockIcon, MailIcon } from '@/components/icons';
 import { LogoAuth } from '@/components/logo';
 import { C } from '@/components/tokens';
 import { Divider } from '@/components/ui/divider';
@@ -95,6 +95,7 @@ function LoginFormInner() {
   const nextPath = searchParams.get('next') ?? '/studio';
   const resetSuccess = searchParams.get('reset') === '1';
   const [error, setError] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
 
   const {
     register,
@@ -249,12 +250,28 @@ function LoginFormInner() {
                 </span>
                 <input
                   id="password"
-                  type="password"
+                  type={showPwd ? 'text' : 'password'}
                   placeholder="Enter password"
                   autoComplete="current-password"
-                  style={inputStyle}
+                  style={{ ...inputStyle, paddingRight: 36 }}
                   {...register('password')}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPwd((v) => !v)}
+                  style={{
+                    position: 'absolute',
+                    right: 10,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: C.mid,
+                    display: 'flex',
+                    padding: 0,
+                  }}
+                >
+                  {showPwd ? <EyeOff /> : <Eye />}
+                </button>
               </div>
               {errors.password && (
                 <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{errors.password.message}</p>

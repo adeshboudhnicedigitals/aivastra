@@ -469,12 +469,12 @@ export default function TryOnPage() {
         style={{
           flex: 1,
           minHeight: 0,
-          overflow: 'hidden',
+          overflowY: 'auto',
           padding: '20px 20px 24px',
           boxSizing: 'border-box',
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gridTemplateRows: '1fr 250px',
+          gridTemplateRows: '1fr 170px',
           gap: 20,
         }}
       >
@@ -490,7 +490,8 @@ export default function TryOnPage() {
             gap: 16,
             padding: 16,
             boxSizing: 'border-box',
-            minHeight: 0,
+            minHeight: 400,
+            minWidth: 320,
           }}
         >
           {/* Category selector */}
@@ -673,7 +674,8 @@ export default function TryOnPage() {
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
-            minHeight: 0,
+            minHeight: 400,
+            minWidth: 320,
           }}
         >
           {/* Header */}
@@ -835,8 +837,9 @@ export default function TryOnPage() {
             display: 'flex',
             flexDirection: 'row',
             gap: 12,
-            padding: 20,
+            padding: '14px 16px',
             boxSizing: 'border-box',
+            overflow: 'hidden',
           }}
         >
           <div
@@ -844,42 +847,55 @@ export default function TryOnPage() {
               flex: 1,
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
+              gap: 10,
               justifyContent: 'center',
+              minWidth: 0,
             }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
                 Integrate with Your Website
               </span>
-              <span style={{ fontSize: 13, fontWeight: 500, color: C.mid, lineHeight: 1.5 }}>
-                Allow shoppers to try products virtually before purchasing and create a more
-                engaging shopping experience.
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: C.mid,
+                  lineHeight: 1.4,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                Allow shoppers to try products virtually before purchasing.
               </span>
             </div>
             <button
+              type="button"
               onClick={() => openContact('Integrate with Website')}
               style={{
                 alignSelf: 'flex-start',
-                height: 38,
+                height: 32,
                 borderRadius: 8,
                 border: '1.5px solid rgb(124,58,237)',
                 background: 'transparent',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                padding: '0 16px',
+                gap: 6,
+                padding: '0 12px',
                 cursor: 'pointer',
+                flexShrink: 0,
               }}
             >
-              <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(124,58,237)' }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: 'rgb(124,58,237)' }}>
                 Contact Us
               </span>
               <svg
                 aria-hidden="true"
                 xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
+                width="14"
+                height="14"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="rgb(124,58,237)"
@@ -918,8 +934,9 @@ export default function TryOnPage() {
             display: 'flex',
             flexDirection: 'row',
             gap: 12,
-            padding: 20,
+            padding: '14px 16px',
             boxSizing: 'border-box',
+            overflow: 'hidden',
           }}
         >
           <div
@@ -927,42 +944,55 @@ export default function TryOnPage() {
               flex: 1,
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
+              gap: 10,
               justifyContent: 'center',
+              minWidth: 0,
             }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
                 Retail Store Kiosk
               </span>
-              <span style={{ fontSize: 13, fontWeight: 500, color: C.mid, lineHeight: 1.5 }}>
-                Offer instant virtual try-on experiences inside your store without the need for
-                physical trials.
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: C.mid,
+                  lineHeight: 1.4,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                Offer instant virtual try-on experiences inside your store.
               </span>
             </div>
             <button
+              type="button"
               onClick={() => openContact('Retail Store Kiosk')}
               style={{
                 alignSelf: 'flex-start',
-                height: 38,
+                height: 32,
                 borderRadius: 8,
                 border: '1.5px solid rgb(249,115,22)',
                 background: 'transparent',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
-                padding: '0 16px',
+                gap: 6,
+                padding: '0 12px',
                 cursor: 'pointer',
+                flexShrink: 0,
               }}
             >
-              <span style={{ fontSize: 13, fontWeight: 500, color: 'rgb(249,115,22)' }}>
+              <span style={{ fontSize: 12, fontWeight: 500, color: 'rgb(249,115,22)' }}>
                 Contact Us
               </span>
               <svg
                 aria-hidden="true"
                 xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
+                width="14"
+                height="14"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="rgb(249,115,22)"

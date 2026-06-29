@@ -71,6 +71,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
         hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
         outputKey: schema.jobOutputs.resultKey,
+        jobType: sql<string>`CASE WHEN ${schema.jobs.widgetClientId} IS NOT NULL THEN 'widget' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
       })
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
@@ -201,6 +202,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       const isAmazon = params.platform === 'Amazon';
       const bgKey = isAmazon ? row.bgFallbackKey : (row.bgComfyKey ?? row.bgFallbackKey);
 
+      // For tryon-direct jobs, person image is stored in params.personKey
+      const personKey = typeof params.personKey === 'string' ? params.personKey : undefined;
+
       return {
         ...row,
         outputUrl: pu(row.outputKey),
@@ -219,6 +223,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         defaultWorkflowLabel: undefined,
         overrideWorkflowLabel: undefined,
         inputImages: {
+          person: pu(personKey),
           face: pu(row.faceSideKey ?? row.faceDisplayKey),
           background: pu(bgKey),
           pose: pu(row.poseKey),

@@ -234,11 +234,32 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       }
 
       if (workflowType === 'tryon') {
-        const personNodeId = body.tryonPersonNodeId!;
-        const garmentNodeId = body.tryonGarmentNodeId!;
-        const outputNodeId = body.tryonOutputNodeId!;
+        // Auto-detect node IDs from JSON when not explicitly provided
+        const { detected: autoDetected } = detectTryonMappings(body.jsonContent);
+        const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
+        const garmentNodeId = body.tryonGarmentNodeId ?? autoDetected.garmentNodeId ?? '';
+        const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
         const negNode = body.facePhasePromptNode!;
         const posNode = body.garmentPhasePromptNode!;
+
+        if (!personNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect person node — set tryonPersonNodeId manually',
+          );
+        if (!garmentNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect garment node — set tryonGarmentNodeId manually',
+          );
+        if (!outputNodeId)
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect output node — set tryonOutputNodeId manually',
+          );
 
         validateNodeExists(body.jsonContent, personNodeId, 'person');
         validateNodeExists(body.jsonContent, garmentNodeId, 'garment');
@@ -433,6 +454,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         widgetGarmentNodeId?: string | null;
         widgetCustomerPhotoNodeId?: string | null;
         widgetOutputNodeId?: string | null;
+        tryonPersonNodeId?: string | null;
+        tryonGarmentNodeId?: string | null;
+        tryonOutputNodeId?: string | null;
       };
 
       const [existing] = await app.db
@@ -530,6 +554,12 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.widgetCustomerPhotoNodeId = body.widgetCustomerPhotoNodeId ?? null;
       if ('widgetOutputNodeId' in body)
         updateValues.widgetOutputNodeId = body.widgetOutputNodeId ?? null;
+      if ('tryonPersonNodeId' in body)
+        updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
+      if ('tryonGarmentNodeId' in body)
+        updateValues.tryonGarmentNodeId = body.tryonGarmentNodeId ?? null;
+      if ('tryonOutputNodeId' in body)
+        updateValues.tryonOutputNodeId = body.tryonOutputNodeId ?? null;
 
       await app.db
         .update(schema.workflowTemplates)

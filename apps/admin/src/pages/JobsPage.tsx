@@ -30,6 +30,7 @@ interface JobEvent {
 }
 
 interface InputImages {
+  person?: string;
   face?: string;
   background?: string;
   pose?: string;
@@ -379,6 +380,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                   <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                     {(
                       [
+                        { key: 'person', label: 'Person' },
                         { key: 'face', label: 'Face (ComfyUI)' },
                         { key: 'background', label: 'Background (ComfyUI)' },
                         { key: 'pose', label: 'Pose' },
@@ -627,7 +629,24 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                           />
                         )}
                         <div>
-                          <span className="semi">{j.faceLabel ?? '—'}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span className="semi">{j.faceLabel ?? '—'}</span>
+                            {j.jobType === 'tryon' && (
+                              <span
+                                className="badge dot"
+                                style={{
+                                  background: 'rgba(124,58,237,0.12)',
+                                  color: 'rgb(124,58,237)',
+                                  borderColor: 'rgba(124,58,237,0.3)',
+                                }}
+                              >
+                                Try-On
+                              </span>
+                            )}
+                            {j.jobType === 'widget' && (
+                              <span className="badge dot accent">Widget</span>
+                            )}
+                          </div>
                           <span className="sub" style={{ display: 'block' }}>
                             {j.poseLabel ?? '—'}
                           </span>
