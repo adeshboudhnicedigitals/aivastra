@@ -236,6 +236,32 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.post('/admin/jobs/flush-queue', { preHandler: W }, async () => {
+    const queued = await app.db
+      .select({
+        id: schema.jobs.id,
+        userId: schema.jobs.userId,
+        creditsCharged: schema.jobs.creditsCharged,
+      })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.status, 'QUEUED'));
+
+    if (queued.length === 0) return { flushed: 0 };
+
+    await app.db
+      .update(schema.jobs)
+      .set({ status: 'CANCELLED', errorCode: 'ADMIN_FLUSH' })
+      .where(eq(schema.jobs.status, 'QUEUED'));
+
+    await Promise.all(
+      queued
+        .filter((j) => j.userId && j.creditsCharged > 0)
+        .map((j) => refund(app.db, j.userId!, j.creditsCharged, j.id, 'REFUND_ADMIN_CANCEL')),
+    );
+
+    return { flushed: queued.length };
+  });
+
   app.post(
     '/admin/jobs/:id/retry',
     { preHandler: W, schema: { params: z.object({ id: z.string().uuid() }) } },

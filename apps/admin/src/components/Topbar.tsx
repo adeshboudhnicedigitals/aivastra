@@ -35,12 +35,6 @@ export function Topbar({ trail, onNavTrail, theme, onToggleTheme }: TopbarProps)
         >
           {theme === 'system' ? <Icon.Monitor /> : theme === 'dark' ? <Icon.Moon /> : <Icon.Sun />}
         </button>
-        <div className="kbar">
-          <Icon.Search />
-          <span>Search jobs, users, items...</span>
-          <span className="kbd">{'\u2318'}K</span>
-        </div>
-        <span className="status-dot">API &middot; 24ms</span>
       </div>
     </div>
   );
