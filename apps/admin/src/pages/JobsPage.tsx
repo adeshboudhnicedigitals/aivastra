@@ -153,6 +153,8 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
+  const [confirmFlush, setConfirmFlush] = useState(false);
+  const [flushing, setFlushing] = useState(false);
 
   const load = useCallback(
     async (silent = false) => {
@@ -176,6 +178,24 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const flushQueue = useCallback(async () => {
+    setFlushing(true);
+    try {
+      const res = await apiFetch<{ flushed: number }>('/admin/jobs/flush-queue', {
+        method: 'POST',
+      });
+      toast({
+        title: `Flushed ${res.flushed} queued job${res.flushed !== 1 ? 's' : ''} and refunded credits`,
+      });
+      void load();
+    } catch {
+      toast({ kind: 'error', title: 'Flush failed' });
+    } finally {
+      setFlushing(false);
+      setConfirmFlush(false);
+    }
+  }, [load, toast]);
 
   useAdminJobStream(
     useCallback((evt) => {
@@ -532,6 +552,25 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
+          {confirmFlush ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Cancel all queued jobs?</span>
+              <button
+                className="btn sm danger"
+                onClick={() => void flushQueue()}
+                disabled={flushing}
+              >
+                {flushing ? 'Flushing…' : 'Confirm'}
+              </button>
+              <button className="btn sm ghost" onClick={() => setConfirmFlush(false)}>
+                No
+              </button>
+            </div>
+          ) : (
+            <button className="btn sm ghost" onClick={() => setConfirmFlush(true)}>
+              Flush queue
+            </button>
+          )}
           <button
             className="btn sm ghost"
             onClick={() => void load()}

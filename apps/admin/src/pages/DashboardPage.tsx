@@ -363,7 +363,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <div className="card">
+        <div className="card" style={{ minWidth: 0, overflow: 'hidden' }}>
           <div className="card-head">
             <h3>Recent failures</h3>
             <span className="sub">Last 24 hours</span>
@@ -403,7 +403,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
                   }}
                 >
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 12, flexShrink: 0 }}>
-                    {j.id}
+                    {j.id.slice(0, 8)}
                   </span>
                   <div
                     style={{

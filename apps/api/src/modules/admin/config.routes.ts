@@ -57,8 +57,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const stuckThreshold = new Date(now.getTime() - 10 * 60 * 1000);
 
       const [
-        queueN,
-        queueP,
+        queueDepthRow,
         workersRaw,
         jobsTodayRows,
         jobsYesterdayRows,
@@ -71,8 +70,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         recentFailures,
         stuckJobs,
       ] = await Promise.all([
-        app.redis.xlen('jobs:normal'),
-        app.redis.xlen('jobs:priority'),
+        app.db.select({ c: count() }).from(schema.jobs).where(eq(schema.jobs.status, 'QUEUED')),
         app.redis.hgetall('worker:registry'),
 
         app.db
@@ -204,7 +202,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         workersHealthy: workers.filter((w) => w.healthy).length,
         workersTotal: workers.length,
         workers,
-        queueDepth: queueN + queueP,
+        queueDepth: queueDepthRow[0]?.c ?? 0,
         failed24h,
         jobsPerDay,
         jobsPerDayLabels,
