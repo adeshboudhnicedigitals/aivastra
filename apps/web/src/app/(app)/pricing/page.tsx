@@ -4,9 +4,9 @@ import {
   BarChart2,
   Building2,
   Cpu,
-  Download,
   Headphones,
   Image,
+  ImagePlus,
   Info,
   RefreshCw,
   Rocket,
@@ -14,6 +14,7 @@ import {
   Shirt,
   TrendingUp,
 } from 'lucide-react';
+
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -77,11 +78,46 @@ const FALLBACK_RATES: Record<string, number> = {
   AE: 0.044,
 };
 
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+
 // Per-plan metadata — index matches sortOrder (0=Starter, 1=Growth, 2=Business)
 const PLAN_META = [
-  { Icon: Rocket, subtext: 'Perfect for Small Businesses', accent: C.pink },
-  { Icon: BarChart2, subtext: 'Best for Growing Businesses', accent: C.mint },
-  { Icon: Building2, subtext: 'Ideal for Large Businesses', accent: C.amber },
+  {
+    Icon: Rocket,
+    subtext: 'Perfect for Small Businesses',
+    accent: C.mid,
+    iconColor: C.text,
+    iconSrc: undefined,
+    iconBg: C.mid,
+    checkGrad: false,
+    icon2k: `${BASE}/assets/2k-b-vec.svg`,
+    icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    invertUsage: true,
+  },
+  {
+    Icon: BarChart2,
+    subtext: 'Best for Growing Businesses',
+    accent: C.mint,
+    iconColor: undefined,
+    iconSrc: `${BASE}/assets/gro-vec.svg`,
+    iconBg: C.mid,
+    checkGrad: true,
+    icon2k: `${BASE}/assets/2k-vec.svg`,
+    icon4k: `${BASE}/assets/4k-vec.svg`,
+    invertUsage: false,
+  },
+  {
+    Icon: Building2,
+    subtext: 'Ideal for Large Businesses',
+    accent: C.mid,
+    iconColor: C.text,
+    iconSrc: `${BASE}/assets/pro-vec.svg`,
+    iconBg: C.mid,
+    checkGrad: false,
+    icon2k: `${BASE}/assets/2k-b-vec.svg`,
+    icon4k: `${BASE}/assets/4k-b-vec.svg`,
+    invertUsage: true,
+  },
 ];
 
 const PLAN_FEATURES = [
@@ -587,7 +623,8 @@ export default function PricingPage(): React.ReactElement {
       <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 24px 32px' }}>
         <div
           style={{
-            display: 'inline-flex',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
             borderRadius: 14,
             border: `1px solid ${C.border}`,
             background: C.white,
@@ -601,43 +638,28 @@ export default function PricingPage(): React.ReactElement {
                 key: 'catalogue',
                 label: 'AI Catalogue Generation',
                 icon: (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    role="img"
-                    aria-label="AI Catalogue Generation"
-                  >
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
-                  </svg>
+                  // biome-ignore lint/performance/noImgElement: local SVG asset
+                  <img
+                    src={`${BASE}/assets/catalog-icon.svg`}
+                    alt="AI Catalogue Generation"
+                    width={16}
+                    height={16}
+                    style={{ filter: 'var(--icon-invert-light)' }}
+                  />
                 ),
               },
               {
                 key: 'tryon',
                 label: 'AI Virtual Try-On',
                 icon: (
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    role="img"
-                    aria-label="AI Virtual Try-On"
-                  >
-                    <path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.57a1 1 0 00.99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.57a2 2 0 00-1.34-2.23z" />
-                  </svg>
+                  // biome-ignore lint/performance/noImgElement: local SVG asset
+                  <img
+                    src={`${BASE}/assets/hanger-vec.svg`}
+                    alt="AI Virtual Try-On"
+                    width={16}
+                    height={16}
+                    style={{ filter: 'var(--icon-invert)' }}
+                  />
                 ),
               },
             ] as const
@@ -651,6 +673,7 @@ export default function PricingPage(): React.ReactElement {
                 style={{
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   gap: 8,
                   padding: '10px 20px',
                   borderRadius: 10,
@@ -723,33 +746,20 @@ export default function PricingPage(): React.ReactElement {
                   style={{
                     alignSelf: 'flex-start',
                     padding: '4px 14px',
-                    borderRadius: 20,
-                    background: `color-mix(in srgb, ${C.pink} 12%, transparent)`,
-                    color: C.pink,
+                    borderRadius: 6,
+                    background: `color-mix(in srgb, ${C.pink} 10%, transparent)`,
+                    border: `1px solid color-mix(in srgb, ${C.pink} 40%, transparent)`,
+                    color: C.text,
                     fontSize: 11,
                     fontWeight: 700,
                     letterSpacing: '0.5px',
                   }}
                 >
-                  OPTION 1
+                  Best Value
                 </span>
 
-                <div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      color: C.mid,
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                      marginBottom: 4,
-                    }}
-                  >
-                    Virtual Try-On &
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
-                    Catalogue Creation
-                  </div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+                  Virtual Try-On + Catalogue Studio
                 </div>
 
                 {/* Price */}
@@ -759,78 +769,101 @@ export default function PricingPage(): React.ReactElement {
                   >
                     ₹49,999
                   </span>
-                  <span style={{ fontSize: 15, color: C.mid }}>/month</span>
+                  <span style={{ fontSize: 15, color: C.mid }}>/month + GST</span>
                 </div>
 
                 {/* Key stats */}
-                <div style={{ display: 'flex', gap: 12 }}>
-                  {(
-                    [
-                      {
-                        icon: <Image size={20} color={C.pink} />,
-                        count: '2,500',
-                        label: 'AI Catalogue Images',
-                      },
-                      {
-                        icon: <Shirt size={20} color={C.pink} />,
-                        count: '25,000',
-                        label: 'Virtual Try-On Sessions',
-                      },
-                    ] as const
-                  ).map((s) => (
-                    <div
-                      key={s.label}
-                      style={{
-                        flex: 1,
-                        background: `color-mix(in srgb, ${C.pink} 8%, transparent)`,
-                        border: `1px solid color-mix(in srgb, ${C.pink} 20%, transparent)`,
-                        borderRadius: 12,
-                        padding: '16px 14px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                      }}
-                    >
-                      <span
+                <div
+                  style={{
+                    display: 'flex',
+                    background:
+                      'linear-gradient(90deg, rgba(245,92,122,0.05) 0%, rgba(246,181,83,0.05) 100%)',
+                    border: `1px solid color-mix(in srgb, ${C.pink} 20%, transparent)`,
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {[
+                    {
+                      icon: <Image size={20} color="#fff" />,
+                      iconBg: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                      count: '2,500',
+                      label: 'AI Catalogue Images',
+                    },
+                    {
+                      icon: <Shirt size={20} color="#fff" />,
+                      iconBg: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                      count: '25,000',
+                      label: 'Virtual Try-On Sessions',
+                    },
+                  ].map((s, i) => (
+                    <>
+                      {i > 0 && (
+                        <div
+                          style={{
+                            width: 1,
+                            background: `color-mix(in srgb, ${C.pink} 20%, transparent)`,
+                            margin: '12px 0',
+                          }}
+                        />
+                      )}
+                      <div
+                        key={s.label}
                         style={{
-                          width: 38,
-                          height: 38,
-                          borderRadius: 8,
-                          background: `color-mix(in srgb, ${C.pink} 18%, transparent)`,
-                          display: 'inline-flex',
+                          flex: 1,
+                          padding: '16px 14px',
+                          display: 'flex',
                           alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
+                          gap: 10,
                         }}
                       >
-                        {s.icon}
-                      </span>
-                      <div>
-                        <div
-                          style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1 }}
+                        <span
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: 8,
+                            background: s.iconBg,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
                         >
-                          {s.count}
-                        </div>
-                        <div
-                          style={{ fontSize: 12, color: C.mid, marginTop: 3, lineHeight: '15px' }}
-                        >
-                          {s.label}
+                          {s.icon}
+                        </span>
+                        <div>
+                          <div
+                            style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1 }}
+                          >
+                            {s.count}
+                          </div>
+                          <div
+                            style={{ fontSize: 12, color: C.mid, marginTop: 3, lineHeight: '15px' }}
+                          >
+                            {s.label}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    </>
                   ))}
                 </div>
 
                 {/* Features */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {['Unlimited AI Models', 'Unlimited AI Backgrounds'].map((f) => (
+                  {[
+                    'AI Catalogue Generation & Virtual Try-On',
+                    'Unlimited AI Models',
+                    'Unlimited Backgrounds Library',
+                    'White-Label Branding',
+                    'Priority Technical Support',
+                  ].map((f) => (
                     <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span
                         style={{
                           width: 20,
                           height: 20,
                           borderRadius: '50%',
-                          background: `color-mix(in srgb, ${C.pink} 14%, transparent)`,
+                          background: `color-mix(in srgb, ${C.amber} 18%, transparent)`,
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
@@ -844,52 +877,64 @@ export default function PricingPage(): React.ReactElement {
                   ))}
                 </div>
 
-                {/* Add-on box */}
-                <div
-                  style={{
-                    background: C.field,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 12,
-                    padding: '14px 16px',
-                  }}
-                >
-                  {/* Price row — visible for Indian customers comparing cost */}
-                  <div
-                    style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 10 }}
-                  >
-                    <span style={{ fontSize: 18, fontWeight: 800, color: C.text }}>₹5,000</span>
-                    <span style={{ fontSize: 12, color: C.mid, fontWeight: 500 }}>
-                      extra / month
-                    </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Add-on label */}
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                    Pay ₹5,000 Extra and Get
                   </div>
-                  <div style={{ display: 'flex', gap: 12 }}>
-                    {(
-                      [
-                        {
-                          icon: <Image size={18} color={C.pink} />,
-                          val: '+500',
-                          label: 'AI Catalogue Creation',
-                        },
-                        {
-                          icon: <Shirt size={18} color={C.pink} />,
-                          val: '+5,000',
-                          label: 'Virtual Try-On Sessions',
-                        },
-                      ] as const
-                    ).map((a) => (
-                      <div
-                        key={a.label}
-                        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}
-                      >
-                        {a.icon}
-                        <div>
-                          <div style={{ fontSize: 18, fontWeight: 800, color: C.text }}>
-                            {a.val}
+
+                  {/* Add-on box */}
+                  <div
+                    style={{
+                      background: C.field,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 12,
+                      padding: '14px 16px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      {(
+                        [
+                          {
+                            icon: <ImagePlus size={18} color={C.text} />,
+                            val: '+500',
+                            label: 'AI Catalogue Creation',
+                          },
+                          {
+                            icon: <Shirt size={18} color={C.text} />,
+                            val: '+5,000',
+                            label: 'Virtual Try-On Sessions',
+                          },
+                        ] as const
+                      ).map((a) => (
+                        <div
+                          key={a.label}
+                          style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}
+                        >
+                          <span
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 8,
+                              border: `1px solid ${C.border}`,
+                              background: C.card,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {a.icon}
+                          </span>
+                          <div>
+                            <div style={{ fontSize: 18, fontWeight: 800, color: C.text }}>
+                              {a.val}
+                            </div>
+                            <div style={{ fontSize: 11, color: C.mid }}>{a.label}</div>
                           </div>
-                          <div style={{ fontSize: 11, color: C.mid }}>{a.label}</div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -905,9 +950,9 @@ export default function PricingPage(): React.ReactElement {
                     width: '100%',
                     padding: '13px',
                     borderRadius: 10,
-                    border: `1px solid ${C.border}`,
-                    background: C.white,
-                    color: C.text,
+                    border: 'none',
+                    background: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                    color: '#fff',
                     fontFamily: 'inherit',
                     fontWeight: 700,
                     fontSize: 15,
@@ -916,6 +961,13 @@ export default function PricingPage(): React.ReactElement {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
+                    transition: 'filter 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(0.9)';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1)';
                   }}
                 >
                   Contact Sales <ChevronRight />
@@ -928,7 +980,7 @@ export default function PricingPage(): React.ReactElement {
                   flex: '1 1 440px',
                   maxWidth: 520,
                   background: C.card,
-                  border: `2px solid color-mix(in srgb, ${C.mint} 40%, transparent)`,
+                  border: `2px solid color-mix(in srgb, ${C.mid} 30%, transparent)`,
                   borderRadius: 20,
                   padding: 32,
                   display: 'flex',
@@ -942,33 +994,20 @@ export default function PricingPage(): React.ReactElement {
                   style={{
                     alignSelf: 'flex-start',
                     padding: '4px 14px',
-                    borderRadius: 20,
-                    background: `color-mix(in srgb, ${C.mint} 15%, transparent)`,
-                    color: C.mint,
+                    borderRadius: 6,
+                    background: C.field,
+                    border: `1px solid color-mix(in srgb, ${C.mid} 35%, transparent)`,
+                    color: C.text,
                     fontSize: 11,
                     fontWeight: 700,
                     letterSpacing: '0.5px',
                   }}
                 >
-                  OPTION 2
+                  Retail Ready
                 </span>
 
-                <div>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      color: C.mid,
-                      letterSpacing: '0.5px',
-                      textTransform: 'uppercase',
-                      marginBottom: 4,
-                    }}
-                  >
-                    Only
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
-                    Try-On
-                  </div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+                  Virtual Try-On Platform
                 </div>
 
                 {/* Price */}
@@ -978,14 +1017,14 @@ export default function PricingPage(): React.ReactElement {
                   >
                     ₹30,000
                   </span>
-                  <span style={{ fontSize: 15, color: C.mid }}>/month</span>
+                  <span style={{ fontSize: 15, color: C.mid }}>/month + GST</span>
                 </div>
 
                 {/* Key stat */}
                 <div
                   style={{
-                    background: `color-mix(in srgb, ${C.mint} 10%, transparent)`,
-                    border: `1px solid color-mix(in srgb, ${C.mint} 25%, transparent)`,
+                    background: C.field,
+                    border: `1px solid ${C.border}`,
                     borderRadius: 12,
                     padding: '16px 14px',
                     display: 'flex',
@@ -995,21 +1034,22 @@ export default function PricingPage(): React.ReactElement {
                 >
                   <span
                     style={{
-                      width: 44,
-                      height: 44,
+                      width: 40,
+                      height: 40,
                       borderRadius: 10,
-                      background: `color-mix(in srgb, ${C.mint} 20%, transparent)`,
+                      background: C.card,
+                      border: `1px solid ${C.border}`,
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       flexShrink: 0,
                     }}
                   >
-                    <Shirt size={22} color={C.mint} />
+                    <Shirt size={22} color={C.text} />
                   </span>
                   <div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1 }}>
-                      30,000
+                      50,000
                     </div>
                     <div style={{ fontSize: 12, color: C.mid, marginTop: 3 }}>
                       Virtual Try-On Sessions
@@ -1019,21 +1059,27 @@ export default function PricingPage(): React.ReactElement {
 
                 {/* Features */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {['Unlimited AI Models', 'Unlimited AI Backgrounds', 'White Label'].map((f) => (
+                  {[
+                    'Unlimited AI Models',
+                    'Unlimited Backgrounds Library',
+                    'White-Label Integration',
+                    'Priority Support',
+                    'Regular Feature Updates',
+                  ].map((f) => (
                     <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span
                         style={{
                           width: 20,
                           height: 20,
                           borderRadius: '50%',
-                          background: `color-mix(in srgb, ${C.mint} 16%, transparent)`,
+                          background: C.field,
                           display: 'inline-flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           flexShrink: 0,
                         }}
                       >
-                        <CheckIcon size={11} color={C.mint} />
+                        <CheckIcon size={11} color={C.text} />
                       </span>
                       <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{f}</span>
                     </div>
@@ -1041,25 +1087,44 @@ export default function PricingPage(): React.ReactElement {
                 </div>
 
                 {/* Catalogue note — below features */}
-                <div
-                  style={{
-                    background: C.field,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 10,
-                    padding: '12px 14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 10,
-                  }}
-                >
-                  <span style={{ flexShrink: 0, display: 'flex' }}>
-                    <Image size={18} color={C.mid} />
-                  </span>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
-                      ₹15 per new AI Catalogue Image
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                    Need AI Catalogue Images?
+                  </div>
+                  <div
+                    style={{
+                      background: C.field,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 10,
+                      padding: '12px 14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 8,
+                        background: C.card,
+                        border: `1px solid ${C.border}`,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <ImagePlus size={18} color={C.text} />
+                    </span>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+                        ₹15 per Image
+                      </div>
+                      <div style={{ fontSize: 11, color: C.mid, marginTop: 2 }}>
+                        Generate additional AI catalogue images
+                      </div>
                     </div>
-                    <div style={{ fontSize: 11, color: C.mid, marginTop: 2 }}>if they want</div>
                   </div>
                 </div>
 
@@ -1075,9 +1140,9 @@ export default function PricingPage(): React.ReactElement {
                     width: '100%',
                     padding: '13px',
                     borderRadius: 10,
-                    border: `1px solid ${C.border}`,
-                    background: C.white,
-                    color: C.text,
+                    border: 'none',
+                    background: C.text,
+                    color: C.card,
                     fontFamily: 'inherit',
                     fontWeight: 700,
                     fontSize: 15,
@@ -1086,6 +1151,13 @@ export default function PricingPage(): React.ReactElement {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
+                    transition: 'opacity 0.15s',
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.opacity = '0.85';
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.opacity = '1';
                   }}
                 >
                   Contact Sales <ChevronRight />
@@ -1206,7 +1278,7 @@ export default function PricingPage(): React.ReactElement {
                             display: 'flex',
                             alignItems: 'center',
                             gap: 12,
-                            marginBottom: 10,
+                            marginBottom: 22,
                           }}
                         >
                           <span
@@ -1214,7 +1286,7 @@ export default function PricingPage(): React.ReactElement {
                               width: 44,
                               height: 44,
                               borderRadius: 12,
-                              background: `color-mix(in srgb, ${accent} 14%, transparent)`,
+                              background: `color-mix(in srgb, ${meta.iconBg} 14%, transparent)`,
                               display: 'inline-flex',
                               alignItems: 'center',
                               justifyContent: 'center',
@@ -1222,28 +1294,30 @@ export default function PricingPage(): React.ReactElement {
                               flexShrink: 0,
                             }}
                           >
-                            <meta.Icon size={22} color={accent} />
+                            {meta.iconSrc ? (
+                              // biome-ignore lint/performance/noImgElement: local SVG asset
+                              <img
+                                src={meta.iconSrc}
+                                alt=""
+                                width={22}
+                                height={22}
+                                style={
+                                  meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
+                                }
+                              />
+                            ) : (
+                              <meta.Icon size={22} color={meta.iconColor ?? accent} />
+                            )}
                           </span>
-                          <span style={{ fontSize: 22, fontWeight: 700, color: C.text }}>
-                            {plan.name}
+                          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <span style={{ fontSize: 22, fontWeight: 700, color: C.text }}>
+                              {plan.name}
+                            </span>
+                            <span style={{ fontSize: 11, fontWeight: 600, color: C.mid }}>
+                              {meta.subtext}
+                            </span>
                           </span>
                         </div>
-
-                        {/* Subtext pill */}
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            padding: '3px 12px',
-                            borderRadius: 20,
-                            background: `color-mix(in srgb, ${accent} 14%, transparent)`,
-                            color: accent,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            marginBottom: 22,
-                          }}
-                        >
-                          {meta.subtext}
-                        </span>
 
                         {/* Price */}
                         <div style={{ marginBottom: 20 }}>
@@ -1267,67 +1341,72 @@ export default function PricingPage(): React.ReactElement {
                           </div>
                         </div>
 
-                        {/* Resolution download grid — only enabled resolutions */}
+                        {/* Usage overview — 2K / 4K image counts */}
                         {(() => {
-                          const resCells = (
-                            [
-                              { key: 'HD' as const, label: 'HD' },
-                              { key: '2K' as const, label: '2K' },
-                              { key: '4K' as const, label: '4K' },
-                            ] as const
-                          ).filter((r) => resolutions[r.key]?.enabled);
-                          if (resCells.length === 0) return null;
+                          const cost2k = resolutions['2K']?.creditCost ?? 25;
+                          const cost4k = resolutions['4K']?.creditCost ?? 40;
+                          const count2k = Math.floor(plan.credits / cost2k);
+                          const count4k = Math.floor(plan.credits / cost4k);
                           return (
                             <div
                               style={{
-                                display: 'grid',
-                                gridTemplateColumns: `repeat(${resCells.length}, 1fr)`,
-                                gap: 8,
+                                display: 'flex',
+                                background: C.field,
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 10,
+                                overflow: 'hidden',
                                 marginBottom: 20,
                               }}
                             >
-                              {resCells.map(({ key, label }) => {
-                                const cost = resolutions[key]?.creditCost ?? 0;
-                                const count = Math.floor(plan.credits / cost).toLocaleString(
-                                  'en-IN',
-                                );
-                                return (
-                                  <div
-                                    key={key}
-                                    style={{
-                                      background: C.field,
-                                      border: `1px solid ${C.border}`,
-                                      borderRadius: 8,
-                                      padding: '10px 12px',
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: 6,
-                                        marginBottom: 4,
-                                      }}
-                                    >
-                                      <Download size={13} color={accent} />
-                                      <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
-                                        {count} × {label}
-                                      </div>
-                                    </div>
-                                    <div style={{ fontSize: 10, color: C.mid }}>Downloads</div>
-                                    <div
-                                      style={{
-                                        fontSize: 10,
-                                        color: accent,
-                                        fontWeight: 600,
-                                        marginTop: 2,
-                                      }}
-                                    >
-                                      {cost} credits each
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                              <div
+                                style={{
+                                  flex: 1,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  padding: '14px 12px',
+                                }}
+                              >
+                                {/* biome-ignore lint/performance/noImgElement: local SVG asset */}
+                                <img
+                                  src={meta.icon2k}
+                                  alt="2K"
+                                  width={24}
+                                  height={24}
+                                  style={
+                                    meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
+                                  }
+                                />
+                                <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+                                  {count2k.toLocaleString('en-IN')} Images
+                                </span>
+                              </div>
+                              <div style={{ width: 1, background: C.border, margin: '12px 0' }} />
+                              <div
+                                style={{
+                                  flex: 1,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  padding: '14px 12px',
+                                }}
+                              >
+                                {/* biome-ignore lint/performance/noImgElement: local SVG asset */}
+                                <img
+                                  src={meta.icon4k}
+                                  alt="4K"
+                                  width={24}
+                                  height={24}
+                                  style={
+                                    meta.invertUsage ? { filter: 'var(--icon-invert)' } : undefined
+                                  }
+                                />
+                                <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+                                  {count4k.toLocaleString('en-IN')} Images
+                                </span>
+                              </div>
                             </div>
                           );
                         })()}
@@ -1352,14 +1431,16 @@ export default function PricingPage(): React.ReactElement {
                               width: 20,
                               height: 20,
                               borderRadius: '50%',
-                              background: `color-mix(in srgb, ${accent} 16%, transparent)`,
+                              background: meta.checkGrad
+                                ? 'linear-gradient(to right, #F55C7A, #F6B553)'
+                                : `color-mix(in srgb, ${accent} 16%, transparent)`,
                               display: 'inline-flex',
                               alignItems: 'center',
                               justifyContent: 'center',
                               flexShrink: 0,
                             }}
                           >
-                            <CheckIcon size={11} color={accent} />
+                            <CheckIcon size={11} color={meta.checkGrad ? '#fff' : accent} />
                           </span>
                           <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
                             {plan.credits.toLocaleString('en-IN')} Credits included
@@ -1381,14 +1462,16 @@ export default function PricingPage(): React.ReactElement {
                                 width: 20,
                                 height: 20,
                                 borderRadius: '50%',
-                                background: `color-mix(in srgb, ${accent} 16%, transparent)`,
+                                background: meta.checkGrad
+                                  ? 'linear-gradient(to right, #F55C7A, #F6B553)'
+                                  : `color-mix(in srgb, ${accent} 16%, transparent)`,
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 flexShrink: 0,
                               }}
                             >
-                              <CheckIcon size={11} color={accent} />
+                              <CheckIcon size={11} color={meta.checkGrad ? '#fff' : accent} />
                             </span>
                             <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
                               {feat}
@@ -1415,9 +1498,9 @@ export default function PricingPage(): React.ReactElement {
                               width: '100%',
                               padding: '13px 20px',
                               borderRadius: 10,
-                              border: highlighted ? 'none' : `1px solid ${C.border}`,
-                              background: highlighted ? grad : C.white,
-                              color: highlighted ? C.white : C.text,
+                              border: 'none',
+                              background: highlighted ? grad : '#141414',
+                              color: '#fff',
                               fontFamily: 'inherit',
                               fontWeight: 700,
                               fontSize: 15,
@@ -1427,7 +1510,18 @@ export default function PricingPage(): React.ReactElement {
                               justifyContent: 'center',
                               gap: 8,
                               opacity: buying && buying !== plan.slug ? 0.45 : 1,
-                              transition: 'opacity 0.15s',
+                              transition: 'opacity 0.15s, filter 0.15s, background 0.15s',
+                            }}
+                            onMouseEnter={(e) => {
+                              if (buying) return;
+                              const btn = e.currentTarget as HTMLButtonElement;
+                              if (highlighted) btn.style.filter = 'brightness(0.9)';
+                              else btn.style.background = '#2a2a2a';
+                            }}
+                            onMouseLeave={(e) => {
+                              const btn = e.currentTarget as HTMLButtonElement;
+                              btn.style.filter = '';
+                              btn.style.background = highlighted ? (grad as string) : '#141414';
                             }}
                           >
                             {buying === plan.slug ? 'Processing…' : 'Upgrade'}

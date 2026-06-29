@@ -205,6 +205,16 @@ export async function adminJobsRoutes(app: FastifyInstance) {
       // For tryon-direct jobs, person image is stored in params.personKey
       const personKey = typeof params.personKey === 'string' ? params.personKey : undefined;
 
+      // For tryon-direct jobs the workflow comes from params.workflowTemplateId, not pose join
+      let workflowLabel = row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null;
+      if (!workflowLabel && typeof params.workflowTemplateId === 'string') {
+        const [wt] = await app.db
+          .select({ label: schema.workflowTemplates.label })
+          .from(schema.workflowTemplates)
+          .where(eq(schema.workflowTemplates.id, params.workflowTemplateId));
+        workflowLabel = wt?.label ?? null;
+      }
+
       return {
         ...row,
         outputUrl: pu(row.outputKey),
@@ -219,7 +229,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         lowerCatalogKey: undefined,
         shoeCatalogKey: undefined,
         jobParams: undefined,
-        workflowLabel: row.overrideWorkflowLabel ?? row.defaultWorkflowLabel ?? null,
+        workflowLabel,
         defaultWorkflowLabel: undefined,
         overrideWorkflowLabel: undefined,
         inputImages: {
@@ -256,7 +266,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
     await Promise.all(
       queued
         .filter((j) => j.userId && j.creditsCharged > 0)
-        .map((j) => refund(app.db, j.userId!, j.creditsCharged, j.id, 'REFUND_ADMIN_CANCEL')),
+        .map((j) =>
+          refund(app.db, j.userId as string, j.creditsCharged, j.id, 'REFUND_ADMIN_CANCEL'),
+        ),
     );
 
     return { flushed: queued.length };
