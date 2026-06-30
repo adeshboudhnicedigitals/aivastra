@@ -218,6 +218,15 @@ button.prod-card-wrapper:focus-visible {
   border-radius: 16px;
 }
 
+/* Universal focus ring for custom interactive elements */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid var(--c-pink);
+  outline-offset: 2px;
+}
+
 /* Auth layout — drop the image panel on narrow viewports so the form can breathe */
 @media (max-width: 860px) {
   .auth-image-panel {
