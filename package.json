@@ -27,7 +27,8 @@
     "docker:reset": "docker compose -f infra/docker-compose.yml --env-file .env down -v",
     "docker:obs:up": "docker compose -f infra/docker-compose.yml --env-file .env --profile apps --profile observability up -d --build",
     "docker:obs:down": "docker compose -f infra/docker-compose.yml --env-file .env --profile apps --profile observability down",
-    "backfill:thumbnails": "tsx --env-file=.env scripts/backfill-thumbnails.mts"
+    "backfill:thumbnails": "tsx --env-file=.env scripts/backfill-thumbnails.mts",
+    "seed:contacts": "tsx --env-file=.env scripts/seed-contacts.ts"
   },
   "devDependencies": {
     "@aivastra/db": "workspace:*",
