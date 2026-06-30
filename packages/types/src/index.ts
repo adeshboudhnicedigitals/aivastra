@@ -4,5 +4,6 @@ export * from './catalog.js';
 export * from './common.js';
 export * from './credits.js';
 export * from './jobs.js';
+export * from './saree.js';
 export * from './tryon.js';
 export * from './widget.js';
