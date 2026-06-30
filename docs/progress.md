@@ -37,6 +37,21 @@
 - Whether to keep this feature past the "temporary" window — the spec calls it a temporary feature, easy to remove via drop `saree_settings` + 4 file removals
 - Whether the static model image should rotate based on user preference (deferred to a later phase)
 
+---
+
+## 2026-06-30 — Saree Try-On follow-up: Workers page checkbox
+
+**Done**
+- Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin/src/pages/WorkersPage.tsx`
+- Wrapped the Add/Edit Worker modal's checkbox row with `flexWrap: 'wrap'` so 3 checkboxes don't overflow on narrow screens
+- Updated the workers-table badge color logic so `saree` rows render with a pink tint (`var(--pink, #ec4899)`) distinct from `tryon` (accent) and `catalogue` (success)
+- Admin can now enable a worker for saree jobs from the UI — no API PATCH needed
+- Closes the loop: `Admin → Saree page → upload workflow + model image` + `Admin → Workers page → enable saree on a worker` = end-to-end ready
+
+**Tested**
+- Admin build (`pnpm --filter @aivastra/admin build`) — clean (76 modules, 5.62s)
+- lefthook biome-staged — no fixes needed
+
 ## 2026-06-30 — Saree job creator integration tests
 
 ### Done
