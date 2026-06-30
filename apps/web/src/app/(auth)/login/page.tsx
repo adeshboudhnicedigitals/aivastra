@@ -11,6 +11,7 @@ import { LogoAuth } from '@/components/logo';
 import { C } from '@/components/tokens';
 import { Divider } from '@/components/ui/divider';
 import { GoogleBtn } from '@/components/ui/google-btn';
+import { initToken } from '@/lib/api';
 
 type LoginForm = z.infer<typeof LoginBody>;
 
@@ -122,6 +123,8 @@ function LoginFormInner() {
       setError(body.error?.message ?? 'Login failed');
       return;
     }
+    const { accessToken } = (await res.json().catch(() => ({}))) as { accessToken?: string };
+    if (accessToken) initToken(accessToken);
     router.push(nextPath);
     router.refresh();
   }
