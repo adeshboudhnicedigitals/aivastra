@@ -43,6 +43,8 @@ export default function WidgetRenderPage() {
   const [uploadPreview, setUploadPreview] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [validationError, setValidationError] = useState('');
+  const [dragActive, setDragActive] = useState(false);
 
   const [jobId, setJobId] = useState<string>('');
   const [resultUrl, setResultUrl] = useState<string>('');
@@ -82,6 +84,16 @@ export default function WidgetRenderPage() {
   }, []);
 
   const handleFileSelect = useCallback((file: File) => {
+    setValidationError('');
+    const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validMimes.includes(file.type)) {
+      setValidationError('Please upload a valid JPEG, PNG, or WEBP image.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setValidationError('File must be smaller than 5MB.');
+      return;
+    }
     setUploadFile(file);
     const url = URL.createObjectURL(file);
     setUploadPreview(url);
@@ -290,20 +302,40 @@ export default function WidgetRenderPage() {
 
           <div
             onClick={() => !uploading && fileInputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!uploading) setDragActive(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+              if (!uploading) setDragActive(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragActive(false);
+              if (uploading) return;
+              const f = e.dataTransfer.files?.[0];
+              if (f) handleFileSelect(f);
+            }}
             style={{
               width: '100%',
-              border: '2px dashed #DDD',
+              border: `2px dashed ${dragActive ? C.pink : '#DDD'}`,
+              background: dragActive ? 'rgba(255, 64, 129, 0.03)' : 'transparent',
               borderRadius: 12,
               padding: 40,
               textAlign: 'center',
               cursor: uploading ? 'default' : 'pointer',
-              transition: 'border-color .2s',
+              transition: 'all .2s',
             }}
             onMouseOver={(e) => {
-              if (!uploading) e.currentTarget.style.borderColor = C.pink;
+              if (!uploading && !dragActive) e.currentTarget.style.borderColor = C.pink;
             }}
             onMouseOut={(e) => {
-              if (!uploading) e.currentTarget.style.borderColor = '#DDD';
+              if (!uploading && !dragActive) e.currentTarget.style.borderColor = '#DDD';
             }}
           >
             {uploadPreview ? (
@@ -343,10 +375,30 @@ export default function WidgetRenderPage() {
               </div>
             )}
           </div>
+          {validationError && (
+            <div
+              style={{
+                padding: '12px 16px',
+                background: '#FFF0F0',
+                border: '1px solid #FFD6D6',
+                borderRadius: 8,
+                color: '#D32F2F',
+                fontSize: 13,
+                fontWeight: 500,
+                marginTop: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <span>⚠️</span>
+              {validationError}
+            </div>
+          )}
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg, image/png, image/webp"
             style={{ display: 'none' }}
             onChange={(e) => {
               const f = e.target.files?.[0];
