@@ -3,6 +3,7 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+
 import { C, grad } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 
@@ -193,7 +194,7 @@ export default function WidgetRenderPage() {
     if (!uploadFile || !garmentImageUrl) return;
     if (!idempKeyRef.current) idempKeyRef.current = crypto.randomUUID();
     const idempKey = idempKeyRef.current;
-    
+
     setUploading(true);
     setUploadProgress(0);
 
@@ -226,12 +227,18 @@ export default function WidgetRenderPage() {
 
       const jobRes = await fetch(`${API_URL}/v1/widget/jobs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Key': key, 'X-Idempotency-Key': idempKey },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Widget-Key': key,
+          'X-Idempotency-Key': idempKey,
+        },
         body: JSON.stringify({ garmentImageUrl, customerPhotoKey: r2Key, aspectRatio: '2:3' }),
       });
       if (!jobRes.ok) {
         const err = await jobRes.json();
-        throw new Error((err as { error?: { message?: string } }).error?.message ?? 'Job creation failed');
+        throw new Error(
+          (err as { error?: { message?: string } }).error?.message ?? 'Job creation failed',
+        );
       }
       const { jobId: newJobId } = (await jobRes.json()) as { jobId: string };
       setJobId(newJobId);

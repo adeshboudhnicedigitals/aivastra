@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <script>
-  (function () {
+  (() => {
     const stored = localStorage.getItem('aivastra-theme');
     const theme = stored === 'light' || stored === 'dark' ? stored : 'system';
     const resolved = theme === 'system'
