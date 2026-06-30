@@ -56,6 +56,8 @@ export async function buildServer(env: Env) {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  app.decorate('env', env);
+
   const r2Origin = new URL(env.R2_PUBLIC_URL).origin;
   await app.register(helmet, {
     contentSecurityPolicy: {
@@ -67,9 +69,11 @@ export async function buildServer(env: Env) {
   });
   await app.register(cors, { origin: env.CORS_ORIGIN, credentials: true });
   await app.register(cookie, { secret: env.COOKIE_SECRET });
+  await app.register(redisPlugin);
   await app.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
+    redis: app.redis,
     allowList: (req) =>
       (req.url.startsWith('/admin/') && !req.url.startsWith('/admin/auth/')) ||
       req.url === '/v1/payments/webhook',
@@ -78,10 +82,8 @@ export async function buildServer(env: Env) {
   await app.register(multipart, { limits: { fileSize: 2.5 * 1024 * 1024 * 1024 } });
   await app.register(metricsPlugin);
 
-  app.decorate('env', env);
   await app.register(sentryPlugin);
   await app.register(dbPlugin);
-  await app.register(redisPlugin);
   await app.register(storagePlugin);
   await app.register(authPlugin);
   await app.register(widgetAuthPlugin);
