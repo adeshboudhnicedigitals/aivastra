@@ -519,6 +519,27 @@
       "when": 1783300000000,
       "tag": "0073_saree_sample_image",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1751289600000,
+      "tag": "0074_credit_ledger_job_reason_uniq",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1751376000000,
+      "tag": "0075_jobs_queue_stream",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1751462400000,
+      "tag": "0076_widget_clients_inactive_default",
+      "breakpoints": true
     }
   ]
 }
