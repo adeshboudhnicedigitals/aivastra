@@ -90,7 +90,7 @@ export async function resultsRoutes(app: FastifyInstance) {
       const { page, pageSize, search, userId, date, status } = req.query as z.infer<
         typeof ResultsQuery
       >;
-      const conditions: SQL[] = [];
+      const conditions: (SQL | undefined)[] = [];
 
       if (status === 'completed') {
         conditions.push(eq(schema.jobs.status, 'COMPLETED'));
