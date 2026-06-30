@@ -482,12 +482,20 @@ export default function WidgetRenderPage() {
             )}
           </div>
           <Spinner />
-          <p
-            style={{ fontSize: 15, fontWeight: 600, color: '#333', margin: 0, textAlign: 'center' }}
-          >
-            Generating your try-on...
-          </p>
-          <p style={{ fontSize: 12, color: '#999', margin: 0 }}>Usually takes 30–60 seconds</p>
+          <div aria-live="polite" aria-atomic="true" style={{ textAlign: 'center' }}>
+            <p
+              style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: '#333',
+                margin: 0,
+                textAlign: 'center',
+              }}
+            >
+              Generating your try-on...
+            </p>
+            <p style={{ fontSize: 12, color: '#999', margin: 0 }}>Usually takes 30–60 seconds</p>
+          </div>
         </div>
       )}
 
@@ -544,6 +552,9 @@ export default function WidgetRenderPage() {
 
       {step === 'error' && (
         <div
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
           style={{
             flex: 1,
             display: 'flex',

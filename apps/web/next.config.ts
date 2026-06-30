@@ -4,6 +4,15 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   basePath: process.env.NEXT_PUBLIC_BASE_PATH || '',
   transpilePackages: ['@aivastra/types'],
+  async redirects() {
+    const base = process.env.NEXT_PUBLIC_BASE_PATH || '';
+    return [
+      { source: `${base}/dashboard`, destination: `${base}/catalogues`, permanent: true },
+      { source: `${base}/jobs`, destination: `${base}/catalogues`, permanent: true },
+      { source: `${base}/credits`, destination: `${base}/pricing`, permanent: true },
+      { source: `${base}/account`, destination: `${base}/settings`, permanent: true },
+    ];
+  },
   webpack: (config) => {
     config.resolve.extensionAlias = {
       '.js': ['.ts', '.tsx', '.js', '.jsx'],
