@@ -145,6 +145,8 @@ export async function adminSareeRoutes(app: FastifyInstance) {
     const row = await getSareeSettings(app.db);
     const modelImageKey = row?.modelImageKey ?? null;
     const modelImageThumbKey = row?.modelImageThumbKey ?? null;
+    const sampleSareeImageKey = row?.sampleSareeImageKey ?? null;
+    const sampleSareeImageThumbKey = row?.sampleSareeImageThumbKey ?? null;
     const presign = async (key: string | null) => {
       if (!key) return null;
       try {
@@ -153,15 +155,22 @@ export async function adminSareeRoutes(app: FastifyInstance) {
         return null;
       }
     };
-    const [modelImageUrl, modelImageThumbUrl] = await Promise.all([
-      presign(modelImageThumbKey ?? modelImageKey),
-      presign(modelImageThumbKey),
-    ]);
+    const [modelImageUrl, modelImageThumbUrl, sampleSareeImageUrl, sampleSareeImageThumbUrl] =
+      await Promise.all([
+        presign(modelImageThumbKey ?? modelImageKey),
+        presign(modelImageThumbKey),
+        presign(sampleSareeImageThumbKey ?? sampleSareeImageKey),
+        presign(sampleSareeImageThumbKey),
+      ]);
     return {
       modelImageKey,
       modelImageThumbKey,
       modelImageUrl,
       modelImageThumbUrl,
+      sampleSareeImageKey,
+      sampleSareeImageThumbKey,
+      sampleSareeImageUrl,
+      sampleSareeImageThumbUrl,
       isConfigured: !!modelImageKey,
     };
   });
@@ -171,9 +180,10 @@ export async function adminSareeRoutes(app: FastifyInstance) {
     '/admin/saree-settings/presign',
     { preHandler: W, schema: { body: AdminSareeSettingsPresignBody } },
     async (req) => {
-      const { contentType } = req.body as z.infer<typeof AdminSareeSettingsPresignBody>;
-      const r2Key = keys.sareeModelImage();
-      const thumbKey = keys.sareeModelImageThumb();
+      const { contentType, purpose } = req.body as z.infer<typeof AdminSareeSettingsPresignBody>;
+      const r2Key = purpose === 'sample' ? keys.sareeSampleImage() : keys.sareeModelImage();
+      const thumbKey =
+        purpose === 'sample' ? keys.sareeSampleImageThumb() : keys.sareeModelImageThumb();
       const [main, thumb] = await Promise.all([
         app.storage.presignPut(r2Key, contentType, 10_000_000, 300),
         app.storage.presignPut(thumbKey, 'image/jpeg', 1_000_000, 300),

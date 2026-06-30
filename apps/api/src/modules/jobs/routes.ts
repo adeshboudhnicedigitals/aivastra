@@ -52,20 +52,23 @@ export async function jobsRoutes(app: FastifyInstance) {
     async () => {
       const row = await getSareeSettings(app.db);
       const modelImageKey = row?.modelImageKey ?? null;
-      let modelImageUrl: string | null = null;
-      if (modelImageKey) {
+      const sampleSareeImageKey = row?.sampleSareeImageKey ?? null;
+      const presign = async (key: string | null) => {
+        if (!key) return null;
         try {
-          const { url } = await app.storage.presignGet(
-            row?.modelImageThumbKey ?? modelImageKey,
-            3600,
-          );
-          modelImageUrl = url;
+          const { url } = await app.storage.presignGet(key, 3600);
+          return url;
         } catch {
-          modelImageUrl = null;
+          return null;
         }
-      }
+      };
+      const [modelImageUrl, sampleSareeImageUrl] = await Promise.all([
+        presign(row?.modelImageThumbKey ?? modelImageKey),
+        presign(row?.sampleSareeImageThumbKey ?? sampleSareeImageKey),
+      ]);
       return {
         modelImageUrl,
+        sampleSareeImageUrl,
         isConfigured: !!modelImageKey,
         creditsCost: 35 as const,
       };

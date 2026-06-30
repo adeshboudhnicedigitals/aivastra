@@ -28,5 +28,7 @@ export const keys = {
   tryonGarmentSampleThumb: () => `tryon/global/garment-sample.thumb.jpg`,
   sareeModelImage: () => `saree/global/model.jpg`,
   sareeModelImageThumb: () => `saree/global/model.thumb.jpg`,
+  sareeSampleImage: () => `saree/global/sample.jpg`,
+  sareeSampleImageThumb: () => `saree/global/sample.thumb.jpg`,
   supportAttachment: (id: string, ext: string) => `support/${id}.${ext}`,
 };

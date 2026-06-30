@@ -463,7 +463,7 @@ export default function TryOnPage() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <TopBar title="AI Virtual Try-On" subtitle="" />
+      <TopBar title="AI Virtual Try-On (Beta)" subtitle="" />
 
       <div
         style={{
@@ -474,7 +474,7 @@ export default function TryOnPage() {
           boxSizing: 'border-box',
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gridTemplateRows: '1fr 170px',
+          gridTemplateRows: '1fr',
           gap: 20,
         }}
       >
@@ -825,200 +825,6 @@ export default function TryOnPage() {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Integrate with Website */}
-        <div
-          style={{
-            borderRadius: 24,
-            background: 'rgba(124,58,237,0.08)',
-            boxShadow: `inset 0 0 0 1px rgba(124,58,237,0.18), inset 0 0 0 1px ${C.border}`,
-            display: 'flex',
-            flexDirection: 'row',
-            gap: 12,
-            padding: '14px 16px',
-            boxSizing: 'border-box',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-              justifyContent: 'center',
-              minWidth: 0,
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                Integrate with Your Website
-              </span>
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: C.mid,
-                  lineHeight: 1.4,
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}
-              >
-                Allow shoppers to try products virtually before purchasing.
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => openContact('Integrate with Website')}
-              style={{
-                alignSelf: 'flex-start',
-                height: 32,
-                borderRadius: 8,
-                border: '1.5px solid rgb(124,58,237)',
-                background: 'transparent',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '0 12px',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              <span style={{ fontSize: 12, fontWeight: 500, color: 'rgb(124,58,237)' }}>
-                Contact Us
-              </span>
-              <svg
-                aria-hidden="true"
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="rgb(124,58,237)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M5 12h14" />
-                <path d="m12 5 7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-          <div
-            style={{
-              alignSelf: 'stretch',
-              borderRadius: 8,
-              overflow: 'hidden',
-              flexShrink: 0,
-            }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/assets/tryon-left-contactus.png"
-              alt=""
-              style={{ height: '100%', width: 'auto', display: 'block' }}
-            />
-          </div>
-        </div>
-
-        {/* Retail Store Kiosk */}
-        <div
-          style={{
-            borderRadius: 24,
-            background: 'rgba(249,115,22,0.08)',
-            boxShadow: `inset 0 0 0 1px rgba(249,115,22,0.18), inset 0 0 0 1px ${C.border}`,
-            display: 'flex',
-            flexDirection: 'row',
-            gap: 12,
-            padding: '14px 16px',
-            boxSizing: 'border-box',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-              justifyContent: 'center',
-              minWidth: 0,
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                Retail Store Kiosk
-              </span>
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: C.mid,
-                  lineHeight: 1.4,
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}
-              >
-                Offer instant virtual try-on experiences inside your store.
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => openContact('Retail Store Kiosk')}
-              style={{
-                alignSelf: 'flex-start',
-                height: 32,
-                borderRadius: 8,
-                border: '1.5px solid rgb(249,115,22)',
-                background: 'transparent',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '0 12px',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              <span style={{ fontSize: 12, fontWeight: 500, color: 'rgb(249,115,22)' }}>
-                Contact Us
-              </span>
-              <svg
-                aria-hidden="true"
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="rgb(249,115,22)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M5 12h14" />
-                <path d="m12 5 7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-          <div
-            style={{
-              alignSelf: 'stretch',
-              borderRadius: 8,
-              overflow: 'hidden',
-              flexShrink: 0,
-            }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/assets/tryon-right-contactus.png"
-              alt=""
-              style={{ height: '100%', width: 'auto', display: 'block' }}
-            />
           </div>
         </div>
       </div>

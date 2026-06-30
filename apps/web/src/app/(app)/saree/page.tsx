@@ -11,6 +11,7 @@ const CREDITS_COST = 35;
 
 type SareeConfig = {
   modelImageUrl: string | null;
+  sampleSareeImageUrl: string | null;
   isConfigured: boolean;
   creditsCost: 35;
 };
@@ -24,6 +25,7 @@ function SareeUploadZone({
   onFile,
   disabled,
   sampleUrl,
+  sampleLabel = 'Reference',
 }: {
   file: File | null;
   preview: string | null;
@@ -33,6 +35,7 @@ function SareeUploadZone({
   onFile: (f: File) => void;
   disabled?: boolean;
   sampleUrl?: string | null;
+  sampleLabel?: string;
 }) {
   const [showSamples, setShowSamples] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -115,7 +118,7 @@ function SareeUploadZone({
                   marginBottom: 6,
                 }}
               >
-                Model reference
+                {sampleLabel}
               </span>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -306,6 +309,7 @@ export default function SareePage() {
     staleTime: 5 * 60_000,
   });
   const modelImageUrl = cfg?.modelImageUrl ?? null;
+  const sampleSareeImageUrl = cfg?.sampleSareeImageUrl ?? null;
   const isConfigured = cfg?.isConfigured ?? false;
 
   const { data: credits } = useQuery<{ balance: number }>({
@@ -380,7 +384,7 @@ export default function SareePage() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <TopBar title="Saree Try-On" subtitle="" />
+      <TopBar title="Saree Drapping (Beta)" subtitle="" />
 
       <div
         style={{
@@ -391,7 +395,7 @@ export default function SareePage() {
           boxSizing: 'border-box',
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
-          gridTemplateRows: '1fr 170px',
+          gridTemplateRows: '1fr',
           gap: 20,
         }}
       >
@@ -432,7 +436,8 @@ export default function SareePage() {
             label="Upload Saree Image"
             tip="Use a flat, top-down photo of the saree for best draping results."
             disabled={generating || !isConfigured}
-            sampleUrl={modelImageUrl}
+            sampleUrl={sampleSareeImageUrl}
+            sampleLabel="Example input"
             onFile={(f) => pickFile(f, setSareeFile, setSareePreview)}
           />
 
@@ -672,38 +677,6 @@ export default function SareePage() {
               </div>
             )}
           </div>
-        </div>
-
-        {/* Saree placeholder cards (bottom row) */}
-        <div
-          style={{
-            borderRadius: 24,
-            background: 'rgba(124,58,237,0.08)',
-            boxShadow: `inset 0 0 0 1px rgba(124,58,237,0.18), inset 0 0 0 1px ${C.border}`,
-            padding: '14px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-          }}
-        >
-          <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-            Saree Try-On powered by Qwen-Image-Edit
-          </span>
-        </div>
-        <div
-          style={{
-            borderRadius: 24,
-            background: 'rgba(249,115,22,0.08)',
-            boxShadow: `inset 0 0 0 1px rgba(249,115,22,0.18), inset 0 0 0 1px ${C.border}`,
-            padding: '14px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-          }}
-        >
-          <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-            Temporary feature — subject to change
-          </span>
         </div>
       </div>
     </div>
