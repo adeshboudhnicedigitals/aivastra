@@ -8,5 +8,7 @@ export const sareeSettings = pgTable('saree_settings', {
   id: uuid('id').primaryKey().default(sql`'00000000-0000-0000-0000-000000000001'::uuid`),
   modelImageKey: text('model_image_key'),
   modelImageThumbKey: text('model_image_thumb_key'),
+  sampleSareeImageKey: text('sample_saree_image_key'),
+  sampleSareeImageThumbKey: text('sample_saree_image_thumb_key'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

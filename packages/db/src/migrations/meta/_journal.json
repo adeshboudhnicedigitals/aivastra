@@ -512,6 +512,13 @@
       "when": 1783200000000,
       "tag": "0072_saree_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1783300000000,
+      "tag": "0073_saree_sample_image",
+      "breakpoints": true
     }
   ]
 }

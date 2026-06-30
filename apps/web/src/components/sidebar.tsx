@@ -145,7 +145,13 @@ export function Sidebar() {
               )}
               <span style={{ opacity: isActive ? 1 : 0.6, display: 'flex', flexShrink: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={item.icon} alt="" width={20} height={20} />
+                <img
+                  src={item.icon}
+                  alt=""
+                  width={20}
+                  height={20}
+                  style={item.id === 'saree' ? { filter: 'invert(1)' } : undefined}
+                />
               </span>
               <span
                 style={{

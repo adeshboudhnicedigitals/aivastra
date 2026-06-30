@@ -8,6 +8,7 @@ export const CreateSareeJobRequest = z.object({
 
 export const SareeConfigResponse = z.object({
   modelImageUrl: z.string().url().nullable(),
+  sampleSareeImageUrl: z.string().url().nullable(),
   isConfigured: z.boolean(),
   creditsCost: z.literal(35),
 });
@@ -19,16 +20,23 @@ export const AdminSareeSettings = z.object({
   modelImageThumbKey: z.string().nullable(),
   modelImageUrl: z.string().url().nullable(),
   modelImageThumbUrl: z.string().url().nullable(),
+  sampleSareeImageKey: z.string().nullable(),
+  sampleSareeImageThumbKey: z.string().nullable(),
+  sampleSareeImageUrl: z.string().url().nullable(),
+  sampleSareeImageThumbUrl: z.string().url().nullable(),
   isConfigured: z.boolean(),
 });
 
 export const AdminSareeSettingsPatch = z.object({
   modelImageKey: z.string().nullable().optional(),
   modelImageThumbKey: z.string().nullable().optional(),
+  sampleSareeImageKey: z.string().nullable().optional(),
+  sampleSareeImageThumbKey: z.string().nullable().optional(),
 });
 
 export const AdminSareeSettingsPresignBody = z.object({
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  purpose: z.enum(['model', 'sample']).default('model'),
 });
 
 export const AdminSareeSettingsPresignResponse = z.object({

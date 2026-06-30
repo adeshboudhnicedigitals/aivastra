@@ -28,6 +28,10 @@ interface AdminSareeSettings {
   modelImageThumbKey: string | null;
   modelImageUrl: string | null;
   modelImageThumbUrl: string | null;
+  sampleSareeImageKey: string | null;
+  sampleSareeImageThumbKey: string | null;
+  sampleSareeImageUrl: string | null;
+  sampleSareeImageThumbUrl: string | null;
   isConfigured: boolean;
 }
 
@@ -84,6 +88,9 @@ export default function SareePage({ toast, onNav }: Props) {
 
   const [uploadingModel, setUploadingModel] = useState(false);
   const modelInputRef = useRef<HTMLInputElement>(null);
+
+  const [uploadingSample, setUploadingSample] = useState(false);
+  const sampleInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
     setLoadingWorkflow(true);
@@ -211,6 +218,62 @@ export default function SareePage({ toast, onNav }: Props) {
       toast({
         kind: 'error',
         title: 'Failed to remove model image',
+        body: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
+  const handleSampleUpload = async (file: File) => {
+    setUploadingSample(true);
+    try {
+      const presign = await apiFetch<{
+        r2Key: string;
+        uploadUrl: string;
+        thumbnailKey: string;
+        thumbnailUploadUrl: string;
+      }>('/admin/saree-settings/presign', {
+        method: 'POST',
+        body: JSON.stringify({ contentType: file.type, purpose: 'sample' }),
+      });
+      const thumb = await makeThumbnail(file, 800);
+      await Promise.all([
+        putFile(presign.uploadUrl, file),
+        putFile(presign.thumbnailUploadUrl, thumb),
+      ]);
+      await apiFetch('/admin/saree-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          sampleSareeImageKey: presign.r2Key,
+          sampleSareeImageThumbKey: presign.thumbnailKey,
+        }),
+      });
+      const updated = await apiFetch<AdminSareeSettings>('/admin/saree-settings');
+      setSettings(updated);
+      toast({ title: 'Sample saree image updated' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to upload sample saree image',
+        body: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setUploadingSample(false);
+    }
+  };
+
+  const handleRemoveSample = async () => {
+    try {
+      await apiFetch('/admin/saree-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ sampleSareeImageKey: null, sampleSareeImageThumbKey: null }),
+      });
+      const updated = await apiFetch<AdminSareeSettings>('/admin/saree-settings');
+      setSettings(updated);
+      toast({ title: 'Sample saree image removed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to remove sample saree image',
         body: e instanceof Error ? e.message : String(e),
       });
     }
@@ -385,7 +448,97 @@ export default function SareePage({ toast, onNav }: Props) {
         style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>3. Worker Selection</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>3. Sample Saree Image</span>
+        </div>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+          <div
+            style={{
+              width: 100,
+              height: 100,
+              borderRadius: 8,
+              border: '1px solid var(--border)',
+              background: 'var(--bg-2)',
+              flexShrink: 0,
+              overflow: 'hidden',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {(settings?.sampleSareeImageThumbUrl ?? settings?.sampleSareeImageUrl) ? (
+              // biome-ignore lint/performance/noImgElement: admin thumbnail
+              <img
+                src={settings.sampleSareeImageThumbUrl ?? settings.sampleSareeImageUrl ?? ''}
+                alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            ) : (
+              <Icon.Image />
+            )}
+          </div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>Example flat-saree photo</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+              {settings?.sampleSareeImageKey
+                ? 'Shown to users on hover over the saree upload zone — guides them on the expected input.'
+                : 'Optional. Upload a sample so users can see what a good input looks like before they upload.'}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  border: '1.5px dashed var(--border)',
+                  borderRadius: 7,
+                  cursor: uploadingSample ? 'not-allowed' : 'pointer',
+                  opacity: uploadingSample ? 0.6 : 1,
+                  background: 'var(--surface-2)',
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                  userSelect: 'none',
+                }}
+              >
+                <Icon.Image />
+                {uploadingSample
+                  ? 'Uploading…'
+                  : settings?.sampleSareeImageKey
+                    ? 'Replace image'
+                    : 'Upload image'}
+                <input
+                  ref={sampleInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={uploadingSample}
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handleSampleUpload(file);
+                    if (sampleInputRef.current) sampleInputRef.current.value = '';
+                  }}
+                />
+              </label>
+              {settings?.sampleSareeImageKey && (
+                <button
+                  className="btn sm ghost"
+                  style={{ color: 'var(--danger)' }}
+                  onClick={handleRemoveSample}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="card"
+        style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>4. Worker Selection</span>
           <button className="btn ghost sm" onClick={() => onNav('workers')}>
             Edit workers →
           </button>
