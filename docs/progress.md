@@ -1,5 +1,42 @@
 # Project Progress
 
+## 2026-06-30 — Saree Try-On (temporary feature)
+
+**Done**
+- New `saree_settings` table (single row, holds admin's static model image key) + migration 0071
+- 10 new Zod schemas in `@aivastra/types/saree`
+- `saree-detect.ts` auto-detects person + saree LoadImage nodes (5 unit tests passing)
+- 7 admin routes under `/admin/saree-*` (workflow active/upload/deactivate, settings GET/presign/PATCH, workers list)
+- 2 user routes (`GET /v1/saree/config`, `POST /v1/jobs/saree`) — 35 credits, normal/priority queue
+- Dispatcher `processSareeJob` routes to workers with `saree` in `allowedJobTypes`
+- New `jobsCreatedTotal` `kind` label (catalogue / tryon / saree)
+- Web `/saree` page (left upload, right preview, "not configured" empty state)
+- Admin `/saree` page (3 sections: ComfyUI Workflow, Model Image, Worker Selection)
+- Web + admin sidebar entries
+- 5 integration tests for `createSareeJob` (all passing via `vitest.integration.config.ts`)
+
+**Tested via integration tests**
+- NOT_CONFIGURED when model image missing → 400
+- CONFIG when active workflow missing → 400
+- FORBIDDEN when garmentKey owned by another user → 403
+- Happy path: 35 credits deducted, job+inputs inserted, jobs:normal XADD
+- Enqueue failure: 503, credits refunded, job marked FAILED
+- Detector: model/saree/output/prompts detected from saree.json fixture
+
+**NOT yet tested live (requires ComfyUI worker)**
+- Worker claims a saree job and runs the workflow
+- Result image renders correctly on the model person
+- Saree-specific positive prompt produces a draped saree output
+
+**Workers setup required for live testing**
+- Per-worker config: add `'saree'` to `workers.allowedJobTypes` via the Workers admin page
+- The Qwen-Image-Edit-2509 + 3 LoRAs models must be present on the worker
+- The worker must accept saree jobs (3 GB+ VRAM, ~5-10 min/inference)
+
+**Open Questions / Decisions**
+- Whether to keep this feature past the "temporary" window — the spec calls it a temporary feature, easy to remove via drop `saree_settings` + 4 file removals
+- Whether the static model image should rotate based on user preference (deferred to a later phase)
+
 ## 2026-06-30 — Saree job creator integration tests
 
 ### Done
