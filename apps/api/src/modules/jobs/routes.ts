@@ -15,15 +15,34 @@ import { createJob, createSimpleTryonJob } from './create.js';
 import { createSareeJob } from './createSaree.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
+// Caches 201 responses for 24h keyed on (userId, Idempotency-Key header).
+// No-op when header is absent — backward compatible.
+async function withIdempotency<T>(
+  app: FastifyInstance,
+  userId: string,
+  idemKey: string | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const redisKey = idemKey ? `idem:jobs:${userId}:${idemKey}` : null;
+  if (redisKey) {
+    const hit = await app.redis.get(redisKey);
+    if (hit) return JSON.parse(hit) as T;
+  }
+  const result = await fn();
+  if (redisKey) await app.redis.setex(redisKey, 86400, JSON.stringify(result));
+  return result;
+}
+
 export async function jobsRoutes(app: FastifyInstance) {
   app.post(
     '/v1/jobs/tryon',
     { preHandler: app.requireUser, schema: { body: CreateTryOnJobRequest } },
     async (req, reply) => {
-      const result = await createJob(
+      const result = await withIdempotency(
         app,
         req.userId,
-        req.body as z.infer<typeof CreateTryOnJobRequest>,
+        req.headers['idempotency-key'] as string | undefined,
+        () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
       );
       reply.code(201);
       return result;
@@ -34,10 +53,16 @@ export async function jobsRoutes(app: FastifyInstance) {
     '/v1/jobs/simple-tryon',
     { preHandler: app.requireUser, schema: { body: CreateSimpleTryonRequest } },
     async (req, reply) => {
-      const result = await createSimpleTryonJob(
+      const result = await withIdempotency(
         app,
         req.userId,
-        req.body as z.infer<typeof CreateSimpleTryonRequest>,
+        req.headers['idempotency-key'] as string | undefined,
+        () =>
+          createSimpleTryonJob(
+            app,
+            req.userId,
+            req.body as z.infer<typeof CreateSimpleTryonRequest>,
+          ),
       );
       reply.code(201);
       return result;
@@ -80,10 +105,11 @@ export async function jobsRoutes(app: FastifyInstance) {
     '/v1/jobs/saree',
     { preHandler: app.requireUser, schema: { body: CreateSareeJobRequest } },
     async (req, reply) => {
-      const result = await createSareeJob(
+      const result = await withIdempotency(
         app,
         req.userId,
-        req.body as z.infer<typeof CreateSareeJobRequest>,
+        req.headers['idempotency-key'] as string | undefined,
+        () => createSareeJob(app, req.userId, req.body as z.infer<typeof CreateSareeJobRequest>),
       );
       reply.code(201);
       return result;
@@ -339,6 +365,89 @@ export async function jobsRoutes(app: FastifyInstance) {
       const r2Key = output?.thumbnailKey ?? keys.output(id);
       const { url, expiresIn } = await app.storage.presignGet(r2Key, 3600);
       return { url, expiresIn };
+    },
+  );
+
+  // Cancel a QUEUED job — refunds credits atomically, publishes SSE
+  app.post(
+    '/v1/jobs/:id/cancel',
+    {
+      preHandler: app.requireUser,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+
+      let creditsCharged = 0;
+      await app.db.transaction(async (tx) => {
+        // Conditional UPDATE — only succeeds if the job is still QUEUED.
+        // If the dispatcher has already moved it to PREPROCESSING this returns 0 rows → 409.
+        const cancelled = await tx
+          .update(schema.jobs)
+          .set({ status: 'CANCELLED', completedAt: new Date() } as Parameters<
+            ReturnType<typeof tx.update>['set']
+          >[0])
+          .where(
+            and(
+              eq(schema.jobs.id, id),
+              eq(schema.jobs.userId, req.userId),
+              eq(schema.jobs.status, 'QUEUED'),
+            ),
+          )
+          .returning({ creditsCharged: schema.jobs.creditsCharged });
+
+        if (!cancelled.length) {
+          // Job not found, not owned by this user, or no longer QUEUED
+          const [job] = await tx
+            .select({ status: schema.jobs.status })
+            .from(schema.jobs)
+            .where(and(eq(schema.jobs.id, id), eq(schema.jobs.userId, req.userId)));
+          if (!job) throw new AppError('NOT_FOUND', 404, 'job not found');
+          throw new AppError('CONFLICT', 409, 'only queued jobs can be cancelled');
+        }
+
+        creditsCharged = cancelled[0]?.creditsCharged;
+
+        await tx.insert(schema.jobEvents).values({
+          jobId: id,
+          eventType: 'CANCELLED',
+          payload: {} as Record<string, unknown>,
+        });
+
+        // Refund credits — unique index on (job_id, reason) makes this safe against replays
+        if (creditsCharged > 0) {
+          const inserted = await tx
+            .insert(schema.creditLedger)
+            .values({
+              userId: req.userId,
+              delta: creditsCharged,
+              reason: 'JOB_CANCEL_REFUND',
+              jobId: id,
+            })
+            .onConflictDoNothing()
+            .returning({ id: schema.creditLedger.id });
+          if (inserted.length) {
+            await tx
+              .update(schema.userCredits)
+              .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+              .where(eq(schema.userCredits.userId, req.userId));
+          }
+        }
+      });
+
+      // Publish SSE so open tabs update immediately
+      const ssePayload = JSON.stringify({
+        jobId: id,
+        userId: req.userId,
+        type: 'STATUS',
+        status: 'CANCELLED',
+      });
+      await Promise.all([
+        app.redis.publish(`sse:events:${req.userId}`, ssePayload),
+        app.redis.publish('sse:events:admin', ssePayload),
+      ]);
+
+      reply.code(200).send({ ok: true, creditsRefunded: creditsCharged });
     },
   );
 

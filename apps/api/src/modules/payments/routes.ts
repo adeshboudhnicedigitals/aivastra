@@ -209,9 +209,12 @@ export async function paymentsRoutes(app: FastifyInstance) {
       if (payment.userId !== req.userId) throw new AppError('FORBIDDEN', 403, 'forbidden');
       if (payment.status === 'paid') return { ok: true, alreadyCredited: true };
 
-      // Mark paid + credit user + promote tier atomically
+      // Mark paid + credit user + promote tier atomically.
+      // The UPDATE filters on status='created' so only one concurrent caller wins;
+      // if updated.length === 0, another call already claimed it.
+      let credited = false;
       await app.db.transaction(async (tx) => {
-        await tx
+        const updated = await tx
           .update(schema.payments)
           .set({
             status: 'paid',
@@ -219,7 +222,17 @@ export async function paymentsRoutes(app: FastifyInstance) {
             razorpaySignature,
             paidAt: new Date(),
           })
-          .where(eq(schema.payments.razorpayOrderId, razorpayOrderId));
+          .where(
+            and(
+              eq(schema.payments.razorpayOrderId, razorpayOrderId),
+              eq(schema.payments.status, 'created'),
+            ),
+          )
+          .returning({ id: schema.payments.id });
+
+        if (updated.length === 0) return; // concurrent call already credited — skip
+
+        credited = true;
 
         await tx
           .insert(schema.userCredits)
@@ -245,6 +258,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
           .set({ tier: payment.planId, updatedAt: new Date() })
           .where(eq(schema.users.id, req.userId));
       });
+
+      if (!credited) return { ok: true, alreadyCredited: true };
 
       const [bal] = await app.db
         .select({ balance: schema.userCredits.balance })
@@ -336,16 +351,27 @@ export async function paymentsRoutes(app: FastifyInstance) {
           return;
         }
 
-        // Idempotent credit grant — same logic as /verify
+        // Idempotent credit grant — conditional UPDATE races safely with /verify.
+        let webhookCredited = false;
         await app.db.transaction(async (tx) => {
-          await tx
+          const updated = await tx
             .update(schema.payments)
             .set({
               status: 'paid',
               razorpayPaymentId,
               paidAt: new Date(),
             })
-            .where(eq(schema.payments.razorpayOrderId, razorpayOrderId));
+            .where(
+              and(
+                eq(schema.payments.razorpayOrderId, razorpayOrderId),
+                eq(schema.payments.status, 'created'),
+              ),
+            )
+            .returning({ id: schema.payments.id });
+
+          if (updated.length === 0) return; // /verify already credited — skip
+
+          webhookCredited = true;
 
           await tx
             .insert(schema.userCredits)
@@ -371,16 +397,27 @@ export async function paymentsRoutes(app: FastifyInstance) {
             .where(eq(schema.users.id, payment.userId));
         });
 
-        app.log.info(
-          { razorpayOrderId, razorpayPaymentId, credits: payment.credits, userId: payment.userId },
-          'razorpay webhook: credits granted',
-        );
-
-        void maybeSendReceipt(app, payment.userId, {
-          ...payment,
-          razorpayPaymentId,
-          paidAt: new Date(),
-        });
+        if (webhookCredited) {
+          app.log.info(
+            {
+              razorpayOrderId,
+              razorpayPaymentId,
+              credits: payment.credits,
+              userId: payment.userId,
+            },
+            'razorpay webhook: credits granted',
+          );
+          void maybeSendReceipt(app, payment.userId, {
+            ...payment,
+            razorpayPaymentId,
+            paidAt: new Date(),
+          });
+        } else {
+          app.log.info(
+            { razorpayOrderId },
+            'razorpay webhook: already credited by /verify — skipping',
+          );
+        }
       } else if (eventType === 'payment.failed' && razorpayOrderId) {
         await app.db
           .update(schema.payments)

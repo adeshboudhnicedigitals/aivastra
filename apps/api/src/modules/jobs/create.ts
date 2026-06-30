@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
 import {
+  ASPECT_DIMENSIONS,
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
   RESOLUTION_COSTS,
   type Resolution,
+  resolutionFromDims,
   SIMPLE_TRYON_COST,
 } from '@aivastra/types';
 import { aliasedTable, and, eq, inArray, isNull } from 'drizzle-orm';
@@ -59,8 +61,16 @@ export async function createJob(
     shoeCatalogId,
   } = body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
-  const resolution: Resolution = body.resolution;
   const platform: string | undefined = body.platform;
+
+  // S1: compute cost server-side from actual output dims — never trust client's `resolution`.
+  const customW = body.params?.outputWidth;
+  const customH = body.params?.outputHeight;
+  const outputDims =
+    customW && customH
+      ? { width: customW, height: customH }
+      : (ASPECT_DIMENSIONS[body.aspectRatio] ?? { width: 2048, height: 2048 });
+  const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
   const COST = RESOLUTION_COSTS[resolution];
 
   // H2: keys are format-pinned by zod, but the format alone does not prove the
@@ -128,6 +138,44 @@ export async function createJob(
   if (!background[0]) throw new AppError('BAD_CATALOG', 400, 'background not found or inactive');
   if (poses.length !== poseIds.length)
     throw new AppError('BAD_CATALOG', 400, 'one or more poses not found or inactive');
+
+  // S6: validate optional catalog IDs so the dispatcher never silently falls back
+  // on a bad ID that slipped through as null.
+  const catalogChecks = await Promise.all([
+    lowerCatalogId
+      ? app.db
+          .select({ id: schema.catalogItems.id })
+          .from(schema.catalogItems)
+          .where(
+            and(eq(schema.catalogItems.id, lowerCatalogId), eq(schema.catalogItems.isActive, true)),
+          )
+      : Promise.resolve([{ id: lowerCatalogId }]),
+    shoeCatalogId
+      ? app.db
+          .select({ id: schema.catalogItems.id })
+          .from(schema.catalogItems)
+          .where(
+            and(eq(schema.catalogItems.id, shoeCatalogId), eq(schema.catalogItems.isActive, true)),
+          )
+      : Promise.resolve([{ id: shoeCatalogId }]),
+    garmentTypeId
+      ? app.db
+          .select({ id: schema.garmentSubcategories.id })
+          .from(schema.garmentSubcategories)
+          .where(
+            and(
+              eq(schema.garmentSubcategories.id, garmentTypeId),
+              eq(schema.garmentSubcategories.isActive, true),
+            ),
+          )
+      : Promise.resolve([{ id: garmentTypeId }]),
+  ]);
+  if (lowerCatalogId && !catalogChecks[0]?.[0])
+    throw new AppError('BAD_CATALOG', 400, 'lower catalog item not found or inactive');
+  if (shoeCatalogId && !catalogChecks[1]?.[0])
+    throw new AppError('BAD_CATALOG', 400, 'shoe catalog item not found or inactive');
+  if (garmentTypeId && !catalogChecks[2]?.[0])
+    throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
 
   // Validate that workflow-required inputs are present for every selected pose.
   // If a pose's workflow has a lower garment node → lowerCatalogId is mandatory.
@@ -221,6 +269,7 @@ export async function createJob(
           catalogueId,
           status: 'QUEUED',
           priority,
+          queueStream,
           creditsCharged: COST,
         })
         .returning();
@@ -346,7 +395,14 @@ export async function createSimpleTryonJob(
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx
       .insert(schema.jobs)
-      .values({ userId, catalogueId, status: 'QUEUED', priority, creditsCharged: COST })
+      .values({
+        userId,
+        catalogueId,
+        status: 'QUEUED',
+        priority,
+        queueStream,
+        creditsCharged: COST,
+      })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
     await tx.insert(schema.jobInputs).values({
