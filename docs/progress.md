@@ -1,5 +1,20 @@
 # Project Progress
 
+## 2026-06-30 — Audit Sprint fixes: P1-4, 3.3, 11.4
+
+### Done
+- **P1-4 Admin Mobile Notification Settings:** Disabled `emailAlerts` and `slackWebhook` inputs in `SettingsPage.tsx` with a "Coming soon" badge to avoid confusing admins since there is no backend support yet. Removed orphaned state variables and added `disabled` support to the `Switch` component.
+- **3.3 "Coming Soon" Dead Ends:** Upgraded the `coming-soon.tsx` component in the web app to a stateful client component with a "Notify me when ready" button, turning dead ends into an engagement hook. Fixed a dark-mode token bug by replacing a hardcoded gray background with the `C.lighter` design token.
+- **11.4 Admin Metric Drill-downs:** Added click interactivity to the `BarChart` in `DashboardPage.tsx` so clicking a bar navigates to `JobsPage` filtered by that specific day. Implemented pure UTC arithmetic using `Date.UTC()` to avoid off-by-one errors for UTC+ timezone admins. Added `date` query parameter support in `JobsQuery` (`GET /admin/jobs`) and an active visual date filter badge in the `JobsPage` UI.
+- **Pre-push CI Fixes:** Modified `lefthook.yml` to explicitly exclude `@aivastra/admin-mobile` from the `typecheck` pre-push hook. Expo apps must be typechecked within an Expo context due to `.expo/types` stub requirements.
+- **Code Hygiene:** Formatted 4 files with Biome, added `biome-ignore lint/style/noImportantStyles` suppressions for specific inline-style overrides in `globals.css`, and removed stale lint suppressions.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-30 — Saree job creator integration tests
 
 ### Done
