@@ -1,5 +1,22 @@
 # Project Progress
 
+## 2026-06-30 — Saree job creator integration tests
+
+### Done
+- Created `apps/api/test/integration/saree-jobs.test.ts` with 5 tests covering: NOT_CONFIGURED (no model image) → 400, CONFIG (no active saree workflow) → 400, FORBIDDEN (garmentKey owned by another user) → 403, happy path (35 credits deducted, job+inputs inserted, XADD to jobs:normal) → 201, refund on enqueue failure (503, credits refunded, job FAILED with errorCode=ENQUEUE_FAIL).
+- Adapted `registerUser` to the current email-verification flow: register → mark `emailVerified=true` via DB → login for a real JWT. The spec's `res.json().accessToken` pattern was broken by the post-commit auth change.
+- Added stub values for `workflowTemplates` NOT NULL columns (`faceNodeId`, `poseNodeId`, `bgNodeId`, `upperNodeIds`, `facePhasePromptNode`, `garmentPhasePromptNode`) that the saree flow doesn't actually use. The saree flow only reads the `tryon*_node_id` columns.
+- Stubbed `app.storage.headObject` in `beforeEach` so `assertOwnsUploadKey`'s existence check passes without a real R2 object. The spec's assumption that the HEAD check would "throw BAD_UPLOAD before reaching" the config checks was wrong — HEAD always runs first unless the owner check fails (which is exactly the FORBIDDEN test).
+- All 5 tests pass (3.7s). `pnpm --filter @aivastra/api typecheck` clean. Biome formatting clean.
+- Committed: `test(api): add saree job creator integration tests` (6477d32).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Integration tests currently use `vitest run --config /tmp/opencode/vitest.integration.config.ts` from `/mnt/vol1/PycharmProjects/aivastra_v1`. The default `apps/api/vitest.config.ts` excludes `test/integration/**`, so `pnpm --filter @aivastra/api test` doesn't pick them up. Worth wiring a `test:integration` script in `apps/api/package.json` so the spec's `pnpm --filter @aivastra/api test -- saree-jobs` works as written.
+- Pre-existing integration test failures in `auth.test.ts`, `jobs-create.test.ts`, `credits.test.ts`, `admin-users.test.ts` (all use the old `res.json().accessToken` register pattern, broken by the email-verification refactor) — left untouched, out of scope for this task.
+
 ## 2026-06-30 — Saree node detector
 
 ### Done
