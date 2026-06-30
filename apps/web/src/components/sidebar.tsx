@@ -203,6 +203,7 @@ export function Sidebar() {
             <Link
               key={item.id}
               href={item.href}
+              className={isActive ? '' : 'hover-surface-sidebar'}
               style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -217,14 +218,8 @@ export function Sidebar() {
                 fontWeight: 500,
                 transition: 'background .15s',
               }}
-              onMouseEnter={(e) => {
-                if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
-                prefetchRoute(item.id);
-              }}
+              onMouseEnter={() => prefetchRoute(item.id)}
               onFocus={() => prefetchRoute(item.id)}
-              onMouseLeave={(e) => {
-                if (!isActive) e.currentTarget.style.background = 'transparent';
-              }}
             >
               {linkContent}
             </Link>

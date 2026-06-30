@@ -441,6 +441,7 @@ function SelCard({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onClick?.();
       }}
+      className="garment-card"
       style={{
         cursor: 'pointer',
         textAlign: 'center',
@@ -448,7 +449,6 @@ function SelCard({
         width: fluid ? w : undefined,
       }}
     >
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: hover zoom only; parent div handles click + keyboard */}
       <div
         style={{
           width: fluid ? '100%' : w,
@@ -463,16 +463,6 @@ function SelCard({
             : 'transparent',
           padding: selected ? 2 : 0,
           boxSizing: 'border-box',
-        }}
-        onMouseOver={(e) => {
-          const zoom = e.currentTarget.querySelector('[data-zoom]') as HTMLElement;
-          if (zoom) zoom.style.transform = 'scale(1.05)';
-        }}
-        onFocus={() => {}}
-        onBlur={() => {}}
-        onMouseOut={(e) => {
-          const zoom = e.currentTarget.querySelector('[data-zoom]') as HTMLElement;
-          if (zoom) zoom.style.transform = 'scale(1)';
         }}
       >
         <div

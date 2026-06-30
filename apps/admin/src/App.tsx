@@ -51,7 +51,6 @@ function resolveTheme(t: Theme): 'light' | 'dark' {
 export default function App() {
   const { token, role, isLoading } = useAuth();
   const [theme, setThemeState] = useState<Theme>(readStoredTheme);
-  const skipSyncRef = useRef(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const idRef = useRef(0);
@@ -83,7 +82,6 @@ export default function App() {
         if (cancelled) return;
         const serverValue = me.preferences?.theme;
         if (serverValue) {
-          skipSyncRef.current = true;
           setThemeState(serverValue);
         }
       })
@@ -93,28 +91,6 @@ export default function App() {
     };
   }, [token, isLoading]);
 
-  // Debounced server sync on user-initiated changes
-  useEffect(() => {
-    if (!token) return;
-    if (skipSyncRef.current) {
-      skipSyncRef.current = false;
-      return;
-    }
-    const timer = setTimeout(() => {
-      patchAdminPreferences({ theme }).catch(() => {});
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [theme, token]);
-
-  function setTheme(next: Theme) {
-    setThemeState(next);
-  }
-
-  const toggleTheme = useCallback(() => {
-    const order: Theme[] = ['light', 'dark', 'system'];
-    setThemeState((t) => order[(order.indexOf(t) + 1) % order.length]);
-  }, []);
-
   const toast = useCallback((t: { kind?: 'error'; title: string; body?: string }) => {
     const id = ++idRef.current;
     setToasts((prev) => [...prev, { id, kind: t.kind, title: t.title, body: t.body }]);
@@ -122,6 +98,28 @@ export default function App() {
       setToasts((prev) => prev.filter((x) => x.id !== id));
     }, 4000);
   }, []);
+
+  const updateTheme = useCallback(
+    (nextTheme: Theme) => {
+      const previousTheme = theme;
+      setThemeState(nextTheme);
+      if (!token) return;
+      patchAdminPreferences({ theme: nextTheme }).catch(() => {
+        setThemeState(previousTheme);
+        toast({ kind: 'error', title: 'Failed to sync theme preference' });
+      });
+    },
+    [theme, token, toast],
+  );
+
+  function setTheme(next: Theme) {
+    updateTheme(next);
+  }
+
+  const toggleTheme = useCallback(() => {
+    const order: Theme[] = ['light', 'dark', 'system'];
+    updateTheme(order[(order.indexOf(theme) + 1) % order.length]);
+  }, [theme, updateTheme]);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((x) => x.id !== id));

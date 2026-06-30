@@ -399,7 +399,7 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
       <div style={{ display: 'flex', gap: 8 }}>
         <button
           type="button"
-          className="focus-ring"
+          className="focus-ring date-clear-btn"
           onClick={onClear}
           style={{
             flex: 1,
@@ -411,31 +411,14 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
             fontSize: 12,
             fontWeight: 500,
             color: C.mid,
-            cursor: 'pointer',
             transition: 'background .12s, color .12s',
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.background = 'var(--c-merchant-hover)';
-            e.currentTarget.style.color = C.text;
-          }}
-          onFocus={(e) => {
-            e.currentTarget.style.background = 'var(--c-merchant-hover)';
-            e.currentTarget.style.color = C.text;
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.background = 'none';
-            e.currentTarget.style.color = C.mid;
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.background = 'none';
-            e.currentTarget.style.color = C.mid;
           }}
         >
           Clear
         </button>
         <button
           type="button"
-          className="focus-ring"
+          className="focus-ring btn-hover-opacity"
           disabled={!canApply}
           onClick={onApply}
           style={{
@@ -448,20 +431,7 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
             fontSize: 12,
             fontWeight: 600,
             color: canApply ? C.onDark : C.light,
-            cursor: canApply ? 'pointer' : 'not-allowed',
             transition: 'opacity .12s',
-          }}
-          onMouseOver={(e) => {
-            if (canApply) e.currentTarget.style.opacity = '0.85';
-          }}
-          onFocus={(e) => {
-            if (canApply) e.currentTarget.style.opacity = '0.85';
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.opacity = '1';
-          }}
-          onBlur={(e) => {
-            e.currentTarget.style.opacity = '1';
           }}
         >
           Apply

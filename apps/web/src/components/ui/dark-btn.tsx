@@ -16,6 +16,7 @@ export function DarkBtn({
 }) {
   return (
     <button
+      className="btn-hover-opacity"
       type={type}
       onClick={onClick}
       disabled={disabled}
@@ -27,21 +28,12 @@ export function DarkBtn({
         padding: '10px 20px',
         borderRadius: 8,
         border: 'none',
-        cursor: disabled ? 'not-allowed' : 'pointer',
         fontFamily: 'inherit',
         fontWeight: 600,
         fontSize: 14,
         background: C.dark,
         color: C.onDark,
-        opacity: disabled ? 0.55 : 1,
-        transition: 'opacity .15s',
         ...style,
-      }}
-      onMouseOver={(e) => {
-        if (!disabled) e.currentTarget.style.opacity = '.85';
-      }}
-      onMouseOut={(e) => {
-        if (!disabled) e.currentTarget.style.opacity = '1';
       }}
     >
       {children}

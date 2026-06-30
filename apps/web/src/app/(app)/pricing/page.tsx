@@ -970,6 +970,7 @@ export default function PricingPage(): React.ReactElement {
 
                 <button
                   type="button"
+                  className="hover-brightness"
                   onClick={() =>
                     setSalesModal(
                       "Hi, I'm interested in the Virtual Try-On + Catalogue Creation plan (Option 1 — ₹49,999/month). Please get in touch with more details.",
@@ -991,13 +992,6 @@ export default function PricingPage(): React.ReactElement {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
-                    transition: 'filter 0.15s',
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(0.9)';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.filter = 'brightness(1)';
                   }}
                 >
                   Contact Sales <ArrowRight size={18} />
@@ -1160,6 +1154,7 @@ export default function PricingPage(): React.ReactElement {
 
                 <button
                   type="button"
+                  className="btn-hover-opacity"
                   onClick={() =>
                     setSalesModal(
                       "Hi, I'm interested in the Virtual Try-On Only plan (Option 2 — ₹30,000/month). Please get in touch with more details.",
@@ -1181,13 +1176,6 @@ export default function PricingPage(): React.ReactElement {
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: 8,
-                    transition: 'opacity 0.15s',
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.opacity = '0.85';
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.opacity = '1';
                   }}
                 >
                   Contact Sales <ArrowRight size={18} />
@@ -1522,6 +1510,9 @@ export default function PricingPage(): React.ReactElement {
                         >
                           <button
                             type="button"
+                            className={
+                              highlighted ? 'upgrade-plan-btn highlighted' : 'upgrade-plan-btn'
+                            }
                             onClick={() => void buy(plan)}
                             disabled={!!buying}
                             style={{
@@ -1540,18 +1531,6 @@ export default function PricingPage(): React.ReactElement {
                               justifyContent: 'center',
                               gap: 8,
                               opacity: buying && buying !== plan.slug ? 0.45 : 1,
-                              transition: 'opacity 0.15s, filter 0.15s, background 0.15s',
-                            }}
-                            onMouseEnter={(e) => {
-                              if (buying) return;
-                              const btn = e.currentTarget as HTMLButtonElement;
-                              if (highlighted) btn.style.filter = 'brightness(0.9)';
-                              else btn.style.background = '#2a2a2a';
-                            }}
-                            onMouseLeave={(e) => {
-                              const btn = e.currentTarget as HTMLButtonElement;
-                              btn.style.filter = '';
-                              btn.style.background = highlighted ? (grad as string) : '#141414';
                             }}
                           >
                             {buying === plan.slug ? 'Processing…' : 'Upgrade'}

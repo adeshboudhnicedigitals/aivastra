@@ -100,6 +100,7 @@ export function UserMenu() {
             >
               <Link
                 href="/settings"
+                className="hover-bg"
                 onClick={(e) => {
                   e.stopPropagation();
                   setPopupOpen(false);
@@ -114,12 +115,6 @@ export function UserMenu() {
                   fontSize: 13,
                   fontWeight: 500,
                 }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = C.bg;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                }}
               >
                 <span style={{ opacity: 0.6, display: 'flex' }}>
                   <SettingsIcon />
@@ -129,6 +124,7 @@ export function UserMenu() {
               <div style={{ height: 1, background: C.border, margin: '0 16px' }} />
               <button
                 type="button"
+                className="hover-danger-tint"
                 onClick={(e) => {
                   e.stopPropagation();
                   setPopupOpen(false);
@@ -148,12 +144,6 @@ export function UserMenu() {
                   fontWeight: 500,
                   fontFamily: 'inherit',
                   textAlign: 'left',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(248,113,113,0.08)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
                 }}
               >
                 <span style={{ opacity: 0.8, display: 'flex' }}>

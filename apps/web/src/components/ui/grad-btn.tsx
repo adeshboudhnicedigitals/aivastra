@@ -18,6 +18,7 @@ export function GradBtn({
 }) {
   return (
     <button
+      className="btn-hover-opacity"
       type={type}
       onClick={onClick}
       disabled={disabled}
@@ -30,7 +31,6 @@ export function GradBtn({
         padding: '0 20px',
         boxSizing: 'border-box',
         borderRadius: 8,
-        cursor: disabled ? 'not-allowed' : 'pointer',
         fontFamily: 'inherit',
         fontWeight: 600,
         fontSize: 14,
@@ -38,15 +38,7 @@ export function GradBtn({
         background: outline ? C.white : grad,
         color: outline ? C.text : C.white,
         border: outline ? `1px solid ${C.border2}` : 'none',
-        opacity: disabled ? 0.55 : 1,
-        transition: 'opacity .15s',
         ...style,
-      }}
-      onMouseOver={(e) => {
-        if (!disabled) e.currentTarget.style.opacity = '.85';
-      }}
-      onMouseOut={(e) => {
-        if (!disabled) e.currentTarget.style.opacity = '1';
       }}
     >
       {children}
