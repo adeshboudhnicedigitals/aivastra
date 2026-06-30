@@ -2,6 +2,9 @@ import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  eslint: {
+    ignoreDuringBuilds: true, // Biome handles linting; Next.js ESLint pass conflicts with flat config
+  },
   basePath: process.env.NEXT_PUBLIC_BASE_PATH || '',
   transpilePackages: ['@aivastra/types'],
   async redirects() {
