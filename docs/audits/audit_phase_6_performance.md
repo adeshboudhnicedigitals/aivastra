@@ -2,35 +2,12 @@
 
 This document assesses the application's performance, load times, rendering overhead, and data transfer efficiency.
 
-## Finding 6.1: Missing Next.js Image Optimization
-* **Severity:** High
-* **Evidence:** Across the application (e.g., `apps/web/src/components/logo.tsx`, `apps/web/src/app/(widget)/widget/render/[key]/page.tsx`), standard `<img>` tags are used with `eslint-disable-next-line @next/next/no-img-element`.
-* **Exact files involved:** Multiple files containing `<img src=... />`
-* **User impact:** Users download full-resolution images even on mobile devices. Heavy layout shifts (CLS - Cumulative Layout Shift) occur as images load without predefined aspect ratios.
-* **Business impact:** Poor Core Web Vitals (CWV) scores negatively impact merchant site performance if the widget is embedded.
-* **Technical impact:** Bypasses Next.js automatic WebP/AVIF conversion, lazy loading, and sizing.
-* **Recommendation:** Replace `<img>` tags with Next.js `<Image>` components. Configure `next.config.js` to allow remote patterns for the R2/S3 bucket domains.
-* **Estimated implementation complexity:** Low
-
-## Finding 6.2: Heavy Hydration Payloads due to Inline Styles
-* **Severity:** Medium
-* **Evidence:** Extensive use of `style={{ display: 'flex', flexDirection: 'column', ... }}` injects massive amounts of redundant styling directly into the DOM tree and the React hydration payload.
-* **Exact files involved:** Virtually all files in `apps/web/src/components/` and `apps/web/src/app/`
-* **User impact:** Slower Time to Interactive (TTI) on lower-end devices due to React having to parse and apply thousands of inline style properties during hydration.
-* **Business impact:** Marginally worse SEO and performance metrics.
-* **Technical impact:** Bloated HTML payload over the wire.
-* **Recommendation:** Transition to static CSS classes (Vanilla Extract, CSS Modules, or Tailwind) so styles are cached via CSS stylesheets rather than parsed per element by JavaScript.
-* **Estimated implementation complexity:** High
-
-## Finding 6.3: Unoptimized Client-Side Image Uploads
-* **Severity:** High
-* **Evidence:** The upload flow (`apps/web/src/lib/api.ts` -> `uploadToR2WithProgress`) takes raw user files (which can easily exceed 10MB from modern smartphones) and uploads them directly to S3 without client-side compression or resizing.
-* **Exact files involved:** `apps/web/src/lib/api.ts`, `apps/web/src/app/(widget)/widget/render/[key]/page.tsx`
-* **User impact:** Extremely slow upload times on 4G/3G networks, leading to a high drop-off rate before the generation even begins.
-* **Business impact:** Lost conversions. High ingress bandwidth costs.
-* **Technical impact:** Requires client-side processing before the PUT request.
-* **Recommendation:** Implement client-side image compression (e.g., using `browser-image-compression` or an off-main-thread Web Worker) to resize uploads to a maximum reasonable dimension (e.g., 2048px max edge) and convert to JPEG/WEBP before requesting the presigned URL.
-* **Estimated implementation complexity:** Medium
+> **Triage note:** Resolved/skipped findings have been removed. For traceability:
+> - **6.1 Missing Next.js Image Optimization** — Skip (structural incompatibility). `next.config.ts` sets `unoptimized: true` globally because NGINX basePath routing breaks the built-in image optimizer. Additionally, garment images come from blob URLs and presigned R2 URLs, which are structurally incompatible with `<Image>` (which needs static `src` strings). No-op to use `<Image>` here; the audit recommendation cannot be applied. `eslint-disable-next-line @next/next/no-img-element` suppression comments are appropriate and intentional.
+> - **6.2 Heavy Hydration Payloads due to Inline Styles** — Rejected by design decision. `tokens.ts` + inline CSS variables is the intentional, enforced styling contract (same decision as 4.2). Migrating to Tailwind/CSS Modules would be a full rewrite of the entire UI with no product benefit. Not technical debt — it is the design system.
+> - **6.3 Unoptimized Client-Side Image Uploads** — Skip (permanent product constraint). Compressing or resizing the uploaded garment photo before upload would degrade ComfyUI generation quality. Maximum pixel fidelity is required for the AI diffusion nodes. Do not implement image compression in the widget upload flow.
+>
+> Only the finding below remains open.
 
 ## Finding 6.4: Duplicated API Requests via BFF
 * **Severity:** Low

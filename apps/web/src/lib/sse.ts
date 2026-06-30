@@ -23,6 +23,8 @@ export interface SSEConnection {
   close(): void;
 }
 
+export type SSEState = 'connecting' | 'connected' | 'reconnecting';
+
 function getToken(): string | null {
   if (typeof document === 'undefined') return null;
   const m = document.cookie.match(/(?:^|; )access_token=([^;]*)/);
@@ -64,6 +66,7 @@ export function createSSEConnection<T = unknown>(
   path: string,
   onEvent: (e: SSEEvent<T>) => void,
   onError?: (err: Error) => void,
+  onStateChange?: (state: SSEState) => void,
 ): SSEConnection {
   let closed = false;
   let controller: AbortController | null = null;
@@ -73,6 +76,7 @@ export function createSSEConnection<T = unknown>(
 
   async function connect(): Promise<void> {
     if (closed) return;
+    onStateChange?.('connecting');
     controller = new AbortController();
 
     try {
@@ -108,6 +112,7 @@ export function createSSEConnection<T = unknown>(
       if (Date.now() - lastDataAt < RESET_DELAY_AFTER_MS) retryDelay = INITIAL_DELAY_MS;
 
       const reader = res.body.getReader();
+      onStateChange?.('connected');
       const decoder = new TextDecoder();
       let buf = '';
 
@@ -136,6 +141,7 @@ export function createSSEConnection<T = unknown>(
 
   function scheduleReconnect(): void {
     if (closed) return;
+    onStateChange?.('reconnecting');
     retryTimer = setTimeout(() => {
       retryDelay = Math.min(retryDelay * BACKOFF_FACTOR, MAX_DELAY_MS);
       void connect();

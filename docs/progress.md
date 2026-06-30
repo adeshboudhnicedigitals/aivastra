@@ -1,5 +1,20 @@
 # Project Progress
 
+## 2026-06-30 — SSE Reconnection UX (session 4)
+
+### Done
+- **3.5 SSE reconnection indicator:** Three-file change with no architectural risk.
+  - `apps/web/src/lib/sse.ts` — exported `SSEState` type (`'connecting' | 'connected' | 'reconnecting'`); added optional `onStateChange` 4th parameter to `createSSEConnection`, called at transition points (`connect()` start, after stream confirmed, `scheduleReconnect()`).
+  - `apps/web/src/components/job-stream-provider.tsx` — wired `setSseState` as `onStateChange`; exposed `sseState` in context with `useMemo`; renders a fixed bottom toast with a spinning ring when `sseState === 'reconnecting'` (uses existing `av-spin` CSS class and `aria-live="polite"`). `subscribe` extracted with `useCallback` to keep it stable.
+  - `apps/web/src/app/(widget)/widget/render/[key]/page.tsx` — extracted SSE reading out of `handleGenerate` (which previously had no reconnection logic — a silent stall bug) into a `useEffect` watching `[step, jobId, key]`. New effect uses exponential backoff (`1s → 30s`), `AbortController` for clean cancellation, and `sseClosedRef` to prevent reconnects after terminal events. `sseConnState` state drives a "Connection lost — retrying…" indicator in the processing step UI. `API_URL` moved to module level.
+- **Contact requests source filter** — verified already fully implemented in a prior session (both `contact.routes.ts` and `ContactRequestsPage.tsx` complete).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-30 — Security, A11y, Design System, and Tech Debt Fixes (session 3)
 
 ### Done
@@ -253,6 +268,26 @@
 ## 2026-06-14 — Admin mobile Phase 8 operations and configuration
 
 ### Done
+- **P0-1:** Switched the `preview` EAS profile in `eas.json` to point to `staging` rather than hardcoding a developer's local LAN IP.
+- **P0-2:** Updated `app.config.js` to only allow cleartext HTTP traffic if `APP_ENV === 'development'` (which excludes the newly configured staging `preview` builds).
+- **P0-3 & P0-4:** Refactored `apiFetch` in `api.ts` to directly read the latest token from `useAuthStore.getState().token`. Eliminated the redundant module-level `let token` and the asynchronous `setApiToken` sync in `_layout.tsx`, fixing token divergence after silent refreshes and 401s on initial navigation after login.
+- **P0-5:** Fixed `confirmAction` in `ConfirmDialog.ts` by making the `onPress` callback `async`, awaiting `onConfirm()`, and catching and alerting any errors so that backend failures (like during deletions or bans) aren't silently swallowed.
+- **P0-6:** Wired up the `copyToClipboard` function in the widget clients detail screen to correctly use `await Clipboard.setStringAsync(text)` instead of a no-op placeholder.
+- **P1-1 & P1-5:** Fixed unhandled 401 on refresh failure by importing `useAuthStore` to trigger a logout, and fixed stale SSE tokens by calling `useAuthStore.setState({ token: accessToken })` within `tryRefreshToken()`.
+- **P1-2 & P1-9:** Updated catalog bulk-delete to run concurrently via `Promise.allSettled()` while catching and surfacing partial failures to the user. Added the missing `canDeleteAssets` role check to the category long-press edit handler.
+- **P1-3:** Fixed duplicate fetch bug in `usePagination` by preventing `loadMore` from firing if `page === 0`.
+- **P1-4:** Marked notification settings in `settings.tsx` as "Coming soon" and disabled their inputs, preventing users from mistakenly believing they are active.
+- **P1-6:** Added a `console.warn` to `storageUrl()` in `storage.ts` in `__DEV__` to clearly flag missing `EXPO_PUBLIC_STORAGE_URL` environment variables instead of failing silently.
+- **P1-7:** Added an itemized confirmation breakdown (counts of backgrounds, faces, and pose assets) to the empty recycle bin prompt.
+- **P1-8:** Corrected `useApi` so it immediately returns `null` data instead of temporarily rendering stale data from a previous route when navigating backwards.
+- **P1-10:** Added `'FAILED'` to the refresh triggers in `jobs/[id].tsx` so the UI immediately pulls the error code when a job fails over the live stream.
+- **P2-20 & P2-13:** Fixed `useApi` so it properly clears stale data immediately on path change and correctly raises a toast if an error happens while old data is rendered (e.g. background polling failure).
+- **P2-22:** Fixed `useEffect` missing dependencies warning in `settings.tsx`.
+- **P2-23:** Fixed home screen loading state so the pull-to-refresh spinner doesn't run during silent background polls.
+- **P2-4:** Fixed exhaustive-deps lint warning in `settings.tsx` by passing `localSettings` properly.
+- **P2-9:** Addressed orphaned main image uploads in `uploadTwoImage` by delegating cleanup to R2 lifecycle rules.
+- **P2-10:** Fixed spinner disappearing too early in `jobs/index.tsx` if a stale request was cancelled by a newer one.
+- **P2-11:** Updated `useSSE` in `jobs/index.tsx` to automatically fetch jobs when a new matching job appears in the stream.e
 - Implemented the Workers screen against the actual keyed Redis registry response, with health parsing, pull-to-refresh, and 30-second polling.
 - Implemented SUPER_ADMIN credit-plan CRUD using the live `slug`, `name`, `subtext`, credits, paise price, badge, highlight, active, and sort-order schema.
 - Added safe handling for successful `204 No Content` API mutations, required by credit-plan deletion.

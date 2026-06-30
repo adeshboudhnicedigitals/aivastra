@@ -1,6 +1,8 @@
 'use client';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 import { C, grad } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 
@@ -48,11 +50,16 @@ export default function WidgetRenderPage() {
 
   const [jobId, setJobId] = useState<string>('');
   const [resultUrl, setResultUrl] = useState<string>('');
+  const [sseConnState, setSseConnState] = useState<'connecting' | 'connected' | 'reconnecting'>(
+    'connecting',
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sseRetryDelay = useRef(1_000);
+  const sseClosedRef = useRef(false);
+  const idempKeyRef = useRef<string>('');
 
   useEffect(() => {
-    const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
     fetch(`${API_URL}/v1/widget/config/${key}`)
       .then((r) => {
         if (!r.ok) throw new Error('Widget not found');
@@ -74,6 +81,7 @@ export default function WidgetRenderPage() {
       if (event.data?.type === 'INIT_TRYON') {
         const url = event.data?.payload?.garment_image;
         if (url) {
+          idempKeyRef.current = '';
           setGarmentImageUrl(url);
           setStep('uploading');
         }
@@ -82,6 +90,87 @@ export default function WidgetRenderPage() {
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, []);
+
+  // SSE subscription for the processing step — reconnects on network drop
+  useEffect(() => {
+    if (step !== 'processing' || !jobId) return;
+    sseClosedRef.current = false;
+    sseRetryDelay.current = 1_000;
+    setSseConnState('connecting');
+
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let controller: AbortController | null = null;
+
+    async function connectSSE(): Promise<void> {
+      if (sseClosedRef.current) return;
+      setSseConnState('connecting');
+      controller = new AbortController();
+
+      try {
+        const sseRes = await fetch(`${API_URL}/v1/widget/jobs/${jobId}/events`, {
+          headers: { 'X-Widget-Key': key },
+          signal: controller.signal,
+        });
+
+        if (!sseRes.body) throw new Error('No SSE body');
+        setSseConnState('connected');
+        sseRetryDelay.current = 1_000;
+
+        const reader = sseRes.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!sseClosedRef.current) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const evt = JSON.parse(line.slice(6)) as { type?: string; resultUrl?: string };
+              if ((evt.type === 'COMPLETED' || evt.type === 'job:completed') && evt.resultUrl) {
+                sseClosedRef.current = true;
+                setResultUrl(evt.resultUrl);
+                setStep('result');
+                return;
+              }
+              if (evt.type === 'FAILED' || evt.type === 'job:failed') {
+                sseClosedRef.current = true;
+                setErrorMessage('Try-on generation failed');
+                setStep('error');
+                return;
+              }
+            } catch {
+              /* partial JSON */
+            }
+          }
+        }
+      } catch (err) {
+        if (sseClosedRef.current) return;
+        if ((err as Error).name === 'AbortError') return;
+      }
+
+      // Stream closed without terminal event — schedule reconnect
+      if (!sseClosedRef.current) {
+        setSseConnState('reconnecting');
+        sseRetryDelay.current = Math.min(sseRetryDelay.current * 2, 30_000);
+        retryTimer = setTimeout(() => {
+          void connectSSE();
+        }, sseRetryDelay.current);
+      }
+    }
+
+    void connectSSE();
+
+    return () => {
+      sseClosedRef.current = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      controller?.abort();
+    };
+  }, [step, jobId, key]);
 
   const handleFileSelect = useCallback((file: File) => {
     setValidationError('');
@@ -102,10 +191,11 @@ export default function WidgetRenderPage() {
 
   const handleGenerate = useCallback(async () => {
     if (!uploadFile || !garmentImageUrl) return;
+    if (!idempKeyRef.current) idempKeyRef.current = crypto.randomUUID();
+    const idempKey = idempKeyRef.current;
+    
     setUploading(true);
     setUploadProgress(0);
-
-    const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
     try {
       const presignRes = await fetch(`${API_URL}/v1/widget/presign`, {
@@ -136,57 +226,18 @@ export default function WidgetRenderPage() {
 
       const jobRes = await fetch(`${API_URL}/v1/widget/jobs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Widget-Key': key },
+        headers: { 'Content-Type': 'application/json', 'X-Widget-Key': key, 'X-Idempotency-Key': idempKey },
         body: JSON.stringify({ garmentImageUrl, customerPhotoKey: r2Key, aspectRatio: '2:3' }),
       });
       if (!jobRes.ok) {
         const err = await jobRes.json();
-        throw new Error(err.error?.message ?? 'Job creation failed');
+        throw new Error((err as { error?: { message?: string } }).error?.message ?? 'Job creation failed');
       }
       const { jobId: newJobId } = (await jobRes.json()) as { jobId: string };
       setJobId(newJobId);
       setStep('processing');
       setUploading(false);
-
-      const sseUrl = `${API_URL}/v1/widget/jobs/${newJobId}/events`;
-      const sseRes = await fetch(sseUrl, { headers: { 'X-Widget-Key': key } });
-      if (!sseRes.body) return;
-
-      const reader = sseRes.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const evt = JSON.parse(line.slice(6)) as {
-                type?: string;
-                jobId?: string;
-                resultKey?: string;
-                resultUrl?: string;
-              };
-              if ((evt.type === 'COMPLETED' || evt.type === 'job:completed') && evt.resultUrl) {
-                setResultUrl(evt.resultUrl);
-                setStep('result');
-                reader.cancel();
-                return;
-              }
-              if (evt.type === 'FAILED' || evt.type === 'job:failed') {
-                throw new Error('Try-on generation failed');
-              }
-            } catch {
-              /* partial JSON */
-            }
-          }
-        }
-      }
+      // SSE subscription is handled by the useEffect watching [step, jobId]
     } catch (err: unknown) {
       setErrorMessage((err as Error).message);
       setStep('error');
@@ -495,6 +546,19 @@ export default function WidgetRenderPage() {
               Generating your try-on...
             </p>
             <p style={{ fontSize: 12, color: '#999', margin: 0 }}>Usually takes 30–60 seconds</p>
+            {sseConnState === 'reconnecting' && (
+              <p
+                role="status"
+                style={{
+                  fontSize: 11,
+                  color: '#E53935',
+                  margin: '6px 0 0',
+                  fontWeight: 500,
+                }}
+              >
+                Connection lost — retrying…
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -539,6 +603,7 @@ export default function WidgetRenderPage() {
             </a>
             <GradBtn
               onClick={() => {
+                idempKeyRef.current = '';
                 setStep('uploading');
                 setUploadFile(null);
                 setUploadPreview('');
