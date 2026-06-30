@@ -37,6 +37,7 @@ const items: NavItem[] = [
   },
   { k: 'workflows', label: 'Workflows', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   { k: 'tryon', label: 'Tryon', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
+  { k: 'saree', label: 'Saree', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   {
     k: 'contacts',
     label: 'Contacts',
