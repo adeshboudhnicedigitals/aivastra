@@ -37,7 +37,7 @@ packages/storage   StorageProvider interface + R2/MinIO impl + R2 key builders
 packages/logger    pino wrapper — createLogger(service)
 packages/observability  Prometheus metrics registry (shared by api + dispatcher)
 infra/             docker-compose.yml, cloudflared configs, Grafana Alloy config
-scripts/           Ops scripts (backfill-thumbnails, register-workers, bootstrap-admin)
+scripts/           Ops scripts (backfill-thumbnails, bootstrap-admin)
 docs/              Design doc, phase plans, progress log, open findings
 ```
 
@@ -93,6 +93,16 @@ Three-service split with a hard boundary at the Redis Stream:
 4. **admin** — separate Vite+React SPA (`apps/admin`). Talks directly to `apps/api` `/admin/*` routes.
 
 Worker connectivity: each ComfyUI VPS runs `cloudflared`; no inbound ports. Health monitor probes `/system_stats` every 15s and sets `worker:health:{id}` with 30s TTL — expired = unhealthy = no routing.
+
+### Adding a GPU worker
+
+Workers are managed via the admin panel → stored in `schema.workers` (Postgres) → loaded into Redis registry at dispatcher startup. No env var changes needed.
+
+1. In the admin panel go to **Workers** → **Add worker** — set the Cloudflare tunnel URL, API key, allowed job types, mark active.
+2. Restart the dispatcher (`pm2 restart dispatcher` or equivalent). It re-reads `schema.workers` on boot, registers all active workers, and the health monitor begins probing the new worker immediately.
+3. Consumer concurrency auto-refreshes from the registry within 5 s — no further action needed.
+
+To remove a worker: mark it inactive in the admin panel, then restart the dispatcher.
 
 Input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId` (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. All IDs must resolve to active catalog/asset rows before credits deduct.
 
@@ -271,7 +281,6 @@ Key vars (see `.env.production.example` for full list):
 | `ADMIN_BOOTSTRAP_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD` | api (seeds first admin) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_CALLBACK_URL` | api (optional OAuth) |
 | `RESEND_API_KEY` / `EMAIL_FROM` | api (transactional email) |
-| `WORKER_IDS` | dispatcher (comma-separated worker IDs) |
 | `WORKER_API_KEY` | dispatcher |
 | `NEXT_PUBLIC_API_URL` | web (Fastify API base URL, default `http://localhost:4000`) |
 | `NEXT_PUBLIC_BASE_PATH` | web (subdirectory prefix, e.g. `/app`; empty in root deploy) |
