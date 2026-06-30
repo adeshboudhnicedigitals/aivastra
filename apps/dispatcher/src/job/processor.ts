@@ -121,6 +121,24 @@ export async function processJob(
     return;
   }
 
+  // Saree jobs: kind === 'saree' in jobInputs.params. Two image inputs (model + saree),
+  // admin-configured modelKey and user-uploaded garmentKey. Saree jobs route to
+  // workers with 'saree' in their allowedJobTypes (selectWorker below).
+  if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree') {
+    await processSareeJob(
+      cfg,
+      job,
+      inputs,
+      rawParams,
+      userId,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
   // Regular jobs must have all three model references (guards also narrow nullable types below)
   if (!inputs.faceId || !inputs.backgroundId || !inputs.poseId) {
     await markFailed(
@@ -666,6 +684,221 @@ async function processTryonDirectJob(
     jobLog.info({ resultKey }, 'tryon direct job completed');
   } catch (err) {
     jobLog.error({ err }, 'tryon direct job processing error');
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  }
+}
+
+// ── Saree job processor ────────────────────────────────────────────────────
+
+type SareeJob = {
+  id: string;
+  creditsCharged: number;
+  attempts: number;
+};
+
+async function processSareeJob(
+  cfg: ProcessorConfig,
+  job: SareeJob,
+  inputs: typeof schema.jobInputs.$inferSelect,
+  params: Record<string, unknown>,
+  userId: string,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const jobId = job.id;
+
+  const modelKey = params.modelKey as string | undefined;
+  const workflowTemplateId = params.workflowTemplateId as string | undefined;
+  const garmentKey = inputs.upperGarmentKey;
+
+  if (!modelKey || !workflowTemplateId || !garmentKey) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'SARE_INPUTS_MISSING',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  // Load saree workflow template. Saree flows reuse the tryon*_node_id columns
+  // on workflow_templates (the admin route writes those columns at upload time).
+  const [template] = await db
+    .select({
+      jsonContent: schema.workflowTemplates.jsonContent,
+      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
+      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
+    })
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+
+  if (!template) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'WORKFLOW_NOT_FOUND',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const modelNodeId = template.tryonPersonNodeId;
+  const sareeNodeId = template.tryonGarmentNodeId;
+  const outputNodeId = template.tryonOutputNodeId;
+
+  if (!modelNodeId || !sareeNodeId || !outputNodeId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'SARE_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
+
+  // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
+  // self-declare this in the workers table (admin can edit from the Workers page).
+  const worker = await selectWorker(redis, 'saree');
+  if (!worker) {
+    jobLog.warn('no idle saree worker — re-enqueuing with backoff');
+    await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+    await new Promise((resolve) => setTimeout(resolve, 10_000));
+    await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('retried', startedAt);
+    return;
+  }
+  const w = worker;
+  jobLog.info({ workerId: w.id }, 'worker claimed for saree');
+
+  try {
+    async function r2Download(key: string): Promise<Uint8Array> {
+      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
+      return res.Body.transformToByteArray();
+    }
+
+    async function uploadToComfy(key: string, prefix: string): Promise<string> {
+      const bytes = await r2Download(key);
+      const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
+      const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+    }
+
+    jobLog.info('uploading saree inputs to ComfyUI');
+    const [modelFile, sareeFile] = await Promise.all([
+      uploadToComfy(modelKey, 'saree_model'),
+      uploadToComfy(garmentKey, 'saree_garment'),
+    ]);
+    jobLog.info({ modelFile, sareeFile }, 'saree inputs uploaded');
+
+    // Clone and patch workflow
+    const workflow = structuredClone(template.jsonContent) as Record<
+      string,
+      { inputs?: Record<string, unknown> }
+    >;
+    if (workflow[modelNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[modelNodeId].inputs!.image = modelFile;
+    }
+    if (workflow[sareeNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[sareeNodeId].inputs!.image = sareeFile;
+    }
+
+    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    const clientUuid = randomUUID();
+    const comfyStartedAt = Date.now();
+    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    jobLog.info({ promptId }, 'saree prompt submitted');
+
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'COMFY_DISPATCH',
+      payload: {
+        promptId,
+        workerId: w.id,
+        workerUrl: w.url,
+        workflowTemplateId,
+        inputs: { modelKey, garmentKey, modelFile, sareeFile },
+      },
+    });
+
+    await waitForCompletion(
+      w.url,
+      w.apiKey,
+      clientUuid,
+      promptId,
+      300_000,
+      (update) => jobLog.debug(update, 'comfyui progress'),
+      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+    );
+    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const [firstImage] = outputImages;
+    if (!firstImage) throw new Error('ComfyUI returned no output images for saree job');
+
+    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+    const resultKey = keys.output(jobId);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: r2Bucket,
+        Key: resultKey,
+        Body: imageBytes,
+        ContentType: 'image/png',
+      }),
+    );
+
+    let thumbnailKey: string | undefined;
+    try {
+      const thumbBytes = await sharp(imageBytes)
+        .rotate()
+        .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
+        .toBuffer();
+      thumbnailKey = keys.outputThumb(jobId);
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: r2Bucket,
+          Key: thumbnailKey,
+          Body: thumbBytes,
+          ContentType: 'image/jpeg',
+        }),
+      );
+    } catch (thumbErr) {
+      jobLog.warn({ err: thumbErr }, 'thumbnail generation failed for saree job');
+    }
+
+    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey, thumbnailKey }, jobLog);
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    recordJobOutcome('success', startedAt);
+    jobLog.info({ resultKey }, 'saree job completed successfully');
+  } catch (err) {
+    jobLog.error({ err }, 'saree job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
