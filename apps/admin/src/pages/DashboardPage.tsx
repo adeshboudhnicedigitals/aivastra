@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
 import { apiFetch } from '../lib/data';
@@ -28,6 +28,8 @@ interface Stats {
   creditsTodayDelta: number | null;
   activeUsersToday: number;
   activeUsersDelta: number | null;
+  newUsersToday: number;
+  newContacts: number;
   workersHealthy: number;
   workersTotal: number;
   workers: Worker[];
@@ -35,7 +37,7 @@ interface Stats {
   failed24h: number;
   jobsPerDay: number[];
   jobsPerDayLabels: string[];
-  sevenDayTotal: number;
+  periodTotal: number;
   recentFailures: RecentFailure[];
   stuckJobs: StuckJob[];
 }
@@ -45,28 +47,57 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
+const REFRESH_INTERVAL = 30_000;
+
+function Delta({ value, dir }: { value: number | null; dir?: 'down' }) {
+  if (value === null || value === undefined) return null;
+  const isGood = dir === 'down' ? value <= 0 : value >= 0;
+  return (
+    <div className={`delta ${isGood ? 'up' : 'down'}`}>
+      <span style={{ fontFamily: 'var(--mono)' }}>
+        {value > 0 ? '↑' : '↓'} {Math.abs(value)}%
+      </span>
+      <span style={{ color: 'var(--muted)' }}>vs yesterday</span>
+    </div>
+  );
+}
+
 export default function DashboardPage({ onNav, toast }: Props) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [secsAgo, setSecsAgo] = useState(0);
+  const [days, setDays] = useState<7 | 14 | 30>(7);
+  const lastFetchRef = useRef<number>(0);
 
   const fetchStats = useCallback(async () => {
     try {
-      const data = await apiFetch<Stats>('/admin/stats');
+      const data = await apiFetch<Stats>(`/admin/stats?days=${days}`);
       setStats(data);
-      setLastRefresh(new Date());
+      lastFetchRef.current = Date.now();
+      setSecsAgo(0);
     } catch {
       toast({ kind: 'error', title: 'Failed to load stats' });
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, days]);
 
+  // Main fetch + 30s poll
   useEffect(() => {
-    fetchStats();
-    const id = setInterval(fetchStats, 60_000);
+    void fetchStats();
+    const id = setInterval(fetchStats, REFRESH_INTERVAL);
     return () => clearInterval(id);
   }, [fetchStats]);
+
+  // Seconds-ago counter, updates every second
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (lastFetchRef.current) {
+        setSecsAgo(Math.floor((Date.now() - lastFetchRef.current) / 1000));
+      }
+    }, 1_000);
+    return () => clearInterval(id);
+  }, []);
 
   if (loading || !stats) {
     return (
@@ -89,86 +120,28 @@ export default function DashboardPage({ onNav, toast }: Props) {
   const workersOk = stats.workersHealthy >= Math.max(1, stats.workersTotal * 0.5);
   const allOffline = stats.workersTotal > 0 && stats.workersHealthy === 0;
   const maxBar = Math.max(...stats.jobsPerDay, 1);
-  const dailyAvg = stats.sevenDayTotal > 0 ? Math.round(stats.sevenDayTotal / 7) : 0;
-
-  const statCards = [
-    {
-      k: 'jobs',
-      lbl: 'Jobs today',
-      val: stats.jobsToday.toLocaleString(),
-      delta: stats.jobsTodayDelta,
-      icon: <Icon.Activity />,
-      to: { page: 'jobs', filter: 'today' },
-    },
-    {
-      k: 'credits',
-      lbl: 'Credits consumed',
-      val: stats.creditsToday.toLocaleString(),
-      delta: stats.creditsTodayDelta,
-      icon: <Icon.Coin />,
-      to: { page: 'users' },
-    },
-    {
-      k: 'users',
-      lbl: 'Active users',
-      val: stats.activeUsersToday.toLocaleString(),
-      delta: stats.activeUsersDelta,
-      icon: <Icon.Users />,
-      to: { page: 'users' },
-    },
-    {
-      k: 'workers',
-      lbl: 'Healthy workers',
-      val: stats.workersTotal > 0 ? `${stats.workersHealthy}/${stats.workersTotal}` : '—',
-      alert: !workersOk && stats.workersTotal > 0,
-      icon: <Icon.Server />,
-      to: { page: 'jobs', filter: 'workers' },
-    },
-    {
-      k: 'queue',
-      lbl: 'Queue depth',
-      val: stats.queueDepth.toString(),
-      sub: 'pending',
-      icon: <Icon.Queue />,
-      to: { page: 'jobs', filter: 'QUEUED' },
-    },
-    {
-      k: 'failed',
-      lbl: 'Failed · 24h',
-      val: stats.failed24h.toString(),
-      deltaDir: 'down' as const,
-      icon: <Icon.Alert />,
-      alert: stats.failed24h > 20,
-      to: { page: 'jobs', filter: 'FAILED' },
-    },
-  ];
+  const dailyAvg = stats.periodTotal > 0 ? Math.round(stats.periodTotal / days) : 0;
+  const nextRefreshSecs = Math.max(0, REFRESH_INTERVAL / 1000 - secsAgo);
 
   return (
     <>
+      {/* ── Header ─────────────────────────────────────────────── */}
       <div className="page-head">
         <div>
-          <h1>System health</h1>
-          <p className="lede">
-            Live snapshot of jobs, workers, and credit flow across the platform.
-          </p>
+          <h1>Dashboard</h1>
+          <p className="lede">Live snapshot — refreshes every 30 seconds.</p>
         </div>
         <div className="head-tools">
-          {lastRefresh && (
-            <span className="badge dot mono success">
-              Refreshed{' '}
-              {lastRefresh.toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-              })}
-            </span>
-          )}
+          <span className="badge dot mono" style={{ color: 'var(--muted)' }}>
+            {secsAgo === 0 ? 'Just updated' : `${secsAgo}s ago`} · next in {nextRefreshSecs}s
+          </span>
           <button className="btn" onClick={fetchStats}>
             <Icon.Refresh /> Refresh
           </button>
         </div>
       </div>
 
+      {/* ── Alert banners ──────────────────────────────────────── */}
       {allOffline && (
         <div className="banner">
           <div className="ic">
@@ -178,51 +151,232 @@ export default function DashboardPage({ onNav, toast }: Props) {
             <b>All workers offline.</b> No jobs will be processed until at least one worker reports
             healthy.
           </div>
+          <button className="btn" onClick={() => onNav('workers')}>
+            <Icon.Server /> View workers
+          </button>
+        </div>
+      )}
+      {!allOffline && !workersOk && stats.workersTotal > 0 && (
+        <div className="banner warn">
+          <div className="ic">
+            <Icon.Warning />
+          </div>
+          <div>
+            <b>Worker capacity degraded.</b> Only {stats.workersHealthy} of {stats.workersTotal}{' '}
+            workers healthy — throughput may be reduced.
+          </div>
+          <button className="btn" onClick={() => onNav('workers')}>
+            <Icon.Server /> View workers
+          </button>
+        </div>
+      )}
+      {stats.stuckJobs.length > 0 && (
+        <div className="banner warn">
+          <div className="ic">
+            <Icon.Clock />
+          </div>
+          <div>
+            <b>
+              {stats.stuckJobs.length} job{stats.stuckJobs.length > 1 ? 's' : ''} stuck
+            </b>{' '}
+            in queue for more than 10 minutes.
+          </div>
+          <button className="btn" onClick={() => onNav('jobs', { page: 'jobs', filter: 'QUEUED' })}>
+            <Icon.Jobs /> View queue
+          </button>
+        </div>
+      )}
+      {stats.newContacts > 0 && (
+        <div
+          className="banner"
+          style={{
+            background: 'var(--accent-soft)',
+            borderColor: 'var(--accent)',
+            color: 'var(--accent-ink)',
+          }}
+        >
+          <div className="ic" style={{ background: 'var(--accent)' }}>
+            <Icon.Bell />
+          </div>
+          <div>
+            <b>
+              {stats.newContacts} new contact request{stats.newContacts > 1 ? 's' : ''}
+            </b>{' '}
+            waiting for a response.
+          </div>
+          <button className="btn" onClick={() => onNav('contacts')}>
+            <Icon.MessageSquare /> View contacts
+          </button>
         </div>
       )}
 
-      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
-        {statCards.map((st) => (
-          <button
-            key={st.k}
-            className={`stat ${st.alert ? 'alert' : ''}`}
-            onClick={() => onNav(st.to.page, st.to)}
-          >
+      {/* ── Activity metrics ───────────────────────────────────── */}
+      <div>
+        <div className="section-title">Today's activity</div>
+        <div
+          className="stat-grid"
+          style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 0 }}
+        >
+          <button className="stat" onClick={() => onNav('jobs', { page: 'jobs', filter: 'today' })}>
             <div className="lbl">
-              {st.icon}
-              {st.lbl}
+              <Icon.Activity /> Jobs processed
             </div>
-            <div className="val">{st.val}</div>
-            {(() => {
-              const s = st as Record<string, unknown>;
-              const delta = s['delta'] as number | null | undefined;
-              if (delta === null || delta === undefined) return null;
-              const dir = s['deltaDir'] as string | undefined;
-              const cls =
-                dir === 'down' ? (delta <= 0 ? 'up' : 'down') : delta >= 0 ? 'up' : 'down';
-              return (
-                <div className={`delta ${cls}`}>
-                  <span style={{ fontFamily: 'var(--mono)' }}>
-                    {delta > 0 ? '↑' : '↓'} {Math.abs(delta)}%
-                  </span>
-                  <span style={{ color: 'var(--muted)' }}>vs yesterday</span>
-                </div>
-              );
-            })()}
-            {'sub' in st && !('delta' in st) && (
-              <div className="delta">
-                <span style={{ color: 'var(--muted)' }}>{(st as any).sub}</span>
-              </div>
-            )}
+            <div className="val">{stats.jobsToday.toLocaleString()}</div>
+            <Delta value={stats.jobsTodayDelta} />
           </button>
-        ))}
+
+          <button className="stat" onClick={() => onNav('users')}>
+            <div className="lbl">
+              <Icon.Users /> Active users
+            </div>
+            <div className="val">{stats.activeUsersToday.toLocaleString()}</div>
+            <Delta value={stats.activeUsersDelta} />
+          </button>
+
+          <button className="stat" onClick={() => onNav('users')}>
+            <div className="lbl">
+              <Icon.Plus /> New signups
+            </div>
+            <div className="val">{stats.newUsersToday.toLocaleString()}</div>
+            <div className="delta">
+              <span style={{ color: 'var(--muted)' }}>registered today</span>
+            </div>
+          </button>
+
+          <button className="stat" onClick={() => onNav('users')}>
+            <div className="lbl">
+              <Icon.Coin /> Credits consumed
+            </div>
+            <div className="val">{stats.creditsToday.toLocaleString()}</div>
+            <Delta value={stats.creditsTodayDelta} />
+          </button>
+        </div>
       </div>
 
+      {/* ── System health metrics ──────────────────────────────── */}
+      <div>
+        <div className="section-title">System health</div>
+        <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          <button
+            className={`stat ${!workersOk && stats.workersTotal > 0 ? 'alert' : ''}`}
+            onClick={() => onNav('workers')}
+          >
+            <div className="lbl">
+              <Icon.Server /> Workers healthy
+            </div>
+            <div className="val">
+              {stats.workersTotal > 0 ? `${stats.workersHealthy}/${stats.workersTotal}` : '—'}
+            </div>
+            <div className="delta">
+              <span style={{ color: 'var(--muted)' }}>
+                {stats.workersTotal === 0
+                  ? 'none registered'
+                  : stats.workersHealthy === stats.workersTotal
+                    ? 'all systems go'
+                    : `${stats.workersTotal - stats.workersHealthy} offline`}
+              </span>
+            </div>
+          </button>
+
+          <button
+            className="stat"
+            onClick={() => onNav('jobs', { page: 'jobs', filter: 'QUEUED' })}
+          >
+            <div className="lbl">
+              <Icon.Queue /> Queue depth
+            </div>
+            <div className="val">{stats.queueDepth}</div>
+            <div className="delta">
+              <span style={{ color: 'var(--muted)' }}>
+                {stats.stuckJobs.length > 0
+                  ? `${stats.stuckJobs.length} stuck >10m`
+                  : 'pending jobs'}
+              </span>
+            </div>
+          </button>
+
+          <button
+            className={`stat ${stats.failed24h > 20 ? 'alert' : ''}`}
+            onClick={() => onNav('jobs', { page: 'jobs', filter: 'FAILED' })}
+          >
+            <div className="lbl">
+              <Icon.Alert /> Failed · 24h
+            </div>
+            <div className="val">{stats.failed24h}</div>
+            <div className="delta">
+              <span style={{ color: 'var(--muted)' }}>
+                {stats.failed24h === 0 ? 'all clear' : 'job failures'}
+              </span>
+            </div>
+          </button>
+
+          <button
+            className={`stat ${stats.newContacts > 0 ? 'alert' : ''}`}
+            style={
+              stats.newContacts > 0
+                ? {
+                    borderColor: 'var(--accent)',
+                    background: 'var(--accent-soft)',
+                  }
+                : undefined
+            }
+            onClick={() => onNav('contacts')}
+          >
+            <div
+              className="lbl"
+              style={stats.newContacts > 0 ? { color: 'var(--accent-ink)' } : undefined}
+            >
+              <Icon.Bell /> New contacts
+            </div>
+            <div
+              className="val"
+              style={stats.newContacts > 0 ? { color: 'var(--accent-ink)' } : undefined}
+            >
+              {stats.newContacts}
+            </div>
+            <div className="delta">
+              <span style={{ color: 'var(--muted)' }}>
+                {stats.newContacts === 0 ? 'inbox clear' : 'need response'}
+              </span>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* ── Charts + Worker pool ───────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.7fr 1fr', gap: 14 }}>
+        {/* Jobs sparkline */}
         <div className="card">
           <div className="card-head">
             <h3>Jobs per day</h3>
-            <span className="sub">Last 7 days</span>
+            <div style={{ display: 'flex', gap: 4, marginLeft: 12 }}>
+              {[7, 14, 30].map((d) => (
+                <button
+                  key={d}
+                  className={`btn sm ghost`}
+                  onClick={() => setDays(d as 7 | 14 | 30)}
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: 11,
+                    background: days === d ? 'var(--bg-2)' : 'transparent',
+                    color: days === d ? 'var(--text)' : 'var(--muted)',
+                  }}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
+            <div className="tools">
+              <span
+                style={{
+                  fontFamily: 'var(--mono)',
+                  fontSize: 12,
+                  color: 'var(--muted)',
+                }}
+              >
+                avg {dailyAvg}/day
+              </span>
+            </div>
           </div>
           <div className="card-body">
             <div className="spark">
@@ -232,13 +386,15 @@ export default function DashboardPage({ onNav, toast }: Props) {
                   className={`bar ${i === stats.jobsPerDay.length - 1 ? 'accent' : ''}`}
                   style={{ height: `${(v / maxBar) * 100}%` }}
                 >
-                  <span className="val">{v.toLocaleString()}</span>
+                  <div className="val">
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>
+                      {stats.jobsPerDayLabels[i]}
+                    </div>
+                    <div style={{ fontWeight: 500, fontFamily: 'var(--mono)' }}>
+                      {v.toLocaleString()} jobs
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
-            <div className="spark-labels">
-              {stats.jobsPerDayLabels.map((l, i) => (
-                <span key={i}>{l}</span>
               ))}
             </div>
             <div
@@ -259,18 +415,17 @@ export default function DashboardPage({ onNav, toast }: Props) {
                     textTransform: 'uppercase',
                   }}
                 >
-                  7-day total
+                  {days}-day total
                 </div>
                 <div
                   style={{
                     fontSize: 18,
                     fontWeight: 500,
-                    fontFamily: 'var(--sans)',
                     fontVariantNumeric: 'tabular-nums',
                     marginTop: 2,
                   }}
                 >
-                  {stats.sevenDayTotal.toLocaleString()} jobs
+                  {stats.periodTotal.toLocaleString()} jobs
                 </div>
               </div>
               <div>
@@ -299,12 +454,18 @@ export default function DashboardPage({ onNav, toast }: Props) {
           </div>
         </div>
 
+        {/* Worker pool */}
         <div className="card">
           <div className="card-head">
             <h3>Worker pool</h3>
             <span className="sub">
               {stats.workersHealthy} of {stats.workersTotal} healthy
             </span>
+            <div className="tools">
+              <button className="btn sm ghost" onClick={() => onNav('workers')}>
+                Manage <Icon.Chevron />
+              </button>
+            </div>
           </div>
           <div className="card-body" style={{ padding: 0 }}>
             {stats.workers.length === 0 ? (
@@ -338,17 +499,15 @@ export default function DashboardPage({ onNav, toast }: Props) {
                             : 'var(--success)',
                     }}
                   />
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{w.id}</span>
-                  <span style={{ marginLeft: 'auto' }}>
-                    <StatusBadge status={w.healthy ? w.status : 'OFFLINE'} />
-                  </span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, flex: 1 }}>{w.id}</span>
+                  <StatusBadge status={w.healthy ? w.status : 'OFFLINE'} />
                   {w.lastSeen && (
                     <span
                       style={{
                         fontFamily: 'var(--mono)',
                         fontSize: 11,
                         color: 'var(--muted)',
-                        minWidth: 50,
+                        minWidth: 40,
                         textAlign: 'right',
                       }}
                     >
@@ -362,7 +521,9 @@ export default function DashboardPage({ onNav, toast }: Props) {
         </div>
       </div>
 
+      {/* ── Failures + Stuck queue ─────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        {/* Recent failures */}
         <div className="card" style={{ minWidth: 0, overflow: 'hidden' }}>
           <div className="card-head">
             <h3>Recent failures</h3>
@@ -372,7 +533,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
                 className="btn sm ghost"
                 onClick={() => onNav('jobs', { page: 'jobs', filter: 'FAILED' })}
               >
-                All failures <Icon.Chevron />
+                All <Icon.Chevron />
               </button>
             </div>
           </div>
@@ -395,57 +556,46 @@ export default function DashboardPage({ onNav, toast }: Props) {
                 <div
                   key={j.id}
                   style={{
-                    padding: '12px 18px',
+                    padding: '11px 18px',
                     borderBottom: '1px solid var(--border)',
-                    display: 'flex',
-                    gap: 10,
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: '2px 10px',
                     alignItems: 'center',
                   }}
                 >
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 12, flexShrink: 0 }}>
-                    {j.id.slice(0, 8)}
-                  </span>
-                  <div
+                  <span
                     style={{
-                      flex: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 2,
-                      minWidth: 0,
+                      fontSize: 12.5,
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: 'var(--muted)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {j.user}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: 'var(--danger)',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {j.error}
-                    </span>
-                  </div>
+                    {j.user}
+                  </span>
                   <span
                     style={{
                       fontFamily: 'var(--mono)',
                       fontSize: 11,
                       color: 'var(--muted)',
-                      flexShrink: 0,
+                      textAlign: 'right',
                     }}
                   >
                     {j.age}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11.5,
+                      color: 'var(--danger)',
+                      fontFamily: 'var(--mono)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {j.error}
                   </span>
                 </div>
               ))
@@ -453,10 +603,11 @@ export default function DashboardPage({ onNav, toast }: Props) {
           </div>
         </div>
 
+        {/* Stuck queue */}
         <div className="card">
           <div className="card-head">
             <h3>Stuck queue</h3>
-            <span className="sub">Pending &gt; 10min</span>
+            <span className="sub">Pending &gt; 10 min</span>
             <div className="tools">
               <button
                 className="btn sm ghost"
@@ -467,27 +618,36 @@ export default function DashboardPage({ onNav, toast }: Props) {
             </div>
           </div>
           <div className="card-body" style={{ padding: 0 }}>
-            {stats.stuckJobs.map((j) => (
+            {stats.stuckJobs.length === 0 ? (
               <div
-                key={j.id}
                 style={{
-                  padding: '12px 18px',
-                  borderBottom: '1px solid var(--border)',
+                  padding: '20px 18px',
                   display: 'flex',
-                  gap: 10,
                   alignItems: 'center',
+                  gap: 10,
+                  color: 'var(--muted)',
+                  fontSize: 12.5,
                 }}
               >
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 12, flexShrink: 0 }}>
-                  {j.id}
-                </span>
+                <Icon.Check /> Queue is healthy — no stuck jobs.
+              </div>
+            ) : (
+              stats.stuckJobs.map((j) => (
                 <div
-                  style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}
+                  key={j.id}
+                  style={{
+                    padding: '11px 18px',
+                    borderBottom: '1px solid var(--border)',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr auto',
+                    gap: '2px 10px',
+                    alignItems: 'center',
+                  }}
                 >
                   <span
                     style={{
-                      fontSize: 12,
-                      color: 'var(--muted)',
+                      fontSize: 12.5,
+                      fontWeight: 500,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -495,26 +655,19 @@ export default function DashboardPage({ onNav, toast }: Props) {
                   >
                     {j.user}
                   </span>
-                  <span style={{ fontSize: 12, color: 'var(--warn)' }}>
-                    Queued for {j.age} — exceeds threshold
+                  <span className="badge warn dot">Stuck {j.age}</span>
+                  <span
+                    style={{
+                      fontFamily: 'var(--mono)',
+                      fontSize: 11,
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    {j.id}
                   </span>
                 </div>
-                <span className="badge warn dot">Stuck</span>
-              </div>
-            ))}
-            <div
-              style={{
-                padding: '20px 18px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                color: 'var(--muted)',
-                fontSize: 12.5,
-              }}
-            >
-              <Icon.Check />
-              {stats.stuckJobs.length === 0 ? 'No stuck jobs.' : 'No other queue anomalies.'}
-            </div>
+              ))
+            )}
           </div>
         </div>
       </div>

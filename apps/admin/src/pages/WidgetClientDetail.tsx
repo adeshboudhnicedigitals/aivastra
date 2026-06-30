@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { apiFetch } from '../lib/data';
+import { ApiError, apiFetch } from '../lib/data';
 
 interface ClientDetail {
   id: string;
@@ -15,6 +15,8 @@ interface ClientDetail {
   widgetKey: string;
   isActive: boolean;
   allowedOrigins: string[];
+  webhookUrl: string | null;
+  webhookSecret: string | null;
   creditBalance: number;
   createdAt: string;
   updatedAt: string;
@@ -42,6 +44,9 @@ export function WidgetClientDetail({ onNav: _onNav, toast }: Props) {
   const [editing, setEditing] = useState(false);
   const [editCompanyName, setEditCompanyName] = useState('');
   const [editAllowedOrigins, setEditAllowedOrigins] = useState('');
+  const [editWebhookUrl, setEditWebhookUrl] = useState('');
+  const [editWebhookSecret, setEditWebhookSecret] = useState('');
+  const [showSecret, setShowSecret] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [creditAmount, setCreditAmount] = useState('');
@@ -55,6 +60,8 @@ export function WidgetClientDetail({ onNav: _onNav, toast }: Props) {
       setClient(data);
       setEditCompanyName(data.companyName);
       setEditAllowedOrigins(data.allowedOrigins.join(', '));
+      setEditWebhookUrl(data.webhookUrl || '');
+      setEditWebhookSecret(data.webhookSecret || '');
     } catch {
       toast({ kind: 'error', title: 'Failed to load client' });
     } finally {
@@ -89,13 +96,25 @@ export function WidgetClientDetail({ onNav: _onNav, toast }: Props) {
         .filter(Boolean);
       const updated = await apiFetch<ClientDetail>(`/v1/admin/widget-clients/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ companyName: editCompanyName, allowedOrigins: origins }),
+        body: JSON.stringify({
+          companyName: editCompanyName,
+          allowedOrigins: origins,
+          webhookUrl: editWebhookUrl.trim() || null,
+          webhookSecret: editWebhookSecret.trim() || null,
+        }),
       });
       setClient(updated);
       setEditing(false);
       toast({ title: 'Info updated' });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update' });
+    } catch (err) {
+      let msg = 'Failed to update';
+      if (err instanceof ApiError) {
+        const body = err.body as { error?: { message?: string } } | undefined;
+        msg = body?.error?.message ?? msg;
+      } else if (err instanceof Error) {
+        msg = err.message;
+      }
+      toast({ kind: 'error', title: msg });
     } finally {
       setSaving(false);
     }
@@ -186,6 +205,47 @@ export function WidgetClientDetail({ onNav: _onNav, toast }: Props) {
                   placeholder="https://yourstore.com, https://app.yourstore.com"
                 />
               </div>
+              <div className="field">
+                <label>
+                  Webhook URL <span className="sub">(HTTPS required)</span>
+                </label>
+                <input
+                  className="input"
+                  value={editWebhookUrl}
+                  onChange={(e) => setEditWebhookUrl(e.target.value)}
+                  placeholder="https://merchant.com/webhook"
+                />
+              </div>
+              <div className="field">
+                <label>Webhook Secret</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    className="input"
+                    type={showSecret ? 'text' : 'password'}
+                    style={{ flex: 1, fontFamily: 'monospace' }}
+                    value={editWebhookSecret}
+                    onChange={(e) => setEditWebhookSecret(e.target.value)}
+                    placeholder="Shared secret for HMAC signature"
+                  />
+                  <button className="btn ghost" onClick={() => setShowSecret(!showSecret)}>
+                    {showSecret ? 'Hide' : 'Show'}
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      const bytes = new Uint8Array(32);
+                      window.crypto.getRandomValues(bytes);
+                      const hex = Array.from(bytes)
+                        .map((b) => b.toString(16).padStart(2, '0'))
+                        .join('');
+                      setEditWebhookSecret(hex);
+                      setShowSecret(true);
+                    }}
+                  >
+                    Generate
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
             <dl className="kv">
@@ -215,6 +275,24 @@ export function WidgetClientDetail({ onNav: _onNav, toast }: Props) {
               <dd>
                 {client.allowedOrigins.length ? (
                   client.allowedOrigins.join(', ')
+                ) : (
+                  <span style={{ color: 'var(--muted)' }}>None</span>
+                )}
+              </dd>
+              <dt>Webhook URL</dt>
+              <dd>
+                {client.webhookUrl ? (
+                  <a href={client.webhookUrl} target="_blank" rel="noreferrer">
+                    {client.webhookUrl}
+                  </a>
+                ) : (
+                  <span style={{ color: 'var(--muted)' }}>None</span>
+                )}
+              </dd>
+              <dt>Webhook Secret</dt>
+              <dd>
+                {client.webhookSecret ? (
+                  <span style={{ color: 'var(--muted)' }}>••••••••••••••••••••••••</span>
                 ) : (
                   <span style={{ color: 'var(--muted)' }}>None</span>
                 )}

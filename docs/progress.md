@@ -1,6 +1,72 @@
 # Project Progress
 
-<<<<<<< Updated upstream
+## 2026-06-30 — Security, A11y, Design System, and Tech Debt Fixes (session 3)
+
+### Done
+- **7.2 Presigned URL upload cap (defense-in-depth):** Three-layer enforcement at 5MB: (1) client-side JS MIME+size gate; (2) Zod `.max(5 * 1024 * 1024)` on `WidgetPresignRequest.contentLength` in `packages/types/src/widget.ts`; (3) `headObject` check at `POST /v1/widget/jobs` in `apps/api/src/modules/widget/routes.ts` — catches declared-vs-actual lies before credit deduction. Note: `content-length-range` POST policy is impossible for SDK PUT presigned URLs (see `r2.ts` comment).
+- **5.1 ARIA live regions (widget):** `aria-live="polite" aria-atomic="true"` on processing status wrapper; `role="alert" aria-live="assertive" aria-atomic="true"` on error container.
+- **4.4 Hardcoded color in error.tsx:** `background: '#fff'` → `background: C.bg` on line 19. `confirm-dialog.tsx` was already correctly tokenized (audit was wrong about it).
+- **9.3 Middleware redirects → next.config.ts:** `REDIRECTS` dict removed from middleware; `async redirects()` added to `next.config.ts` with `permanent: true` and basePath-aware paths. CDN-cached, zero middleware cost.
+- **5.3 Focus trap in modals:** `SupportModal` — `modalRef` + full ARIA dialog attributes + `id` on heading + `useEffect` trap (first-element focus, Tab cycle, Escape). `SupportButton` — `triggerRef` + `requestAnimationFrame` return-focus. `ConfirmDialog` — trap on inner panel (`dialogRef`), not backdrop; `role="dialog"` moved off backdrop to panel; `aria-labelledby` + `id` on `<h3>` added; confirm button auto-focused.
+- **5.2 PremiumSelect ARIA:** Added `role="combobox"`, stable `useId()` for `listboxId`, `aria-controls`, and `aria-activedescendant` for accurate screen reader announcements during keyboard navigation.
+- **5.4 Focus-visible outlines:** Removed hardcoded `outline: 'none'` and added `.focus-ring` utility class (`outline: 2px solid var(--c-pink)`) on `:focus-visible` to interactive trigger buttons in `PremiumSelect` and `PremiumDateRange`.
+- **7.4 Broad Next.js middleware catch-all:** Updated `middleware.ts` matcher to explicitly exclude static image extensions (`.*\\.(?:svg|png|jpg|jpeg|gif|webp)$`), preventing Edge function overhead on static assets.
+- **6.3 Client-side image compression:** Skipped (would permanently degrade generation quality for ComfyUI nodes).
+- **Audit docs updated:** phases 3, 4, 5, 7, 9 triage notes updated; resolved findings removed.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-30 — UI/UX Audit Tier 3 Fixes (session 2)
+
+### Done
+- **3.2 Client-side file validation (widget upload):** MIME allow-list (`image/jpeg`, `image/png`, `image/webp`) and 5MB size gate enforced in `handleFileSelect` before presigned URL is requested. Inline `validationError` state renders below the dropzone. `accept` attribute on hidden input matches JS allow-list. Committed: `feat(widget): client-side file validation and drag-and-drop upload UX`.
+- **Drag-and-drop UX (widget upload):** Added `onDragOver`/`onDragLeave`/`onDrop` handlers. `dragActive` state drives pink border + faint tint. `onDragLeave` child-node guard (`e.currentTarget.contains(e.relatedTarget)`) prevents flicker. Dropped files routed through same `handleFileSelect` validation. Included in same commit as above.
+- **3.4 Assets empty state (cold-start):** `(app)/assets/page.tsx` replaced bare text with `GarmentIcon` (in `C.pink`) + bold heading + sub-copy + `<Link href="/studio"><GradBtn>Upload your first garment</GradBtn></Link>`. Filter-miss path preserved as plain text. Audit file paths were wrong (referenced non-existent `(merchant)/` routes); real gap was in `(app)/assets/`. Committed: `feat(web): rich empty state for assets cold-start`.
+- **Audit doc updated:** `docs/audits/audit_phase_3_ui_ux.md` — 3.2 and 3.4 moved to triage note; open findings (3.1, 3.3, 3.5) remain.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-30 — Audit Tier 1 and Tier 2 Roadmap Fixes
+
+### Done
+- **Tier 1.2 (Redis Streams Unbounded Growth):** Added `MAXLEN ~ 10000` to all widget and normal job `XADD` calls to prevent memory leaks.
+- **Tier 1.3 (Widget API Abuse Prevention):** Built a crash-safe fixed-window Redis rate limiter (`60 req/min`) for widget presign and job creation routes to protect credit balances and S3 buckets.
+- **Tier 2.1 (Job Sweeper):** Built an automated stuck-job sweeper in the dispatcher that refunds credits (with idempotency guards) and marks jobs `FAILED` if they sit in `QUEUED` for >10 mins.
+- **Tier 2.3 (B2B Webhooks):** Engineered a secure webhook delivery pipeline for terminal widget jobs:
+  - Updated DB schema and ran migrations for `webhookUrl` and `webhookSecret`.
+  - Built a robust consumer with exponential backoff and 3x retries via stream re-queueing.
+  - Hardened with SSRF protection (rejecting private IPs & redirects) and Stripe-style HMAC payload signatures.
+  - Wired the entire configuration UI into the Admin Dashboard (`WidgetClientDetail.tsx`).
+
+### Failed / Not Done
+- **T2.1 Job Cancellation:** Skipped user-facing `DELETE` route as the sweeper safely handles the operationally critical case.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-30 — Repository Inventory
+
+### Done
+- Built a complete repository inventory of the Aivastra codebase.
+- Traversed all directories recursively and enumerated every file, classifying them into source files, configuration files, and other project assets.
+- Recorded path, category, purpose description, size on disk, and read status for all 509 files.
+- Documented specific, structured skip reasons for the 503 files that were skipped during this session (not yet read).
+- Produced a beautiful and comprehensive Markdown table named **Repository Inventory** inside the artifact directory: [repository_inventory.md](file:///C:/Users/syste/.gemini/antigravity-cli/brain/dd6f99a1-c7a5-48bf-8199-7ada72ada7a4/repository_inventory.md).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-24 — Premium dark mode Task 5: refine tokens.css palettes and remove hardcoded colors
 
 ### Done

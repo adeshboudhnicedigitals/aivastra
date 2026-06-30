@@ -48,12 +48,16 @@ export async function adminConfigRoutes(app: FastifyInstance) {
   app.get(
     '/admin/stats',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
-    async () => {
+    async (req) => {
+      const query = req.query as { days?: string };
+      const days = parseInt(query.days || '7', 10);
+      const validDays = Number.isNaN(days) || days < 1 ? 7 : days > 30 ? 30 : days;
+
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const yesterday = new Date(todayStart.getTime() - 86400000);
       const h24ago = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const d7ago = new Date(todayStart.getTime() - 6 * 86400000);
+      const dNago = new Date(todayStart.getTime() - (validDays - 1) * 86400000);
       const stuckThreshold = new Date(now.getTime() - 10 * 60 * 1000);
 
       const [
@@ -69,6 +73,8 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         jobsPerDayRows,
         recentFailures,
         stuckJobs,
+        newUsersRows,
+        newContactsRows,
       ] = await Promise.all([
         app.db.select({ c: count() }).from(schema.jobs).where(eq(schema.jobs.status, 'QUEUED')),
         app.redis.hgetall('worker:registry'),
@@ -119,7 +125,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
             c: count(),
           })
           .from(schema.jobs)
-          .where(gte(schema.jobs.createdAt, d7ago))
+          .where(gte(schema.jobs.createdAt, dNago))
           .groupBy(sql`DATE(${schema.jobs.createdAt})`)
           .orderBy(sql`DATE(${schema.jobs.createdAt})`),
 
@@ -147,6 +153,16 @@ export async function adminConfigRoutes(app: FastifyInstance) {
           .where(and(eq(schema.jobs.status, 'QUEUED'), lte(schema.jobs.createdAt, stuckThreshold)))
           .orderBy(schema.jobs.createdAt)
           .limit(5),
+
+        app.db
+          .select({ c: count() })
+          .from(schema.users)
+          .where(gte(schema.users.createdAt, todayStart)),
+
+        app.db
+          .select({ c: count() })
+          .from(schema.contactRequests)
+          .where(eq(schema.contactRequests.status, 'new')),
       ]);
 
       // Workers from Redis
@@ -176,11 +192,11 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const creditsToday = Number(creditsTodayRows[0]?.c ?? 0);
       const creditsYesterday = Number(creditsYesterdayRows[0]?.c ?? 0);
 
-      // Build 7-day chart (fill missing days with 0)
+      // Build chart (fill missing days with 0)
       const dayMap = new Map(jobsPerDayRows.map((r) => [r.day, Number(r.c)]));
       const jobsPerDay: number[] = [];
       const jobsPerDayLabels: string[] = [];
-      for (let i = 6; i >= 0; i--) {
+      for (let i = validDays - 1; i >= 0; i--) {
         const d = new Date(todayStart.getTime() - i * 86400000);
         const key = d.toISOString().slice(0, 10);
         jobsPerDay.push(dayMap.get(key) ?? 0);
@@ -189,8 +205,10 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         );
       }
 
-      const sevenDayTotal = jobsPerDay.reduce((a, b) => a + b, 0);
+      const periodTotal = jobsPerDay.reduce((a, b) => a + b, 0);
       const failed24h = failed24hRows[0]?.c ?? 0;
+      const newUsersToday = newUsersRows[0]?.c ?? 0;
+      const newContacts = Number(newContactsRows[0]?.c ?? 0);
 
       return {
         jobsToday,
@@ -206,7 +224,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
         failed24h,
         jobsPerDay,
         jobsPerDayLabels,
-        sevenDayTotal,
+        periodTotal,
         recentFailures: recentFailures.map((j) => ({
           id: j.id.slice(0, 12),
           user: j.userEmail ?? '—',
@@ -218,6 +236,8 @@ export async function adminConfigRoutes(app: FastifyInstance) {
           user: j.userEmail ?? '—',
           age: formatAge(j.createdAt),
         })),
+        newUsersToday,
+        newContacts,
       };
     },
   );
