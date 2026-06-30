@@ -1,5 +1,64 @@
 # Project Progress
 
+## 2026-06-30 — Phase 11 Closure
+
+### Done
+- **Audit Doc (`docs/audits/audit_phase_11_admin_dashboard.md`)**:
+  - Closed Finding 11.2 (Inferior Real-Time UX) as Done following the Polling → SSE migration.
+  - Closed Finding 11.4 (Dead-End Metrics) as Done following the BarChart → JobsPage drill-down implementation.
+  - Closed Finding 11.5 (Brittle Theming and State Sync) as Done following the optimistic `updateTheme` implementation in `App.tsx`.
+  - Skipped Finding 11.3 (Fragmented and Unpolished Styling) as the admin SPA's custom `tokens.css` design system is an intentional design choice, and a UI library migration (Tailwind/shadcn) would yield no product benefit.
+  - Phase 11 is now fully resolved or skipped.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-30 — Admin Dashboard Polling → SSE (Finding 11.2)
+
+### Done
+- **Admin App (`apps/admin/src/lib/sse.ts`, `apps/admin/src/pages/DashboardPage.tsx`)**:
+  - Implemented `createAdminSSEConnection`, a minimalistic fetch + ReadableStream SSE client capable of sending the `Authorization: Bearer <token>` header.
+  - Replaced the primary 30-second `setInterval` polling in the dashboard with event-driven data fetching using the `/admin/jobs/stream` SSE endpoint.
+  - Added an 800ms debounce to the SSE event handler to batch simultaneous state transitions without hammering the database.
+  - Maintained a 60-second fallback heartbeat poll to catch out-of-sync states or silent SSE disconnects.
+  - Updated dashboard UI text label to reflect event-driven freshness ("Live — updates on job events").
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-30 — Phase 4 Closure (4.1 and 4.3)
+
+### Done
+- **Audit Doc (`docs/audits/audit_phase_4_design_system.md`)**:
+  - Closed Finding 4.1 (Anti-Pattern: Heavy Reliance on JS Event Handlers) as Done following the 11 element CSS migration.
+  - Skipped Finding 4.3 (Hardcoded Responsive Breakpoints) as a permanent product constraint (Merchant portal is desktop-first, Widget is iframe-embedded).
+  - Phase 4 is now fully resolved or skipped.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-30 — Finding 6.4 Closure
+
+### Done
+- **Audit Doc (`docs/audits/audit_phase_6_performance.md`)**:
+  - Closed Finding 6.4 (BFF Duplicate Fetches) as N/A because all `(app)/` pages are `use client` components and no Server Components fetch data in this application.
+  - Phase 6 is now fully closed (6.1 structural skip, 6.2 rejected, 6.3 permanent skip, 6.4 N/A).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-30 — Widget Job Cancellation (Finding 3.1)
 
 ### Done
