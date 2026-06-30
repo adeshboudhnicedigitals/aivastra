@@ -8,6 +8,10 @@
 - **4.4 Hardcoded color in error.tsx:** `background: '#fff'` → `background: C.bg` on line 19. `confirm-dialog.tsx` was already correctly tokenized (audit was wrong about it).
 - **9.3 Middleware redirects → next.config.ts:** `REDIRECTS` dict removed from middleware; `async redirects()` added to `next.config.ts` with `permanent: true` and basePath-aware paths. CDN-cached, zero middleware cost.
 - **5.3 Focus trap in modals:** `SupportModal` — `modalRef` + full ARIA dialog attributes + `id` on heading + `useEffect` trap (first-element focus, Tab cycle, Escape). `SupportButton` — `triggerRef` + `requestAnimationFrame` return-focus. `ConfirmDialog` — trap on inner panel (`dialogRef`), not backdrop; `role="dialog"` moved off backdrop to panel; `aria-labelledby` + `id` on `<h3>` added; confirm button auto-focused.
+- **5.2 PremiumSelect ARIA:** Added `role="combobox"`, stable `useId()` for `listboxId`, `aria-controls`, and `aria-activedescendant` for accurate screen reader announcements during keyboard navigation.
+- **5.4 Focus-visible outlines:** Removed hardcoded `outline: 'none'` and added `.focus-ring` utility class (`outline: 2px solid var(--c-pink)`) on `:focus-visible` to interactive trigger buttons in `PremiumSelect` and `PremiumDateRange`.
+- **7.4 Broad Next.js middleware catch-all:** Updated `middleware.ts` matcher to explicitly exclude static image extensions (`.*\\.(?:svg|png|jpg|jpeg|gif|webp)$`), preventing Edge function overhead on static assets.
+- **6.3 Client-side image compression:** Skipped (would permanently degrade generation quality for ComfyUI nodes).
 - **Audit docs updated:** phases 3, 4, 5, 7, 9 triage notes updated; resolved findings removed.
 
 ### Failed / Not Done
