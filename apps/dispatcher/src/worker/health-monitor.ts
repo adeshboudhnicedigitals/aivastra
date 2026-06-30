@@ -5,7 +5,7 @@ import { getWorkers, healthKey } from './registry.js';
 
 const PROBE_INTERVAL_MS = 15_000;
 const HEALTH_TTL_SEC = 30;
-const JOB_STREAMS = ['jobs:priority', 'jobs:normal'] as const;
+const JOB_STREAMS = ['jobs:priority', 'jobs:normal', 'jobs:low'] as const;
 
 async function probeWorker(_workerId: string, workerUrl: string, apiKey: string): Promise<boolean> {
   try {
