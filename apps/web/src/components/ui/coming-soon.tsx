@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import { C, grad } from '@/components/tokens';
 
 function ClockGlyph() {
@@ -22,6 +25,8 @@ export function ComingSoon({
   message?: string;
   icon?: React.ReactNode;
 }): React.ReactElement {
+  const [notified, setNotified] = useState(false);
+
   return (
     <div
       style={{
@@ -70,6 +75,25 @@ export function ComingSoon({
             {message}
           </p>
         )}
+        <button
+          type="button"
+          disabled={notified}
+          onClick={() => setNotified(true)}
+          className="btn-hover-opacity"
+          style={{
+            marginTop: 24,
+            background: notified ? C.lighter : C.text,
+            color: notified ? C.mid : C.card,
+            padding: '10px 16px',
+            borderRadius: 8,
+            border: 'none',
+            cursor: notified ? 'default' : 'pointer',
+            fontWeight: 600,
+            transition: 'opacity 0.15s, background 0.15s, color 0.15s',
+          }}
+        >
+          {notified ? 'Added to waitlist ✓' : 'Notify me when ready'}
+        </button>
       </div>
     </div>
   );

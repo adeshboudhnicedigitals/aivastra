@@ -147,6 +147,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { filter?: FilterKey })?.filter || 'all',
   );
+  const [dateFilter, setDateFilter] = useState<string | null>(
+    (location.state as { date?: string })?.date || null,
+  );
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof Job>('createdAt');
@@ -167,6 +170,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       try {
         const params = new URLSearchParams({ page: String(page + 1), pageSize: String(PAGE_SIZE) });
         if (filter !== 'all') params.set('status', filter);
+        if (dateFilter) params.set('date', dateFilter);
         if (query) params.set('search', query);
         const data = await apiFetch<{ items: Job[]; total: number }>(`/admin/jobs?${params}`);
         setJobs(data.items);
@@ -177,7 +181,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         if (!silent) setLoading(false);
       }
     },
-    [page, filter, query, toast],
+    [page, filter, dateFilter, query, toast],
   );
 
   useEffect(() => {
@@ -596,16 +600,38 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         </div>
       </div>
 
-      <div className="tabs">
-        {FILTERS.map((f) => (
-          <button
-            key={f.k}
-            className={`tab ${filter === f.k ? 'active' : ''}`}
-            onClick={() => handleFilter(f.k)}
-          >
-            {f.l}
-          </button>
-        ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <div className="tabs" style={{ marginBottom: 0 }}>
+          {FILTERS.map((f) => (
+            <button
+              key={f.k}
+              className={`tab ${filter === f.k ? 'active' : ''}`}
+              onClick={() => handleFilter(f.k)}
+            >
+              {f.l}
+            </button>
+          ))}
+        </div>
+        {dateFilter && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              className="badge"
+              style={{ background: 'var(--accent)', color: 'var(--accent-ink)' }}
+            >
+              Date: {dateFilter}
+            </span>
+            <button
+              className="btn sm ghost"
+              onClick={() => {
+                setDateFilter(null);
+                setPage(0);
+              }}
+              style={{ padding: '4px 8px' }}
+            >
+              Clear
+            </button>
+          </div>
+        )}
       </div>
 
       {loading ? (
