@@ -1,4 +1,5 @@
 import { type DB, schema } from '@aivastra/db';
+import { ASPECT_DIMENSIONS } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { resizeToMax } from './resize-to-max.js';
 
@@ -41,12 +42,7 @@ function requireNode(workflow: Workflow, nodeId: string, role: string): Workflow
 
 // ── Aspect ratio dimensions ───────────────────────────────────────────────
 
-export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
-  '1:1': { width: 2048, height: 2048 },
-  '2:3': { width: 1365, height: 2048 },
-  '3:4': { width: 1331, height: 1774 },
-  '4:5': { width: 1375, height: 1718 },
-};
+export { ASPECT_DIMENSIONS };
 
 // ── Public interface ──────────────────────────────────────────────────────
 

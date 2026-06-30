@@ -9,7 +9,8 @@ export type JobStatus =
   | 'GENERATING'
   | 'UPLOADING'
   | 'COMPLETED'
-  | 'FAILED';
+  | 'FAILED'
+  | 'CANCELLED';
 
 export interface TransitionOptions {
   workerId?: string;
@@ -32,7 +33,8 @@ export async function transitionJob(
   if (opts.workerId !== undefined) patch.workerId = opts.workerId;
   if (opts.errorCode !== undefined) patch.errorCode = opts.errorCode;
   if (status === 'GENERATING') patch.startedAt = now;
-  if (status === 'COMPLETED' || status === 'FAILED') patch.completedAt = now;
+  if (status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED')
+    patch.completedAt = now;
 
   await db
     .update(schema.jobs)
