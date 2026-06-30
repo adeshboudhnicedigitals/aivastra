@@ -17,18 +17,33 @@ function maskApiKey(key: string): string {
 async function syncToRedis(
   redis: FastifyInstance['redis'],
   id: string,
-  entry: { url: string; apiKey: string; status?: string; lastSeen?: number },
+  entry: {
+    url?: string;
+    apiKey?: string;
+    status?: string;
+    lastSeen?: number;
+    allowedJobTypes?: string[];
+  },
 ) {
   const existing = await redis.hget(REGISTRY_KEY, id);
-  const prev = existing ? (JSON.parse(existing) as { status?: string; lastSeen?: number }) : {};
+  const prev = existing
+    ? (JSON.parse(existing) as {
+        url?: string;
+        apiKey?: string;
+        status?: string;
+        lastSeen?: number;
+        allowedJobTypes?: string[];
+      })
+    : {};
   await redis.hset(
     REGISTRY_KEY,
     id,
     JSON.stringify({
-      url: entry.url,
-      apiKey: entry.apiKey,
+      url: entry.url ?? prev.url,
+      apiKey: entry.apiKey ?? prev.apiKey,
       status: entry.status ?? prev.status ?? 'IDLE',
       lastSeen: entry.lastSeen ?? prev.lastSeen ?? Date.now(),
+      allowedJobTypes: entry.allowedJobTypes ?? prev.allowedJobTypes ?? [],
     }),
   );
 }
@@ -50,6 +65,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
             url: w.url,
             apiKeyHint: maskApiKey(w.apiKey),
             isActive: w.isActive,
+            allowedJobTypes: w.allowedJobTypes ?? [],
             status: registry.status ?? (w.isActive ? 'IDLE' : 'DRAINING'),
             healthy,
             lastSeen: registry.lastSeen ?? null,
@@ -75,15 +91,17 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           label: z.string().default(''),
           url: z.string().url(),
           apiKey: z.string().min(1),
+          allowedJobTypes: z.array(z.enum(['catalogue', 'tryon'])).default([]),
         }),
       },
     },
     async (req, reply) => {
-      const { id, label, url, apiKey } = req.body as {
+      const { id, label, url, apiKey, allowedJobTypes } = req.body as {
         id: string;
         label: string;
         url: string;
         apiKey: string;
+        allowedJobTypes: string[];
       };
 
       const existing = await app.db
@@ -98,7 +116,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
 
       const [created] = await app.db
         .insert(schema.workers)
-        .values({ id, label, url, apiKey, isActive: true })
+        .values({ id, label, url, apiKey, isActive: true, allowedJobTypes })
         .returning();
       if (!created) {
         return reply
@@ -106,7 +124,13 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           .send({ error: { code: 'INSERT_FAILED', message: 'Failed to create worker' } });
       }
 
-      await syncToRedis(app.redis, id, { url, apiKey, status: 'IDLE', lastSeen: Date.now() });
+      await syncToRedis(app.redis, id, {
+        url,
+        apiKey,
+        status: 'IDLE',
+        lastSeen: Date.now(),
+        allowedJobTypes,
+      });
 
       return reply.code(201).send({
         id: created.id,
@@ -114,6 +138,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         url: created.url,
         apiKeyHint: maskApiKey(apiKey),
         isActive: created.isActive,
+        allowedJobTypes: created.allowedJobTypes ?? [],
         status: 'IDLE',
         healthy: false,
         createdAt: created.createdAt,
@@ -133,6 +158,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           url: z.string().url().optional(),
           apiKey: z.string().min(1).optional(),
           isActive: z.boolean().optional(),
+          allowedJobTypes: z.array(z.enum(['catalogue', 'tryon'])).optional(),
         }),
       },
     },
@@ -143,6 +169,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         url?: string;
         apiKey?: string;
         isActive?: boolean;
+        allowedJobTypes?: string[];
       };
 
       const [existing] = await app.db
@@ -163,11 +190,19 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           .send({ error: { code: 'UPDATE_FAILED', message: 'Failed to update worker' } });
       }
 
-      // Sync url/apiKey changes to Redis
+      // Sync url/apiKey/allowedJobTypes changes to Redis
       const newUrl = body.url ?? existing.url;
       const newApiKey = body.apiKey ?? existing.apiKey;
-      if (body.url !== undefined || body.apiKey !== undefined) {
-        await syncToRedis(app.redis, id, { url: newUrl, apiKey: newApiKey });
+      if (
+        body.url !== undefined ||
+        body.apiKey !== undefined ||
+        body.allowedJobTypes !== undefined
+      ) {
+        await syncToRedis(app.redis, id, {
+          url: newUrl,
+          apiKey: newApiKey,
+          allowedJobTypes: body.allowedJobTypes,
+        });
       }
 
       // isActive: false → set DRAINING in Redis
@@ -190,6 +225,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         url: updated.url,
         apiKeyHint: maskApiKey(updated.apiKey),
         isActive: updated.isActive,
+        allowedJobTypes: updated.allowedJobTypes ?? [],
         status: registry.status ?? 'IDLE',
         healthy,
         lastSeen: registry.lastSeen ?? null,
