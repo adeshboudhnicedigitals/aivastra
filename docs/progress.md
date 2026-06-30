@@ -1,5 +1,43 @@
 # Project Progress
 
+## 2026-06-30 — Phase 9 Closure
+
+### Done
+- **Standardized Database Seeding (Finding 9.4)**:
+  - Installed `@faker-js/faker` in `@aivastra/db`.
+  - Created a robust, deterministic seed script in `packages/db/src/seed.ts` that safely seeds users, catalog types, categories, and 2,000 items using bulk inserts.
+  - Wired it into the monorepo root via the `pnpm db:seed` command.
+  - Closed Finding 9.4 as Done.
+  - Phase 9 is now fully closed.
+
+## 2026-06-30 — Audit Triages (1.4, 2.3, 9.1)
+
+### Done
+- **Audit Docs**:
+  - Closed Finding 1.4 (BFF Proxying) as Rejected; the BFF layer is architecturally necessary for setting secure httpOnly cookies. (Phase 1 fully closed).
+  - Closed Finding 2.3 (Merchant Analytics) as Deferred; out of scope for hardening sprint. (Phase 2 fully closed).
+  - Closed Finding 9.1 (Half-Implemented Dispatcher) as Merged into 7.5 (ComfyUI payload sandboxing).
+
+## 2026-06-30 — Phase 8 Closure
+
+### Done
+- **Monorepo Boundaries (Finding 8.1)**:
+  - Installed ESLint and `eslint-plugin-boundaries` alongside `typescript-eslint` across the workspace.
+  - Added `eslint.config.js` to all `apps/*` packages enforcing the `no-restricted-imports` rule.
+  - Explicitly blocked `../packages/` and `../../apps/` imports to prevent cross-app contamination.
+- **Audit Doc (`docs/audits/audit_phase_8_dx.md`)**:
+  - Closed Finding 8.1 (Poor Monorepo Boundary Enforcement) as Done.
+  - Skipped Finding 8.2 (Database Migrations Developer Friction) as Testcontainers are explicitly abandoned on Windows.
+  - Skipped Finding 8.3 (Hardcoded Port Conflicts) as N/A since `app.listen({ port: 0 })` handles this in tests.
+  - Deferred Finding 8.4 (Missing Shared Configuration Management) to wait for ops/infrastructure buy-in.
+  - Phase 8 is now fully closed.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-30 — Phase 11 Closure
 
 ### Done

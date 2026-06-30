@@ -20,7 +20,7 @@
     "db:migrate:prod": "pnpm --filter @aivastra/db run migrate:prod",
     "db:verify": "pnpm --filter @aivastra/db run verify",
     "db:verify:prod": "pnpm --filter @aivastra/db run verify:prod",
-    "seed:catalog": "pnpm --filter @aivastra/scripts run seed:catalog",
+    "db:seed": "pnpm --filter @aivastra/db run seed",
     "docker:up": "docker compose -f infra/docker-compose.yml --env-file .env up -d",
     "docker:down": "docker compose -f infra/docker-compose.yml --env-file .env down",
     "docker:logs": "docker compose -f infra/docker-compose.yml --env-file .env logs -f",
@@ -35,9 +35,11 @@
     "@aws-sdk/client-s3": "^3.673.0",
     "@biomejs/biome": "^2.4.16",
     "@types/node": "^22.7.5",
+    "eslint": "^10.6.0",
     "lefthook": "^2.1.8",
     "sharp": "^0.33.5",
     "tsx": "^4.19.1",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.62.1"
   }
 }
