@@ -1,3 +1,6 @@
+// Boundary enforcement only — Next.js linting handled by Biome.
+// ignoreDuringBuilds: true is set in next.config.ts to prevent Next.js
+// from running this config as its own lint step.
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config({
