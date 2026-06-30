@@ -4,6 +4,7 @@ export * from './contact.js';
 export * from './credits.js';
 export * from './jobs.js';
 export * from './models.js';
+export * from './saree.js';
 export * from './tryon.js';
 export * from './users.js';
 export * from './widget.js';

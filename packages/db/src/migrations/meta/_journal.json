@@ -505,6 +505,13 @@
       "when": 1782986400000,
       "tag": "0071_widget_webhook",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1783200000000,
+      "tag": "0072_saree_settings",
+      "breakpoints": true
     }
   ]
 }

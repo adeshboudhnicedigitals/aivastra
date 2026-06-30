@@ -11,6 +11,7 @@ import DashboardPage from './pages/DashboardPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
 import RecycleBinPage from './pages/RecycleBinPage';
+import SareePage from './pages/SareePage';
 import SettingsPage from './pages/SettingsPage';
 import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
@@ -32,6 +33,7 @@ const PATH_LABELS: Record<string, string> = {
   contacts: 'Contact Requests',
   settings: 'Settings',
   workers: 'Workers',
+  saree: 'Saree',
 };
 
 function readStoredTheme(): Theme {
@@ -193,6 +195,7 @@ export default function App() {
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />
+            <Route path="/saree" element={<SareePage {...pageProps} />} />
             <Route path="/contacts" element={<ContactRequestsPage {...pageProps} />} />
             <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />

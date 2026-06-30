@@ -1,11 +1,18 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { CreateSimpleTryonRequest, CreateTryOnJobRequest } from '@aivastra/types';
+import {
+  CreateSareeJobRequest,
+  CreateSimpleTryonRequest,
+  CreateTryOnJobRequest,
+  SareeConfigResponse,
+} from '@aivastra/types';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getSareeSettings } from '../saree/settings.js';
 import { createJob, createSimpleTryonJob } from './create.js';
+import { createSareeJob } from './createSaree.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
 export async function jobsRoutes(app: FastifyInstance) {
@@ -31,6 +38,49 @@ export async function jobsRoutes(app: FastifyInstance) {
         app,
         req.userId,
         req.body as z.infer<typeof CreateSimpleTryonRequest>,
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  // GET /v1/saree/config — exposed to the user page; tells the client whether the
+  // admin has configured saree try-on (model image + active workflow).
+  app.get(
+    '/v1/saree/config',
+    { preHandler: app.requireUser, schema: { response: { 200: SareeConfigResponse } } },
+    async () => {
+      const row = await getSareeSettings(app.db);
+      const modelImageKey = row?.modelImageKey ?? null;
+      let modelImageUrl: string | null = null;
+      if (modelImageKey) {
+        try {
+          const { url } = await app.storage.presignGet(
+            row?.modelImageThumbKey ?? modelImageKey,
+            3600,
+          );
+          modelImageUrl = url;
+        } catch {
+          modelImageUrl = null;
+        }
+      }
+      return {
+        modelImageUrl,
+        isConfigured: !!modelImageKey,
+        creditsCost: 35 as const,
+      };
+    },
+  );
+
+  // POST /v1/jobs/saree
+  app.post(
+    '/v1/jobs/saree',
+    { preHandler: app.requireUser, schema: { body: CreateSareeJobRequest } },
+    async (req, reply) => {
+      const result = await createSareeJob(
+        app,
+        req.userId,
+        req.body as z.infer<typeof CreateSareeJobRequest>,
       );
       reply.code(201);
       return result;
