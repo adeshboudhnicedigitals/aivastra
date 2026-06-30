@@ -2,6 +2,11 @@
 
 This document reviews the system against common security vulnerabilities, authentication flaws, and data protection boundaries.
 
+> **Triage note:** Resolved findings have been removed. For traceability:
+> - **7.2 Unrestricted Presigned URL Generation** — Done. The audit's recommendation (`content-length-range` POST policy) is structurally impossible for SDK-generated PUT presigned URLs (`ContentLength` intentionally omitted from `PutObjectCommand` — see `r2.ts` comment). The correct gates are: (1) Zod `.max(5 * 1024 * 1024)` on `WidgetPresignRequest.contentLength` in `packages/types/src/widget.ts` validates the declared size at presign time; (2) `headObject` check at `POST /v1/widget/jobs` in `apps/api/src/modules/widget/routes.ts` catches any lie — actual uploaded bytes validated against 5MB before credit deduction or GPU work is queued. Both caps are consistent at 5MB, matching the client-side JS gate.
+>
+> Only the findings below remain open.
+
 ## Finding 7.1: Missing Widget Origin Validation Strictness
 * **Severity:** High
 * **Evidence:** The public widget API uses `Origin` headers to validate if an API key is allowed to request a job. However, outside of a browser environment, `Origin` headers are trivial to spoof (e.g., using `curl`). 
@@ -11,16 +16,6 @@ This document reviews the system against common security vulnerabilities, authen
 * **Technical impact:** Server/GPU overload.
 * **Recommendation:** Public API keys are inherently vulnerable if they control billing. Introduce a challenge-response mechanism (e.g., reCAPTCHA/Turnstile) on the widget, or require the merchant's backend to sign requests with a Secret Key (e.g., generating short-lived JWTs for the widget session) rather than trusting a static Public Key.
 * **Estimated implementation complexity:** High
-
-## Finding 7.2: Unrestricted Presigned URL Generation
-* **Severity:** High
-* **Evidence:** When generating presigned PUT URLs for R2 uploads (`/v1/assets/presign`), there is no evidence of enforcing strict `Content-Length-Range` conditions in the S3 `PutObjectCommand`.
-* **Exact files involved:** `packages/storage/src/index.ts`, `apps/api/src/modules/assets/`
-* **User impact:** None.
-* **Business impact:** Attackers can request a presigned URL and upload a 50GB file, resulting in massive Cloudflare R2 storage and ingress/egress costs.
-* **Technical impact:** Storage exhaustion and potential denial of service during downstream processing.
-* **Recommendation:** Always inject `Conditions: [["content-length-range", 0, 10485760]]` (10MB limit) when generating presigned PUT URLs.
-* **Estimated implementation complexity:** Low
 
 ## Finding 7.3: Auth Token Race Condition (Refresh Tokens)
 * **Severity:** Medium

@@ -2,6 +2,12 @@
 
 This document scrutinizes the interface design and user experience of both the Merchant Portal and the Widget. It challenges current implementations and highlights areas where the product falls short of top-tier SaaS standards.
 
+> **Triage note:** Resolved findings have been removed. For traceability:
+> - **3.2 Missing Client-Side File Validation** — Done. `handleFileSelect` validates MIME against `['image/jpeg','image/png','image/webp']` and rejects >5MB files before a presigned URL is ever requested. Inline `validationError` state renders below the dropzone — no global alert. `accept` attribute on the hidden input matches the JS allow-list exactly.
+> - **3.4 Insufficient Empty States** — Done for the real gap. The audit referenced non-existent paths (`apps/web/src/app/(merchant)/catalogues/`); actual pages live in `(app)/`. The catalogues page (`(app)/catalogues/page.tsx`) already had a complete empty state with a "Get started" CTA. The assets page (`(app)/assets/page.tsx`) was genuinely bare — replaced with `GarmentIcon` + heading + sub-copy + `<Link href="/studio"><GradBtn>` CTA; filter-miss path preserved as plain text.
+>
+> Only the findings below remain open.
+
 ## Finding 3.1: No Job Cancellation in Widget UX
 * **Severity:** High
 * **Evidence:** The widget transitions to a `waiting` state featuring a spinner and "Generating your try-on...". There is no button to cancel the job or back out if the user selected the wrong photo.
@@ -12,16 +18,6 @@ This document scrutinizes the interface design and user experience of both the M
 * **Recommendation:** Add a prominent "Cancel" button during the `waiting` step. If clicked within the first few seconds (before GPU lock), refund the credit automatically.
 * **Estimated implementation complexity:** High
 
-## Finding 3.2: Missing Client-Side File Validation
-* **Severity:** Medium
-* **Evidence:** The upload flow directly calls the API for a presigned URL as soon as a file is dropped. There is no explicit check for file size limits (e.g., >10MB) or invalid MIME types beyond the basic `<input accept="image/*">`.
-* **Exact files involved:** `apps/web/src/app/(widget)/widget/render/[key]/page.tsx`
-* **User impact:** Users uploading massive HEIC/RAW files from iPhones will experience slow uploads that ultimately fail backend validation, providing a poor feedback loop.
-* **Business impact:** Increased cloud ingress costs for aborted/failed large files.
-* **Technical impact:** Presigned URL generation endpoints might be unnecessarily abused.
-* **Recommendation:** Enforce strict client-side checks for file size (max 5MB) and exact MIME types (JPEG, PNG, WEBP) *before* requesting the presigned URL. Display immediate, friendly error toasts if validation fails.
-* **Estimated implementation complexity:** Low
-
 ## Finding 3.3: Dead-End "Coming Soon" States
 * **Severity:** Medium
 * **Evidence:** The `ComingSoon` component is used in place of unfinished features (e.g., analytics, certain settings). It provides no path forward.
@@ -30,16 +26,6 @@ This document scrutinizes the interface design and user experience of both the M
 * **Business impact:** Missed opportunity to gauge feature demand.
 * **Technical impact:** None.
 * **Recommendation:** Replace generic "Coming Soon" messages with interactive elements, such as "Notify me when this is ready" (capturing intent in a database) or linking to documentation/roadmaps.
-* **Estimated implementation complexity:** Low
-
-## Finding 3.4: Insufficient Empty States
-* **Severity:** Medium
-* **Evidence:** If a merchant has no catalogues or assets, the UI likely renders empty tables or generic lists (inferred from common scaffolding). World-class SaaS platforms use empty states to educate and drive action.
-* **Exact files involved:** `apps/web/src/app/(merchant)/catalogues/`, `apps/web/src/app/(merchant)/assets/`
-* **User impact:** New merchants experience a "cold start" problem. They don't know what to do next.
-* **Business impact:** Lower activation rates and higher onboarding drop-off.
-* **Technical impact:** UI additions required.
-* **Recommendation:** Design rich empty states with illustrations, clear primary call-to-actions ("Create your first catalogue"), and links to video tutorials or docs.
 * **Estimated implementation complexity:** Low
 
 ## Finding 3.5: Poor Reconnection UX on SSE Drops

@@ -2,6 +2,12 @@
 
 This document evaluates the UI consistency, styling architecture, and the scalability of the design system used across the application.
 
+> **Triage note:** Resolved findings have been removed. For traceability:
+> - **4.2 Design System Fragmentation (Tailwind vs Vanilla CSS)** — Rejected by design decision. `tokens.ts` + inline CSS variables is the intentional design language. Tailwind migration would be a full rewrite with no product benefit. `tailwind.config.ts` exists as a Next.js scaffold artifact — it is not actively used and not worth removing.
+> - **4.4 Inconsistent Theming Strategy** — Partially done. The audit cited `error.tsx` and `confirm-dialog.tsx`. `confirm-dialog.tsx` already used `C.*` tokens throughout (audit was wrong). `error.tsx` line 19 fixed: `background: '#fff'` → `background: C.bg`. Remaining hardcoded hex values in other files are a known ongoing concern, not a discrete finding.
+>
+> Only the findings below remain open.
+
 ## Finding 4.1: Anti-Pattern: Heavy Reliance on JS Event Handlers for Styling
 * **Severity:** High
 * **Evidence:** Across numerous components (e.g., `PremiumSelect`, `DarkBtn`, `GradBtn`), hover and focus states are implemented using React synthetic events (`onMouseEnter`, `onMouseLeave`, `onFocus`) to mutate `e.currentTarget.style.opacity` or `background`.
@@ -11,16 +17,6 @@ This document evaluates the UI consistency, styling architecture, and the scalab
 * **Technical impact:** Bypasses the browser's highly optimized CSS engine. Prevents pseudo-classes (`:hover`, `:active`, `:focus-visible`) from working correctly with CSS transitions.
 * **Recommendation:** Move all interactive styling to CSS classes or CSS modules. Utilize native pseudo-classes and remove all JS-based style mutations.
 * **Estimated implementation complexity:** Medium
-
-## Finding 4.2: Design System Fragmentation (Tailwind vs Vanilla CSS)
-* **Severity:** Medium
-* **Evidence:** The repository contains a `tailwind.config.ts` configuring standard Tailwind utility classes, yet the application explicitly avoids it, utilizing heavy inline `style={{}}` attributes and a bespoke `tokens.ts` file holding CSS variables.
-* **Exact files involved:** `apps/web/tailwind.config.ts`, `apps/web/src/components/tokens.ts`, `apps/web/src/app/globals.css`
-* **User impact:** Inconsistent UI if developers accidentally mix Tailwind classes with inline styles.
-* **Business impact:** Slower feature velocity due to lack of a standardized, enforced styling mechanism.
-* **Technical impact:** Dead code (Tailwind configuration) and high bundle sizes due to repetitive inline style objects instead of shared classes.
-* **Recommendation:** Either commit fully to CSS Modules/Vanilla Extract (and delete Tailwind), or migrate the inline styles to Tailwind utilities. The current middle ground (inline styles + CSS vars) is unmaintainable.
-* **Estimated implementation complexity:** High
 
 ## Finding 4.3: Hardcoded Responsive Breakpoints
 * **Severity:** Medium
@@ -32,12 +28,3 @@ This document evaluates the UI consistency, styling architecture, and the scalab
 * **Recommendation:** Refactor layout components (`TopBar`, `Sidebar`, Grids) to use a standardized responsive grid system.
 * **Estimated implementation complexity:** High
 
-## Finding 4.4: Inconsistent Theming Strategy
-* **Severity:** Low
-* **Evidence:** `globals.css` defines `.dark` classes and `layout.tsx` runs a blocking script to read `localStorage.getItem('theme')`. However, many components hardcode colors like `#fff` or `#141414` directly in inline styles instead of referencing `C.white` or `C.dark`.
-* **Exact files involved:** `apps/web/src/app/error.tsx`, `apps/web/src/components/ui/confirm-dialog.tsx`
-* **User impact:** Toggling dark mode will result in broken, unreadable UI elements where colors are hardcoded.
-* **Business impact:** Unpolished appearance.
-* **Technical impact:** Breaks the theming contract.
-* **Recommendation:** Create a strict ESLint rule or review process prohibiting hex codes in inline styles. Audit all components to strictly use the `C` or `M` token dictionaries.
-* **Estimated implementation complexity:** Low
