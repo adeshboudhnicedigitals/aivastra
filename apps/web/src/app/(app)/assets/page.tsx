@@ -1,9 +1,11 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { GarmentIcon, SearchIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { GradBtn } from '@/components/ui/grad-btn';
 import { api } from '@/lib/api';
 
 interface Asset {
@@ -132,10 +134,38 @@ export default function AssetsPage(): React.ReactElement {
         )}
 
         {!loading && filtered.length === 0 && !error && (
-          <div style={{ padding: '40px', textAlign: 'center', color: C.light, fontSize: 14 }}>
-            {search
-              ? 'No assets match your search'
-              : 'No assets yet. Upload a garment to get started.'}
+          <div
+            style={{
+              padding: '64px 24px',
+              textAlign: 'center',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 16,
+            }}
+          >
+            {search ? (
+              <p style={{ color: C.light, fontSize: 14, margin: 0 }}>No assets match your search</p>
+            ) : (
+              <>
+                <div style={{ color: C.pink, opacity: 0.8, marginBottom: 4 }}>
+                  <GarmentIcon size={48} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: 0 }}>
+                    No assets yet
+                  </h3>
+                  <p style={{ color: C.light, fontSize: 14, margin: 0, maxWidth: 300 }}>
+                    Upload your first garment in the Studio to start generating try-ons.
+                  </p>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <Link href="/studio" style={{ textDecoration: 'none' }}>
+                    <GradBtn>Upload your first garment</GradBtn>
+                  </Link>
+                </div>
+              </>
+            )}
           </div>
         )}
 
