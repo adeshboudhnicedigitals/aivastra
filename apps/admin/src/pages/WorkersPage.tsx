@@ -3,12 +3,15 @@ import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
 import { apiFetch } from '../lib/data';
 
+type JobType = 'catalogue' | 'tryon';
+
 interface Worker {
   id: string;
   label: string;
   url: string;
   apiKeyHint: string;
   isActive: boolean;
+  allowedJobTypes: JobType[];
   status: 'IDLE' | 'BUSY' | 'DRAINING';
   healthy: boolean;
   lastSeen: number | null;
@@ -21,7 +24,10 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-const EMPTY_FORM = { id: '', label: '', url: '', apiKey: '' };
+const JOB_TYPES: JobType[] = ['catalogue', 'tryon'];
+const JOB_TYPE_LABELS: Record<JobType, string> = { catalogue: 'Catalogue', tryon: 'Tryon' };
+
+const EMPTY_FORM = { id: '', label: '', url: '', apiKey: '', allowedJobTypes: [] as JobType[] };
 
 export default function WorkersPage({ toast }: Props) {
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -60,7 +66,13 @@ export default function WorkersPage({ toast }: Props) {
   }
 
   function openEdit(w: Worker) {
-    setForm({ id: w.id, label: w.label, url: w.url, apiKey: '' });
+    setForm({
+      id: w.id,
+      label: w.label,
+      url: w.url,
+      apiKey: '',
+      allowedJobTypes: w.allowedJobTypes ?? [],
+    });
     setEditTarget(w);
     setShowAdd(true);
   }
@@ -75,10 +87,14 @@ export default function WorkersPage({ toast }: Props) {
     setSaving(true);
     try {
       if (editTarget) {
-        const body: Record<string, string | boolean> = {};
+        const body: Record<string, string | boolean | string[]> = {};
         if (form.label !== editTarget.label) body.label = form.label;
         if (form.url !== editTarget.url) body.url = form.url;
         if (form.apiKey) body.apiKey = form.apiKey;
+        const typesChanged =
+          JSON.stringify([...form.allowedJobTypes].sort()) !==
+          JSON.stringify([...(editTarget.allowedJobTypes ?? [])].sort());
+        if (typesChanged) body.allowedJobTypes = form.allowedJobTypes;
         await apiFetch(`/admin/workers/${editTarget.id}`, {
           method: 'PATCH',
           body: JSON.stringify(body),
@@ -184,6 +200,7 @@ export default function WorkersPage({ toast }: Props) {
               <tr>
                 <th>ID / Label</th>
                 <th>URL</th>
+                <th>Job Types</th>
                 <th>Status</th>
                 <th>Health</th>
                 <th>Last Seen</th>
@@ -210,6 +227,33 @@ export default function WorkersPage({ toast }: Props) {
                     >
                       {w.url}
                     </span>
+                  </td>
+                  <td>
+                    {w.allowedJobTypes && w.allowedJobTypes.length > 0 ? (
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {w.allowedJobTypes.map((t) => (
+                          <span
+                            key={t}
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 7px',
+                              borderRadius: 4,
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              background:
+                                t === 'tryon'
+                                  ? 'color-mix(in srgb, var(--accent) 15%, transparent)'
+                                  : 'color-mix(in srgb, var(--success) 15%, transparent)',
+                              color: t === 'tryon' ? 'var(--accent)' : 'var(--success)',
+                            }}
+                          >
+                            {JOB_TYPE_LABELS[t]}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>Any</span>
+                    )}
                   </td>
                   <td>
                     <span
@@ -380,6 +424,43 @@ export default function WorkersPage({ toast }: Props) {
                 autoComplete="new-password"
               />
             </label>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                Job Types
+                <span style={{ marginLeft: 6, fontWeight: 400 }}>
+                  (leave unchecked to accept all)
+                </span>
+              </span>
+              <div style={{ display: 'flex', gap: 12 }}>
+                {JOB_TYPES.map((t) => (
+                  <label
+                    key={t}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.allowedJobTypes.includes(t)}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          allowedJobTypes: e.target.checked
+                            ? [...f.allowedJobTypes, t]
+                            : f.allowedJobTypes.filter((x) => x !== t),
+                        }))
+                      }
+                    />
+                    {JOB_TYPE_LABELS[t]}
+                  </label>
+                ))}
+              </div>
+            </div>
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
               <button className="btn btn--ghost" onClick={closeModal}>

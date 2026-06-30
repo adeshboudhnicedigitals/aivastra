@@ -7,6 +7,7 @@ export interface WorkerEntry {
   apiKey: string;
   status: WorkerStatus;
   lastSeen: number; // unix ms
+  allowedJobTypes: string[]; // empty = accept all
 }
 
 export const REGISTRY_KEY = 'worker:registry';
@@ -43,7 +44,7 @@ export async function setWorkerStatus(
 
 export async function registerWorkers(
   redis: Redis,
-  workers: Array<{ id: string; url: string; apiKey: string }>,
+  workers: Array<{ id: string; url: string; apiKey: string; allowedJobTypes?: string[] }>,
 ): Promise<void> {
   // Remove stale entries: any worker in Redis but not in the DB list is deleted.
   // This prevents old env-var workers from lingering after being removed from the DB.
@@ -62,6 +63,7 @@ export async function registerWorkers(
       apiKey: w.apiKey,
       status: 'IDLE',
       lastSeen: Date.now(),
+      allowedJobTypes: w.allowedJobTypes ?? [],
     };
     await redis.hset(REGISTRY_KEY, w.id, JSON.stringify(entry));
   }

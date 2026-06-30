@@ -256,7 +256,7 @@ export async function processJob(
 
   // 3. Claim a worker
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis);
+  const worker = await selectWorker(redis, 'catalogue');
   if (!worker) {
     jobLog.warn('no idle worker — re-enqueuing with backoff');
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
@@ -545,7 +545,7 @@ async function processTryonDirectJob(
   }
 
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
-  const worker = await selectWorker(redis);
+  const worker = await selectWorker(redis, 'tryon');
   if (!worker) {
     jobLog.warn('no idle worker — re-enqueuing tryon direct job with backoff');
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));

@@ -54,7 +54,12 @@ async function main(): Promise<void> {
 
   // Load workers from DB (source of truth — managed via admin panel)
   const dbWorkers = await db.select().from(schema.workers).where(eq(schema.workers.isActive, true));
-  const workers = dbWorkers.map((w) => ({ id: w.id, url: w.url, apiKey: w.apiKey }));
+  const workers = dbWorkers.map((w) => ({
+    id: w.id,
+    url: w.url,
+    apiKey: w.apiKey,
+    allowedJobTypes: w.allowedJobTypes ?? [],
+  }));
   if (workers.length === 0) {
     log.warn('No active workers found in DB — add workers via admin panel');
   }
