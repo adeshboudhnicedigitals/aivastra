@@ -1,5 +1,27 @@
 # Project Progress
 
+## 2026-06-30 — Widget Job Cancellation (Finding 3.1)
+
+### Done
+- **API (`apps/api/src/modules/widget/routes.ts`)**: 
+  - Added `DELETE /v1/widget/jobs/:id` which cancels `QUEUED` or `PREPROCESSING` jobs.
+  - Implemented an atomic `widgetRefund` of 10 credits inside the cancellation transaction.
+  - Returns `409 NOT_CANCELLABLE` if the generation has already started (`GENERATING` or `UPLOADING`).
+  - Publishes a `{ type: 'STATUS', status: 'CANCELLED' }` event to the Redis SSE stream.
+- **Widget UI (`apps/web/src/app/(widget)/widget/render/[key]/page.tsx`)**:
+  - Rendered a `Cancel` button during the `processing` step.
+  - Handled the `CANCELLED` SSE event to transition to a new `cancelled` UI step.
+  - Added an "Upload new photo" CTA in the `cancelled` step which cleanly resets the internal state (`jobId`, `uploadFile`, `uploadPreview`, idempotency keys) allowing the user to start a fresh upload.
+  - Tokenized cancellation colors using `C.field`, `C.text`, `C.mid`, and `C.pink`.
+- **Audit Doc (`docs/audits/audit_phase_3_ui_ux.md`)**:
+  - Marked Findings 3.1 and 3.3 as resolved in the triage note. Phase 3 UI & UX Audit is now fully resolved.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-30 — Audit Sprint fixes: P1-4, 3.3, 11.4
 
 ### Done

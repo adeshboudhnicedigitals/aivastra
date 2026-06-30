@@ -7,7 +7,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 import { C, grad } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
 
-type Step = 'validating' | 'waiting' | 'uploading' | 'processing' | 'result' | 'error';
+type Step =
+  | 'validating'
+  | 'waiting'
+  | 'uploading'
+  | 'processing'
+  | 'result'
+  | 'error'
+  | 'cancelled';
 
 interface WidgetConfig {
   widgetClientId: string;
@@ -54,6 +61,8 @@ export default function WidgetRenderPage() {
   const [sseConnState, setSseConnState] = useState<'connecting' | 'connected' | 'reconnecting'>(
     'connecting',
   );
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelToast, setCancelToast] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const sseRetryDelay = useRef(1_000);
@@ -142,6 +151,11 @@ export default function WidgetRenderPage() {
                 sseClosedRef.current = true;
                 setErrorMessage('Try-on generation failed');
                 setStep('error');
+                return;
+              }
+              if (evt.type === 'CANCELLED') {
+                sseClosedRef.current = true;
+                setStep('cancelled');
                 return;
               }
             } catch {
@@ -259,6 +273,32 @@ export default function WidgetRenderPage() {
       /* cross-origin ok */
     }
   };
+
+  const handleCancel = useCallback(async () => {
+    if (!jobId || cancelling) return;
+    setCancelling(true);
+    setCancelToast('');
+    try {
+      const res = await fetch(`${API_URL}/v1/widget/jobs/${jobId}`, {
+        method: 'DELETE',
+        headers: { 'X-Widget-Key': key },
+      });
+      if (!res.ok) {
+        if (res.status === 409) {
+          setCancelToast("Can't cancel — generation already started");
+        } else {
+          setCancelToast('Failed to cancel');
+        }
+        setCancelling(false);
+        return;
+      }
+      sseClosedRef.current = true;
+      setStep('cancelled');
+    } catch {
+      setCancelToast('Network error while cancelling');
+      setCancelling(false);
+    }
+  }, [jobId, key, cancelling]);
 
   return (
     <div
@@ -566,7 +606,90 @@ export default function WidgetRenderPage() {
                 Connection lost — retrying…
               </p>
             )}
+            {!cancelling && !cancelToast && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                style={{
+                  marginTop: 16,
+                  background: 'none',
+                  border: 'none',
+                  color: C.pink,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                }}
+              >
+                Cancel
+              </button>
+            )}
+            {cancelling && (
+              <p style={{ marginTop: 16, fontSize: 13, color: C.mid }}>Cancelling...</p>
+            )}
+            {cancelToast && (
+              <p style={{ marginTop: 16, fontSize: 13, color: C.pink }}>{cancelToast}</p>
+            )}
           </div>
+        </div>
+      )}
+
+      {step === 'cancelled' && (
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            padding: 24,
+            textAlign: 'center',
+          }}
+        >
+          <div
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: '50%',
+              background: C.field,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 16,
+            }}
+          >
+            <span style={{ fontSize: 24, color: C.text }}>✕</span>
+          </div>
+          <h2 style={{ margin: '0 0 8px', fontSize: 18, color: C.text }}>Job cancelled</h2>
+          <p style={{ margin: '0 0 24px', fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
+            Credits have been refunded.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setStep('waiting');
+              setJobId('');
+              setUploadFile(null);
+              setUploadPreview('');
+              setCancelling(false);
+              setCancelToast('');
+              idempKeyRef.current = '';
+              sseClosedRef.current = false;
+            }}
+            className="btn-hover-opacity"
+            style={{
+              background: C.dark,
+              color: C.onDark,
+              border: 'none',
+              borderRadius: 8,
+              padding: '12px 24px',
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >
+            Upload new photo
+          </button>
         </div>
       )}
 

@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
-import { atomicWidgetDeduct } from './ledger.js';
+import { atomicWidgetDeduct, widgetRefund } from './ledger.js';
 
 const WIDGET_JOB_COST = 10;
 
@@ -230,6 +230,44 @@ export async function widgetRoutes(app: FastifyInstance) {
     }
 
     return reply.send(job);
+  });
+
+  app.delete('/v1/widget/jobs/:id', { preHandler: app.requireWidgetClient }, async (req, reply) => {
+    const clientId = (req as any).widgetClientId as string;
+    const { id } = req.params as { id: string };
+
+    const [job] = await app.db
+      .select({
+        id: schema.jobs.id,
+        status: schema.jobs.status,
+        widgetClientId: schema.jobs.widgetClientId,
+      })
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, id))
+      .limit(1);
+
+    if (!job || job.widgetClientId !== clientId) {
+      throw new AppError('NOT_FOUND', 404, 'Job not found');
+    }
+
+    if (job.status === 'COMPLETED' || job.status === 'FAILED' || job.status === 'CANCELLED') {
+      throw new AppError('NOT_CANCELLABLE', 409, 'Job is already finished or cancelled');
+    }
+
+    if (job.status === 'GENERATING' || job.status === 'UPLOADING') {
+      throw new AppError('NOT_CANCELLABLE', 409, 'Job is already being processed');
+    }
+
+    // Status is QUEUED or PREPROCESSING
+    await app.db.transaction(async (tx) => {
+      await tx.update(schema.jobs).set({ status: 'CANCELLED' }).where(eq(schema.jobs.id, id));
+      await widgetRefund(tx as any, clientId, WIDGET_JOB_COST, id, 'REFUND_CANCELLED');
+    });
+
+    const evt = JSON.stringify({ type: 'STATUS', jobId: id, status: 'CANCELLED' });
+    await app.redis.publish(`sse:events:widget:${clientId}`, evt);
+
+    return reply.send({ status: 'CANCELLED' });
   });
 
   app.get(
