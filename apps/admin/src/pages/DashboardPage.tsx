@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
 import { apiFetch } from '../lib/data';
@@ -379,23 +380,22 @@ export default function DashboardPage({ onNav, toast }: Props) {
             </div>
           </div>
           <div className="card-body">
-            <div className="spark">
-              {stats.jobsPerDay.map((v, i) => (
-                <div
-                  key={i}
-                  className={`bar ${i === stats.jobsPerDay.length - 1 ? 'accent' : ''}`}
-                  style={{ height: `${(v / maxBar) * 100}%` }}
-                >
-                  <div className="val">
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>
-                      {stats.jobsPerDayLabels[i]}
-                    </div>
-                    <div style={{ fontWeight: 500, fontFamily: 'var(--mono)' }}>
-                      {v.toLocaleString()} jobs
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="spark" style={{ minHeight: 200 }}>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={stats.jobsPerDay.map((jobs, i) => ({ date: stats.jobsPerDayLabels[i], jobs }))}>
+                  <XAxis dataKey="date" stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(128,128,128,0.08)' }}
+                    contentStyle={{
+                      background: 'var(--surface-2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                  />
+                  <Bar dataKey="jobs" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
             <div
               style={{

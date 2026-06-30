@@ -2,15 +2,11 @@
 
 This document explicitly evaluates the internal admin application (`apps/admin`), which operates as a separate Vite/React SPA. This audit highlights critical gaps where the admin dashboard falls short of production-grade, enterprise SaaS standards.
 
-## Finding 11.1: Primitive Data Visualization and Lack of Actionable Analytics
-* **Severity:** High
-* **Evidence:** The dashboard (`apps/admin/src/pages/DashboardPage.tsx`) renders charts using raw flexbox `div` elements with inline percentage heights (`style={{ height: ${(v / maxBar) * 100}% }}`). 
-* **Exact files involved:** `apps/admin/src/pages/DashboardPage.tsx`
-* **User impact:** Admins cannot hover over data points for tooltips, filter by custom date ranges, or drill down into specific user cohorts.
-* **Business impact:** Operations teams are flying blind. They cannot effectively monitor platform health or business metrics (like job success rates over time) without raw SQL queries.
-* **Technical impact:** Unscalable UI code.
-* **Recommendation:** Replace manual HTML/CSS charts with a robust, interactive charting library such as Recharts, Chart.js, or Visx. Introduce multi-dimensional filtering (e.g., last 24h, 7d, 30d).
-* **Estimated implementation complexity:** Medium
+> **Triage note:** Resolved findings have been removed. For traceability:
+> - **11.1 Primitive Data Visualization** — Done. Replaced custom div-based sparklines in `DashboardPage.tsx` with interactive Recharts `<BarChart>` and `<Tooltip>`, preserving existing data wiring.
+>
+> Only the findings below remain open.
+
 
 ## Finding 11.2: Inferior Real-Time UX (Polling Anti-Pattern)
 * **Severity:** High

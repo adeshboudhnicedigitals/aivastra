@@ -100,6 +100,14 @@ export async function widgetRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const clientId = (req as any).widgetClientId as string;
+
+      const idempKey = req.headers['x-idempotency-key'] as string | undefined;
+      const idempRedisKey = idempKey ? `idempotency:${clientId}:${idempKey}` : null;
+      if (idempRedisKey) {
+        const cached = await app.redis.get(idempRedisKey);
+        if (cached) return reply.send({ jobId: cached });
+      }
+
       const { garmentImageUrl, customerPhotoKey } = req.body as {
         garmentImageUrl: string;
         customerPhotoKey: string;
@@ -189,6 +197,10 @@ export async function widgetRoutes(app: FastifyInstance) {
         'type',
         'WIDGET_TRYON',
       );
+
+      if (idempRedisKey) {
+        await app.redis.set(idempRedisKey, jobId, 'EX', 600);
+      }
 
       return reply.code(201).send({ jobId });
     },
