@@ -1,28 +1,28 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
+// Access token lives only in module memory — never in a JS-readable cookie.
+// XSS cannot steal it and forge long-lived sessions. On page reload the token
+// is gone; the first 401 triggers tryRefresh() which re-hydrates it from the
+// httpOnly refresh cookie without any user-visible interruption.
+let _memToken: string | null = null;
+
+/** Call after a successful login/register to seed the in-memory token. */
+export function initToken(token: string): void {
+  _memToken = token;
+}
+
 const AUTH_CHANNEL =
   typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('aivastra-auth') : null;
 
-let broadcastToken: string | null = null;
-
 AUTH_CHANNEL?.addEventListener('message', (e) => {
   if (e.data?.type === 'token-refreshed' && e.data?.accessToken) {
-    broadcastToken = e.data.accessToken;
-    const secure = location.protocol === 'https:' ? '; Secure' : '';
-    document.cookie = `access_token=${encodeURIComponent(e.data.accessToken)}; path=/; max-age=900; SameSite=Lax${secure}`;
+    _memToken = e.data.accessToken;
   }
 });
 
 function getToken(): string | null {
-  if (typeof document === 'undefined') return null;
-  if (broadcastToken) {
-    const t = broadcastToken;
-    broadcastToken = null;
-    return t;
-  }
-  const match = document.cookie.match(/(?:^|; )access_token=([^;]*)/);
-  return match ? decodeURIComponent(match[1]!) : null;
+  return _memToken;
 }
 
 // Single-flight: coalesce concurrent refreshes into one request. Without this,
@@ -31,12 +31,6 @@ function getToken(): string | null {
 // the rest hit a revoked token and force a logout. Dedup avoids that race.
 let refreshInFlight: Promise<string | null> | null = null;
 
-function setAccessTokenCookie(token: string): void {
-  if (typeof document === 'undefined') return;
-  const secure = location.protocol === 'https:' ? '; Secure' : '';
-  document.cookie = `access_token=${encodeURIComponent(token)}; path=/; max-age=900; SameSite=Lax${secure}`;
-}
-
 function tryRefresh(): Promise<string | null> {
   if (!refreshInFlight) {
     refreshInFlight = (async () => {
@@ -44,9 +38,8 @@ function tryRefresh(): Promise<string | null> {
         const res = await fetch(`${BASE}/api/auth/refresh`, { method: 'POST' });
         if (!res.ok) return null;
         const data = (await res.json()) as { accessToken: string };
-        // Always update local cookie explicitly — do not rely on BFF alone
-        // or on BroadcastChannel echoing back to this tab.
-        setAccessTokenCookie(data.accessToken);
+        _memToken = data.accessToken;
+        AUTH_CHANNEL?.postMessage({ type: 'token-refreshed', accessToken: data.accessToken });
         return data.accessToken;
       } catch {
         return null;
@@ -80,13 +73,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     if (refreshed) {
       headers.Authorization = `Bearer ${refreshed}`;
       res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
-      // Notify other tabs of the new token (best-effort UX optimization)
-      AUTH_CHANNEL?.postMessage({ type: 'token-refreshed', accessToken: refreshed });
     } else {
-      // Refresh failed (e.g. another tab already rotated the token).
-      // Check if a token arrived via BroadcastChannel or was set by the
-      // middleware while we were waiting — if so, retry rather than logging out.
-      const fallback = getToken();
+      // Refresh failed — another tab may have already rotated the token and
+      // broadcast it. Check the in-memory store one more time before giving up.
+      const fallback = _memToken;
       if (fallback) {
         headers.Authorization = `Bearer ${fallback}`;
         res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });

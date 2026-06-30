@@ -2,16 +2,11 @@ import type { NextResponse } from 'next/server';
 
 export function setAuthCookies(
   response: NextResponse,
-  accessToken: string,
+  _accessToken: string,
   setCookieHeader: string | null,
 ): void {
-  response.cookies.set('access_token', accessToken, {
-    httpOnly: false,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 15 * 60,
-    secure: process.env.NODE_ENV === 'production',
-  });
+  // access_token is kept in JS module memory (see api.ts), not in a cookie,
+  // so that XSS cannot steal a bearer token and forge requests indefinitely.
 
   if (setCookieHeader) {
     const refreshMatch = setCookieHeader.match(/refresh=([^;]+)/);
