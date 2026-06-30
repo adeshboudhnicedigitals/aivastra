@@ -17,6 +17,13 @@ const NAV = [
     badge: 'New',
   },
   {
+    id: 'saree',
+    href: '/saree',
+    label: 'Saree',
+    icon: `${BASE}/assets/saree-icon.svg`,
+    badge: 'New',
+  },
+  {
     id: 'catalogues',
     href: '/catalogues',
     label: 'Catalogues',
@@ -49,6 +56,8 @@ export function Sidebar() {
         queryKey: ['garmentTypes', 'women'],
         queryFn: () => api.get('/v1/models/garment-types?gender=women'),
       });
+    } else if (id === 'saree') {
+      qc.prefetchQuery({ queryKey: ['saree-config'], queryFn: () => api.get('/v1/saree/config') });
     }
   }
 
