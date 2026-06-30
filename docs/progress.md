@@ -1,5 +1,32 @@
 # Project Progress
 
+## 2026-06-30 — Saree job creator integration tests
+
+### Done
+- Created `apps/api/test/integration/saree-jobs.test.ts` with 5 tests covering: NOT_CONFIGURED (no model image) → 400, CONFIG (no active saree workflow) → 400, FORBIDDEN (garmentKey owned by another user) → 403, happy path (35 credits deducted, job+inputs inserted, XADD to jobs:normal) → 201, refund on enqueue failure (503, credits refunded, job FAILED with errorCode=ENQUEUE_FAIL).
+- Adapted `registerUser` to the current email-verification flow: register → mark `emailVerified=true` via DB → login for a real JWT. The spec's `res.json().accessToken` pattern was broken by the post-commit auth change.
+- Added stub values for `workflowTemplates` NOT NULL columns (`faceNodeId`, `poseNodeId`, `bgNodeId`, `upperNodeIds`, `facePhasePromptNode`, `garmentPhasePromptNode`) that the saree flow doesn't actually use. The saree flow only reads the `tryon*_node_id` columns.
+- Stubbed `app.storage.headObject` in `beforeEach` so `assertOwnsUploadKey`'s existence check passes without a real R2 object. The spec's assumption that the HEAD check would "throw BAD_UPLOAD before reaching" the config checks was wrong — HEAD always runs first unless the owner check fails (which is exactly the FORBIDDEN test).
+- All 5 tests pass (3.7s). `pnpm --filter @aivastra/api typecheck` clean. Biome formatting clean.
+- Committed: `test(api): add saree job creator integration tests` (6477d32).
+
+---
+
+## 2026-06-30 — Saree Try-On follow-up: Workers page checkbox
+
+**Done**
+- Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin/src/pages/WorkersPage.tsx`
+- Wrapped the Add/Edit Worker modal's checkbox row with `flexWrap: 'wrap'` so 3 checkboxes don't overflow on narrow screens
+- Updated the workers-table badge color logic so `saree` rows render with a pink tint (`var(--pink, #ec4899)`) distinct from `tryon` (accent) and `catalogue` (success)
+- Admin can now enable a worker for saree jobs from the UI — no API PATCH needed
+- Closes the loop: `Admin → Saree page → upload workflow + model image` + `Admin → Workers page → enable saree on a worker` = end-to-end ready
+
+**Tested**
+- Admin build (`pnpm --filter @aivastra/admin build`) — clean (76 modules, 5.62s)
+- lefthook biome-staged — no fixes needed
+
+---
+
 ## 2026-06-30 — SSE Reconnection UX (session 4)
 
 ### Done
@@ -14,6 +41,70 @@
 
 ### Open Questions / Decisions
 - None.
+
+---
+
+## 2026-06-30 — Saree Try-On (temporary feature)
+
+**Done**
+- New `saree_settings` table (single row, holds admin's static model image key) + migration 0071
+- 10 new Zod schemas in `@aivastra/types/saree`
+- `saree-detect.ts` auto-detects person + saree LoadImage nodes (5 unit tests passing)
+- 7 admin routes under `/admin/saree-*` (workflow active/upload/deactivate, settings GET/presign/PATCH, workers list)
+- 2 user routes (`GET /v1/saree/config`, `POST /v1/jobs/saree`) — 35 credits, normal/priority queue
+- Dispatcher `processSareeJob` routes to workers with `saree` in `allowedJobTypes`
+- New `jobsCreatedTotal` `kind` label (catalogue / tryon / saree)
+- Web `/saree` page (left upload, right preview, "not configured" empty state)
+- Admin `/saree` page (3 sections: ComfyUI Workflow, Model Image, Worker Selection)
+- Web + admin sidebar entries
+- 5 integration tests for `createSareeJob` (all passing via `vitest.integration.config.ts`)
+
+**Tested via integration tests**
+- NOT_CONFIGURED when model image missing → 400
+- CONFIG when active workflow missing → 400
+- FORBIDDEN when garmentKey owned by another user → 403
+- Happy path: 35 credits deducted, job+inputs inserted, jobs:normal XADD
+- Enqueue failure: 503, credits refunded, job marked FAILED
+- Detector: model/saree/output/prompts detected from saree.json fixture
+
+**NOT yet tested live (requires ComfyUI worker)**
+- Worker claims a saree job and runs the workflow
+- Result image renders correctly on the model person
+- Saree-specific positive prompt produces a draped saree output
+
+**Workers setup required for live testing**
+- Per-worker config: add `'saree'` to `workers.allowedJobTypes` via the Workers admin page
+- The Qwen-Image-Edit-2509 + 3 LoRAs models must be present on the worker
+- The worker must accept saree jobs (3 GB+ VRAM, ~5-10 min/inference)
+
+**Open Questions / Decisions**
+- Whether to keep this feature past the "temporary" window — the spec calls it a temporary feature, easy to remove via drop `saree_settings` + 4 file removals
+- Whether the static model image should rotate based on user preference (deferred to a later phase)
+
+---
+
+## 2026-06-30 — Saree Try-On follow-up: Workers page checkbox
+
+**Done**
+- Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin/src/pages/WorkersPage.tsx`
+- Wrapped the Add/Edit Worker modal's checkbox row with `flexWrap: 'wrap'` so 3 checkboxes don't overflow on narrow screens
+- Updated the workers-table badge color logic so `saree` rows render with a pink tint (`var(--pink, #ec4899)`) distinct from `tryon` (accent) and `catalogue` (success)
+- Admin can now enable a worker for saree jobs from the UI — no API PATCH needed
+- Closes the loop: `Admin → Saree page → upload workflow + model image` + `Admin → Workers page → enable saree on a worker` = end-to-end ready
+
+**Tested**
+- Admin build (`pnpm --filter @aivastra/admin build`) — clean (76 modules, 5.62s)
+- lefthook biome-staged — no fixes needed
+
+## 2026-06-30 — Saree job creator integration tests
+
+### Done
+- Created `apps/api/test/integration/saree-jobs.test.ts` with 5 tests covering: NOT_CONFIGURED (no model image) → 400, CONFIG (no active saree workflow) → 400, FORBIDDEN (garmentKey owned by another user) → 403, happy path (35 credits deducted, job+inputs inserted, XADD to jobs:normal) → 201, refund on enqueue failure (503, credits refunded, job FAILED with errorCode=ENQUEUE_FAIL).
+- Adapted `registerUser` to the current email-verification flow: register → mark `emailVerified=true` via DB → login for a real JWT. The spec's `res.json().accessToken` pattern was broken by the post-commit auth change.
+- Added stub values for `workflowTemplates` NOT NULL columns (`faceNodeId`, `poseNodeId`, `bgNodeId`, `upperNodeIds`, `facePhasePromptNode`, `garmentPhasePromptNode`) that the saree flow doesn't actually use. The saree flow only reads the `tryon*_node_id` columns.
+- Stubbed `app.storage.headObject` in `beforeEach` so `assertOwnsUploadKey`'s existence check passes without a real R2 object. The spec's assumption that the HEAD check would "throw BAD_UPLOAD before reaching" the config checks was wrong — HEAD always runs first unless the owner check fails (which is exactly the FORBIDDEN test).
+- All 5 tests pass (3.7s). `pnpm --filter @aivastra/api typecheck` clean. Biome formatting clean.
+- Committed: `test(api): add saree job creator integration tests` (6477d32).
 
 ## 2026-06-30 — Security, A11y, Design System, and Tech Debt Fixes (session 3)
 
@@ -33,7 +124,17 @@
 - None.
 
 ### Open Questions / Decisions
-- None.
+- Integration tests currently use `vitest run --config /tmp/opencode/vitest.integration.config.ts` from `/mnt/vol1/PycharmProjects/aivastra_v1`. The default `apps/api/vitest.config.ts` excludes `test/integration/**`, so `pnpm --filter @aivastra/api test` doesn't pick them up. Worth wiring a `test:integration` script in `apps/api/package.json` so the spec's `pnpm --filter @aivastra/api test -- saree-jobs` works as written.
+- Pre-existing integration test failures in `auth.test.ts`, `jobs-create.test.ts`, `credits.test.ts`, `admin-users.test.ts` (all use the old `res.json().accessToken` register pattern, broken by the email-verification refactor) — left untouched, out of scope for this task.
+
+## 2026-06-30 — Saree node detector
+
+### Done
+- Created `apps/api/src/modules/admin/saree-detect.ts` mirroring `tryon-detect.ts` structure with saree-specific title matching (`garment`/`saree`/`flatsaree` for the user image, `person`/`model` for the admin/static image).
+- Created `apps/api/src/modules/admin/saree-detect.test.ts` with 5 inline-fixture tests covering: model/saree image detection, output node detection, positive/negative prompt detection via connection scan, default prompt text extraction, and the empty-JSON null case.
+- TDD: test failed with `Cannot find module './saree-detect.js'` before implementation; all 5 tests pass after.
+- `pnpm --filter @aivastra/api typecheck` clean.
+- Committed: `feat(api): add saree node detector` (4cfed73).
 
 ## 2026-06-30 — UI/UX Audit Tier 3 Fixes (session 2)
 
@@ -47,7 +148,7 @@
 - None.
 
 ### Open Questions / Decisions
-- None.
+- Pre-existing unresolved conflict marker (`<<<<<<< Updated upstream` with no closer) at the top of `docs/progress.md` — resolved as part of the saree → origin merge.
 
 ## 2026-06-30 — Audit Tier 1 and Tier 2 Roadmap Fixes
 

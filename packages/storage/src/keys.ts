@@ -26,5 +26,7 @@ export const keys = {
   tryonPersonSampleThumb: () => `tryon/global/person-sample.thumb.jpg`,
   tryonGarmentSample: () => `tryon/global/garment-sample.jpg`,
   tryonGarmentSampleThumb: () => `tryon/global/garment-sample.thumb.jpg`,
+  sareeModelImage: () => `saree/global/model.jpg`,
+  sareeModelImageThumb: () => `saree/global/model.thumb.jpg`,
   supportAttachment: (id: string, ext: string) => `support/${id}.${ext}`,
 };

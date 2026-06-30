@@ -27,7 +27,7 @@ const MAX_GARMENT_BYTES = 10 * 1024 * 1024;
  * time, so we verify the actually-uploaded object via HEAD before accepting the
  * job. Doubles as an existence check.
  */
-async function assertOwnsUploadKey(app: FastifyInstance, userId: string, key: string) {
+export async function assertOwnsUploadKey(app: FastifyInstance, userId: string, key: string) {
   const owner = await app.redis.get(`upload:owner:${key}`);
   if (owner !== userId) {
     throw new AppError('FORBIDDEN', 403, 'upload key not owned by caller');
@@ -253,7 +253,7 @@ export async function createJob(
   for (const jobId of jobIds) {
     try {
       await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
-      jobsCreatedTotal.inc({ priority: queueStream });
+      jobsCreatedTotal.inc({ priority: queueStream, kind: 'catalogue' });
     } catch (err) {
       app.log.error({ err, jobId }, 'redis xadd failed — job will be refunded');
       failedEnqueues.push(jobId);
@@ -360,7 +360,7 @@ export async function createSimpleTryonJob(
   const stream = `jobs:${queueStream}`;
   try {
     await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', job.id, 'userId', userId);
-    jobsCreatedTotal.inc({ priority: queueStream });
+    jobsCreatedTotal.inc({ priority: queueStream, kind: 'tryon' });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed — simple tryon job will be refunded');
     await refund(app.db, userId, COST, job.id, 'REFUND_ENQUEUE_FAIL');

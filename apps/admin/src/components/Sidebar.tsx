@@ -59,6 +59,12 @@ const groups: NavGroup[] = [
         icon: Icon.Replace,
         roles: ['SUPER_ADMIN', 'MODERATOR'],
       },
+      {
+        k: 'saree',
+        label: 'Saree',
+        icon: Icon.Workflow,
+        roles: ['SUPER_ADMIN', 'MODERATOR'],
+      },
     ],
   },
   {
