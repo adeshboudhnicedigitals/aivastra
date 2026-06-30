@@ -252,7 +252,7 @@ export async function createJob(
   const failedEnqueues: string[] = [];
   for (const jobId of jobIds) {
     try {
-      await app.redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
+      await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
       jobsCreatedTotal.inc({ priority: queueStream, kind: 'catalogue' });
     } catch (err) {
       app.log.error({ err, jobId }, 'redis xadd failed — job will be refunded');
@@ -359,7 +359,7 @@ export async function createSimpleTryonJob(
 
   const stream = `jobs:${queueStream}`;
   try {
-    await app.redis.xadd(stream, '*', 'jobId', job.id, 'userId', userId);
+    await app.redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', job.id, 'userId', userId);
     jobsCreatedTotal.inc({ priority: queueStream, kind: 'tryon' });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed — simple tryon job will be refunded');

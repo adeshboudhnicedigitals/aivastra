@@ -28,6 +28,8 @@ export const widgetClients = pgTable('widget_clients', {
   widgetKey: uuid('widget_key').notNull().unique().defaultRandom(),
   isActive: boolean('is_active').notNull().default(true),
   allowedOrigins: text('allowed_origins').array().notNull().default([]),
+  webhookUrl: text('webhook_url'),
+  webhookSecret: text('webhook_secret'),
   settings: jsonb('settings').$type<WidgetSettings>().notNull().default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

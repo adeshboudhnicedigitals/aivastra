@@ -1,4 +1,5 @@
 'use client';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { MerchantData } from '../../lib';
 
@@ -11,7 +12,27 @@ const card: React.CSSProperties = {
 };
 
 export function ApiKeysContent({ data }: { data: MerchantData }) {
+  const router = useRouter();
   const [copied, setCopied] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  async function handleRegenerate() {
+    setRegenerating(true);
+    try {
+      const res = await fetch('/api/merchant/api-keys/regenerate', { method: 'POST' });
+      if (res.ok) {
+        setConfirming(false);
+        router.refresh();
+      } else {
+        alert('Failed to regenerate key');
+      }
+    } catch {
+      alert('Network error');
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   const embedCode = `<!-- Wrap each product with this markup -->
 <div class="product">
@@ -160,7 +181,70 @@ export function ApiKeysContent({ data }: { data: MerchantData }) {
             </div>
             <div style={{ height: 1, background: 'var(--c-merchant-hover)' }} />
             <div>
-              <p style={detailLabel}>Widget Key</p>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 5,
+                }}
+              >
+                <p style={{ ...detailLabel, margin: 0 }}>Widget Key</p>
+                {!confirming ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(true)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--c-merchant-danger)',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      padding: 0,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Regenerate
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: 'var(--c-merchant-danger)' }}>
+                      Breaks existing embeds!
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setConfirming(false)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: 'var(--c-merchant-text-muted)',
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        padding: 0,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={regenerating}
+                      onClick={handleRegenerate}
+                      style={{
+                        background: 'var(--c-merchant-danger)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 4,
+                        padding: '2px 8px',
+                        fontSize: 11,
+                        cursor: regenerating ? 'not-allowed' : 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {regenerating ? 'Wait...' : 'Confirm'}
+                    </button>
+                  </div>
+                )}
+              </div>
               <code
                 style={{
                   fontSize: 11,
