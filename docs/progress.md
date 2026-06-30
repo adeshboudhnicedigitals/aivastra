@@ -1,6 +1,38 @@
 # Project Progress
 
-<<<<<<< Updated upstream
+## 2026-06-30 — Audit Tier 1 and Tier 2 Roadmap Fixes
+
+### Done
+- **Tier 1.2 (Redis Streams Unbounded Growth):** Added `MAXLEN ~ 10000` to all widget and normal job `XADD` calls to prevent memory leaks.
+- **Tier 1.3 (Widget API Abuse Prevention):** Built a crash-safe fixed-window Redis rate limiter (`60 req/min`) for widget presign and job creation routes to protect credit balances and S3 buckets.
+- **Tier 2.1 (Job Sweeper):** Built an automated stuck-job sweeper in the dispatcher that refunds credits (with idempotency guards) and marks jobs `FAILED` if they sit in `QUEUED` for >10 mins.
+- **Tier 2.3 (B2B Webhooks):** Engineered a secure webhook delivery pipeline for terminal widget jobs:
+  - Updated DB schema and ran migrations for `webhookUrl` and `webhookSecret`.
+  - Built a robust consumer with exponential backoff and 3x retries via stream re-queueing.
+  - Hardened with SSRF protection (rejecting private IPs & redirects) and Stripe-style HMAC payload signatures.
+  - Wired the entire configuration UI into the Admin Dashboard (`WidgetClientDetail.tsx`).
+
+### Failed / Not Done
+- **T2.1 Job Cancellation:** Skipped user-facing `DELETE` route as the sweeper safely handles the operationally critical case.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-30 — Repository Inventory
+
+### Done
+- Built a complete repository inventory of the Aivastra codebase.
+- Traversed all directories recursively and enumerated every file, classifying them into source files, configuration files, and other project assets.
+- Recorded path, category, purpose description, size on disk, and read status for all 509 files.
+- Documented specific, structured skip reasons for the 503 files that were skipped during this session (not yet read).
+- Produced a beautiful and comprehensive Markdown table named **Repository Inventory** inside the artifact directory: [repository_inventory.md](file:///C:/Users/syste/.gemini/antigravity-cli/brain/dd6f99a1-c7a5-48bf-8199-7ada72ada7a4/repository_inventory.md).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-24 — Premium dark mode Task 5: refine tokens.css palettes and remove hardcoded colors
 
 ### Done
