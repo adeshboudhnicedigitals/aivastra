@@ -1,5 +1,19 @@
 # Project Progress
 
+## 2026-06-30 — Security Audit: H1/H2/H3/C2 Fixed
+
+### Done
+- **SEC-C2 · SSRF (Critical):** Added `assertSafeExternalUrl()` in `apps/api/src/modules/widget/routes.ts` — enforces `https`-only, DNS-resolves hostname, blocks RFC1918 / loopback / link-local ranges before any fetch or credit check.
+- **SEC-H1 · Open merchant signup (High):** `widget_clients.is_active` defaulted to `false` (migration `0076`); signup rate-limited to 5/hr; `widgetKey` withheld from response until admin activates account.
+- **SEC-H2 · JS-readable access token (High):** Access token moved from cookie to module-level variable in `apps/web/src/lib/api.ts`. `initToken()` seeded after login; silent re-hydration on 401 via httpOnly refresh cookie; BroadcastChannel cross-tab sync. Cookie no longer set by `setAuthCookies`.
+- **SEC-H3 · World-readable bucket (High):** `mc anonymous set download` removed from both compose files; all private content in `/admin/results/data` served via presigned GETs (1h TTL) instead of `publicUrl()`.
+
+### Failed / Not Done
+- **SEC-H2 CSP:** Adding a Content-Security-Policy header requires auditing all script/style/connect origins — deferred. Token-in-memory already eliminates the primary XSS→token-theft vector.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-30 — Phase 9 Closure
 
 ### Done
