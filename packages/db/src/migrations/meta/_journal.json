@@ -498,6 +498,13 @@
       "when": 1783000000000,
       "tag": "0070_worker_job_types",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1782986400000,
+      "tag": "0071_widget_webhook",
+      "breakpoints": true
     }
   ]
 }

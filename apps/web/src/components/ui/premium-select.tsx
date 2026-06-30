@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { C } from '../tokens';
 
 export type PremiumSelectOption = {
@@ -42,6 +42,8 @@ export function PremiumSelect({
     0,
     options.findIndex((o) => o.value === value),
   );
+  const baseId = useId();
+  const listboxId = `listbox-${baseId}`;
 
   useEffect(() => {
     if (!open) return;
@@ -105,9 +107,13 @@ export function PremiumSelect({
     >
       <button
         type="button"
+        role="combobox"
+        className="focus-ring"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
+        aria-controls={open ? listboxId : undefined}
+        aria-activedescendant={open && hoverIdx >= 0 ? `${listboxId}-opt-${hoverIdx}` : undefined}
         onClick={() => setOpen((v) => !v)}
         style={{
           appearance: 'none',
@@ -129,7 +135,6 @@ export function PremiumSelect({
           fontWeight: 600,
           color: C.text,
           cursor: 'pointer',
-          outline: 'none',
           transition: 'background-color .12s',
         }}
         onMouseEnter={(e) => {
@@ -175,6 +180,7 @@ export function PremiumSelect({
 
       {open && (
         <div
+          id={listboxId}
           ref={listRef}
           role="listbox"
           style={{
@@ -200,6 +206,7 @@ export function PremiumSelect({
               // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard navigation handled by onKeyDown on trigger
               <div
                 key={opt.value}
+                id={`${listboxId}-opt-${i}`}
                 data-idx={i}
                 role="option"
                 aria-selected={isSelected}

@@ -179,6 +179,7 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
       >
         <button
           type="button"
+          className="focus-ring"
           onClick={() => shiftMonth(-1)}
           aria-label="Previous month"
           style={navBtn}
@@ -223,7 +224,13 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
           />
         </div>
 
-        <button type="button" onClick={() => shiftMonth(1)} aria-label="Next month" style={navBtn}>
+        <button
+          type="button"
+          className="focus-ring"
+          onClick={() => shiftMonth(1)}
+          aria-label="Next month"
+          style={navBtn}
+        >
           <svg
             width="14"
             height="14"
@@ -301,6 +308,7 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
             <button
               key={iso}
               type="button"
+              className="focus-ring"
               disabled={disabled}
               onClick={() => commit(c.y, c.m, c.d)}
               onMouseEnter={() => setHoverIso(iso)}
@@ -322,7 +330,6 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
                 fontFamily: 'inherit',
                 position: 'relative',
                 transition: 'background .12s, color .12s',
-                outline: 'none',
                 padding: 0,
               }}
               onMouseOver={(e) => {
@@ -330,7 +337,15 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
                   e.currentTarget.style.background =
                     inSelRange || inPreview ? 'var(--c-pink-tint)' : 'var(--c-merchant-hover)';
               }}
+              onFocus={(e) => {
+                if (!isStart && !isEnd)
+                  e.currentTarget.style.background =
+                    inSelRange || inPreview ? 'var(--c-pink-tint)' : 'var(--c-merchant-hover)';
+              }}
               onMouseOut={(e) => {
+                e.currentTarget.style.background = bg;
+              }}
+              onBlur={(e) => {
                 e.currentTarget.style.background = bg;
               }}
             >
@@ -384,6 +399,7 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
       <div style={{ display: 'flex', gap: 8 }}>
         <button
           type="button"
+          className="focus-ring"
           onClick={onClear}
           style={{
             flex: 1,
@@ -419,6 +435,7 @@ export function PremiumDateRangePicker({ from, to, onChange, onApply, onClear }:
         </button>
         <button
           type="button"
+          className="focus-ring"
           disabled={!canApply}
           onClick={onApply}
           style={{

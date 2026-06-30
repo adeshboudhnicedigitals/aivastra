@@ -95,7 +95,7 @@ export const WidgetPresignRequest = z.object({
     .number()
     .int()
     .positive()
-    .max(10 * 1024 * 1024),
+    .max(5 * 1024 * 1024),
 });
 export type WidgetPresignRequest = z.infer<typeof WidgetPresignRequest>;
 

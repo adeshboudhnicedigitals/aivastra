@@ -203,6 +203,20 @@ export async function merchantRoutes(app: FastifyInstance) {
     },
   );
 
+  app.post('/v1/merchant/api-keys/regenerate', { preHandler: app.requireMerchant }, async (req) => {
+    const clientId = (req as FastifyRequest & { merchantClientId: string }).merchantClientId;
+    const newKey = crypto.randomUUID();
+
+    const [updated] = await app.db
+      .update(schema.widgetClients)
+      .set({ widgetKey: newKey, updatedAt: new Date() })
+      .where(eq(schema.widgetClients.id, clientId))
+      .returning({ widgetKey: schema.widgetClients.widgetKey });
+
+    if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
+    return updated;
+  });
+
   app.get('/v1/merchant/jobs', { preHandler: app.requireMerchant }, async (req) => {
     const clientId = (req as FastifyRequest & { merchantClientId: string }).merchantClientId;
 

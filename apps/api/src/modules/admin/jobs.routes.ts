@@ -288,7 +288,17 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         .set({ status: 'QUEUED', errorCode: null, attempts: 0 })
         .where(eq(schema.jobs.id, id));
       const stream = job.priority ? 'jobs:priority' : 'jobs:normal';
-      await app.redis.xadd(stream, '*', 'jobId', id, 'userId', job.userId ?? '');
+      await app.redis.xadd(
+        stream,
+        'MAXLEN',
+        '~',
+        10000,
+        '*',
+        'jobId',
+        id,
+        'userId',
+        job.userId ?? '',
+      );
       return { ok: true };
     },
   );

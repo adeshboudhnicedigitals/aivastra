@@ -140,8 +140,13 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
+import { useLocation } from 'react-router-dom';
+
 export default function JobsPage({ onNav: _onNav, toast }: Props) {
-  const [filter, setFilter] = useState<FilterKey>('all');
+  const location = useLocation();
+  const [filter, setFilter] = useState<FilterKey>(
+    (location.state as { filter?: FilterKey })?.filter || 'all',
+  );
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof Job>('createdAt');
