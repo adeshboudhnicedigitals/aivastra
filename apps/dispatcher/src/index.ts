@@ -20,6 +20,8 @@ import { makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
 import { runConsumer } from './stream/consumer.js';
 import { recoverPendingJobs } from './stream/recovery.js';
+import { runSweeper } from './stream/sweeper.js';
+import { runWebhooksConsumer } from './stream/webhooks.js';
 import { startHealthMonitor } from './worker/health-monitor.js';
 import { registerWorkers } from './worker/registry.js';
 
@@ -105,13 +107,23 @@ async function main(): Promise<void> {
   // Start subsystems
   const stopHealthMonitor = startHealthMonitor(redis, log);
   const stopConsumer = await runConsumer(redis, processorCfg, log);
+  const stopWebhooks = await runWebhooksConsumer(db, redis, log);
   const stopHealthServer = startHealthServer(env.DISPATCHER_HEALTH_PORT, log);
+
+  const sweeperInterval = setInterval(
+    () => {
+      void runSweeper(db, pub, log);
+    },
+    5 * 60 * 1000,
+  );
 
   log.info('dispatcher ready');
 
   async function shutdown(signal: string): Promise<void> {
     log.info({ signal }, 'shutting down dispatcher');
+    clearInterval(sweeperInterval);
     stopConsumer();
+    stopWebhooks();
     stopHealthMonitor();
     stopHealthServer();
     await closeRedis();

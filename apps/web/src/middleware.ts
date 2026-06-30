@@ -32,19 +32,6 @@ export async function middleware(request: NextRequest) {
   if (isPublic) return NextResponse.next();
   if (path === '/') return NextResponse.next();
 
-  // Redirect old route names to new structure
-  const REDIRECTS: Record<string, string> = {
-    '/dashboard': '/catalogues',
-    '/jobs': '/catalogues',
-    '/credits': '/pricing',
-    '/account': '/settings',
-  };
-  for (const [from, to] of Object.entries(REDIRECTS)) {
-    if (path === from || path.startsWith(`${from}/`)) {
-      return NextResponse.redirect(new URL(`${BASE_PATH}${to}`, request.url));
-    }
-  }
-
   const token = request.cookies.get('access_token')?.value;
 
   if (path.startsWith('/merchant/')) {
@@ -96,5 +83,7 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|assets/).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|assets/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 };

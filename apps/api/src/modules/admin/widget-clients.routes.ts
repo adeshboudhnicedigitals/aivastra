@@ -17,6 +17,42 @@ const AdminCreditBody = z.object({
   reason: z.string().min(1),
 });
 
+// Save-time shape check for merchant webhook URLs. This rejects the obvious cases
+// (non-https, hostnames that are literal private/loopback IPs) so an admin gets an
+// immediate error instead of a silent drop. The authoritative SSRF guard — full DNS
+// resolution against private ranges — runs at send-time in the dispatcher, since DNS
+// can be repointed after save.
+function assertWebhookUrlShape(urlStr: string): void {
+  let u: URL;
+  try {
+    u = new URL(urlStr);
+  } catch {
+    throw new AppError('VALIDATION', 400, 'webhookUrl must be a valid URL');
+  }
+  if (u.protocol !== 'https:') {
+    throw new AppError('VALIDATION', 400, 'webhookUrl must use https');
+  }
+  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (
+    host === 'localhost' ||
+    host === '::1' ||
+    host.startsWith('127.') ||
+    host.startsWith('10.') ||
+    host.startsWith('192.168.') ||
+    host.startsWith('169.254.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    host.startsWith('fc') ||
+    host.startsWith('fd') ||
+    host.startsWith('fe80')
+  ) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      'webhookUrl must not point to a private or loopback address',
+    );
+  }
+}
+
 export async function adminWidgetClientsRoutes(app: FastifyInstance) {
   app.get(
     '/v1/admin/widget-clients',
@@ -161,6 +197,8 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
           widgetKey: schema.widgetClients.widgetKey,
           isActive: schema.widgetClients.isActive,
           allowedOrigins: schema.widgetClients.allowedOrigins,
+          webhookUrl: schema.widgetClients.webhookUrl,
+          webhookSecret: schema.widgetClients.webhookSecret,
           createdAt: schema.widgetClients.createdAt,
           updatedAt: schema.widgetClients.updatedAt,
           creditBalance: schema.widgetClientCredits.balance,
@@ -208,12 +246,21 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
         isActive?: boolean;
         companyName?: string;
         allowedOrigins?: string[];
+        webhookUrl?: string | null;
+        webhookSecret?: string | null;
       };
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.isActive !== undefined) updates.isActive = body.isActive;
       if (body.companyName !== undefined) updates.companyName = body.companyName;
       if (body.allowedOrigins !== undefined) updates.allowedOrigins = body.allowedOrigins;
+      if (body.webhookUrl !== undefined) {
+        if (body.webhookUrl) assertWebhookUrlShape(body.webhookUrl);
+        updates.webhookUrl = body.webhookUrl || null;
+      }
+      if (body.webhookSecret !== undefined) {
+        updates.webhookSecret = body.webhookSecret || null;
+      }
 
       const [updated] = await app.db
         .update(schema.widgetClients)

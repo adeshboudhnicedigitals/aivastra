@@ -1127,6 +1127,21 @@ async function processWidgetJob(
       `sse:events:widget:${widgetClientId}`,
       JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
     );
+    await redis.xadd(
+      'webhooks:outbound',
+      'MAXLEN',
+      '~',
+      10000,
+      '*',
+      'jobId',
+      jobId,
+      'widgetClientId',
+      widgetClientId,
+      'status',
+      'COMPLETED',
+      'resultKey',
+      resultKey,
+    );
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('success', startedAt);
     jobLog.info({ resultKey }, 'widget job completed successfully');
@@ -1185,6 +1200,21 @@ async function markWidgetFailed(
   await pub.publish(
     `sse:events:widget:${widgetClientId}`,
     JSON.stringify({ jobId, type: 'STATUS', status: 'FAILED', errorCode }),
+  );
+  await redis.xadd(
+    'webhooks:outbound',
+    'MAXLEN',
+    '~',
+    10000,
+    '*',
+    'jobId',
+    jobId,
+    'widgetClientId',
+    widgetClientId,
+    'status',
+    'FAILED',
+    'errorCode',
+    errorCode,
   );
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome('failed', startedAt);

@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -9,13 +9,29 @@ export async function adminContactRoutes(app: FastifyInstance) {
   const R = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT']);
   const W = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
 
-  // GET /admin/contact-requests?status=new|read|done|all&limit=50&offset=0
+  // GET /admin/contact-requests?status=new|read|done|all&source=<value>|__null__|all&limit=50&offset=0
   app.get('/admin/contact-requests', { preHandler: R }, async (req) => {
-    const { status = 'all', limit = '50', offset = '0' } = req.query as Record<string, string>;
+    const {
+      status = 'all',
+      source = 'all',
+      limit = '50',
+      offset = '0',
+    } = req.query as Record<string, string>;
     const lim = Math.min(Number(limit) || 50, 200);
     const off = Number(offset) || 0;
 
-    const where = status !== 'all' ? eq(schema.contactRequests.status, status) : undefined;
+    const statusCond = status !== 'all' ? eq(schema.contactRequests.status, status) : undefined;
+    const sourceCond =
+      source === '__null__'
+        ? isNull(schema.contactRequests.source)
+        : source !== 'all'
+          ? eq(schema.contactRequests.source, source)
+          : undefined;
+
+    const where =
+      statusCond && sourceCond
+        ? and(statusCond, sourceCond)
+        : (statusCond ?? sourceCond ?? undefined);
 
     const [rows, [countRow]] = await Promise.all([
       app.db
@@ -41,6 +57,41 @@ export async function adminContactRoutes(app: FastifyInstance) {
       .from(schema.contactRequests)
       .where(eq(schema.contactRequests.status, 'new'));
     return { count: row?.count ?? 0 };
+  });
+
+  // GET /admin/contact-requests/sources — distinct sources + new count per source
+  app.get('/admin/contact-requests/sources', { preHandler: R }, async () => {
+    const [distinctRows, countRows] = await Promise.all([
+      app.db
+        .selectDistinct({ source: schema.contactRequests.source })
+        .from(schema.contactRequests)
+        .orderBy(schema.contactRequests.source),
+      app.db
+        .select({
+          source: schema.contactRequests.source,
+          newCount: sql<number>`count(*) filter (where ${schema.contactRequests.status} = 'new')::int`,
+          total: sql<number>`count(*)::int`,
+        })
+        .from(schema.contactRequests)
+        .groupBy(schema.contactRequests.source),
+    ]);
+
+    const newBySource: Record<string, number> = {};
+    const totalBySource: Record<string, number> = {};
+    let totalNew = 0;
+    for (const row of countRows) {
+      const key = row.source === null ? '__null__' : row.source;
+      newBySource[key] = row.newCount;
+      totalBySource[key] = row.total;
+      totalNew += row.newCount;
+    }
+    newBySource.__total__ = totalNew;
+
+    return {
+      sources: distinctRows.map((r) => r.source),
+      newBySource,
+      totalBySource,
+    };
   });
 
   // PATCH /admin/contact-requests/:id — update status

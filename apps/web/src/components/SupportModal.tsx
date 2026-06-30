@@ -1,7 +1,7 @@
 'use client';
 
 import { Headphones, Paperclip, X } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { C, grad } from './tokens';
 
@@ -9,10 +9,17 @@ type Stage = 'idle' | 'submitting' | 'done' | 'error';
 
 export function SupportButton() {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  function handleClose() {
+    setOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         title="Customer Support"
         onClick={() => setOpen(true)}
@@ -32,7 +39,7 @@ export function SupportButton() {
       >
         <Headphones size={16} />
       </button>
-      {open && <SupportModal onClose={() => setOpen(false)} />}
+      {open && <SupportModal onClose={handleClose} />}
     </>
   );
 }
@@ -49,6 +56,31 @@ export function SupportModal({
   const [stage, setStage] = useState<Stage>('idle');
   const [errMsg, setErrMsg] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = modalRef.current;
+    if (!el) return;
+    const FOCUSABLE =
+      'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusable = el.querySelectorAll<HTMLElement>(FOCUSABLE);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    first?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
+        e.preventDefault();
+        (e.shiftKey ? last : first)?.focus();
+      }
+    };
+    document.addEventListener('keydown', trap);
+    return () => document.removeEventListener('keydown', trap);
+  }, [onClose]);
 
   async function handleSubmit() {
     if (!message.trim()) return;
@@ -100,6 +132,10 @@ export function SupportModal({
 
       {/* Modal */}
       <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="support-modal-title"
         style={{
           position: 'fixed',
           top: '50%',
@@ -127,7 +163,10 @@ export function SupportModal({
           }}
         >
           <div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.3 }}>
+            <div
+              id="support-modal-title"
+              style={{ fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.3 }}
+            >
               Have a question? We&apos;re here to help
             </div>
             <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>

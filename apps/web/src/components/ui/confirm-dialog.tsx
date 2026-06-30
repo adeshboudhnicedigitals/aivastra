@@ -1,5 +1,5 @@
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { SpinnerIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 
@@ -39,12 +39,35 @@ export function ConfirmDialog({
     return () => window.removeEventListener('keydown', onKey);
   }, [open, busy, onCancel]);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // Focus trap + initial focus
+  useEffect(() => {
+    if (!open) return;
+    const el = dialogRef.current;
+    if (!el) return;
+    const FOCUSABLE =
+      'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusable = el.querySelectorAll<HTMLElement>(FOCUSABLE);
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    // Focus the confirm button (last) by default so Enter is ready
+    last?.focus();
+    const trap = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
+        e.preventDefault();
+        (e.shiftKey ? last : first)?.focus();
+      }
+    };
+    document.addEventListener('keydown', trap);
+    return () => document.removeEventListener('keydown', trap);
+  }, [open]);
+
   if (!open) return null;
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
+      role="presentation"
       onClick={() => {
         if (!busy) onCancel();
       }}
@@ -60,6 +83,10 @@ export function ConfirmDialog({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.white,
@@ -70,7 +97,12 @@ export function ConfirmDialog({
           boxShadow: '0 12px 48px rgba(0,0,0,0.18)',
         }}
       >
-        <h3 style={{ fontSize: 16, fontWeight: 700, color: C.text, margin: '0 0 8px' }}>{title}</h3>
+        <h3
+          id="confirm-dialog-title"
+          style={{ fontSize: 16, fontWeight: 700, color: C.text, margin: '0 0 8px' }}
+        >
+          {title}
+        </h3>
         {message && (
           <p style={{ fontSize: 14, lineHeight: 1.6, color: C.mid, margin: '0 0 16px' }}>
             {message}

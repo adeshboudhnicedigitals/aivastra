@@ -21,37 +21,102 @@ interface NavItem {
   alert?: boolean;
 }
 
-const items: NavItem[] = [
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
+
+const groups: NavGroup[] = [
   {
-    k: 'dashboard',
-    label: 'Dashboard',
-    icon: Icon.Dashboard,
-    roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN'],
+    label: '',
+    items: [
+      {
+        k: 'dashboard',
+        label: 'Dashboard',
+        icon: Icon.Dashboard,
+        roles: ['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN'],
+      },
+    ],
   },
-  { k: 'assets', label: 'Assets', icon: Icon.Image, roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'] },
   {
-    k: 'widget-clients',
-    label: 'Widget Clients',
-    icon: Icon.Users,
-    roles: ['SUPER_ADMIN', 'ADMIN'],
+    label: 'Content',
+    items: [
+      {
+        k: 'assets',
+        label: 'Assets',
+        icon: Icon.Image,
+        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+      },
+      {
+        k: 'workflows',
+        label: 'Workflows',
+        icon: Icon.Workflow,
+        roles: ['SUPER_ADMIN', 'MODERATOR'],
+      },
+      {
+        k: 'tryon',
+        label: 'Try-on',
+        icon: Icon.Replace,
+        roles: ['SUPER_ADMIN', 'MODERATOR'],
+      },
+      {
+        k: 'saree',
+        label: 'Saree',
+        icon: Icon.Workflow,
+        roles: ['SUPER_ADMIN', 'MODERATOR'],
+      },
+    ],
   },
-  { k: 'workflows', label: 'Workflows', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
-  { k: 'tryon', label: 'Tryon', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
-  { k: 'saree', label: 'Saree', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] },
   {
-    k: 'contacts',
-    label: 'Contacts',
-    icon: Icon.Bell,
-    roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT'],
+    label: 'Clients',
+    items: [
+      {
+        k: 'widget-clients',
+        label: 'Widget Clients',
+        icon: Icon.Monitor,
+        roles: ['SUPER_ADMIN', 'ADMIN'],
+      },
+      {
+        k: 'users',
+        label: 'Users',
+        icon: Icon.Users,
+        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
+      },
+    ],
   },
-  { k: 'users', label: 'Users', icon: Icon.Users, roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'] },
-  { k: 'jobs', label: 'Jobs', icon: Icon.Jobs, roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'] },
-  { k: 'workers', label: 'Workers', icon: Icon.Server, roles: ['SUPER_ADMIN'] },
   {
-    k: 'recycle-bin',
-    label: 'Recycle bin',
-    icon: Icon.Trash,
-    roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+    label: 'Operations',
+    items: [
+      {
+        k: 'jobs',
+        label: 'Jobs',
+        icon: Icon.Jobs,
+        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+      },
+      {
+        k: 'workers',
+        label: 'Workers',
+        icon: Icon.Server,
+        roles: ['SUPER_ADMIN'],
+      },
+      {
+        k: 'recycle-bin',
+        label: 'Recycle bin',
+        icon: Icon.Trash,
+        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+      },
+    ],
+  },
+  {
+    label: 'Sales & Support',
+    items: [
+      {
+        k: 'contacts',
+        label: 'Contacts',
+        icon: Icon.Bell,
+        roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT'],
+      },
+    ],
   },
 ];
 
@@ -69,7 +134,12 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
     const t = setInterval(fetchCount, 5_000);
     return () => clearInterval(t);
   }, [token]);
-  const visible = items.filter((item) => item.roles.includes(role));
+  // Flat list for collapsed view; grouped for expanded view
+  const allItems = groups.flatMap((g) => g.items);
+  const visible = allItems.filter((item) => item.roles.includes(role));
+  const visibleGroups = groups
+    .map((g) => ({ ...g, items: g.items.filter((item) => item.roles.includes(role)) }))
+    .filter((g) => g.items.length > 0);
 
   const emailUser = email ? email.split('@')[0] : 'Admin';
   const initials = emailUser.slice(0, 2).toUpperCase();
@@ -171,20 +241,25 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
         </button>
       </div>
       <nav>
-        {visible.map((item) => {
-          const badge = item.k === 'contacts' ? contactBadge : (item.count ?? 0);
-          return (
-            <button
-              key={item.k}
-              className={`nav-item ${item.alert || (item.k === 'contacts' && contactBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
-              onClick={() => onNav(item.k)}
-            >
-              <item.icon />
-              <span>{item.label}</span>
-              {badge > 0 && <span className="count">{badge}</span>}
-            </button>
-          );
-        })}
+        {visibleGroups.map((group) => (
+          <div key={group.label || '__top__'}>
+            {group.label && <div className="nav-label">{group.label}</div>}
+            {group.items.map((item) => {
+              const badge = item.k === 'contacts' ? contactBadge : (item.count ?? 0);
+              return (
+                <button
+                  key={item.k}
+                  className={`nav-item ${item.alert || (item.k === 'contacts' && contactBadge > 0) ? 'alert' : ''} ${page === item.k ? 'active' : ''}`}
+                  onClick={() => onNav(item.k)}
+                >
+                  <item.icon />
+                  <span>{item.label}</span>
+                  {badge > 0 && <span className="count">{badge}</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
       <div className="sidebar-spacer" />
       {showSettings && (
