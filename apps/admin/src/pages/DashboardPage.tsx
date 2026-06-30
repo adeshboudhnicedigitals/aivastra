@@ -120,7 +120,6 @@ export default function DashboardPage({ onNav, toast }: Props) {
 
   const workersOk = stats.workersHealthy >= Math.max(1, stats.workersTotal * 0.5);
   const allOffline = stats.workersTotal > 0 && stats.workersHealthy === 0;
-  const maxBar = Math.max(...stats.jobsPerDay, 1);
   const dailyAvg = stats.periodTotal > 0 ? Math.round(stats.periodTotal / days) : 0;
   const nextRefreshSecs = Math.max(0, REFRESH_INTERVAL / 1000 - secsAgo);
 
@@ -382,8 +381,19 @@ export default function DashboardPage({ onNav, toast }: Props) {
           <div className="card-body">
             <div className="spark" style={{ minHeight: 200 }}>
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={stats.jobsPerDay.map((jobs, i) => ({ date: stats.jobsPerDayLabels[i], jobs }))}>
-                  <XAxis dataKey="date" stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} />
+                <BarChart
+                  data={stats.jobsPerDay.map((jobs, i) => ({
+                    date: stats.jobsPerDayLabels[i],
+                    jobs,
+                  }))}
+                >
+                  <XAxis
+                    dataKey="date"
+                    stroke="var(--muted)"
+                    fontSize={12}
+                    tickLine={false}
+                    axisLine={false}
+                  />
                   <Tooltip
                     cursor={{ fill: 'rgba(128,128,128,0.08)' }}
                     contentStyle={{

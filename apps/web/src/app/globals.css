@@ -237,3 +237,87 @@ button.prod-card-wrapper:focus-visible {
     max-width: 480px;
   }
 }
+
+/* Button Hover States (Audit 4.1) */
+.btn-hover-opacity {
+  transition: opacity 0.15s ease;
+  opacity: 1;
+  cursor: pointer;
+}
+.btn-hover-opacity:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-hover-opacity:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+/* Hover — standard surface swap */
+.hover-surface {
+  transition: background 0.12s;
+}
+.hover-surface:hover {
+  background: var(--c-merchant-hover);
+}
+
+/* Hover — page-bg tint (menu items, settings row) */
+.hover-bg {
+  transition: background 0.12s;
+}
+.hover-bg:hover {
+  background: var(--c-bg);
+}
+
+/* Hover — date range Clear button (bg + color shift) */
+.date-clear-btn:hover {
+  background: var(--c-merchant-hover);
+  color: var(--c-text);
+}
+
+/* Hover — garment card child zoom */
+.garment-card:hover [data-zoom] {
+  transform: scale(1.05);
+}
+
+/* Hover — google btn */
+.google-btn:hover {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  background: var(--c-field) !important;
+}
+
+/* Hover — sidebar */
+.hover-surface-sidebar:hover {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+/* Hover — danger tint */
+.hover-danger-tint {
+  transition: background 0.12s;
+}
+.hover-danger-tint:hover {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  background: var(--c-pink-tint) !important;
+}
+
+/* Hover — pricing page */
+.hover-brightness {
+  transition: filter 0.12s;
+}
+.hover-brightness:hover {
+  filter: brightness(0.9);
+}
+
+.upgrade-plan-btn {
+  transition:
+    opacity 0.15s,
+    filter 0.15s,
+    background 0.15s;
+}
+.upgrade-plan-btn:not(.highlighted):hover:not(:disabled) {
+  /* biome-ignore lint/complexity/noImportantStyles: overrides inline style */
+  background: var(--c-dark2) !important;
+}
+.upgrade-plan-btn.highlighted:hover:not(:disabled) {
+  filter: brightness(0.9);
+}

@@ -108,7 +108,7 @@ export function PremiumSelect({
       <button
         type="button"
         role="combobox"
-        className="focus-ring"
+        className="focus-ring hover-surface"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
@@ -136,12 +136,6 @@ export function PremiumSelect({
           color: C.text,
           cursor: 'pointer',
           transition: 'background-color .12s',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = 'var(--c-merchant-hover)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = 'transparent';
         }}
       >
         <span

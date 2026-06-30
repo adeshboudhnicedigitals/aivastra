@@ -8,6 +8,7 @@ export function GoogleBtn({ label }: { label: string }) {
     <a
       href={`${API_URL}/v1/auth/google/init`}
       rel="opener"
+      className="google-btn"
       style={{
         width: '100%',
         height: 44,
@@ -25,12 +26,6 @@ export function GoogleBtn({ label }: { label: string }) {
         color: C.text,
         textDecoration: 'none',
         transition: 'background .15s',
-      }}
-      onMouseOver={(e) => {
-        (e.currentTarget as HTMLAnchorElement).style.background = '#f7f7f7';
-      }}
-      onMouseOut={(e) => {
-        (e.currentTarget as HTMLAnchorElement).style.background = C.white;
       }}
     >
       <svg width="18" height="18" viewBox="0 0 48 48">
