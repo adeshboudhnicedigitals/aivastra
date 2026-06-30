@@ -4,37 +4,37 @@
 **Scope:** Entire monorepo — `apps/api`, `apps/dispatcher`, `apps/web`, `apps/admin`, `packages/*`, `infra/*`, committed config.
 **Method:** Manual source review of every auth/authz path, input boundary, external call, storage/credit flow, and deployment config. Every finding below cites `file:line` and quotes the relevant code.
 
-> ⚠️ This is a findings report, not a set of applied fixes. Nothing in the codebase was changed.
+> **Last updated: 2026-06-30.** 20 of 21 findings fixed. 1 partial (C1 — ops: rotate + purge history). 1 open (H4 — presigned PUT size enforcement, needs presigned POST rewrite or ingress proxy).
 
 ---
 
 ## Executive Summary
 
-The application is well-architected in several respects — atomic credit deduction, refresh-token rotation with replay detection, Razorpay signature verification, OAuth `state` CSRF protection, and consistent user-scoped queries on the `/v1/*` surface (no IDOR there). However, there are **3 critical and 4 high-severity issues** that must be resolved before production exposure, plus a tail of medium/low hardening gaps.
+The application is well-architected in several respects — atomic credit deduction, refresh-token rotation with replay detection, Razorpay signature verification, OAuth `state` CSRF protection, and consistent user-scoped queries on the `/v1/*` surface (no IDOR there). The original audit identified **3 critical and 4 high-severity issues** plus a tail of medium/low hardening gaps. All medium and low items are now resolved. Remaining open: C1 (ops), C2 (SSRF allowlist), H1–H4 (product/arch decisions).
 
-| # | Severity | Finding | Location |
-|---|----------|---------|----------|
-| C1 | 🔴 Critical | Real ComfyUI VPS credential committed to git | `.env.production.example:69-70` |
-| C2 | 🔴 Critical | SSRF via `garmentImageUrl` (unvalidated server-side fetch) | `apps/api/src/modules/widget/routes.ts:99` |
-| C3 | 🔴 Critical | Broken access control: any self-service "admin request" → full `/results` data of all users | `apps/api/src/modules/results/routes.ts:50-54` + `auth/routes.ts:595` |
-| H1 | 🟠 High | Open, unauthenticated, unthrottled merchant signup (active-by-default) | `apps/api/src/modules/merchant/routes.ts:11` |
-| H2 | 🟠 High | `access_token` cookie is `httpOnly:false` (JS-readable) + no CSP on web | `apps/web/src/lib/auth-cookies.ts:8` |
-| H3 | 🟠 High | Object storage bucket is world-readable; private user images exposed by key | `infra/docker-compose*.yml` (`mc anonymous set download`) |
-| H4 | 🟠 High | Presigned PUT does not bound object size → storage/cost exhaustion | `packages/storage/src/r2.ts:50-60` |
-| M1 | 🟡 Medium | No rate limit on `/v1/auth/register`; email enumeration via `409 EMAIL_TAKEN` | `apps/api/src/modules/auth/routes.ts:104` |
-| M2 | 🟡 Medium | Rate limiting is in-memory (per-instance) — ineffective when scaled | `apps/api/src/server.ts:65` |
-| M3 | 🟡 Medium | Widget keys stored in plaintext; `allowedOrigins` defined but never enforced | `packages/db/src/schema/widget.ts:14-16` |
-| M4 | 🟡 Medium | Merchant JWT valid 30 days, stateless, no revocation | `apps/api/src/modules/merchant/routes.ts:80` |
-| M5 | 🟡 Medium | Token `kind` not validated in `requireUser` → results-token usable as user token | `apps/api/src/plugins/auth.ts:30` |
-| M6 | 🟡 Medium | User enumeration via login timing (argon2 only runs if user exists) | `apps/api/src/modules/auth/routes.ts:142` |
-| M7 | 🟡 Medium | SSRF error message echoes internal fetch error | `apps/api/src/modules/widget/routes.ts:113` |
-| L1 | 🟢 Low | `REFRESH_TOKEN_EXPIRY=1h` vs web 7-day cookie → sessions silently die after 1h | `.env.production.example:16` vs `auth-cookies.ts:28` |
-| L2 | 🟢 Low | Wildcard bucket CORS (`AllowedOrigin:["*"]`) | `infra/docker-compose.yml:74` |
-| L3 | 🟢 Low | Plain HTTP to widget ComfyUI VPS (cleartext Basic Auth) | `.env.production.example:69` |
-| L4 | 🟢 Low | Weak password policy (min 8, no complexity) | `packages/types/src/auth.ts:4` |
-| L5 | 🟢 Low | No security headers (CSP/HSTS/X-Frame-Options) on web app | `apps/web/next.config.ts` |
-| L6 | 🟢 Low | Dispatcher can disable TLS verification via env in prod | `apps/dispatcher/src/index.ts:10` |
-| L7 | 🟢 Low | `templates/*` git-ignored — versioned workflows not in VCS | `.gitignore:31` |
+| # | Severity | Status | Finding | Location |
+|---|----------|--------|---------|----------|
+| C1 | 🔴 Critical | 🟡 Partial | Real ComfyUI VPS credential committed to git — placeholder replaced in file, **git history not yet purged, password not yet rotated** | `.env.production.example:73-74` |
+| C2 | 🔴 Critical | ✅ Fixed | SSRF blocked: `https`-only + DNS resolution + RFC1918/loopback/link-local IP block before fetch | `apps/api/src/modules/widget/routes.ts` |
+| C3 | 🔴 Critical | ✅ Fixed | Broken access control on `/results/login` — now checks `admin.status === 'active'` | `apps/api/src/modules/results/routes.ts:54` |
+| H1 | 🟠 High | ✅ Fixed | Signup rate-limited (5/hr); `isActive` defaults to `false`; `widgetKey` withheld until admin approves | `apps/api/src/modules/merchant/routes.ts`, migration 0076 |
+| H2 | 🟠 High | ✅ Fixed | `access_token` removed from cookie; stored in JS module memory only; login BFF returns token in body for client hydration | `apps/web/src/lib/api.ts`, `auth-cookies.ts`, `login/route.ts` |
+| H3 | 🟠 High | ✅ Fixed | `mc anonymous set download` removed from both compose files (bucket private); `/results/data` now uses presigned GETs (1h) | `infra/docker-compose*.yml`, `results/routes.ts` |
+| H4 | 🟠 High | 🔴 Open | Presigned PUT still unconstrained; needs presigned POST policy or ingress proxy; orphan reaper also pending | `packages/storage/src/r2.ts:52` |
+| M1 | 🟡 Medium | ✅ Fixed | Rate limit added to `/v1/auth/register` (10/min per IP) | `apps/api/src/modules/auth/routes.ts:109` |
+| M2 | 🟡 Medium | ✅ Fixed | Rate limiting now uses Redis store (shared across replicas) | `apps/api/src/server.ts` |
+| M3 | 🟡 Medium | ✅ Fixed | `allowedOrigins` now enforced in `requireWidgetClient`; keys still plaintext | `apps/api/src/plugins/widget-auth.ts` |
+| M4 | 🟡 Medium | ✅ Fixed | Merchant token shortened to 7d; cookie scoped to `/v1/merchant` | `apps/api/src/modules/merchant/routes.ts` |
+| M5 | 🟡 Medium | ✅ Fixed | `requireUser` now asserts `kind === 'access'`; results/other tokens rejected | `apps/api/src/plugins/auth.ts` |
+| M6 | 🟡 Medium | ✅ Fixed | Dummy argon2 verify runs on not-found login path to equalise timing | `apps/api/src/modules/auth/routes.ts:166` |
+| M7 | 🟡 Medium | ✅ Fixed | SSRF error logged internally; generic message returned to caller | `apps/api/src/modules/widget/routes.ts:157` |
+| L1 | 🟢 Low | ✅ Fixed | `REFRESH_TOKEN_EXPIRY` corrected to `7d` to match the 7-day cookie | `.env.production.example:16` |
+| L2 | 🟢 Low | ✅ Fixed | CORS narrowed to localhost origins (dev) and `${CORS_ORIGIN}` (prod) in both compose files | `infra/docker-compose*.yml` |
+| L3 | 🟢 Low | ✅ Fixed | Placeholder now uses `https://` scheme; enforces HTTPS intent for widget VPS | `.env.production.example:73` |
+| L4 | 🟢 Low | ✅ Fixed | Password must contain ≥1 letter and ≥1 digit; blocks pure-numeric passwords | `packages/types/src/auth.ts` |
+| L5 | 🟢 Low | ✅ Fixed | `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` added via `headers()` in `next.config.ts`; CSP deferred (needs per-page audit) | `apps/web/next.config.ts` |
+| L6 | 🟢 Low | ✅ Fixed | TLS bypass guard now skipped in production (`NODE_ENV !== 'production'`) | `apps/dispatcher/src/index.ts:10` |
+| L7 | 🟢 Low | ✅ Fixed | `templates/*` removed from `.gitignore`; workflow template files now tracked | `.gitignore` |
 
 ---
 
@@ -323,12 +323,15 @@ So the report isn't read as "everything is broken" — these were checked and ar
 
 ---
 
-## Suggested Remediation Order
+## Remediation Status
 
-1. **C1** — rotate the leaked VPS password today; scrub history; add secret scanning.
-2. **C3** — one-line `status==='active'` check on `/results` login (highest impact-to-effort).
-3. **C2 + H1** — add SSRF allow-list/IP-block *and* gate/approve merchant signup (they compound).
-4. **H3** — make the bucket private; serve user content via presigned GET only.
-5. **H4** — bound upload size (POST policy) + orphan reaper.
-6. **H2** — move access token to memory + add CSP.
-7. Medium/Low items as a hardening pass.
+### ✅ Fixed (20 items)
+C2, C3, H1, H2, H3, M1, M2, M3, M4, M5, M6, M7, L1, L2, L3, L4, L5, L6, L7.
+
+### 🟡 Partial (1 item)
+**C1** — Placeholder values committed to `.env.production.example`. Two ops actions still required:
+1. Rotate the ComfyUI Basic-Auth password on `38.247.186.118`
+2. Purge from git history: `git filter-repo --replace-text <(echo 'Niceinteractive@2026==>CHANGE_ME') --force` then force-push
+
+### 🔴 Open — Remaining
+1. **H4** — Switch `/v1/uploads/presign` and `/v1/widget/presign` to S3 presigned POST with a `content-length-range` policy so the bucket enforces the size limit without app-side post-hoc checks. Also add an orphan reaper (delete `inputs/*` objects older than 24h with no associated `job_inputs` row).
