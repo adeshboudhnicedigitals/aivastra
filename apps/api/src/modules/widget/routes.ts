@@ -9,6 +9,28 @@ import { atomicWidgetDeduct } from './ledger.js';
 
 const WIDGET_JOB_COST = 10;
 
+async function checkRateLimit(
+  redis: Redis,
+  clientId: string,
+  limit: number,
+  windowSecs: number,
+  reply: FastifyReply,
+) {
+  const key = `widget:rl:${clientId}`;
+  const [[, count], [, ttl]] = (await redis.pipeline().incr(key).ttl(key).exec()) as [
+    [null, number],
+    [null, number],
+  ];
+
+  if (ttl === -1) await redis.expire(key, windowSecs);
+
+  if (count > limit) {
+    const remaining = ttl === -1 ? windowSecs : ttl;
+    reply.header('Retry-After', Math.max(0, remaining).toString());
+    throw new AppError('RATE_LIMITED', 429, 'rate limit exceeded');
+  }
+}
+
 function writeSseHeaders(reply: FastifyReply): void {
   reply.raw.writeHead(200, {
     'Content-Type': 'text/event-stream',
@@ -39,7 +61,11 @@ export async function widgetRoutes(app: FastifyInstance) {
   app.post(
     '/v1/widget/presign',
     {
-      preHandler: app.requireWidgetClient,
+      preHandler: [
+        app.requireWidgetClient,
+        async (req, reply) =>
+          checkRateLimit(app.redis, req.widgetClientId as string, 60, 60, reply),
+      ],
       schema: { body: WidgetPresignRequest },
     },
     async (req) => {
@@ -65,7 +91,11 @@ export async function widgetRoutes(app: FastifyInstance) {
   app.post(
     '/v1/widget/jobs',
     {
-      preHandler: app.requireWidgetClient,
+      preHandler: [
+        app.requireWidgetClient,
+        async (req, reply) =>
+          checkRateLimit(app.redis, req.widgetClientId as string, 60, 60, reply),
+      ],
       schema: { body: WidgetJobRequest },
     },
     async (req, reply) => {
@@ -144,7 +174,17 @@ export async function widgetRoutes(app: FastifyInstance) {
         await atomicWidgetDeduct(tx as any, clientId, WIDGET_JOB_COST, jobId);
       });
 
-      await app.redis.xadd('jobs:normal', '*', 'jobId', jobId, 'type', 'WIDGET_TRYON');
+      await app.redis.xadd(
+        'jobs:normal',
+        'MAXLEN',
+        '~',
+        10000,
+        '*',
+        'jobId',
+        jobId,
+        'type',
+        'WIDGET_TRYON',
+      );
 
       return reply.code(201).send({ jobId });
     },
