@@ -27,7 +27,7 @@ const MAX_GARMENT_BYTES = 10 * 1024 * 1024;
  * time, so we verify the actually-uploaded object via HEAD before accepting the
  * job. Doubles as an existence check.
  */
-async function assertOwnsUploadKey(app: FastifyInstance, userId: string, key: string) {
+export async function assertOwnsUploadKey(app: FastifyInstance, userId: string, key: string) {
   const owner = await app.redis.get(`upload:owner:${key}`);
   if (owner !== userId) {
     throw new AppError('FORBIDDEN', 403, 'upload key not owned by caller');
