@@ -137,3 +137,56 @@ export function createSSEConnection<T = unknown>(
     },
   };
 }
+
+export interface AdminSSEConnection {
+  close: () => void;
+}
+
+export function createAdminSSEConnection(
+  url: string,
+  token: string,
+  onEvent: (raw: string) => void,
+  onReconnect?: () => void,
+): AdminSSEConnection {
+  let closed = false;
+  let retryDelay = 2_000;
+
+  async function connect() {
+    if (closed) return;
+    try {
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
+      });
+      if (!res.ok || !res.body) throw new Error(`SSE ${res.status}`);
+      retryDelay = 2_000;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done || closed) break;
+        buf += decoder.decode(value, { stream: true });
+        const blocks = buf.split('\n\n');
+        buf = blocks.pop() ?? '';
+        for (const block of blocks) {
+          const dataLine = block.split('\n').find((l) => l.startsWith('data:'));
+          if (dataLine) onEvent(dataLine.slice(5).trim());
+        }
+      }
+    } catch {
+      // fall through to reconnect
+    }
+    if (!closed) {
+      onReconnect?.();
+      setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30_000);
+    }
+  }
+
+  void connect();
+  return {
+    close: () => {
+      closed = true;
+    },
+  };
+}

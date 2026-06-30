@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
-import { apiFetch } from '../lib/data';
+import { apiFetch, getToken } from '../lib/data';
+import { createAdminSSEConnection } from '../lib/sse';
 
 interface Worker {
   id: string;
@@ -48,7 +49,7 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-const REFRESH_INTERVAL = 30_000;
+const FALLBACK_INTERVAL = 60_000;
 
 function Delta({ value, dir }: { value: number | null; dir?: 'down' }) {
   if (value === null || value === undefined) return null;
@@ -83,11 +84,27 @@ export default function DashboardPage({ onNav, toast }: Props) {
     }
   }, [toast, days]);
 
-  // Main fetch + 30s poll
+  // Main fetch + 60s fallback poll
   useEffect(() => {
     void fetchStats();
-    const id = setInterval(fetchStats, REFRESH_INTERVAL);
+    const id = setInterval(fetchStats, FALLBACK_INTERVAL);
     return () => clearInterval(id);
+  }, [fetchStats]);
+
+  // SSE event-driven fetch
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+
+    let debounceId: ReturnType<typeof setTimeout>;
+    const conn = createAdminSSEConnection('/admin/jobs/stream', token, () => {
+      clearTimeout(debounceId);
+      debounceId = setTimeout(() => void fetchStats(), 800);
+    });
+    return () => {
+      conn.close();
+      clearTimeout(debounceId);
+    };
   }, [fetchStats]);
 
   // Seconds-ago counter, updates every second
@@ -121,7 +138,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
   const workersOk = stats.workersHealthy >= Math.max(1, stats.workersTotal * 0.5);
   const allOffline = stats.workersTotal > 0 && stats.workersHealthy === 0;
   const dailyAvg = stats.periodTotal > 0 ? Math.round(stats.periodTotal / days) : 0;
-  const nextRefreshSecs = Math.max(0, REFRESH_INTERVAL / 1000 - secsAgo);
+  const nextRefreshSecs = Math.max(0, FALLBACK_INTERVAL / 1000 - secsAgo);
 
   return (
     <>
@@ -129,7 +146,7 @@ export default function DashboardPage({ onNav, toast }: Props) {
       <div className="page-head">
         <div>
           <h1>Dashboard</h1>
-          <p className="lede">Live snapshot — refreshes every 30 seconds.</p>
+          <p className="lede">Live — updates on job events</p>
         </div>
         <div className="head-tools">
           <span className="badge dot mono" style={{ color: 'var(--muted)' }}>
