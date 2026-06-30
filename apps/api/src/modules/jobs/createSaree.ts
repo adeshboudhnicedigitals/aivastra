@@ -87,7 +87,7 @@ export async function createSareeJob(
   const stream = `jobs:${queueStream}`;
   try {
     await app.redis.xadd(stream, '*', 'jobId', job.id, 'userId', userId);
-    jobsCreatedTotal.inc({ priority: queueStream });
+    jobsCreatedTotal.inc({ priority: queueStream, kind: 'saree' });
   } catch (err) {
     app.log.error({ err, jobId: job.id }, 'redis xadd failed — saree job will be refunded');
     await refund(app.db, userId, COST, job.id, 'REFUND_ENQUEUE_FAIL');
