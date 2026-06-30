@@ -312,8 +312,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [refreshInterval, setRefreshInterval] = useState(30);
   const [soundEnabled, setSoundEnabled] = useState(false);
-  const [emailAlerts, setEmailAlerts] = useState(true);
-  const [slackWebhook, setSlackWebhook] = useState('');
   const [saving, setSaving] = useState<string | null>(null);
 
   const [freeTrialCredits, setFreeTrialCredits] = useState(0);
@@ -533,25 +531,36 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
               <Switch checked={soundEnabled} onChange={setSoundEnabled} />
             </div>
 
-            <div className="setting-row">
+            <div className="setting-row" style={{ opacity: 0.6 }}>
               <div>
-                <div className="setting-lbl">Email alerts</div>
+                <div className="setting-lbl">
+                  Email alerts{' '}
+                  <span className="badge" style={{ marginLeft: 6 }}>
+                    Coming soon
+                  </span>
+                </div>
                 <div className="setting-desc">Receive email notifications for critical events.</div>
               </div>
-              <Switch checked={emailAlerts} onChange={setEmailAlerts} />
+              <Switch checked={false} onChange={() => {}} disabled />
             </div>
 
-            <div className="setting-row">
+            <div className="setting-row" style={{ opacity: 0.6 }}>
               <div>
-                <div className="setting-lbl">Slack webhook</div>
+                <div className="setting-lbl">
+                  Slack webhook{' '}
+                  <span className="badge" style={{ marginLeft: 6 }}>
+                    Coming soon
+                  </span>
+                </div>
                 <div className="setting-desc">Post job status updates to a Slack channel.</div>
               </div>
               <input
                 className="input"
                 style={{ width: 320 }}
                 placeholder="https://hooks.slack.com/services/…"
-                value={slackWebhook}
-                onChange={(e) => setSlackWebhook(e.target.value)}
+                value=""
+                onChange={() => {}}
+                disabled
               />
             </div>
 

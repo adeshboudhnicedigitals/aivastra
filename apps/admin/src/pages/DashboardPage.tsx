@@ -44,7 +44,7 @@ interface Stats {
 }
 
 interface Props {
-  onNav: (page: string, filter?: { page: string; filter?: string }) => void;
+  onNav: (page: string, filter?: { page: string; filter?: string; date?: string }) => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
@@ -382,10 +382,24 @@ export default function DashboardPage({ onNav, toast }: Props) {
             <div className="spark" style={{ minHeight: 200 }}>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart
-                  data={stats.jobsPerDay.map((jobs, i) => ({
-                    date: stats.jobsPerDayLabels[i],
-                    jobs,
-                  }))}
+                  data={stats.jobsPerDay.map((jobs, i) => {
+                    const nowUtc = new Date();
+                    const daysAgo = stats.jobsPerDay.length - 1 - i;
+                    const dateKey = new Date(
+                      Date.UTC(
+                        nowUtc.getUTCFullYear(),
+                        nowUtc.getUTCMonth(),
+                        nowUtc.getUTCDate() - daysAgo,
+                      ),
+                    )
+                      .toISOString()
+                      .slice(0, 10);
+                    return {
+                      date: stats.jobsPerDayLabels[i],
+                      dateKey,
+                      jobs,
+                    };
+                  })}
                 >
                   <XAxis
                     dataKey="date"
@@ -403,7 +417,17 @@ export default function DashboardPage({ onNav, toast }: Props) {
                       fontSize: 12,
                     }}
                   />
-                  <Bar dataKey="jobs" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="jobs"
+                    fill="var(--accent)"
+                    radius={[4, 4, 0, 0]}
+                    onClick={(data: any) => {
+                      if (data?.dateKey) {
+                        onNav('jobs', { page: 'jobs', date: data.dateKey });
+                      }
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
