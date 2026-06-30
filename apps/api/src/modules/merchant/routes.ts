@@ -13,57 +13,65 @@ import { hashPassword, signAccess, verifyPassword } from '../auth/service.js';
 export async function merchantRoutes(app: FastifyInstance) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);
 
-  app.post('/v1/merchant/signup', { schema: { body: WidgetClientSignup } }, async (req, reply) => {
-    const body = req.body as {
-      companyName: string;
-      contactName: string;
-      email: string;
-      phone: string;
-      websiteUrl: string;
-      companySize: string;
-      purpose: string;
-      businessAddress: string;
-      password: string;
-    };
+  app.post(
+    '/v1/merchant/signup',
+    {
+      schema: { body: WidgetClientSignup },
+      config: { rateLimit: { max: 5, timeWindow: '1 hour' } },
+    },
+    async (req, reply) => {
+      const body = req.body as {
+        companyName: string;
+        contactName: string;
+        email: string;
+        phone: string;
+        websiteUrl: string;
+        companySize: string;
+        purpose: string;
+        businessAddress: string;
+        password: string;
+      };
 
-    const existing = await app.db
-      .select()
-      .from(schema.widgetClients)
-      .where(eq(schema.widgetClients.email, body.email))
-      .limit(1);
-    if (existing.length) {
-      throw new AppError('CONFLICT', 409, 'Email already registered');
-    }
+      const existing = await app.db
+        .select()
+        .from(schema.widgetClients)
+        .where(eq(schema.widgetClients.email, body.email))
+        .limit(1);
+      if (existing.length) {
+        throw new AppError('CONFLICT', 409, 'Email already registered');
+      }
 
-    const passwordHash = await hashPassword(body.password);
+      const passwordHash = await hashPassword(body.password);
 
-    const [client] = await app.db
-      .insert(schema.widgetClients)
-      .values({
-        companyName: body.companyName,
-        contactName: body.contactName,
+      const [client] = await app.db
+        .insert(schema.widgetClients)
+        .values({
+          companyName: body.companyName,
+          contactName: body.contactName,
+          email: body.email,
+          phone: body.phone,
+          websiteUrl: body.websiteUrl,
+          companySize: body.companySize,
+          purpose: body.purpose,
+          businessAddress: body.businessAddress,
+          passwordHash,
+        })
+        .returning();
+
+      await app.db.insert(schema.widgetClientCredits).values({
+        widgetClientId: client?.id,
+        balance: 0,
+      });
+
+      // widgetKey withheld until account is approved by admin (isActive: false by default)
+      return reply.code(201).send({
+        id: client?.id,
         email: body.email,
-        phone: body.phone,
-        websiteUrl: body.websiteUrl,
-        companySize: body.companySize,
-        purpose: body.purpose,
-        businessAddress: body.businessAddress,
-        passwordHash,
-      })
-      .returning();
-
-    await app.db.insert(schema.widgetClientCredits).values({
-      widgetClientId: client?.id,
-      balance: 0,
-    });
-
-    return reply.code(201).send({
-      id: client?.id,
-      email: body.email,
-      companyName: body.companyName,
-      widgetKey: client?.widgetKey,
-    });
-  });
+        companyName: body.companyName,
+        message: 'Account pending approval. You will be notified when your account is activated.',
+      });
+    },
+  );
 
   app.post('/v1/merchant/login', { schema: { body: WidgetClientLogin } }, async (req, reply) => {
     const { email, password } = req.body as { email: string; password: string };
@@ -86,7 +94,7 @@ export async function merchantRoutes(app: FastifyInstance) {
       secret,
       client.id,
       { email: client.email },
-      '30d',
+      '7d',
       'merchant',
     );
 
@@ -94,8 +102,8 @@ export async function merchantRoutes(app: FastifyInstance) {
     reply.setCookie('merchant_access_token', accessToken, {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/',
-      maxAge: 30 * 24 * 60 * 60,
+      path: '/v1/merchant',
+      maxAge: 7 * 24 * 60 * 60,
       secure: isProd,
     });
 
@@ -107,7 +115,7 @@ export async function merchantRoutes(app: FastifyInstance) {
     reply.setCookie('merchant_access_token', '', {
       httpOnly: true,
       sameSite: 'lax',
-      path: '/',
+      path: '/v1/merchant',
       maxAge: 0,
       secure: isProd,
     });

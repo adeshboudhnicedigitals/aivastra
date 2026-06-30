@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, desc, eq, gte, ilike, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, or, type SQL, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -40,7 +40,7 @@ export async function resultsRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (req, reply) => {
-      const { email, password } = req.body as any;
+      const { email, password } = req.body as z.infer<typeof LoginBody>;
       const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
       if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
       if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
@@ -51,7 +51,7 @@ export async function resultsRoutes(app: FastifyInstance) {
         .select()
         .from(schema.adminUsers)
         .where(eq(schema.adminUsers.userId, user.id));
-      if (!admin) throw new AppError('FORBIDDEN', 403, 'admin access required');
+      if (admin?.status !== 'active') throw new AppError('FORBIDDEN', 403, 'admin access required');
 
       const token = await signAccess(secret, user.id, { kind: 'results', role: admin.role }, '8h');
       reply.setCookie('results_access_token', token, {
@@ -87,8 +87,10 @@ export async function resultsRoutes(app: FastifyInstance) {
     '/results/data',
     { preHandler: requireResultsUser, schema: { querystring: ResultsQuery } },
     async (req) => {
-      const { page, pageSize, search, userId, date, status } = req.query as any;
-      const conditions: any[] = [];
+      const { page, pageSize, search, userId, date, status } = req.query as z.infer<
+        typeof ResultsQuery
+      >;
+      const conditions: SQL[] = [];
 
       if (status === 'completed') {
         conditions.push(eq(schema.jobs.status, 'COMPLETED'));
@@ -165,20 +167,25 @@ export async function resultsRoutes(app: FastifyInstance) {
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
-      const items = rows.map((r) => ({
-        id: r.id,
-        catalogueId: r.catalogueId,
-        userEmail: r.userEmail,
-        creditsCharged: r.creditsCharged,
-        createdAt: r.createdAt,
-        status: r.status,
-        garmentUrl: r.upperGarmentKey ? app.storage.publicUrl(r.upperGarmentKey) : null,
-        poseUrl: r.poseThumbKey ? app.storage.publicUrl(r.poseThumbKey) : null,
-        backgroundUrl: r.backgroundThumbKey ? app.storage.publicUrl(r.backgroundThumbKey) : null,
-        lowerUrl: r.lowerThumbKey ? app.storage.publicUrl(r.lowerThumbKey) : null,
-        shoeUrl: r.shoeThumbKey ? app.storage.publicUrl(r.shoeThumbKey) : null,
-        outputUrl: r.outputKey ? app.storage.publicUrl(r.outputKey) : null,
-      }));
+      const presign = async (key: string | null) =>
+        key ? (await app.storage.presignGet(key, 3600)).url : null;
+
+      const items = await Promise.all(
+        rows.map(async (r) => ({
+          id: r.id,
+          catalogueId: r.catalogueId,
+          userEmail: r.userEmail,
+          creditsCharged: r.creditsCharged,
+          createdAt: r.createdAt,
+          status: r.status,
+          garmentUrl: await presign(r.upperGarmentKey),
+          poseUrl: await presign(r.poseThumbKey),
+          backgroundUrl: await presign(r.backgroundThumbKey),
+          lowerUrl: await presign(r.lowerThumbKey),
+          shoeUrl: await presign(r.shoeThumbKey),
+          outputUrl: await presign(r.outputKey),
+        })),
+      );
 
       return { page, pageSize, total, items };
     },

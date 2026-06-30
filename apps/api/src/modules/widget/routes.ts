@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { promises as dns } from 'node:dns';
 import { schema } from '@aivastra/db';
 import { WidgetJobRequest, WidgetPresignRequest } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
@@ -8,6 +9,40 @@ import { AppError } from '../../lib/errors.js';
 import { atomicWidgetDeduct, widgetRefund } from './ledger.js';
 
 const WIDGET_JOB_COST = 10;
+
+function isPrivateIp(ip: string): boolean {
+  return (
+    /^127\./.test(ip) ||
+    /^10\./.test(ip) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(ip) ||
+    /^192\.168\./.test(ip) ||
+    /^169\.254\./.test(ip) ||
+    ip === '::1' ||
+    ip.startsWith('fc') ||
+    ip.startsWith('fd')
+  );
+}
+
+async function assertSafeExternalUrl(url: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new AppError('BAD_REQUEST', 400, 'Invalid URL');
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new AppError('BAD_REQUEST', 400, 'Only HTTPS URLs are allowed');
+  }
+  try {
+    const { address } = await dns.lookup(parsed.hostname);
+    if (isPrivateIp(address)) {
+      throw new AppError('BAD_REQUEST', 400, 'URL resolves to a disallowed address');
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
+    throw new AppError('BAD_REQUEST', 400, 'Could not resolve URL hostname');
+  }
+}
 
 async function checkRateLimit(
   redis: Redis,
@@ -69,7 +104,7 @@ export async function widgetRoutes(app: FastifyInstance) {
       schema: { body: WidgetPresignRequest },
     },
     async (req) => {
-      const clientId = (req as any).widgetClientId as string;
+      const clientId = req.widgetClientId as string;
       const { contentType, contentLength } = req.body as {
         contentType: string;
         contentLength: number;
@@ -99,7 +134,7 @@ export async function widgetRoutes(app: FastifyInstance) {
       schema: { body: WidgetJobRequest },
     },
     async (req, reply) => {
-      const clientId = (req as any).widgetClientId as string;
+      const clientId = req.widgetClientId as string;
 
       const idempKey = req.headers['x-idempotency-key'] as string | undefined;
       const idempRedisKey = idempKey ? `idempotency:${clientId}:${idempKey}` : null;
@@ -133,6 +168,8 @@ export async function widgetRoutes(app: FastifyInstance) {
         throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 5MB limit');
       }
 
+      await assertSafeExternalUrl(garmentImageUrl);
+
       let garmentBuffer: Buffer;
       let garmentContentType: string;
       try {
@@ -153,11 +190,8 @@ export async function widgetRoutes(app: FastifyInstance) {
         garmentBuffer = Buffer.from(arrayBuffer);
         garmentContentType = ct;
       } catch (err: unknown) {
-        throw new AppError(
-          'BAD_REQUEST',
-          400,
-          `Failed to download garment image: ${(err as Error).message}`,
-        );
+        req.log.warn({ err, garmentImageUrl }, 'garment image download failed');
+        throw new AppError('BAD_REQUEST', 400, 'Failed to download garment image');
       }
 
       const garmentExt = garmentContentType.split('/')[1] ?? 'jpg';
@@ -166,23 +200,26 @@ export async function widgetRoutes(app: FastifyInstance) {
 
       const jobId = randomUUID();
       await app.db.transaction(async (tx) => {
-        await tx.insert(schema.jobs).values({
+        // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers userId/FK cols as non-null; widget jobs legitimately have null userId and null face/bg/pose
+        await (tx.insert(schema.jobs).values as any)({
           id: jobId,
-          userId: null as any,
+          userId: null,
           widgetClientId: clientId,
           customerPhotoKey,
           status: 'QUEUED',
           creditsCharged: WIDGET_JOB_COST,
         });
 
-        await tx.insert(schema.jobInputs).values({
+        // biome-ignore lint/suspicious/noExplicitAny: same — face/bg/pose are nullable in SQL but Drizzle types them non-null
+        await (tx.insert(schema.jobInputs).values as any)({
           jobId,
           upperGarmentKey: garmentR2Key,
-          faceId: null as any,
-          backgroundId: null as any,
-          poseId: null as any,
+          faceId: null,
+          backgroundId: null,
+          poseId: null,
         });
 
+        // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the widget ledger helper
         await atomicWidgetDeduct(tx as any, clientId, WIDGET_JOB_COST, jobId);
       });
 
@@ -207,7 +244,7 @@ export async function widgetRoutes(app: FastifyInstance) {
   );
 
   app.get('/v1/widget/jobs/:id', { preHandler: app.requireWidgetClient }, async (req, reply) => {
-    const clientId = (req as any).widgetClientId as string;
+    const clientId = req.widgetClientId as string;
     const { id } = req.params as { id: string };
 
     const [job] = await app.db
@@ -233,7 +270,7 @@ export async function widgetRoutes(app: FastifyInstance) {
   });
 
   app.delete('/v1/widget/jobs/:id', { preHandler: app.requireWidgetClient }, async (req, reply) => {
-    const clientId = (req as any).widgetClientId as string;
+    const clientId = req.widgetClientId as string;
     const { id } = req.params as { id: string };
 
     const [job] = await app.db
@@ -261,6 +298,7 @@ export async function widgetRoutes(app: FastifyInstance) {
     // Status is QUEUED or PREPROCESSING
     await app.db.transaction(async (tx) => {
       await tx.update(schema.jobs).set({ status: 'CANCELLED' }).where(eq(schema.jobs.id, id));
+      // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses custom methods in the widget ledger helper
       await widgetRefund(tx as any, clientId, WIDGET_JOB_COST, id, 'REFUND_CANCELLED');
     });
 
@@ -275,7 +313,7 @@ export async function widgetRoutes(app: FastifyInstance) {
     { preHandler: app.requireWidgetClient },
     async (req, reply) => {
       const { id } = req.params as { id: string };
-      const clientId = (req as any).widgetClientId as string;
+      const clientId = req.widgetClientId as string;
 
       const [job] = await app.db
         .select({ id: schema.jobs.id, widgetClientId: schema.jobs.widgetClientId })
@@ -289,6 +327,7 @@ export async function widgetRoutes(app: FastifyInstance) {
 
       writeSseHeaders(reply);
 
+      // biome-ignore lint/suspicious/noExplicitAny: redisSub is decorated on app at runtime; not in Fastify's type map
       const sub: Redis = (app as any).redisSub.duplicate();
       const channel = `sse:events:widget:${clientId}`;
 
