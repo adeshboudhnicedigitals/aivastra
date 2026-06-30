@@ -1,13 +1,14 @@
 -- Remove duplicate (job_id, reason) rows before creating the unique index.
--- Keeps the row with the lowest id (earliest insert) and deletes the rest.
+-- DISTINCT ON picks one physical row (ctid) per group; the rest are deleted.
+WITH keepers AS (
+  SELECT DISTINCT ON ("job_id", "reason") ctid
+  FROM "credit_ledger"
+  WHERE "job_id" IS NOT NULL
+  ORDER BY "job_id", "reason"
+)
 DELETE FROM "credit_ledger"
 WHERE "job_id" IS NOT NULL
-  AND "id" NOT IN (
-    SELECT MIN("id")
-    FROM "credit_ledger"
-    WHERE "job_id" IS NOT NULL
-    GROUP BY "job_id", "reason"
-  );
+  AND ctid NOT IN (SELECT ctid FROM keepers);
 
 CREATE UNIQUE INDEX "credit_ledger_job_reason_uniq"
   ON "credit_ledger" ("job_id", "reason")
