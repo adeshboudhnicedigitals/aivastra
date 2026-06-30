@@ -115,10 +115,14 @@ export async function widgetRoutes(app: FastifyInstance) {
         throw new AppError('FORBIDDEN', 403, 'upload session expired or not owned');
       }
 
+      let photoHead: { contentLength: number };
       try {
-        await app.storage.headObject(customerPhotoKey);
+        photoHead = await app.storage.headObject(customerPhotoKey);
       } catch {
         throw new AppError('BAD_UPLOAD', 400, 'uploaded photo not found');
+      }
+      if (photoHead.contentLength > 5 * 1024 * 1024) {
+        throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 5MB limit');
       }
 
       let garmentBuffer: Buffer;
