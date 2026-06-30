@@ -25,7 +25,7 @@ export const httpRequestDuration = new Histogram({
 export const jobsCreatedTotal = new Counter({
   name: 'jobs_created_total',
   help: 'Jobs enqueued by the API',
-  labelNames: ['priority'] as const,
+  labelNames: ['priority', 'kind'] as const,
   registers: [register],
 });
 
