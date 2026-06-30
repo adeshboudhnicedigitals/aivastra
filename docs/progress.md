@@ -1,5 +1,20 @@
 # Project Progress
 
+## 2026-06-30 — Saree node detector
+
+### Done
+- Created `apps/api/src/modules/admin/saree-detect.ts` mirroring `tryon-detect.ts` structure with saree-specific title matching (`garment`/`saree`/`flatsaree` for the user image, `person`/`model` for the admin/static image).
+- Created `apps/api/src/modules/admin/saree-detect.test.ts` with 5 inline-fixture tests covering: model/saree image detection, output node detection, positive/negative prompt detection via connection scan, default prompt text extraction, and the empty-JSON null case.
+- TDD: test failed with `Cannot find module './saree-detect.js'` before implementation; all 5 tests pass after.
+- `pnpm --filter @aivastra/api typecheck` clean.
+- Committed: `feat(api): add saree node detector` (4cfed73).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Pre-existing unresolved conflict marker (`<<<<<<< Updated upstream` with no closer) at the top of `docs/progress.md` — left untouched, outside the scope of this task.
+
 <<<<<<< Updated upstream
 ## 2026-06-24 — Premium dark mode Task 5: refine tokens.css palettes and remove hardcoded colors
 
