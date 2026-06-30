@@ -1,5 +1,35 @@
 # Project Progress
 
+## 2026-06-30 — Security, A11y, Design System, and Tech Debt Fixes (session 3)
+
+### Done
+- **7.2 Presigned URL upload cap (defense-in-depth):** Three-layer enforcement at 5MB: (1) client-side JS MIME+size gate; (2) Zod `.max(5 * 1024 * 1024)` on `WidgetPresignRequest.contentLength` in `packages/types/src/widget.ts`; (3) `headObject` check at `POST /v1/widget/jobs` in `apps/api/src/modules/widget/routes.ts` — catches declared-vs-actual lies before credit deduction. Note: `content-length-range` POST policy is impossible for SDK PUT presigned URLs (see `r2.ts` comment).
+- **5.1 ARIA live regions (widget):** `aria-live="polite" aria-atomic="true"` on processing status wrapper; `role="alert" aria-live="assertive" aria-atomic="true"` on error container.
+- **4.4 Hardcoded color in error.tsx:** `background: '#fff'` → `background: C.bg` on line 19. `confirm-dialog.tsx` was already correctly tokenized (audit was wrong about it).
+- **9.3 Middleware redirects → next.config.ts:** `REDIRECTS` dict removed from middleware; `async redirects()` added to `next.config.ts` with `permanent: true` and basePath-aware paths. CDN-cached, zero middleware cost.
+- **5.3 Focus trap in modals:** `SupportModal` — `modalRef` + full ARIA dialog attributes + `id` on heading + `useEffect` trap (first-element focus, Tab cycle, Escape). `SupportButton` — `triggerRef` + `requestAnimationFrame` return-focus. `ConfirmDialog` — trap on inner panel (`dialogRef`), not backdrop; `role="dialog"` moved off backdrop to panel; `aria-labelledby` + `id` on `<h3>` added; confirm button auto-focused.
+- **Audit docs updated:** phases 3, 4, 5, 7, 9 triage notes updated; resolved findings removed.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-06-30 — UI/UX Audit Tier 3 Fixes (session 2)
+
+### Done
+- **3.2 Client-side file validation (widget upload):** MIME allow-list (`image/jpeg`, `image/png`, `image/webp`) and 5MB size gate enforced in `handleFileSelect` before presigned URL is requested. Inline `validationError` state renders below the dropzone. `accept` attribute on hidden input matches JS allow-list. Committed: `feat(widget): client-side file validation and drag-and-drop upload UX`.
+- **Drag-and-drop UX (widget upload):** Added `onDragOver`/`onDragLeave`/`onDrop` handlers. `dragActive` state drives pink border + faint tint. `onDragLeave` child-node guard (`e.currentTarget.contains(e.relatedTarget)`) prevents flicker. Dropped files routed through same `handleFileSelect` validation. Included in same commit as above.
+- **3.4 Assets empty state (cold-start):** `(app)/assets/page.tsx` replaced bare text with `GarmentIcon` (in `C.pink`) + bold heading + sub-copy + `<Link href="/studio"><GradBtn>Upload your first garment</GradBtn></Link>`. Filter-miss path preserved as plain text. Audit file paths were wrong (referenced non-existent `(merchant)/` routes); real gap was in `(app)/assets/`. Committed: `feat(web): rich empty state for assets cold-start`.
+- **Audit doc updated:** `docs/audits/audit_phase_3_ui_ux.md` — 3.2 and 3.4 moved to triage note; open findings (3.1, 3.3, 3.5) remain.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-06-30 — Audit Tier 1 and Tier 2 Roadmap Fixes
 
 ### Done
