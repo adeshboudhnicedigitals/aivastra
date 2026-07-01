@@ -217,7 +217,7 @@ Both options require coordinated changes to the widget embed, the merchant's int
 
 #### 11.1 · Primitive Div-Based Charts in Admin Dashboard
 **Severity:** High  
-**File:** `apps/admin/src/pages/DashboardPage.tsx`
+**File:** `apps/admin-web/src/pages/DashboardPage.tsx`
 
 All charts (job volume, revenue, success rate) are hand-drawn with `div` elements and inline `width` percentages. No axis labels, no tooltips, no responsive sizing, no accessibility. The `recharts` package is already installed (`package.json`).
 
@@ -308,7 +308,7 @@ Each app reads `process.env.*` directly with no central validation. A missing re
 #### 11.3 · Fragmented Admin Styling
 **Severity:** Medium  
 **Complexity:** High  
-**File:** `apps/admin/src/`
+**File:** `apps/admin-web/src/`
 
 The admin SPA has no shared component library — buttons, cards, badges, and modals are re-styled inline across pages. Design drift is visible (inconsistent padding, border-radius, font sizes between pages). Requires an incremental extraction of shared components — no big-bang rewrite, but each new page/feature should pull from a growing `components/` library.
 
@@ -317,7 +317,7 @@ The admin SPA has no shared component library — buttons, cards, badges, and mo
 #### 11.5 · Brittle Theme State Sync
 **Severity:** Low  
 **Complexity:** Low  
-**File:** `apps/admin/src/`
+**File:** `apps/admin-web/src/`
 
 Theme preference (dark/light) is stored in a local React state that resets on page reload or when navigating between admin pages. Should persist to `localStorage` and read on mount.
 

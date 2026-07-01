@@ -71,7 +71,7 @@
 ## 2026-06-30 — Admin Dashboard Polling → SSE (Finding 11.2)
 
 ### Done
-- **Admin App (`apps/admin/src/lib/sse.ts`, `apps/admin/src/pages/DashboardPage.tsx`)**:
+- **Admin App (`apps/admin-web/src/lib/sse.ts`, `apps/admin-web/src/pages/DashboardPage.tsx`)**:
   - Implemented `createAdminSSEConnection`, a minimalistic fetch + ReadableStream SSE client capable of sending the `Authorization: Bearer <token>` header.
   - Replaced the primary 30-second `setInterval` polling in the dashboard with event-driven data fetching using the `/admin/jobs/stream` SSE endpoint.
   - Added an 800ms debounce to the SSE event handler to batch simultaneous state transitions without hammering the database.
@@ -163,7 +163,7 @@
 ## 2026-06-30 — Saree Try-On follow-up: Workers page checkbox
 
 **Done**
-- Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin/src/pages/WorkersPage.tsx`
+- Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin-web/src/pages/WorkersPage.tsx`
 - Wrapped the Add/Edit Worker modal's checkbox row with `flexWrap: 'wrap'` so 3 checkboxes don't overflow on narrow screens
 - Updated the workers-table badge color logic so `saree` rows render with a pink tint (`var(--pink, #ec4899)`) distinct from `tryon` (accent) and `catalogue` (success)
 - Admin can now enable a worker for saree jobs from the UI — no API PATCH needed
@@ -234,7 +234,7 @@
 ## 2026-06-30 — Saree Try-On follow-up: Workers page checkbox
 
 **Done**
-- Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin/src/pages/WorkersPage.tsx`
+- Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin-web/src/pages/WorkersPage.tsx`
 - Wrapped the Add/Edit Worker modal's checkbox row with `flexWrap: 'wrap'` so 3 checkboxes don't overflow on narrow screens
 - Updated the workers-table badge color logic so `saree` rows render with a pink tint (`var(--pink, #ec4899)`) distinct from `tryon` (accent) and `catalogue` (success)
 - Admin can now enable a worker for saree jobs from the UI — no API PATCH needed
@@ -334,7 +334,7 @@
 ## 2026-06-24 — Premium dark mode Task 5: refine tokens.css palettes and remove hardcoded colors
 
 ### Done
-- Updated `:root` light palette in `apps/admin/src/styles/tokens.css`:
+- Updated `:root` light palette in `apps/admin-web/src/styles/tokens.css`:
   - Replaced `--surface: #ffffff` with `oklch(0.99 0.005 80)`.
   - Reordered semantic status variables so each status group keeps base/soft/ink/border together.
 - Updated `[data-theme="dark"]` to warm charcoal (`hue 55`):
@@ -362,13 +362,13 @@
 ## 2026-06-24 — Premium dark mode Task 4: remove local theme state from App.tsx
 
 ### Done
-- Removed the local `Theme` type and `readInitialTheme()` helper from `apps/admin/src/App.tsx`.
+- Removed the local `Theme` type and `readInitialTheme()` helper from `apps/admin-web/src/App.tsx`.
 - Replaced local `useState` theme state with `useTheme()` from `./context/ThemeContext`.
 - Removed the `useEffect` that synced `data-theme` and `localStorage`; `ThemeProvider` now owns that.
 - Removed the local `toggleTheme` `useCallback`.
 - Updated `settingsProps` to pass `theme` and `setTheme`.
 - Left the `<Topbar ... />` call unchanged as instructed.
-- Updated `apps/admin/src/pages/SettingsPage.tsx` to accept the new `Theme`/`setTheme` props and toggle using `resolvedTheme` from `useTheme()`; this was required to keep the TypeScript build passing after changing `settingsProps`.
+- Updated `apps/admin-web/src/pages/SettingsPage.tsx` to accept the new `Theme`/`setTheme` props and toggle using `resolvedTheme` from `useTheme()`; this was required to keep the TypeScript build passing after changing `settingsProps`.
 - Applied Biome formatting/import ordering fixes required by the lefthook pre-commit hook.
 - Verified `pnpm --filter @aivastra/admin build` succeeds with no TypeScript errors.
 - Committed: `refactor(admin): App.tsx consumes useTheme instead of owning theme state`.
@@ -377,13 +377,13 @@
 - None.
 
 ### Open Questions / Decisions
-- The task description listed only `apps/admin/src/App.tsx` as modified, but `SettingsPage.tsx` also had to be updated because the new `settingsProps` no longer provides `onToggleTheme`. Task 8 was originally scoped to update `SettingsPage` props; the necessary prop change was pulled forward to keep the build green.
+- The task description listed only `apps/admin-web/src/App.tsx` as modified, but `SettingsPage.tsx` also had to be updated because the new `settingsProps` no longer provides `onToggleTheme`. Task 8 was originally scoped to update `SettingsPage` props; the necessary prop change was pulled forward to keep the build green.
 - `toggleTheme` from `useTheme()` was not destructured in `App.tsx` because it has no consumer until Task 7 wires it into `Topbar`; destructuring it now would trigger `noUnusedLocals`.
 
 ## 2026-06-24 — Premium dark mode Task 3: wire ThemeProvider into main.tsx
 
 ### Done
-- Updated `apps/admin/src/main.tsx` to import `ThemeProvider` from `./context/ThemeContext.tsx`.
+- Updated `apps/admin-web/src/main.tsx` to import `ThemeProvider` from `./context/ThemeContext.tsx`.
 - Wrapped `<App />` with `<ThemeProvider>` inside `<AuthProvider>` so `useAuth()` is available to `ThemeProvider` and `useTheme()` is available throughout the app.
 - Verified `pnpm --filter @aivastra/admin build` succeeds with no TypeScript errors.
 - Committed: `feat(admin): wrap App with ThemeProvider`.
@@ -397,7 +397,7 @@
 ## 2026-06-24 — Premium dark mode Task 2: create ThemeProvider context
 
 ### Done
-- Created `apps/admin/src/context/ThemeContext.tsx` with `ThemeProvider` and `useTheme` hook.
+- Created `apps/admin-web/src/context/ThemeContext.tsx` with `ThemeProvider` and `useTheme` hook.
 - Implemented localStorage persistence via `aivastra-theme`, system-preference listening, and server preference sync via `/admin/me` and `/admin/me/preferences`.
 - Ensured the server-preference fetch waits for `!isLoading` to avoid duplicating `/admin/me` calls already made by `AuthProvider.fetchRole()`.
 - Applied Biome formatting/import ordering fixes required by the lefthook pre-commit hook.
@@ -413,7 +413,7 @@
 ## 2026-06-24 — Premium dark mode Task 1: expose `isAuthenticated` from AuthContext
 
 ### Done
-- Added `isAuthenticated: boolean` to the `AuthState` interface in `apps/admin/src/context/AuthContext.tsx`.
+- Added `isAuthenticated: boolean` to the `AuthState` interface in `apps/admin-web/src/context/AuthContext.tsx`.
 - Provided `isAuthenticated: !!token` in the `AuthContext.Provider` value object.
 - Verified `pnpm --filter @aivastra/admin build` succeeds with no TypeScript errors.
 - Committed: `feat(admin): expose isAuthenticated from AuthContext`.
@@ -438,7 +438,7 @@
 - Created `docs/codebase-reference.md` as an internal reference covering architecture, stack, monorepo layout, DB schema, API/dispatcher/web/admin details, testing, env vars, deployment, invariants, and key files.
 
 ### Failed / Not Done
-- Repository-wide `pnpm lint` still reports pre-existing errors/warnings unrelated to the new document (`.opencode/plugins/graphify.js`, `apps/admin/src/components/`, `scripts/seed-admin.ts`, `biome.json` config).
+- Repository-wide `pnpm lint` still reports pre-existing errors/warnings unrelated to the new document (`.opencode/plugins/graphify.js`, `apps/admin-web/src/components/`, `scripts/seed-admin.ts`, `biome.json` config).
 
 ### Open Questions / Decisions
 - Whether to keep `docs/codebase-reference.md` as a living document and how frequently it should be refreshed after large architectural changes.
@@ -1088,7 +1088,7 @@
 ### 2026-06-08 — AGENTS.md refresh
 
 **Done**
-- Updated `AGENTS.md` to reflect current repo state: added `@aivastra/observability`, `apps/dispatcher`, `apps/catalogues-web`, `apps/admin` to monorepo boundaries table
+- Updated `AGENTS.md` to reflect current repo state: added `@aivastra/observability`, `apps/dispatcher`, `apps/catalogues-web`, `apps/admin-web` to monorepo boundaries table
 - Removed stale "dispatcher (not yet built)" text; added full dispatcher role, web BFF auth pattern, and package build order to invariants
 - Added gotchas: lefthook git hooks, CI auto-deploy on master push, web/admin lack test scripts, web is not ESM
 - Added lint/format tool (Biome) to Stack section
@@ -1168,8 +1168,8 @@
 ### 2026-06-01 — Fix admin Docker build TS errors
 
 **Done**
-- `apps/admin/src/lib/data.ts`: added `subcategoryIds: []` to all 7 `MOCK_CATALOG` items — `CatalogItem` type requires this field (added in 2026-06-01 refactor but mocks not updated)
-- `apps/admin/src/pages/CatalogPage.tsx`: added `GarmentType` import + `garmentTypes` state, fetched from `/admin/assets/garment-types` alongside existing Promise.all, passed `garmentTypes` prop to `BatchCatalogUploadModal` (prop was required but missing — caused TS2741)
+- `apps/admin-web/src/lib/data.ts`: added `subcategoryIds: []` to all 7 `MOCK_CATALOG` items — `CatalogItem` type requires this field (added in 2026-06-01 refactor but mocks not updated)
+- `apps/admin-web/src/pages/CatalogPage.tsx`: added `GarmentType` import + `garmentTypes` state, fetched from `/admin/assets/garment-types` alongside existing Promise.all, passed `garmentTypes` prop to `BatchCatalogUploadModal` (prop was required but missing — caused TS2741)
 - Docker admin build passes; pushed to master
 
 ---
@@ -1224,7 +1224,7 @@
 - All 155 source files reformatted
 
 **Build fixes**
-- `MOCK_POSES` in `apps/admin/src/lib/data.ts` missing `lowerItemIds`/`shoeItemIds` → Docker build failed
+- `MOCK_POSES` in `apps/admin-web/src/lib/data.ts` missing `lowerItemIds`/`shoeItemIds` → Docker build failed
 - Biome stripped `.js` ESM extension from `packages/storage/test/keys.test.ts` → typecheck failed
 
 #### Failed / Not Done
@@ -1249,7 +1249,7 @@ Standalone read-only results monitor at `/results` for admins to visually inspec
   - Independent cookie-based auth (`requireResultsUser`) verifies admin role (`SUPER_ADMIN`/`MODERATOR`/`SUPPORT`) without sharing session state with the admin React app.
   - Read-only: no delete or mutation actions.
 - **Server wiring:** `apps/api/src/server.ts` — one import + `await app.register(resultsRoutes);`.
-- **Zero impact** on `apps/catalogues-web`, `apps/admin`, DB schema, or env files.
+- **Zero impact** on `apps/catalogues-web`, `apps/admin-web`, DB schema, or env files.
 - **Typecheck + build green** for `@aivastra/api`.
 
 #### Open Questions / Decisions
@@ -1548,7 +1548,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Done**
 
-*Admin Panel (`apps/admin` — standalone Vite/React SPA, proxied through Vite dev server at :5173)*
+*Admin Panel (`apps/admin-web` — standalone Vite/React SPA, proxied through Vite dev server at :5173)*
 
 - **AssetsPage** — 3-tab layout: Backgrounds, Faces, Subcategories
   - Backgrounds tab: upload (presign → R2 PUT → confirm), toggle active, delete
@@ -1577,21 +1577,21 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Failed / Not Done**
 
-- Admin panel built as separate Vite SPA (`apps/admin`), not embedded in Next.js (`apps/catalogues-web`) — diverges from PHASES.md §3D plan. This is intentional: admin panel is ready for production use standalone; no plan to migrate.
+- Admin panel built as separate Vite SPA (`apps/admin-web`), not embedded in Next.js (`apps/catalogues-web`) — diverges from PHASES.md §3D plan. This is intentional: admin panel is ready for production use standalone; no plan to migrate.
 - `apps/catalogues-web` (user-facing Next.js try-on builder) — not started
 - Phase 2B (VPS + Tunnel + ComfyUI) — not started
 - `templates/virtual-tryon-v1.json` — still a stub; real ComfyUI workflow export still blocking E2E
 
 **Decisions Made**
 
-- Admin panel = standalone Vite SPA (`apps/admin`) — not part of `apps/catalogues-web`. Deployed separately, proxied by nginx in prod.
+- Admin panel = standalone Vite SPA (`apps/admin-web`) — not part of `apps/catalogues-web`. Deployed separately, proxied by nginx in prod.
 - Asset management scope expanded beyond original PHASES.md §1D: model faces, backgrounds, garment subcategories, poses all fully managed via admin UI.
 - Poses schema: face × background per pose (not just per subcategory) — data model locked.
 - Presigned URL upload flow: browser → presign API → direct PUT to MinIO/R2 → confirm API. Confirmed working end-to-end with local MinIO.
 
 **Open Questions / Decisions**
 
-- [ ] `apps/admin` prod deployment: serves from same VPS as API? nginx route `/admin-app/*` → static files from `apps/admin/dist/`? Decide before Phase 4D.
+- [ ] `apps/admin-web` prod deployment: serves from same VPS as API? nginx route `/admin-app/*` → static files from `apps/admin-web/dist/`? Decide before Phase 4D.
 - [ ] Subcategory template images (`subcategory_templates` table — pre-rendered face×background composites): does admin need UI to upload these? Currently table exists but no admin page for it.
 - [ ] Pose `subcategoryId` is required on upload — does every pose belong to exactly one subcategory, or should poses be subcategory-agnostic (shared across subcategories)? Current model: one subcategory per pose. Confirm with product.
 

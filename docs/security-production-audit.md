@@ -1,7 +1,7 @@
 # Security & Production-Readiness Audit — Aivastra Webtool
 
 **Date:** 2026-06-23
-**Scope:** Entire monorepo — `apps/api`, `apps/dispatcher`, `apps/catalogues-web`, `apps/admin`, `packages/*`, `infra/*`, committed config.
+**Scope:** Entire monorepo — `apps/api`, `apps/dispatcher`, `apps/catalogues-web`, `apps/admin-web`, `packages/*`, `infra/*`, committed config.
 **Method:** Manual source review of every auth/authz path, input boundary, external call, storage/credit flow, and deployment config. Every finding below cites `file:line` and quotes the relevant code.
 
 > **Last updated: 2026-06-30.** 20 of 21 findings fixed. 1 partial (C1 — ops: rotate + purge history). 1 open (H4 — presigned PUT size enforcement, needs presigned POST rewrite or ingress proxy).
@@ -180,7 +180,7 @@ The refresh cookie *is* `httpOnly` (good), but the access token is deliberately 
 
 **Impact:** XSS is amplified from "script execution" to "durable account takeover."
 
-**Recommendation:** Keep the access token in memory (as the **admin SPA already does** — `apps/admin/src/context/AuthContext.tsx` holds it in React state, not a readable cookie) and rely on the httpOnly refresh cookie. Add a strict CSP and the usual security headers via `next.config.ts` `headers()` or the edge proxy.
+**Recommendation:** Keep the access token in memory (as the **admin SPA already does** — `apps/admin-web/src/context/AuthContext.tsx` holds it in React state, not a readable cookie) and rely on the httpOnly refresh cookie. Add a strict CSP and the usual security headers via `next.config.ts` `headers()` or the edge proxy.
 
 ---
 
@@ -319,7 +319,7 @@ So the report isn't read as "everything is broken" — these were checked and ar
 - **OAuth** — `state` CSRF cookie + one-time OTP handoff with 60s TTL (`auth/google.routes.ts:27-51,176-194`).
 - **Prompt safety** — user hint stripped of control chars and capped at 300 (`jobs/sanitize.ts`).
 - **Dispatcher outbound** — talks only to env-configured worker URLs (not user input); ComfyUI filenames built from an allow-listed extension (`job/processor.ts:272-273`).
-- **Admin SPA token handling** — access token kept in memory, refresh via httpOnly cookie (`apps/admin/src/context/AuthContext.tsx`) — the pattern the web app (H2) should adopt.
+- **Admin SPA token handling** — access token kept in memory, refresh via httpOnly cookie (`apps/admin-web/src/context/AuthContext.tsx`) — the pattern the web app (H2) should adopt.
 
 ---
 

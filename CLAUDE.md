@@ -29,8 +29,8 @@ Read `docs/virtual-tryon-system-design.md` before changing architecture. See `do
 apps/api           Fastify 5 REST API — auth, credits, catalog, jobs, admin
 apps/dispatcher    Redis Stream consumer — routes jobs to GPU workers
 apps/catalogues-web           Next.js 15 — user-facing UI (auth, studio, catalogues, pricing)
-apps/admin         Vite + React SPA — internal admin panel (separate from apps/catalogues-web)
-apps/admin-mobile  Expo SDK 53 React Native — admin app (Android, mirrors apps/admin features)
+apps/admin-web         Vite + React SPA — internal admin panel (separate from apps/catalogues-web)
+apps/admin-mobile  Expo SDK 53 React Native — admin app (Android, mirrors apps/admin-web features)
 packages/db        Drizzle schema + migrations + createDb() factory
 packages/types     Zod schemas only — single source of truth for request/response shapes
 packages/storage   StorageProvider interface + R2/MinIO impl + R2 key builders
@@ -90,7 +90,7 @@ Three-service split with a hard boundary at the Redis Stream:
 1. **api** — auth, credits, catalog reads, job creation. Validates catalog IDs → atomic credit deduct (`UPDATE WHERE balance > 0`) → writes `jobs` row → `XADD` to Redis stream. Never talks to ComfyUI.
 2. **dispatcher** — only process that talks to GPU workers. Consumes stream via `XREADGROUP`, selects healthy IDLE worker, clones + patches the versioned workflow template with R2 input keys, posts to ComfyUI `/prompt` over Cloudflare Tunnel, listens on ComfyUI websocket for progress, uploads result to R2, updates Postgres + publishes SSE, `XACK`s. Refunds credits in the same Postgres transaction on terminal failure (max 2 attempts).
 3. **web** — uploads garments **direct to R2 via presigned URL** (bypasses api), then POSTs job metadata. Opens SSE for live progress. Auth via httpOnly cookie (`access_token`). Token refresh handled automatically in `apps/catalogues-web/src/lib/api.ts`.
-4. **admin** — separate Vite+React SPA (`apps/admin`). Talks directly to `apps/api` `/admin/*` routes.
+4. **admin** — separate Vite+React SPA (`apps/admin-web`). Talks directly to `apps/api` `/admin/*` routes.
 
 Worker connectivity: each ComfyUI VPS runs `cloudflared`; no inbound ports. Health monitor probes `/system_stats` every 15s and sets `worker:health:{id}` with 30s TTL — expired = unhealthy = no routing.
 
@@ -259,7 +259,7 @@ API test harness (`apps/api/test/helpers/api.ts`): `buildTestApp()` calls `app.l
 
 ## Admin Parity Rule
 
-`apps/admin-mobile` mirrors `apps/admin` — same admin user, same `/admin/*` API. When a change adds/modifies a feature, screen, or admin API field in `apps/admin`, port the equivalent to `apps/admin-mobile` (or explicitly flag it as web-only, e.g. bulk CSV export) before calling the task done. Don't port pure styling/layout tweaks — only functional/data changes.
+`apps/admin-mobile` mirrors `apps/admin-web` — same admin user, same `/admin/*` API. When a change adds/modifies a feature, screen, or admin API field in `apps/admin-web`, port the equivalent to `apps/admin-mobile` (or explicitly flag it as web-only, e.g. bulk CSV export) before calling the task done. Don't port pure styling/layout tweaks — only functional/data changes.
 
 ## Invariants (do not break)
 
@@ -364,7 +364,7 @@ Add a new dated entry at the top of the log.
 | Workflow patcher | `apps/dispatcher/src/workflow/patcher.ts` |
 | Web middleware (auth guard) | `apps/catalogues-web/src/middleware.ts` |
 | Web API client (token refresh) | `apps/catalogues-web/src/lib/api.ts` |
-| Admin app root | `apps/admin/src/App.tsx` |
+| Admin app root | `apps/admin-web/src/App.tsx` |
 | Design doc | `docs/virtual-tryon-system-design.md` |
 | Open findings backlog | `docs/audits/open-findings.md` |
 

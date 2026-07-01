@@ -220,7 +220,7 @@ Goal: Users can build a try-on job through the browser. Admins can manage the pl
 
 ### 3D — Admin Panel [B, Days 14–18] — **DONE** (as standalone Vite SPA)
 
-> **Deviation from plan:** Admin panel built as `apps/admin` (Vite + React), not embedded in `apps/catalogues-web` (Next.js). Deployed separately. No migration planned.
+> **Deviation from plan:** Admin panel built as `apps/admin-web` (Vite + React), not embedded in `apps/catalogues-web` (Next.js). Deployed separately. No migration planned.
 
 **Completed:**
 - Users page: search, filters, tier/ban/force-logout controls, credit grant/deduct
