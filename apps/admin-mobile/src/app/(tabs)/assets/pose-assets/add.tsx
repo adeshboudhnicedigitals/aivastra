@@ -38,10 +38,23 @@ export default function Screen() {
         'Pose image, label, face, background and workflow are required.',
       );
     try {
-      const body: any = { contentType: main.mime };
+      const body: {
+        contentType: string;
+        faceSideContentType?: string;
+        bgComfyContentType?: string;
+      } = { contentType: main.mime };
       if (side) body.faceSideContentType = side.mime;
       if (bg) body.bgComfyContentType = bg.mime;
-      const signed = await apiFetch<any>('/admin/assets/pose-assets/presign', {
+      const signed = await apiFetch<{
+        r2Key: string;
+        uploadUrl: string;
+        thumbnailKey: string;
+        thumbnailUploadUrl: string;
+        faceSideR2Key?: string;
+        faceSideUploadUrl?: string;
+        bgComfyR2Key?: string;
+        bgComfyUploadUrl?: string;
+      }>('/admin/assets/pose-assets/presign', {
         method: 'POST',
         body: JSON.stringify(body),
       });
@@ -50,8 +63,10 @@ export default function Screen() {
       setPhase('uploading-thumbnail');
       const thumb = await makeThumbnail(main.uri);
       await uploadFile(signed.thumbnailUploadUrl, thumb, 'image/jpeg', setProgress);
-      if (side) await uploadFile(signed.faceSideUploadUrl, side.uri, side.mime, setProgress);
-      if (bg) await uploadFile(signed.bgComfyUploadUrl, bg.uri, bg.mime, setProgress);
+      if (side && signed.faceSideUploadUrl)
+        await uploadFile(signed.faceSideUploadUrl, side.uri, side.mime, setProgress);
+      if (bg && signed.bgComfyUploadUrl)
+        await uploadFile(signed.bgComfyUploadUrl, bg.uri, bg.mime, setProgress);
       setPhase('confirming');
       setProgress(100);
       await apiFetch('/admin/assets/pose-assets', {

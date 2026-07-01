@@ -1,11 +1,11 @@
 import { schema } from '@aivastra/db';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { newRefreshToken, signAccess } from './service.js';
 
 export async function createSessionTokens(
   app: FastifyInstance,
   userId: string,
-  reply: any,
+  reply: FastifyReply,
   status: number,
 ) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);
@@ -35,7 +35,7 @@ export async function createSessionTokens(
 export async function createAdminSessionTokens(
   app: FastifyInstance,
   userId: string,
-  reply: any,
+  reply: FastifyReply,
   status: number,
 ) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);
@@ -68,11 +68,17 @@ export async function createAdminSessionTokens(
   return { accessToken };
 }
 
+const DURATION_UNIT_MS: Record<string, number> = {
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+};
+
 export function parseDuration(s: string): number {
-  const m = /^(\d+)([smhd])$/.exec(s);
-  if (!m) throw new Error(`bad duration: ${s}`);
-  const n = Number(m[1]);
-  return (
-    n * ({ s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as Record<string, number>)[m[2]!]!
-  );
+  const m = /^(\d+)(s|m|h|d)$/.exec(s);
+  const count = m?.[1];
+  const unit = m?.[2];
+  if (!count || !unit) throw new Error(`bad duration: ${s}`);
+  return Number(count) * DURATION_UNIT_MS[unit];
 }

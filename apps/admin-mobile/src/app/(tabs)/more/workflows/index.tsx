@@ -92,11 +92,14 @@ export default function WorkflowsScreen() {
       formData.append('label', upLabel.trim());
       formData.append('slug', upSlug);
       if (upDescription.trim()) formData.append('description', upDescription.trim());
-      formData.append('file', {
+      // React Native's FormData accepts a { uri, name, type } file descriptor here,
+      // which the DOM lib's FormData.append types (Blob | string) don't model.
+      const filePart = {
         uri: upFileUri,
         name: upFileName ?? 'workflow.json',
         type: 'application/json',
-      } as any);
+      };
+      formData.append('file', filePart as unknown as Blob);
 
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;

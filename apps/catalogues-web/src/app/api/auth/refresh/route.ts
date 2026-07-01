@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     const setCookieStr = h.getSetCookie
       ? h.getSetCookie().join(', ') || null
       : res.headers.get('set-cookie');
-    setAuthCookies(response, typed.accessToken!, setCookieStr);
+    setAuthCookies(response, typed.accessToken ?? '', setCookieStr);
     return response;
   } catch (err) {
     console.error('refresh BFF route failed:', err);

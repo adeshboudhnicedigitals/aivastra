@@ -2,6 +2,18 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { buildServer } from '../../src/server';
 import { type Containers, startContainers } from '../helpers/containers';
 
+function decodeJwtPayload(token: string): { sub: string; [key: string]: unknown } {
+  const [, payload] = token.split('.');
+  if (!payload) throw new Error('malformed JWT: missing payload segment');
+  return JSON.parse(Buffer.from(payload, 'base64url').toString());
+}
+
+function extractOtpFromLocation(location: string): string {
+  const otp = new URL(location).searchParams.get('code');
+  if (!otp) throw new Error('redirect location missing ?code= OTP');
+  return otp;
+}
+
 async function buildGoogleApp(c: Containers) {
   const app = await buildServer({
     NODE_ENV: 'test',
@@ -68,9 +80,7 @@ describe('google oauth', () => {
     const { accessToken: regToken } = regRes.json() as { accessToken: string };
 
     // Decode userId from JWT sub claim
-    const parts = regToken.split('.');
-    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString());
-    const userId: string = claims.sub;
+    const userId = decodeJwtPayload(regToken).sub;
 
     // Seed OTP in Redis
     const otp = 'test-otp-1234';
@@ -141,7 +151,7 @@ describe('google oauth', () => {
     expect(location).toContain('http://localhost:3000/api/auth/google/callback?code=');
 
     // Extract OTP and verify it exists in Redis
-    const otp = new URL(location).searchParams.get('code')!;
+    const otp = extractOtpFromLocation(location);
     expect(otp).toBeTruthy();
     const storedUserId = await app.redis.get(`oauth:otp:${otp}`);
     expect(storedUserId).toBeTruthy();
@@ -208,7 +218,7 @@ describe('google oauth', () => {
     expect(location).toContain('http://localhost:3000/api/auth/google/callback?code=');
 
     // Only one user should exist for this email
-    const otp = new URL(location).searchParams.get('code')!;
+    const otp = extractOtpFromLocation(location);
 
     // Exchange the OTP to get the real userId
     const linkedUserId = await app.redis.get(`oauth:otp:${otp}`);
@@ -216,9 +226,7 @@ describe('google oauth', () => {
 
     // Verify the oauth_accounts row links to the ORIGINAL registered user (not a new user)
     const regToken = regRes.json<{ accessToken: string }>().accessToken;
-    const parts = regToken.split('.');
-    const claims = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString());
-    const originalUserId: string = claims.sub;
+    const originalUserId = decodeJwtPayload(regToken).sub;
 
     const { schema } = await import('@aivastra/db');
     const { eq, and } = await import('drizzle-orm');

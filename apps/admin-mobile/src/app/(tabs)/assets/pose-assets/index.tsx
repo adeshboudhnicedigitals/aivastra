@@ -101,7 +101,7 @@ export default function Screen() {
           cmp = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
           break;
         default:
-          cmp = (a as any).sortOrder - (b as any).sortOrder;
+          cmp = a.sortOrder - b.sortOrder;
       }
       return sortAsc ? cmp : -cmp;
     });

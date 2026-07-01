@@ -92,9 +92,9 @@ export function BackgroundCategoryModal({
             <Switch onValueChange={setIsActive} value={isActive} />
           </View>
 
-          {isEdit && onDelete ? (
+          {category && onDelete ? (
             <TouchableOpacity
-              onPress={() => onDelete(category!)}
+              onPress={() => onDelete(category)}
               style={[styles.deleteBtn, { borderColor: colors.error }]}
             >
               <Text style={[styles.deleteLabel, { color: colors.error }]}>Delete Category</Text>

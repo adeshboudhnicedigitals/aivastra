@@ -225,7 +225,9 @@ export default function JobDetailScreen() {
             <TouchableOpacity
               accessibilityHint="Opens fullscreen image preview"
               accessibilityRole="button"
-              onPress={() => setPreview({ uri: data.outputUrl!, label: 'Generated job output' })}
+              onPress={() =>
+                setPreview({ uri: data.outputUrl ?? '', label: 'Generated job output' })
+              }
             >
               <Image
                 accessibilityLabel="Generated job output"

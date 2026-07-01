@@ -28,7 +28,7 @@ export type SSEState = 'connecting' | 'connected' | 'reconnecting';
 function getToken(): string | null {
   if (typeof document === 'undefined') return null;
   const m = document.cookie.match(/(?:^|; )access_token=([^;]*)/);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return m?.[1] !== undefined ? decodeURIComponent(m[1]) : null;
 }
 
 async function tryRefreshToken(): Promise<string | null> {

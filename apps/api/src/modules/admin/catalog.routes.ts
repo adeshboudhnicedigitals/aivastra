@@ -111,7 +111,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     '/admin/catalog/items/presign',
     { preHandler: RW, schema: { body: PresignCatalogItemBody } },
     async (req) => {
-      const { contentType, typeSlug } = req.body as any;
+      const { contentType, typeSlug } = req.body as z.infer<typeof PresignCatalogItemBody>;
       const newId = randomUUID();
       const r2Key = keys.catalogItem(typeSlug, newId);
       const thumbKey = keys.catalogThumb(typeSlug, newId);
@@ -135,7 +135,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
         sortOrder,
         subcategoryIds,
         categoryId,
-      } = req.body as any;
+      } = req.body as z.infer<typeof ConfirmCatalogItemBody>;
       const row = await app.db.transaction(async (tx) => {
         const [inserted] = await tx
           .insert(schema.catalogItems)
@@ -149,15 +149,16 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
             categoryId: categoryId ?? null,
           })
           .returning();
+        if (!inserted) throw new AppError('INTERNAL', 500, 'catalog item insert returned no row');
         if (subcategoryIds && subcategoryIds.length > 0) {
           await tx.insert(schema.catalogItemSubcategories).values(
             subcategoryIds.map((sid: string) => ({
-              catalogItemId: inserted?.id,
+              catalogItemId: inserted.id,
               subcategoryId: sid,
             })),
           );
         }
-        return { ...inserted!, subcategoryIds: subcategoryIds ?? [] };
+        return { ...inserted, subcategoryIds: subcategoryIds ?? [] };
       });
       return row;
     },
@@ -181,8 +182,16 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const { id } = req.params as any;
-      const { subcategoryIds, ...itemFields } = req.body as any;
+      const { id } = req.params as { id: string };
+      const { subcategoryIds, ...itemFields } = req.body as {
+        label?: string;
+        isActive?: boolean;
+        sortOrder?: number;
+        genderSlug?: 'men' | 'women' | 'boys' | 'girls' | null;
+        subcategoryIds?: string[];
+        r2Key?: string;
+        thumbnailKey?: string;
+      };
       await app.db.transaction(async (tx) => {
         if (Object.keys(itemFields).length > 0) {
           await tx
@@ -214,7 +223,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req) => {
-      const { id } = req.params as any;
+      const { id } = req.params as { id: string };
       const [item] = await app.db
         .select()
         .from(schema.catalogItems)
@@ -244,17 +253,18 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
     async (req) => {
       const [row] = await app.db
         .insert(schema.catalogCategories)
-        .values(req.body as any)
+        .values(req.body as z.infer<typeof CreateCategoryBody>)
         .returning();
+      if (!row) throw new AppError('INTERNAL', 500, 'category insert returned no row');
       const typeRow = await app.db
         .select({ slug: schema.catalogTypes.slug })
         .from(schema.catalogTypes)
-        .where(eq(schema.catalogTypes.id, row?.typeId))
+        .where(eq(schema.catalogTypes.id, row.typeId))
         .then((r) => r[0]);
       return {
-        ...row!,
+        ...row,
         typeSlug: typeRow?.slug ?? '',
-        thumbnailUrl: row?.thumbnailKey ? app.storage.publicUrl(row?.thumbnailKey) : null,
+        thumbnailUrl: row.thumbnailKey ? app.storage.publicUrl(row.thumbnailKey) : null,
       };
     },
   );
@@ -266,7 +276,7 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.coerce.number().int() }) },
     },
     async (req) => {
-      const { id } = req.params as any;
+      const { id } = req.params as { id: number };
       const [itemsCount, backgroundsCount] = await Promise.all([
         app.db
           .select({ value: count() })
@@ -304,10 +314,10 @@ export async function adminCatalogRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const { id } = req.params as any;
+      const { id } = req.params as { id: number };
       await app.db
         .update(schema.catalogCategories)
-        .set(req.body as object)
+        .set(req.body as z.infer<typeof PatchCategoryBody>)
         .where(eq(schema.catalogCategories.id, id));
       return { ok: true };
     },

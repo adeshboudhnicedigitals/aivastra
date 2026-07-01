@@ -23,8 +23,8 @@ export async function POST(req: NextRequest) {
 
     if (setCookieStr) {
       const match = setCookieStr.match(/merchant_access_token=([^;]+)/);
-      if (match) {
-        response.cookies.set('merchant_access_token', match[1]!, {
+      if (match?.[1]) {
+        response.cookies.set('merchant_access_token', match[1], {
           httpOnly: true,
           sameSite: 'lax',
           path: '/',
