@@ -247,7 +247,7 @@ No idempotency protection on job creation. A double-submit (network retry, accid
 #### 4.3 · Hardcoded Responsive Breakpoints
 **Severity:** Medium  
 **Complexity:** High  
-**Files:** `apps/web/src/app/globals.css`, multiple component files
+**Files:** `apps/catalogues-web/src/app/globals.css`, multiple component files
 
 Responsive layout breakpoints are scattered as magic pixel values (`768px`, `1024px`, `1280px`) across CSS media queries and inline style conditionals. No shared breakpoint tokens. Changing the layout grid requires hunting every file.
 
@@ -280,7 +280,7 @@ When two branches independently add migrations, they collide on the same `NNNN_`
 #### 1.4 · BFF Proxying Overhead for Non-Auth Routes
 **Severity:** Medium  
 **Complexity:** High  
-**Files:** `apps/web/src/app/api/`
+**Files:** `apps/catalogues-web/src/app/api/`
 
 Some non-auth API calls route through the Next.js BFF (adding an extra network hop) when they could call the Fastify API directly. Architectural — requires auditing each BFF route to categorise: auth-only (keep BFF), data fetch (call API directly from client), sensitive (keep BFF). Defer to a dedicated refactor sprint.
 
@@ -372,9 +372,9 @@ Three changes applied together:
 #### SEC-H2 · `access_token` cookie is JS-readable; no CSP
 **Severity:** High
 **Status:** ✅ Fixed (2026-06-30) — token moved to memory; CSP still open
-**File:** `apps/web/src/lib/auth-cookies.ts:9`, `apps/web/next.config.ts`
+**File:** `apps/catalogues-web/src/lib/auth-cookies.ts:9`, `apps/catalogues-web/next.config.ts`
 
-Access token moved out of cookies entirely into a module-level variable in `apps/web/src/lib/api.ts`. `setAuthCookies` no longer sets `access_token`. Login BFF returns `{ ok, accessToken }` in the JSON body; the login page calls `initToken(accessToken)` to seed module memory. On page reload the first 401 triggers `tryRefresh()` which silently re-hydrates from the `httpOnly` refresh cookie. BroadcastChannel syncs the token across tabs. `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy` added (L5 fix).
+Access token moved out of cookies entirely into a module-level variable in `apps/catalogues-web/src/lib/api.ts`. `setAuthCookies` no longer sets `access_token`. Login BFF returns `{ ok, accessToken }` in the JSON body; the login page calls `initToken(accessToken)` to seed module memory. On page reload the first 401 triggers `tryRefresh()` which silently re-hydrates from the `httpOnly` refresh cookie. BroadcastChannel syncs the token across tabs. `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy` added (L5 fix).
 
 **Remaining:** CSP header not yet added to `next.config.ts` — requires auditing all script/style/connect origins first.
 

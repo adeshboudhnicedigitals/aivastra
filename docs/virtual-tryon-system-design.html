@@ -100,7 +100,7 @@
 | Workflows           | Single static template in `templates/`                | `workflow_templates` table (DB-stored JSON + node-ID mappings); admin upload + auto node detection   |
 | Job inputs          | garment + model + pose + background + lower (single)  | garment + faceId + backgroundId + **poseIds[] (1–6)** + optional lower/shoe + `aspectRatio`          |
 | Catalogue grouping  | Not present                                           | One job per pose under a shared `catalogue_id`; `/v1/catalogues` groups them                         |
-| Admin panel         | Next.js routes inside `apps/web`                      | Standalone Vite + React SPA (`apps/admin`) hitting `/admin/*`                                        |
+| Admin panel         | Next.js routes inside `apps/catalogues-web`                      | Standalone Vite + React SPA (`apps/admin`) hitting `/admin/*`                                        |
 | Auth                | Email/password + JWT                                  | + Google OAuth, email verification + password reset (Resend), 1h idle timeout, silent refresh        |
 | Worker routing      | Cloudflare LB hostname (or Redis fallback)            | Dispatcher reads per-worker `WORKER_<ID>_URL`, selects healthy IDLE worker from Redis registry       |
 | Worker progress     | ComfyUI WebSocket                                     | ComfyUI `/history/{promptId}` polling (every 3s)                                                     |
@@ -128,7 +128,7 @@ Internet Traffic
 │                                                              │
 │  ┌──────────────┐ ┌──────────────┐ ┌────────────────────┐    │
 │  │  Next.js 15  │ │ Admin SPA    │ │  Fastify API (TS)  │    │
-│  │  apps/web    │ │ apps/admin   │ │                    │    │
+│  │  apps/catalogues-web    │ │ apps/admin   │ │                    │    │
 │  │  (port 3000) │ │ (Vite/React) │ │  /v1/auth  JWT+OAuth│   │
 │  │              │ │              │ │  /v1/jobs  CRUD+SSE │   │
 │  │ Studio wizard│ │ assets,poses │ │  /v1/catalogues     │   │
@@ -562,7 +562,7 @@ This means even without the Cloudflare LB, the dispatcher handles routing safely
 
 ## 5. Admin Panel
 
-The admin panel is a **standalone Vite + React SPA** (`apps/admin`), separate from `apps/web`. It
+The admin panel is a **standalone Vite + React SPA** (`apps/admin`), separate from `apps/catalogues-web`. It
 talks directly to the API's `/admin/*` routes. (The v2 spec embedded admin in Next.js — superseded.)
 A separate read-only **results monitor** is served by the API itself at `/results` (self-contained
 HTML, its own cookie auth) for visually inspecting ComfyUI outputs across users.
@@ -804,10 +804,10 @@ CREATE TABLE refresh_tokens (
 
 ---
 
-## 7. Frontend — User Flow (`apps/web`, Next.js 15)
+## 7. Frontend — User Flow (`apps/catalogues-web`, Next.js 15)
 
 Auth via httpOnly cookie (`access_token`); token refresh handled automatically in
-`apps/web/src/lib/api.ts` (silent single-flight refresh, 1h idle timeout). App routes:
+`apps/catalogues-web/src/lib/api.ts` (silent single-flight refresh, 1h idle timeout). App routes:
 `/studio`, `/catalogues` (+ `/catalogues/[id]`), `/assets`, `/pricing`, `/settings`.
 
 ```

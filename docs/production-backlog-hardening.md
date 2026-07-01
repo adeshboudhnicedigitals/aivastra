@@ -36,7 +36,7 @@ losing money, getting stuck, or starving other users.
   (15s submit, 300s completion, 30s history, 120s download) start only **after** a
   worker is claimed. A job can wait 90 min and still get a full fresh budget. **The
   original "will the 100th user's image time out?" worry is unfounded.**
-- **Result fetch is durable.** `apps/web/.../catalogues/[id]/page.tsx` loads job state
+- **Result fetch is durable.** `apps/catalogues-web/.../catalogues/[id]/page.tsx` loads job state
   from the DB (`GET /v1/catalogues/:id`), **polls** while any job is non-terminal
   (`refetchInterval`), and also receives live SSE updates with auto-reconnect. Results
   live in Postgres + R2, so closing the tab or waiting 90 min loses nothing.

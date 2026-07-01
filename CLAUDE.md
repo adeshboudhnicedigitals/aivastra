@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [x] Phase 0 — Foundations (monorepo, DB schema, docker infra)
 - [x] Phase 1 — Backend API (auth, credits, catalog, admin, jobs)
 - [x] Phase 2 — Dispatcher (Redis consumer, worker routing, ComfyUI pipeline)
-- [ ] Phase 3 — Next.js frontend (`apps/web` — partially scaffolded)
+- [ ] Phase 3 — Next.js frontend (`apps/catalogues-web` — partially scaffolded)
 - [ ] Phase 4 — E2E integration + real ComfyUI workflow template
 
 Read `docs/virtual-tryon-system-design.md` before changing architecture. See `docs/PHASES.md` for phase detail.
@@ -28,9 +28,9 @@ Read `docs/virtual-tryon-system-design.md` before changing architecture. See `do
 ```
 apps/api           Fastify 5 REST API — auth, credits, catalog, jobs, admin
 apps/dispatcher    Redis Stream consumer — routes jobs to GPU workers
-apps/web           Next.js 15 — user-facing UI (auth, studio, catalogues, pricing)
-apps/admin         Vite + React SPA — internal admin panel (separate from apps/web)
-apps/admin-mobile  Expo SDK 53 React Native — admin app (Android)
+apps/catalogues-web           Next.js 15 — user-facing UI (auth, studio, catalogues, pricing)
+apps/admin         Vite + React SPA — internal admin panel (separate from apps/catalogues-web)
+apps/admin-mobile  Expo SDK 53 React Native — admin app (Android, mirrors apps/admin features)
 packages/db        Drizzle schema + migrations + createDb() factory
 packages/types     Zod schemas only — single source of truth for request/response shapes
 packages/storage   StorageProvider interface + R2/MinIO impl + R2 key builders
@@ -89,7 +89,7 @@ Three-service split with a hard boundary at the Redis Stream:
 
 1. **api** — auth, credits, catalog reads, job creation. Validates catalog IDs → atomic credit deduct (`UPDATE WHERE balance > 0`) → writes `jobs` row → `XADD` to Redis stream. Never talks to ComfyUI.
 2. **dispatcher** — only process that talks to GPU workers. Consumes stream via `XREADGROUP`, selects healthy IDLE worker, clones + patches the versioned workflow template with R2 input keys, posts to ComfyUI `/prompt` over Cloudflare Tunnel, listens on ComfyUI websocket for progress, uploads result to R2, updates Postgres + publishes SSE, `XACK`s. Refunds credits in the same Postgres transaction on terminal failure (max 2 attempts).
-3. **web** — uploads garments **direct to R2 via presigned URL** (bypasses api), then POSTs job metadata. Opens SSE for live progress. Auth via httpOnly cookie (`access_token`). Token refresh handled automatically in `apps/web/src/lib/api.ts`.
+3. **web** — uploads garments **direct to R2 via presigned URL** (bypasses api), then POSTs job metadata. Opens SSE for live progress. Auth via httpOnly cookie (`access_token`). Token refresh handled automatically in `apps/catalogues-web/src/lib/api.ts`.
 4. **admin** — separate Vite+React SPA (`apps/admin`). Talks directly to `apps/api` `/admin/*` routes.
 
 Worker connectivity: each ComfyUI VPS runs `cloudflared`; no inbound ports. Health monitor probes `/system_stats` every 15s and sets `worker:health:{id}` with 30s TTL — expired = unhealthy = no routing.
@@ -106,25 +106,25 @@ To remove a worker: mark it inactive in the admin panel, then restart the dispat
 
 Input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId` (all admin-curated) + optional `lowerCatalogId` / `shoeCatalogId`. All IDs must resolve to active catalog/asset rows before credits deduct.
 
-## Web App Architecture (apps/web)
+## Web App Architecture (apps/catalogues-web)
 
 ### Auth Flow
 
-Next.js API routes in `apps/web/src/app/api/auth/` act as a **BFF (Backend For Frontend)** proxy. They receive auth requests from the browser, call the Fastify API, then set httpOnly cookies via `apps/web/src/lib/auth-cookies.ts`. This means:
+Next.js API routes in `apps/catalogues-web/src/app/api/auth/` act as a **BFF (Backend For Frontend)** proxy. They receive auth requests from the browser, call the Fastify API, then set httpOnly cookies via `apps/catalogues-web/src/lib/auth-cookies.ts`. This means:
 - Browser never directly calls the Fastify API for auth.
 - The `access_token` cookie is set by the Next.js server, not by the client.
-- `apps/web/src/lib/api.ts` reads the token from `document.cookie` for authenticated API calls and auto-refreshes on 401.
+- `apps/catalogues-web/src/lib/api.ts` reads the token from `document.cookie` for authenticated API calls and auto-refreshes on 401.
 
 ### Route Groups
 
 - `(auth)` — login, register, forgot/reset password, verify email (unauthenticated)
 - `(app)` — studio, catalogues, pricing, settings, assets (protected)
 
-The middleware (`apps/web/src/middleware.ts`) guards all non-public routes by checking the `access_token` cookie. It also handles redirects for old route names (`/tryon` → `/studio`, `/dashboard` → `/catalogues`, `/jobs` → `/catalogues`).
+The middleware (`apps/catalogues-web/src/middleware.ts`) guards all non-public routes by checking the `access_token` cookie. It also handles redirects for old route names (`/tryon` → `/studio`, `/dashboard` → `/catalogues`, `/jobs` → `/catalogues`).
 
 ### Studio Wizard (4-step flow)
 
-`apps/web/src/app/(app)/studio/page.tsx` — the core user flow:
+`apps/catalogues-web/src/app/(app)/studio/page.tsx` — the core user flow:
 - **Step 0** — gender, garment type (from `/v1/models/garment-types?gender=`), publishing platform + aspect ratio, garment upload (direct to R2 via presigned URL from `/v1/uploads/presign`)
 - **Step 1** — model/face selection from `/v1/models/faces?gender=&garmentTypeId=`
 - **Step 2** — background selection from `/v1/models/backgrounds?faceId=`
@@ -134,7 +134,7 @@ Submit POSTs to `/v1/jobs/tryon`, redirects to `/catalogues/{catalogueId}`.
 
 ### Design Tokens
 
-All components use `C` from `apps/web/src/components/tokens.ts` — a typed map of CSS variables (e.g. `C.pink`, `C.text`, `C.border`). The gradient is `grad` (pink → amber). Never use raw hex or hardcoded colors; always use tokens.
+All components use `C` from `apps/catalogues-web/src/components/tokens.ts` — a typed map of CSS variables (e.g. `C.pink`, `C.text`, `C.border`). The gradient is `grad` (pink → amber). Never use raw hex or hardcoded colors; always use tokens.
 
 ### `NEXT_PUBLIC_BASE_PATH`
 
@@ -257,6 +257,10 @@ API test harness (`apps/api/test/helpers/api.ts`): `buildTestApp()` calls `app.l
 - `testcontainers` package is installed but unused (abandoned due to MinIO startup issues on Windows). Do not reintroduce it.
 - Catalog integration tests seed `catalog_types` with `slug: 'models'` — use unique slugs if tests share the same Postgres process.
 
+## Admin Parity Rule
+
+`apps/admin-mobile` mirrors `apps/admin` — same admin user, same `/admin/*` API. When a change adds/modifies a feature, screen, or admin API field in `apps/admin`, port the equivalent to `apps/admin-mobile` (or explicitly flag it as web-only, e.g. bulk CSV export) before calling the task done. Don't port pure styling/layout tweaks — only functional/data changes.
+
 ## Invariants (do not break)
 
 - Credit deduct + job insert must be one Postgres transaction. Refund on terminal failure is also transactional.
@@ -358,8 +362,8 @@ Add a new dated entry at the top of the log.
 | Job processor | `apps/dispatcher/src/job/processor.ts` |
 | Stream consumer | `apps/dispatcher/src/stream/consumer.ts` |
 | Workflow patcher | `apps/dispatcher/src/workflow/patcher.ts` |
-| Web middleware (auth guard) | `apps/web/src/middleware.ts` |
-| Web API client (token refresh) | `apps/web/src/lib/api.ts` |
+| Web middleware (auth guard) | `apps/catalogues-web/src/middleware.ts` |
+| Web API client (token refresh) | `apps/catalogues-web/src/lib/api.ts` |
 | Admin app root | `apps/admin/src/App.tsx` |
 | Design doc | `docs/virtual-tryon-system-design.md` |
 | Open findings backlog | `docs/audits/open-findings.md` |

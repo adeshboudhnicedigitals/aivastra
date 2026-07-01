@@ -192,7 +192,7 @@ Written here so later increments have context:
   ComfyUI history, upload result to R2.
 - **Job creation** — a tryon job-creation API route + Redis enqueue, credit deduct,
   refund-on-failure — mirroring the existing tryon/widget job invariants.
-- **End-user web flow** — the tryon upload/run UI in `apps/web`: pick a tryon category
+- **End-user web flow** — the tryon upload/run UI in `apps/catalogues-web`: pick a tryon category
   (sees its sample/guidance images), upload person photo + garment, submit, watch SSE.
 - **Routing** — decide which worker pool / VPS tryon jobs run on (main pool vs a
   dedicated VPS like widget).
