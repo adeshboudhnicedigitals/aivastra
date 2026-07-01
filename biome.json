@@ -86,7 +86,7 @@
       }
     },
     {
-      "includes": ["apps/web/**"],
+      "includes": ["apps/catalogues-web/**"],
       "linter": {
         "rules": {
           "a11y": {

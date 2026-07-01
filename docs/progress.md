@@ -5,7 +5,7 @@
 ### Done
 - **SEC-C2 · SSRF (Critical):** Added `assertSafeExternalUrl()` in `apps/api/src/modules/widget/routes.ts` — enforces `https`-only, DNS-resolves hostname, blocks RFC1918 / loopback / link-local ranges before any fetch or credit check.
 - **SEC-H1 · Open merchant signup (High):** `widget_clients.is_active` defaulted to `false` (migration `0076`); signup rate-limited to 5/hr; `widgetKey` withheld from response until admin activates account.
-- **SEC-H2 · JS-readable access token (High):** Access token moved from cookie to module-level variable in `apps/web/src/lib/api.ts`. `initToken()` seeded after login; silent re-hydration on 401 via httpOnly refresh cookie; BroadcastChannel cross-tab sync. Cookie no longer set by `setAuthCookies`.
+- **SEC-H2 · JS-readable access token (High):** Access token moved from cookie to module-level variable in `apps/catalogues-web/src/lib/api.ts`. `initToken()` seeded after login; silent re-hydration on 401 via httpOnly refresh cookie; BroadcastChannel cross-tab sync. Cookie no longer set by `setAuthCookies`.
 - **SEC-H3 · World-readable bucket (High):** `mc anonymous set download` removed from both compose files; all private content in `/admin/results/data` served via presigned GETs (1h TTL) instead of `publicUrl()`.
 
 ### Failed / Not Done
@@ -119,7 +119,7 @@
   - Implemented an atomic `widgetRefund` of 10 credits inside the cancellation transaction.
   - Returns `409 NOT_CANCELLABLE` if the generation has already started (`GENERATING` or `UPLOADING`).
   - Publishes a `{ type: 'STATUS', status: 'CANCELLED' }` event to the Redis SSE stream.
-- **Widget UI (`apps/web/src/app/(widget)/widget/render/[key]/page.tsx`)**:
+- **Widget UI (`apps/catalogues-web/src/app/(widget)/widget/render/[key]/page.tsx`)**:
   - Rendered a `Cancel` button during the `processing` step.
   - Handled the `CANCELLED` SSE event to transition to a new `cancelled` UI step.
   - Added an "Upload new photo" CTA in the `cancelled` step which cleanly resets the internal state (`jobId`, `uploadFile`, `uploadPreview`, idempotency keys) allowing the user to start a fresh upload.
@@ -179,9 +179,9 @@
 
 ### Done
 - **3.5 SSE reconnection indicator:** Three-file change with no architectural risk.
-  - `apps/web/src/lib/sse.ts` — exported `SSEState` type (`'connecting' | 'connected' | 'reconnecting'`); added optional `onStateChange` 4th parameter to `createSSEConnection`, called at transition points (`connect()` start, after stream confirmed, `scheduleReconnect()`).
-  - `apps/web/src/components/job-stream-provider.tsx` — wired `setSseState` as `onStateChange`; exposed `sseState` in context with `useMemo`; renders a fixed bottom toast with a spinning ring when `sseState === 'reconnecting'` (uses existing `av-spin` CSS class and `aria-live="polite"`). `subscribe` extracted with `useCallback` to keep it stable.
-  - `apps/web/src/app/(widget)/widget/render/[key]/page.tsx` — extracted SSE reading out of `handleGenerate` (which previously had no reconnection logic — a silent stall bug) into a `useEffect` watching `[step, jobId, key]`. New effect uses exponential backoff (`1s → 30s`), `AbortController` for clean cancellation, and `sseClosedRef` to prevent reconnects after terminal events. `sseConnState` state drives a "Connection lost — retrying…" indicator in the processing step UI. `API_URL` moved to module level.
+  - `apps/catalogues-web/src/lib/sse.ts` — exported `SSEState` type (`'connecting' | 'connected' | 'reconnecting'`); added optional `onStateChange` 4th parameter to `createSSEConnection`, called at transition points (`connect()` start, after stream confirmed, `scheduleReconnect()`).
+  - `apps/catalogues-web/src/components/job-stream-provider.tsx` — wired `setSseState` as `onStateChange`; exposed `sseState` in context with `useMemo`; renders a fixed bottom toast with a spinning ring when `sseState === 'reconnecting'` (uses existing `av-spin` CSS class and `aria-live="polite"`). `subscribe` extracted with `useCallback` to keep it stable.
+  - `apps/catalogues-web/src/app/(widget)/widget/render/[key]/page.tsx` — extracted SSE reading out of `handleGenerate` (which previously had no reconnection logic — a silent stall bug) into a `useEffect` watching `[step, jobId, key]`. New effect uses exponential backoff (`1s → 30s`), `AbortController` for clean cancellation, and `sseClosedRef` to prevent reconnects after terminal events. `sseConnState` state drives a "Connection lost — retrying…" indicator in the processing step UI. `API_URL` moved to module level.
 - **Contact requests source filter** — verified already fully implemented in a prior session (both `contact.routes.ts` and `ContactRequestsPage.tsx` complete).
 
 ### Failed / Not Done
@@ -1047,7 +1047,7 @@
 - Rewrote `/v1/auth/logout` to revoke entire family (`revokedAt` on all rows matching `family_id`)
 - Updated password change + reset + admin suspend/delete to use `revokedAt` instead of `revoked`
 - Full audit: zero remaining `revoked: true` writes in the entire codebase
-- Updated `apps/web/src/lib/api.ts`:
+- Updated `apps/catalogues-web/src/lib/api.ts`:
   - BroadcastChannel listens for `token-refreshed`, writes `access_token` cookie for other tabs
   - `getToken()` consumes `broadcastToken` before falling back to `document.cookie`
   - Current tab explicitly writes its own `access_token` cookie via `setAccessTokenCookie()` after successful refresh (does not rely on BFF alone or BroadcastChannel echo)
@@ -1088,7 +1088,7 @@
 ### 2026-06-08 — AGENTS.md refresh
 
 **Done**
-- Updated `AGENTS.md` to reflect current repo state: added `@aivastra/observability`, `apps/dispatcher`, `apps/web`, `apps/admin` to monorepo boundaries table
+- Updated `AGENTS.md` to reflect current repo state: added `@aivastra/observability`, `apps/dispatcher`, `apps/catalogues-web`, `apps/admin` to monorepo boundaries table
 - Removed stale "dispatcher (not yet built)" text; added full dispatcher role, web BFF auth pattern, and package build order to invariants
 - Added gotchas: lefthook git hooks, CI auto-deploy on master push, web/admin lack test scripts, web is not ESM
 - Added lint/format tool (Biome) to Stack section
@@ -1129,7 +1129,7 @@
 *Infra / DX*
 - Auto-migrate on deploy; pre-push hook hard-blocks push when local DB is behind unapplied migrations (fd70a00)
 - Untracked `templates/` folder from git; fixed `.gitignore` templates entry (0d41305, 53928dc)
-- `apps/web`: added `jszip` dep + type annotation on zip progress callback (42b0131)
+- `apps/catalogues-web`: added `jszip` dep + type annotation on zip progress callback (42b0131)
 
 **Open Questions / Decisions**
 - `0026_catalog_item_subcategories.sql` changed to `CREATE TABLE IF NOT EXISTS` (idempotent re-apply) + docs edit — locally modified, not yet committed
@@ -1249,7 +1249,7 @@ Standalone read-only results monitor at `/results` for admins to visually inspec
   - Independent cookie-based auth (`requireResultsUser`) verifies admin role (`SUPER_ADMIN`/`MODERATOR`/`SUPPORT`) without sharing session state with the admin React app.
   - Read-only: no delete or mutation actions.
 - **Server wiring:** `apps/api/src/server.ts` — one import + `await app.register(resultsRoutes);`.
-- **Zero impact** on `apps/web`, `apps/admin`, DB schema, or env files.
+- **Zero impact** on `apps/catalogues-web`, `apps/admin`, DB schema, or env files.
 - **Typecheck + build green** for `@aivastra/api`.
 
 #### Open Questions / Decisions
@@ -1290,8 +1290,8 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 #### Done
 - Root redirect: landing page replaced with auth-aware redirect (logged in → /tryon, else → /login)
-- `apps/web/src/app/home/page.tsx` deleted
-- Logo assets copied to `apps/web/public/assets/` (logo-icon, logo-icon-large, logo-wordmark, logo-wordmark-large, auth-bg)
+- `apps/catalogues-web/src/app/home/page.tsx` deleted
+- Logo assets copied to `apps/catalogues-web/public/assets/` (logo-icon, logo-icon-large, logo-wordmark, logo-wordmark-large, auth-bg)
 - New CSS utility classes added to `globals.css`: `.av-auth-shell`, `.av-auth-form-col`, `.av-auth-image-col`, `.av-auth-divider`, `.av-btn-dark`, `.av-btn-grad`, `.av-topbar`, `.av-pricing-table` (+ sub-classes), `.av-cat-date-group`, `.av-assets-grid`, `.av-asset-card`
 - Sidebar: new nav (Studio/Catalogues/Assets/Pricing/Settings), PNG logo, credits widget, logout icon — dark mode toggle removed
 - Auth pages: two-column layout (600px form + auth-bg.png image panel) for login and register; Google button (UI only)
@@ -1319,7 +1319,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 - `db`: migration `0007_catalogue_id.sql` — `ALTER TABLE jobs ADD COLUMN catalogue_id uuid`
 - `db/schema/jobs.ts`: added `catalogueId` column
 - `types`: `CreateTryOnJobRequest.inputs.poseId` → `poseIds: z.array(z.string().uuid()).min(1).max(6)`
-- `web`: catalogue detail page scaffolded at `apps/web/src/app/(app)/catalogues/[id]/page.tsx`
+- `web`: catalogue detail page scaffolded at `apps/catalogues-web/src/app/(app)/catalogues/[id]/page.tsx`
 - `web`: catalogue grid CSS (`.av-cdet-grid`, `.av-cdet-card`, `.av-cdet-img`, `.av-cdet-footer`) in globals.css
 - `web`: dashboard — live data fetch, image grid with lazy thumbnails, status badges
 - `web`: wizard — multi-pose selection UI (checkboxes, count badge)
@@ -1330,7 +1330,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 - Catalogue listing page (`GET /v1/catalogues`) only returns job metadata — no output thumbnails, no preview in catalogue grid
 - Dashboard still uses mock stats (not live aggregate from API)
 - Migration 0007 not yet applied to dev DB
-- `apps/web/src/app/(app)/catalogues/[id]/page.tsx` — needs full UI polish
+- `apps/catalogues-web/src/app/(app)/catalogues/[id]/page.tsx` — needs full UI polish
 
 **Open Questions / Decisions**
 
@@ -1379,7 +1379,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 *Account page*
 
-- `apps/web/src/app/(app)/account/page.tsx` — display name, email, tier, credit balance, change password, job history
+- `apps/catalogues-web/src/app/(app)/account/page.tsx` — display name, email, tier, credit balance, change password, job history
 - Styled with `av-card` layout matching new palette
 
 *Dashboard grid*
@@ -1399,7 +1399,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 - Dashboard stats still mock data (not live aggregate)
 - Jobs detail page still old sketch palette
-- `apps/web/src/components/navbar.tsx` unused but still exists
+- `apps/catalogues-web/src/components/navbar.tsx` unused but still exists
 
 **Open Questions / Decisions**
 
@@ -1413,23 +1413,23 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Done**
 
-- `apps/web/src/app/globals.css`: complete rewrite — removed sketch utilities (`sketch-card`, `btn-sketch`, `underline-emph`), added full `av-` CSS class system (sidebar, stepper, cards, chips, dropzone, select, buttons, spinner), CSS vars matching warm cream palette (`--bg: #FBF8F3`, `--peach`, `--amber`, `--mint`, `--grad`, etc.), dark mode support
-- `apps/web/src/app/layout.tsx`: replaced Caveat font with Poppins (400/500/600/700/800) + JetBrains Mono; updated metadata
-- `apps/web/src/app/page.tsx`: full marketing landing page from `vastra2.0/Home.html` — hero, logos strip, how-it-works (4 steps), features grid, gallery (4 samples), pricing (3 cards), CTA, footer; `lp-` prefixed CSS via inline `<style>` tag; redirects to `/dashboard` if already logged in
-- `apps/web/public/samples/`: copied `sample-1..4.png` from `vastra2.0/assets/`
-- `apps/web/src/components/sidebar.tsx` (new): dark sidebar with credits bar (`/v1/credits`), user info (`/v1/me`), nav items (Studio/Catalogues/Credits), logout, initials avatar
-- `apps/web/src/app/(app)/layout.tsx`: replaced navbar with `<div className="av-app"><Sidebar /><main className="av-main">{children}</main></div>`
-- `apps/web/src/app/(app)/tryon/page.tsx`: 4-step wizard (Setup → Models → Backgrounds → Pose+Generate); garment upload starts immediately in step 0; Generate button gated on `garmentKey` set; `useEffect` fix for dropdown outside-click listener
-- `apps/web/src/app/(app)/dashboard/page.tsx`: restyled with `av-card`, status dots, badge chips
-- `apps/web/src/app/(app)/credits/page.tsx`: restyled with `av-card`, gradient balance display, package selector chips
-- `apps/web/src/app/(auth)/login/page.tsx`: clean centered layout, white card, tab pills
-- `apps/web/src/app/(auth)/register/page.tsx`: same structure as login
+- `apps/catalogues-web/src/app/globals.css`: complete rewrite — removed sketch utilities (`sketch-card`, `btn-sketch`, `underline-emph`), added full `av-` CSS class system (sidebar, stepper, cards, chips, dropzone, select, buttons, spinner), CSS vars matching warm cream palette (`--bg: #FBF8F3`, `--peach`, `--amber`, `--mint`, `--grad`, etc.), dark mode support
+- `apps/catalogues-web/src/app/layout.tsx`: replaced Caveat font with Poppins (400/500/600/700/800) + JetBrains Mono; updated metadata
+- `apps/catalogues-web/src/app/page.tsx`: full marketing landing page from `vastra2.0/Home.html` — hero, logos strip, how-it-works (4 steps), features grid, gallery (4 samples), pricing (3 cards), CTA, footer; `lp-` prefixed CSS via inline `<style>` tag; redirects to `/dashboard` if already logged in
+- `apps/catalogues-web/public/samples/`: copied `sample-1..4.png` from `vastra2.0/assets/`
+- `apps/catalogues-web/src/components/sidebar.tsx` (new): dark sidebar with credits bar (`/v1/credits`), user info (`/v1/me`), nav items (Studio/Catalogues/Credits), logout, initials avatar
+- `apps/catalogues-web/src/app/(app)/layout.tsx`: replaced navbar with `<div className="av-app"><Sidebar /><main className="av-main">{children}</main></div>`
+- `apps/catalogues-web/src/app/(app)/tryon/page.tsx`: 4-step wizard (Setup → Models → Backgrounds → Pose+Generate); garment upload starts immediately in step 0; Generate button gated on `garmentKey` set; `useEffect` fix for dropdown outside-click listener
+- `apps/catalogues-web/src/app/(app)/dashboard/page.tsx`: restyled with `av-card`, status dots, badge chips
+- `apps/catalogues-web/src/app/(app)/credits/page.tsx`: restyled with `av-card`, gradient balance display, package selector chips
+- `apps/catalogues-web/src/app/(auth)/login/page.tsx`: clean centered layout, white card, tab pills
+- `apps/catalogues-web/src/app/(auth)/register/page.tsx`: same structure as login
 - `apps/api/src/modules/auth/routes.ts`: added `GET /v1/me` endpoint for regular users (email, displayName, tier)
 
 **Failed / Not Done**
 
-- `apps/web/src/components/navbar.tsx`: still exists (unused — safe to delete later)
-- `apps/web/src/app/(app)/jobs/[id]/page.tsx`: still uses old sketch design (not redesigned)
+- `apps/catalogues-web/src/components/navbar.tsx`: still exists (unused — safe to delete later)
+- `apps/catalogues-web/src/app/(app)/jobs/[id]/page.tsx`: still uses old sketch design (not redesigned)
 - Old UI components (`ui/button.tsx`, `badge.tsx`, `input.tsx`): still present but unused by new design
 
 **Open Questions / Decisions**
@@ -1497,7 +1497,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Done**
 
-*`apps/web` — Next.js 15 App Router (full scaffold)*
+*`apps/catalogues-web` — Next.js 15 App Router (full scaffold)*
 
 - `package.json`: Next.js 15, React 19, Tailwind CSS 3, @tanstack/react-query, react-hook-form + zod resolvers, lucide-react, @radix-ui/react-slot
 - `middleware.ts`: route protection via `access_token` cookie; redirects unauthenticated users to `/login?next=<path>`
@@ -1527,7 +1527,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 - SSE auth: job events endpoint uses `EventSource` which can't set custom headers; token passed as `?token=` query param in URL. API's `requireUser` plugin needs to support token from query string (not yet implemented — will silently fail on first SSE connect)
 - No `CORS_ORIGIN` update for web port 3000 (`.env` still default; should be `http://localhost:3000` — already set)
-- `apps/web` not in CORS_ORIGIN of API: need to confirm `CORS_ORIGIN=http://localhost:3000` in `.env`
+- `apps/catalogues-web` not in CORS_ORIGIN of API: need to confirm `CORS_ORIGIN=http://localhost:3000` in `.env`
 
 **Decisions Made**
 
@@ -1539,7 +1539,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 - [ ] SSE auth: `GET /v1/jobs/:id/events` uses `EventSource` (no custom headers). API `requireUser` only reads `Authorization` header. Need to add `?token=<accessToken>` query param support to `requireUser` plugin, or proxy SSE through Next.js.
 - [ ] `CORS_ORIGIN` in `.env` must be `http://localhost:3000` for web ↔ API in dev — confirm set.
-- [ ] `apps/web` prod: served via CloudPanel nginx on port 3000? Confirm routing before Phase 4D Dockerfile.
+- [ ] `apps/catalogues-web` prod: served via CloudPanel nginx on port 3000? Confirm routing before Phase 4D Dockerfile.
 - [ ] Catalog lower garment selection not in wizard (Phase 3B only covers face/bg/pose). Add lower garment step if needed (wizard step 5, only shown when `pose.showsLower === true`).
 
 ---
@@ -1577,14 +1577,14 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Failed / Not Done**
 
-- Admin panel built as separate Vite SPA (`apps/admin`), not embedded in Next.js (`apps/web`) — diverges from PHASES.md §3D plan. This is intentional: admin panel is ready for production use standalone; no plan to migrate.
-- `apps/web` (user-facing Next.js try-on builder) — not started
+- Admin panel built as separate Vite SPA (`apps/admin`), not embedded in Next.js (`apps/catalogues-web`) — diverges from PHASES.md §3D plan. This is intentional: admin panel is ready for production use standalone; no plan to migrate.
+- `apps/catalogues-web` (user-facing Next.js try-on builder) — not started
 - Phase 2B (VPS + Tunnel + ComfyUI) — not started
 - `templates/virtual-tryon-v1.json` — still a stub; real ComfyUI workflow export still blocking E2E
 
 **Decisions Made**
 
-- Admin panel = standalone Vite SPA (`apps/admin`) — not part of `apps/web`. Deployed separately, proxied by nginx in prod.
+- Admin panel = standalone Vite SPA (`apps/admin`) — not part of `apps/catalogues-web`. Deployed separately, proxied by nginx in prod.
 - Asset management scope expanded beyond original PHASES.md §1D: model faces, backgrounds, garment subcategories, poses all fully managed via admin UI.
 - Poses schema: face × background per pose (not just per subcategory) — data model locked.
 - Presigned URL upload flow: browser → presign API → direct PUT to MinIO/R2 → confirm API. Confirmed working end-to-end with local MinIO.
@@ -1612,7 +1612,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 **Failed / Not Done**
 - `templates/virtual-tryon-v1.json` still a stub — real ComfyUI workflow export needed
 - VPS provisioning (Phase 2B) not started
-- Phase 3 (`apps/web` Next.js frontend) not started
+- Phase 3 (`apps/catalogues-web` Next.js frontend) not started
 
 **Open Questions / Decisions**
 - [ ] ComfyUI workflow: which node IDs map to each `__AIVASTRA_*__` placeholder? Need real workflow export first
@@ -1652,7 +1652,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Failed / Not Done**
 - `apps/dispatcher` — not yet built (Redis Stream consumer, ComfyUI bridge, worker health monitor)
-- `apps/web` — not yet scaffolded
+- `apps/catalogues-web` — not yet scaffolded
 - `packages/catalog` — category tree builder not yet extracted
 - `scripts/seed-catalog.ts` — not yet written
 - Cloudflare Tunnel / `cloudflared` infra config

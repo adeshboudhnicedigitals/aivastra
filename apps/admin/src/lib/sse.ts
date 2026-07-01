@@ -1,6 +1,6 @@
 /**
  * Fetch-based SSE client for the admin SPA.
- * Mirrors apps/web/src/lib/sse.ts but uses the admin auth token from data.ts.
+ * Mirrors apps/catalogues-web/src/lib/sse.ts but uses the admin auth token from data.ts.
  */
 
 import { getToken, setToken } from './data';

@@ -1,7 +1,7 @@
 # Security & Production-Readiness Audit — Aivastra Webtool
 
 **Date:** 2026-06-23
-**Scope:** Entire monorepo — `apps/api`, `apps/dispatcher`, `apps/web`, `apps/admin`, `packages/*`, `infra/*`, committed config.
+**Scope:** Entire monorepo — `apps/api`, `apps/dispatcher`, `apps/catalogues-web`, `apps/admin`, `packages/*`, `infra/*`, committed config.
 **Method:** Manual source review of every auth/authz path, input boundary, external call, storage/credit flow, and deployment config. Every finding below cites `file:line` and quotes the relevant code.
 
 > **Last updated: 2026-06-30.** 20 of 21 findings fixed. 1 partial (C1 — ops: rotate + purge history). 1 open (H4 — presigned PUT size enforcement, needs presigned POST rewrite or ingress proxy).
@@ -18,7 +18,7 @@ The application is well-architected in several respects — atomic credit deduct
 | C2 | 🔴 Critical | ✅ Fixed | SSRF blocked: `https`-only + DNS resolution + RFC1918/loopback/link-local IP block before fetch | `apps/api/src/modules/widget/routes.ts` |
 | C3 | 🔴 Critical | ✅ Fixed | Broken access control on `/results/login` — now checks `admin.status === 'active'` | `apps/api/src/modules/results/routes.ts:54` |
 | H1 | 🟠 High | ✅ Fixed | Signup rate-limited (5/hr); `isActive` defaults to `false`; `widgetKey` withheld until admin approves | `apps/api/src/modules/merchant/routes.ts`, migration 0076 |
-| H2 | 🟠 High | ✅ Fixed | `access_token` removed from cookie; stored in JS module memory only; login BFF returns token in body for client hydration | `apps/web/src/lib/api.ts`, `auth-cookies.ts`, `login/route.ts` |
+| H2 | 🟠 High | ✅ Fixed | `access_token` removed from cookie; stored in JS module memory only; login BFF returns token in body for client hydration | `apps/catalogues-web/src/lib/api.ts`, `auth-cookies.ts`, `login/route.ts` |
 | H3 | 🟠 High | ✅ Fixed | `mc anonymous set download` removed from both compose files (bucket private); `/results/data` now uses presigned GETs (1h) | `infra/docker-compose*.yml`, `results/routes.ts` |
 | H4 | 🟠 High | 🔴 Open | Presigned PUT still unconstrained; needs presigned POST policy or ingress proxy; orphan reaper also pending | `packages/storage/src/r2.ts:52` |
 | M1 | 🟡 Medium | ✅ Fixed | Rate limit added to `/v1/auth/register` (10/min per IP) | `apps/api/src/modules/auth/routes.ts:109` |
@@ -32,7 +32,7 @@ The application is well-architected in several respects — atomic credit deduct
 | L2 | 🟢 Low | ✅ Fixed | CORS narrowed to localhost origins (dev) and `${CORS_ORIGIN}` (prod) in both compose files | `infra/docker-compose*.yml` |
 | L3 | 🟢 Low | ✅ Fixed | Placeholder now uses `https://` scheme; enforces HTTPS intent for widget VPS | `.env.production.example:73` |
 | L4 | 🟢 Low | ✅ Fixed | Password must contain ≥1 letter and ≥1 digit; blocks pure-numeric passwords | `packages/types/src/auth.ts` |
-| L5 | 🟢 Low | ✅ Fixed | `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` added via `headers()` in `next.config.ts`; CSP deferred (needs per-page audit) | `apps/web/next.config.ts` |
+| L5 | 🟢 Low | ✅ Fixed | `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` added via `headers()` in `next.config.ts`; CSP deferred (needs per-page audit) | `apps/catalogues-web/next.config.ts` |
 | L6 | 🟢 Low | ✅ Fixed | TLS bypass guard now skipped in production (`NODE_ENV !== 'production'`) | `apps/dispatcher/src/index.ts:10` |
 | L7 | 🟢 Low | ✅ Fixed | `templates/*` removed from `.gitignore`; workflow template files now tracked | `.gitignore` |
 
@@ -161,7 +161,7 @@ No email verification, no admin approval, no rate limit. New clients are `isActi
 
 ### H2 — `access_token` stored in a JS-readable cookie; no CSP
 
-**Location:** `apps/web/src/lib/auth-cookies.ts:8-14`; read at `apps/web/src/lib/api.ts:24`
+**Location:** `apps/catalogues-web/src/lib/auth-cookies.ts:8-14`; read at `apps/catalogues-web/src/lib/api.ts:24`
 
 ```ts
 // auth-cookies.ts:8
@@ -176,7 +176,7 @@ response.cookies.set('access_token', accessToken, {
 const match = document.cookie.match(/(?:^|; )access_token=([^;]*)/);
 ```
 
-The refresh cookie *is* `httpOnly` (good), but the access token is deliberately JS-readable. The web app sets **no CSP** (`apps/web/next.config.ts` has no `headers()`), so any XSS gives an attacker the bearer token *and* same-origin access to `/api/auth/refresh` to mint fresh tokens indefinitely → full account takeover.
+The refresh cookie *is* `httpOnly` (good), but the access token is deliberately JS-readable. The web app sets **no CSP** (`apps/catalogues-web/next.config.ts` has no `headers()`), so any XSS gives an attacker the bearer token *and* same-origin access to `/api/auth/refresh` to mint fresh tokens indefinitely → full account takeover.
 
 **Impact:** XSS is amplified from "script execution" to "durable account takeover."
 
@@ -283,11 +283,11 @@ Returns the raw fetch error to the caller, aiding SSRF/internal-service probing 
 
 ## 🟢 Low / Hardening
 
-- **L1 — Session lifetime mismatch.** `REFRESH_TOKEN_EXPIRY=1h` (`.env.production.example:16`, `.env.example:47`) but the web refresh cookie is set with `maxAge: 7 days` and the comment claims "7-day lifetime matches REFRESH_TOKEN_EXPIRY" (`apps/web/src/lib/auth-cookies.ts:24-28`). The DB token wins → users are silently logged out after 1h. Production UX bug; pick one value intentionally.
+- **L1 — Session lifetime mismatch.** `REFRESH_TOKEN_EXPIRY=1h` (`.env.production.example:16`, `.env.example:47`) but the web refresh cookie is set with `maxAge: 7 days` and the comment claims "7-day lifetime matches REFRESH_TOKEN_EXPIRY" (`apps/catalogues-web/src/lib/auth-cookies.ts:24-28`). The DB token wins → users are silently logged out after 1h. Production UX bug; pick one value intentionally.
 - **L2 — Wildcard bucket CORS.** `AllowedOrigin:["*"]` (`infra/docker-compose.yml:74`, prod `:79`). Tighten to the app origin.
 - **L3 — Cleartext widget VPS.** `WIDGET_COMFYUI_URL=http://…` Basic-Auth over HTTP (`.env.production.example:69`). Use HTTPS.
 - **L4 — Weak password policy.** `password: z.string().min(8)` (`packages/types/src/auth.ts:4`, widget `widget.ts:12`). No complexity/breach check.
-- **L5 — No web security headers.** `apps/web/next.config.ts` defines no `headers()` (no CSP, HSTS, X-Frame-Options, X-Content-Type-Options). API has `helmet` (`server.ts:55`), web does not. Note `apps/web/src/app/layout.tsx` uses `dangerouslySetInnerHTML` — verify it never interpolates user data.
+- **L5 — No web security headers.** `apps/catalogues-web/next.config.ts` defines no `headers()` (no CSP, HSTS, X-Frame-Options, X-Content-Type-Options). API has `helmet` (`server.ts:55`), web does not. Note `apps/catalogues-web/src/app/layout.tsx` uses `dangerouslySetInnerHTML` — verify it never interpolates user data.
 - **L6 — TLS verification can be disabled in prod.** `apps/dispatcher/src/index.ts:10-11` honors `NODE_TLS_REJECT_UNAUTHORIZED=0` globally for outbound fetches. If left set on the VPS (the dev `.env.example:41` documents it), dispatcher↔worker traffic is MITM-able.
 - **L7 — Versioned templates not in VCS.** `.gitignore:31` ignores `templates/*`, contradicting the CLAUDE.md invariant that ComfyUI templates are versioned. Workflow JSON changes are untracked.
 

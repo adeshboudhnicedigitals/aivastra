@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     const typed = data as { accessToken?: string };
     // Return accessToken in the body so the client can hold it in module memory
-    // instead of a JS-readable cookie (see apps/web/src/lib/api.ts initToken).
+    // instead of a JS-readable cookie (see apps/catalogues-web/src/lib/api.ts initToken).
     const response = NextResponse.json({ ok: true, accessToken: typed.accessToken });
     const h = res.headers as Headers & { getSetCookie?: () => string[] };
     const setCookieStr = h.getSetCookie

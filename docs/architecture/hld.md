@@ -52,7 +52,7 @@ identity model, and how everything is controlled centrally.
 - **Analytics:** try-ons per channel, QR-download stats, credit burn
 - Launches the Studio (SSO, no re-login)
 
-> Seeded by the existing `apps/web/(merchant)` portal + Razorpay billing flow —
+> Seeded by the existing `apps/catalogues-web/(merchant)` portal + Razorpay billing flow —
 > promoted to its own app on its own subdomain.
 
 ### B. Studio — `app.aivastra.com`
