@@ -5,7 +5,6 @@ import {
   ASPECT_DIMENSIONS,
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
-  RESOLUTION_COSTS,
   type Resolution,
   resolutionFromDims,
   SIMPLE_TRYON_COST,
@@ -14,6 +13,7 @@ import { aliasedTable, and, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getResolutionCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { promptGuard } from './sanitize.js';
 
@@ -71,7 +71,7 @@ export async function createJob(
       ? { width: customW, height: customH }
       : (ASPECT_DIMENSIONS[body.aspectRatio] ?? { width: 2048, height: 2048 });
   const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
-  const COST = RESOLUTION_COSTS[resolution];
+  const COST = await getResolutionCreditCost(app, resolution);
 
   // H2: keys are format-pinned by zod, but the format alone does not prove the
   // caller owns the object — another user's key has the same shape. Verify each
