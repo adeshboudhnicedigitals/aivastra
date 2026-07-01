@@ -7,7 +7,7 @@ import { C } from './tokens';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-const NAV = [
+const NAV: { id: string; href: string; label: string; icon: string; badge?: string }[] = [
   { id: 'studio', href: '/studio', label: 'Studio', icon: `${BASE}/assets/studio-icon.svg` },
   // {
   //   id: 'tryon',
