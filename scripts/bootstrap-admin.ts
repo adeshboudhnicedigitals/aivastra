@@ -8,7 +8,12 @@ if (!email || !password) {
   console.log('no bootstrap admin env; skipping');
   process.exit(0);
 }
-const { db, close } = createDb(process.env.DATABASE_URL!);
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  console.log('no DATABASE_URL; skipping');
+  process.exit(0);
+}
+const { db, close } = createDb(databaseUrl);
 
 const [existing] = await db.select().from(schema.users).where(eq(schema.users.email, email));
 let userId = existing?.id;
@@ -17,13 +22,12 @@ if (!existing) {
     .insert(schema.users)
     .values({ email, passwordHash: await hashPassword(password) })
     .returning();
+  if (!u) throw new Error('user insert returned no row');
   await db.insert(schema.userCredits).values({ userId: u.id, balance: 0 });
   userId = u.id;
 }
-const [adm] = await db
-  .select()
-  .from(schema.adminUsers)
-  .where(eq(schema.adminUsers.userId, userId!));
-if (!adm) await db.insert(schema.adminUsers).values({ userId: userId!, role: 'SUPER_ADMIN' });
+if (!userId) throw new Error('unreachable: userId must be set by now');
+const [adm] = await db.select().from(schema.adminUsers).where(eq(schema.adminUsers.userId, userId));
+if (!adm) await db.insert(schema.adminUsers).values({ userId, role: 'SUPER_ADMIN' });
 await close();
 console.log('admin bootstrap complete:', email);

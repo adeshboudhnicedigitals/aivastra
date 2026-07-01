@@ -14,7 +14,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
     '/admin/credits/grant',
     { preHandler: W, schema: { body: GrantCreditsBody } },
     async (req) => {
-      const { userId, amount, reason } = req.body as any;
+      const { userId, amount, reason } = req.body as z.infer<typeof GrantCreditsBody>;
       await adminGrant(app.db, userId, amount, reason || 'Manual credit grant', req.userId);
       return { ok: true };
     },
@@ -24,7 +24,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
     '/admin/credits/bulk-grant',
     { preHandler: W, schema: { body: BulkGrantBody } },
     async (req) => {
-      const { tier, amount, reason } = req.body as any;
+      const { tier, amount, reason } = req.body as z.infer<typeof BulkGrantBody>;
       const targets = await app.db
         .select({ id: schema.users.id })
         .from(schema.users)
@@ -38,7 +38,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
     '/admin/credits/deduct',
     { preHandler: W, schema: { body: DeductCreditsBody } },
     async (req) => {
-      const { userId, amount, reason } = req.body as any;
+      const { userId, amount, reason } = req.body as z.infer<typeof DeductCreditsBody>;
       await app.db.transaction(async (tx) => {
         const res = await tx
           .update(schema.userCredits)
@@ -48,9 +48,12 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
           )
           .returning();
         if (!res.length) throw new AppError('INSUFFICIENT', 409, 'cannot deduct below zero');
-        await tx
-          .insert(schema.creditLedger)
-          .values({ userId, delta: -amount, reason, adminId: req.userId });
+        await tx.insert(schema.creditLedger).values({
+          userId,
+          delta: -amount,
+          reason: reason || 'Manual credit deduction',
+          adminId: req.userId,
+        });
       });
       return { ok: true };
     },
@@ -63,7 +66,7 @@ export async function adminCreditsRoutes(app: FastifyInstance) {
       schema: { params: z.object({ userId: z.string().uuid() }) },
     },
     async (req) => {
-      const { userId } = req.params as any;
+      const { userId } = req.params as { userId: string };
       return app.db
         .select()
         .from(schema.creditLedger)

@@ -438,9 +438,10 @@ export default function DashboardPage({ onNav, toast }: Props) {
                     dataKey="jobs"
                     fill="var(--accent)"
                     radius={[4, 4, 0, 0]}
-                    onClick={(data: any) => {
-                      if (data?.dateKey) {
-                        onNav('jobs', { page: 'jobs', date: data.dateKey });
+                    onClick={(data: { payload?: { dateKey?: string } }) => {
+                      const dateKey = data.payload?.dateKey;
+                      if (dateKey) {
+                        onNav('jobs', { page: 'jobs', date: dateKey });
                       }
                     }}
                     style={{ cursor: 'pointer' }}

@@ -586,7 +586,7 @@ export default function CatalogScreen() {
           </View>
           {editingCategory ? (
             <TouchableOpacity
-              onPress={() => deleteCategory(editingCategory!)}
+              onPress={() => deleteCategory(editingCategory)}
               style={[styles.deleteBtn, { borderColor: colors.error }]}
             >
               <Text style={[styles.deleteBtnText, { color: colors.error }]}>Delete Category</Text>

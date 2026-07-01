@@ -134,9 +134,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
     setEditSortOrder(item.sortOrder);
     setEditReplaceFile(null);
     setEditReplacePreview(null);
-    const cat = categories.find(
-      (c) => (item as any).categoryId === c.id || c.typeSlug === item.type,
-    );
+    const cat = categories.find((c) => item.categoryId === c.id || c.typeSlug === item.type);
     setEditCategoryId(cat ? String(cat.id) : '');
   };
 
@@ -556,7 +554,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
           typeSlug={tab === 'shoe' ? 'shoe' : 'lower'}
           onDone={(added) => {
             setShowUpload(false);
-            setItems((prev) => [...prev, ...(added as any)]);
+            setItems((prev) => [...prev, ...added]);
             apiFetch<CatalogItem[]>('/admin/catalog/items')
               .then(setItems)
               .catch(() => {

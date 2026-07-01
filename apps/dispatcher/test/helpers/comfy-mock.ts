@@ -63,7 +63,7 @@ export function startComfyMock(): Promise<ComfyMock> {
 
       if (req.method === 'GET' && url.pathname.startsWith('/history/')) {
         const filename = opts.outputFilename ?? 'result.png';
-        const promptId = url.pathname.split('/').pop()!;
+        const promptId = url.pathname.split('/').pop() ?? '';
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({

@@ -59,5 +59,6 @@ export async function selectWorker(redis: Redis, jobType: string): Promise<Claim
   )) as [string, string, string] | false | null;
 
   if (!result) return null;
-  return { id: result[0]!, url: result[1]!, apiKey: result[2]! };
+  const [id, url, apiKey] = result;
+  return { id, url, apiKey };
 }

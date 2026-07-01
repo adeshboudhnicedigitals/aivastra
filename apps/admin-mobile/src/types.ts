@@ -334,6 +334,7 @@ export interface ModelPoseAsset {
   workflowTemplateId: string | null;
   promptGarmentPhase: string | null;
   poseVariant: string | null;
+  sortOrder: number;
   deletedAt: string | null;
   createdAt: string;
 }

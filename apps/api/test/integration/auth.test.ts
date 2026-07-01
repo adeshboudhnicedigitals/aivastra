@@ -7,7 +7,7 @@ function parseCookie(header: string | string[] | undefined, name: string): strin
   const cookies = Array.isArray(header) ? header : [header];
   for (const c of cookies) {
     const m = c.match(new RegExp(`(?:^|; )${name}=([^;]+)`));
-    if (m) return decodeURIComponent(m[1]!);
+    if (m?.[1]) return decodeURIComponent(m[1]);
   }
   return undefined;
 }
@@ -35,7 +35,7 @@ describe('auth', () => {
       url: '/v1/auth/login',
       payload: { email, password: 'password123' },
     });
-    const accessToken = (login.json() as any).accessToken;
+    const accessToken = (login.json() as { accessToken: string }).accessToken;
     const refreshPlain = parseCookie(login.headers['set-cookie'], 'refresh');
     return { accessToken, refreshPlain };
   }

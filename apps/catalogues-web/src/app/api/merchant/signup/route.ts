@@ -6,8 +6,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 function setMerchantCookie(response: NextResponse, setCookieHeader: string | null) {
   if (setCookieHeader) {
     const match = setCookieHeader.match(/merchant_access_token=([^;]+)/);
-    if (match) {
-      response.cookies.set('merchant_access_token', match[1]!, {
+    if (match?.[1]) {
+      response.cookies.set('merchant_access_token', match[1], {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',

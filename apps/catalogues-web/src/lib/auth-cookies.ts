@@ -10,8 +10,8 @@ export function setAuthCookies(
 
   if (setCookieHeader) {
     const refreshMatch = setCookieHeader.match(/refresh=([^;]+)/);
-    if (refreshMatch) {
-      response.cookies.set('refresh', refreshMatch[1]!, {
+    if (refreshMatch?.[1]) {
+      response.cookies.set('refresh', refreshMatch[1], {
         httpOnly: true,
         sameSite: 'lax',
         // Path '/' (not '/api/auth') so the browser sends it on protected-page

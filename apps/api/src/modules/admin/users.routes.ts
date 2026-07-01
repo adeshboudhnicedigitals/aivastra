@@ -20,7 +20,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     '/admin/users',
     { preHandler: ALL, schema: { querystring: PaginatedSearch } },
     async (req) => {
-      const { page, pageSize, search } = req.query as any;
+      const { page, pageSize, search } = req.query as z.infer<typeof PaginatedSearch>;
 
       const where = search
         ? or(
@@ -69,7 +69,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req) => {
-      const { id } = req.params as any;
+      const { id } = req.params as { id: string };
       const [user] = await app.db
         .select({
           id: schema.users.id,
@@ -115,8 +115,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid() }), body: UpdateUserBody },
     },
     async (req) => {
-      const { id } = req.params as any;
-      const { tier, isBanned, banReason, forceLogout } = req.body as any;
+      const { id } = req.params as { id: string };
+      const { tier, isBanned, banReason, forceLogout } = req.body as z.infer<typeof UpdateUserBody>;
 
       if (isBanned) {
         const [adminRow] = await app.db
@@ -147,7 +147,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req) => {
-      const { id } = req.params as any;
+      const { id } = req.params as { id: string };
       const [adminRow] = await app.db
         .select({ id: schema.adminUsers.id })
         .from(schema.adminUsers)
