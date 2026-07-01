@@ -1448,248 +1448,6 @@ export default function StudioPage(): React.ReactElement {
             </section>
 
             <section>
-              <SectionHead title="Publishing Platform" />
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {PLATFORMS.map((p) => (
-                  <button
-                    type="button"
-                    key={p}
-                    onClick={() => handlePlatformChange(p)}
-                    style={pill(platform === p)}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section>
-              <SectionHead title="Aspect Ratio" />
-
-              {/* ── Pill row: hide presets when custom is active ── */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {aspect !== 'custom' &&
-                  ALL_ASPECTS.map((r) => {
-                    const supported = brandAspects.includes(r);
-                    return (
-                      <button
-                        type="button"
-                        key={r}
-                        onClick={supported ? () => setAspect(r) : undefined}
-                        style={{
-                          ...pill(aspect === r),
-                          ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
-                        }}
-                      >
-                        {r}
-                      </button>
-                    );
-                  })}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAspect('custom');
-                    setCustomRatio('');
-                    setCustomWStr('');
-                    setCustomHStr('');
-                  }}
-                  style={pill(aspect === 'custom')}
-                >
-                  Custom
-                </button>
-              </div>
-
-              {/* ── Custom sub-panel ── */}
-              {aspect === 'custom' &&
-                (() => {
-                  const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
-                  const wErr = customWErr;
-                  const hErr = customHErr;
-                  const wNum = customWNum;
-                  const hNum = customHNum;
-
-                  const handleWChange = (val: string) => {
-                    setCustomWStr(val);
-                    if (rW && rH && val !== '') {
-                      const n = Math.round((Number(val) * rH) / rW);
-                      setCustomHStr(String(n));
-                    }
-                  };
-                  const handleHChange = (val: string) => {
-                    setCustomHStr(val);
-                    if (rW && rH && val !== '') {
-                      const n = Math.round((Number(val) * rW) / rH);
-                      setCustomWStr(String(n));
-                    }
-                  };
-
-                  const inputBase: React.CSSProperties = {
-                    width: 86,
-                    padding: '6px 8px',
-                    borderRadius: 6,
-                    fontSize: 13,
-                    color: C.text,
-                    background: C.bg,
-                    outline: 'none',
-                  };
-
-                  return (
-                    <div style={{ marginTop: 12 }}>
-                      <p style={{ fontSize: 11, color: C.light, margin: '0 0 6px' }}>
-                        Select aspect ratio
-                      </p>
-                      {/* Ratio pills + inputs in one aligned row */}
-                      <div
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
-                      >
-                        {ALL_ASPECTS.map((r) => (
-                          <button
-                            type="button"
-                            key={r}
-                            onClick={() => {
-                              setCustomRatio(r);
-                              setCustomWStr('');
-                              setCustomHStr('');
-                            }}
-                            style={{ ...pill(customRatio === r), flexShrink: 0 }}
-                          >
-                            {r}
-                          </button>
-                        ))}
-
-                        {customRatio && (
-                          <>
-                            <div
-                              style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }}
-                            />
-
-                            <input
-                              type="number"
-                              placeholder="Width"
-                              value={customWStr}
-                              onChange={(e) => handleWChange(e.target.value)}
-                              style={{
-                                ...inputBase,
-                                border: `1px solid ${wErr ? '#F55C7A' : C.border}`,
-                              }}
-                            />
-
-                            <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
-
-                            <input
-                              type="number"
-                              placeholder="Height"
-                              value={customHStr}
-                              onChange={(e) => handleHChange(e.target.value)}
-                              style={{
-                                ...inputBase,
-                                border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
-                              }}
-                            />
-                          </>
-                        )}
-                      </div>
-
-                      {customRatio && (
-                        <p
-                          style={{
-                            fontSize: 11,
-                            color: wErr || hErr ? '#F55C7A' : C.light,
-                            margin: '5px 0 0',
-                          }}
-                        >
-                          {wErr || hErr
-                            ? `${(wErr && wNum < 768) || (hErr && hNum < 768) ? 'Min 768px' : 'Max 2048px'}`
-                            : 'Min 768px · Max 2048px'}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
-
-              {/* ── Dimension hint ── */}
-              {aspect !== 'custom' && (
-                <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
-                  {ASPECT_DIMS[aspect]}
-                </div>
-              )}
-            </section>
-
-            {/* ── Resolution (read-only, auto-derived from output dims) ── */}
-            {resolution && (
-              <section>
-                <SectionHead
-                  title="Output Resolution"
-                  right={
-                    <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
-                  }
-                />
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  {(
-                    [
-                      { key: 'HD' as const, label: 'HD' },
-                      { key: '2K' as const, label: '2K' },
-                      { key: '4K' as const, label: '4K' },
-                    ] as const
-                  )
-                    .filter((r) => resolutionConfig[r.key]?.enabled !== false)
-                    .map((r) => {
-                      const credits =
-                        resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
-                      const active = resolution === r.key;
-                      return (
-                        <div
-                          key={r.key}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '8px 16px',
-                            borderRadius: 99,
-                            border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
-                            background: active ? 'rgba(245,92,122,0.04)' : C.white,
-                            boxSizing: 'border-box',
-                            userSelect: 'none',
-                            opacity: active ? 1 : 0.45,
-                          }}
-                        >
-                          <div
-                            style={{
-                              width: 16,
-                              height: 16,
-                              borderRadius: '50%',
-                              border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
-                              background: C.white,
-                              flexShrink: 0,
-                              boxSizing: 'border-box',
-                            }}
-                          />
-                          <span
-                            style={{
-                              fontSize: 14,
-                              fontWeight: 600,
-                              color: active ? C.pink : C.text,
-                            }}
-                          >
-                            {r.label}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: 13,
-                              color: active ? C.pink : C.mid,
-                              fontWeight: 400,
-                            }}
-                          >
-                            ({credits} credits)
-                          </span>
-                        </div>
-                      );
-                    })}
-                </div>
-              </section>
-            )}
-
-            <section>
               <SectionHead
                 title={requiresLowerUpload ? 'Upload Garment Images' : 'Upload Garment Image'}
                 right={<GarmentTipsButton />}
@@ -2726,6 +2484,248 @@ export default function StudioPage(): React.ReactElement {
                   </section>
                 );
               })()}
+
+            <section>
+              <SectionHead title="Publishing Platform" />
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {PLATFORMS.map((p) => (
+                  <button
+                    type="button"
+                    key={p}
+                    onClick={() => handlePlatformChange(p)}
+                    style={pill(platform === p)}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <SectionHead title="Aspect Ratio" />
+
+              {/* ── Pill row: hide presets when custom is active ── */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {aspect !== 'custom' &&
+                  ALL_ASPECTS.map((r) => {
+                    const supported = brandAspects.includes(r);
+                    return (
+                      <button
+                        type="button"
+                        key={r}
+                        onClick={supported ? () => setAspect(r) : undefined}
+                        style={{
+                          ...pill(aspect === r),
+                          ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
+                        }}
+                      >
+                        {r}
+                      </button>
+                    );
+                  })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAspect('custom');
+                    setCustomRatio('');
+                    setCustomWStr('');
+                    setCustomHStr('');
+                  }}
+                  style={pill(aspect === 'custom')}
+                >
+                  Custom
+                </button>
+              </div>
+
+              {/* ── Custom sub-panel ── */}
+              {aspect === 'custom' &&
+                (() => {
+                  const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
+                  const wErr = customWErr;
+                  const hErr = customHErr;
+                  const wNum = customWNum;
+                  const hNum = customHNum;
+
+                  const handleWChange = (val: string) => {
+                    setCustomWStr(val);
+                    if (rW && rH && val !== '') {
+                      const n = Math.round((Number(val) * rH) / rW);
+                      setCustomHStr(String(n));
+                    }
+                  };
+                  const handleHChange = (val: string) => {
+                    setCustomHStr(val);
+                    if (rW && rH && val !== '') {
+                      const n = Math.round((Number(val) * rW) / rH);
+                      setCustomWStr(String(n));
+                    }
+                  };
+
+                  const inputBase: React.CSSProperties = {
+                    width: 86,
+                    padding: '6px 8px',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    color: C.text,
+                    background: C.bg,
+                    outline: 'none',
+                  };
+
+                  return (
+                    <div style={{ marginTop: 12 }}>
+                      <p style={{ fontSize: 11, color: C.light, margin: '0 0 6px' }}>
+                        Select aspect ratio
+                      </p>
+                      {/* Ratio pills + inputs in one aligned row */}
+                      <div
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
+                      >
+                        {ALL_ASPECTS.map((r) => (
+                          <button
+                            type="button"
+                            key={r}
+                            onClick={() => {
+                              setCustomRatio(r);
+                              setCustomWStr('');
+                              setCustomHStr('');
+                            }}
+                            style={{ ...pill(customRatio === r), flexShrink: 0 }}
+                          >
+                            {r}
+                          </button>
+                        ))}
+
+                        {customRatio && (
+                          <>
+                            <div
+                              style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }}
+                            />
+
+                            <input
+                              type="number"
+                              placeholder="Width"
+                              value={customWStr}
+                              onChange={(e) => handleWChange(e.target.value)}
+                              style={{
+                                ...inputBase,
+                                border: `1px solid ${wErr ? '#F55C7A' : C.border}`,
+                              }}
+                            />
+
+                            <span style={{ fontSize: 13, color: C.light, flexShrink: 0 }}>×</span>
+
+                            <input
+                              type="number"
+                              placeholder="Height"
+                              value={customHStr}
+                              onChange={(e) => handleHChange(e.target.value)}
+                              style={{
+                                ...inputBase,
+                                border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
+                              }}
+                            />
+                          </>
+                        )}
+                      </div>
+
+                      {customRatio && (
+                        <p
+                          style={{
+                            fontSize: 11,
+                            color: wErr || hErr ? '#F55C7A' : C.light,
+                            margin: '5px 0 0',
+                          }}
+                        >
+                          {wErr || hErr
+                            ? `${(wErr && wNum < 768) || (hErr && hNum < 768) ? 'Min 768px' : 'Max 2048px'}`
+                            : 'Min 768px · Max 2048px'}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+
+              {/* ── Dimension hint ── */}
+              {aspect !== 'custom' && (
+                <div style={{ marginTop: 8, fontSize: 11, color: C.light }}>
+                  {ASPECT_DIMS[aspect]}
+                </div>
+              )}
+            </section>
+
+            {/* ── Resolution (read-only, auto-derived from output dims) ── */}
+            {resolution && (
+              <section>
+                <SectionHead
+                  title="Output Resolution"
+                  right={
+                    <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
+                  }
+                />
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {(
+                    [
+                      { key: 'HD' as const, label: 'HD' },
+                      { key: '2K' as const, label: '2K' },
+                      { key: '4K' as const, label: '4K' },
+                    ] as const
+                  )
+                    .filter((r) => resolutionConfig[r.key]?.enabled !== false)
+                    .map((r) => {
+                      const credits =
+                        resolutionConfig[r.key]?.creditCost ?? RESOLUTION_COSTS[r.key];
+                      const active = resolution === r.key;
+                      return (
+                        <div
+                          key={r.key}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            padding: '8px 16px',
+                            borderRadius: 99,
+                            border: active ? `1.5px solid ${C.pink}` : `1.5px solid ${C.border2}`,
+                            background: active ? 'rgba(245,92,122,0.04)' : C.white,
+                            boxSizing: 'border-box',
+                            userSelect: 'none',
+                            opacity: active ? 1 : 0.45,
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 16,
+                              height: 16,
+                              borderRadius: '50%',
+                              border: active ? `5px solid ${C.pink}` : `1.5px solid #BDBDBD`,
+                              background: C.white,
+                              flexShrink: 0,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <span
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: active ? C.pink : C.text,
+                            }}
+                          >
+                            {r.label}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 13,
+                              color: active ? C.pink : C.mid,
+                              fontWeight: 400,
+                            }}
+                          >
+                            ({credits} credits)
+                          </span>
+                        </div>
+                      );
+                    })}
+                </div>
+              </section>
+            )}
           </div>
 
           {/* Footer (pinned, left column only) */}
