@@ -1,0 +1,50 @@
+{
+  "name": "@aivastra/admin-mobile",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "expo-router/entry",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
+  },
+  "dependencies": {
+    "@aivastra/types": "workspace:*",
+    "@babel/runtime": "^7.29.0",
+    "@expo/vector-icons": "~14.1.0",
+    "@react-native-async-storage/async-storage": "~2.1.0",
+    "@react-navigation/bottom-tabs": "^7.0.0",
+    "@react-navigation/native": "^7.0.0",
+    "@react-navigation/native-stack": "^7.0.0",
+    "expo": "~53.0.0",
+    "expo-clipboard": "~7.1.5",
+    "expo-constants": "~17.1.8",
+    "expo-document-picker": "~13.1.6",
+    "expo-font": "~13.3.2",
+    "expo-image": "~2.4.1",
+    "expo-image-manipulator": "~13.1.7",
+    "expo-image-picker": "~16.1.4",
+    "expo-media-library": "~17.1.7",
+    "expo-linking": "~7.1.7",
+    "expo-router": "~5.1.11",
+    "expo-secure-store": "~14.2.4",
+    "expo-splash-screen": "~0.30.0",
+    "expo-status-bar": "~2.2.3",
+    "react": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-gesture-handler": "~2.24.0",
+    "react-native-reanimated": "~3.17.0",
+    "react-native-safe-area-context": "~5.4.0",
+    "react-native-screens": "~4.11.1",
+    "react-native-svg": "~15.11.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@react-native-community/cli": "latest",
+    "@types/react": "~19.0.0",
+    "babel-preset-expo": "~13.0.0",
+    "react-native-svg-transformer": "^1.5.0",
+    "typescript": "~5.8.3"
+  }
+}
