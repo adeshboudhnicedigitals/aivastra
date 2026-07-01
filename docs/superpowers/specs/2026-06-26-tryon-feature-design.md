@@ -147,11 +147,11 @@ positive=`1001:111`, negative=`1117`, and both extracted default-prompt strings.
 
 ### Sidebar + routing
 
-- `apps/admin/src/components/Sidebar.tsx` — add nav item
+- `apps/admin-web/src/components/Sidebar.tsx` — add nav item
   `{ k: 'tryon', label: 'Tryon', icon: Icon.Workflow, roles: ['SUPER_ADMIN', 'MODERATOR'] }`
   (peer of Assets / Workflows / Users; reuse an existing `Icon.*`, or add a new one to `Icons.tsx`).
-- `apps/admin/src/App.tsx` — add `<Route path="/tryon" element={<TryonPage {...pageProps} />} />`.
-- New page `apps/admin/src/pages/TryonPage.tsx`.
+- `apps/admin-web/src/App.tsx` — add `<Route path="/tryon" element={<TryonPage {...pageProps} />} />`.
+- New page `apps/admin-web/src/pages/TryonPage.tsx`.
 
 ### DB migration `0064_tryon_categories.sql`
 

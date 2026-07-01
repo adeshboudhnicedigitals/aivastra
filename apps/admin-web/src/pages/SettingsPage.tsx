@@ -315,6 +315,8 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [saving, setSaving] = useState<string | null>(null);
 
   const [freeTrialCredits, setFreeTrialCredits] = useState(0);
+  const [creditCostPerJob, setCreditCostPerJob] = useState(1);
+  const [maxJobsPerDay, setMaxJobsPerDay] = useState(50);
   const [resolutions, setResolutions] = useState<
     Record<string, { enabled: boolean; creditCost: number }>
   >({
@@ -337,10 +339,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   useEffect(() => {
     apiFetch<{
       freeTrialCredits?: number;
+      creditCostPerJob?: number;
+      maxJobsPerDay?: number;
       resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
     }>('/admin/config')
       .then((cfg) => {
         setFreeTrialCredits(cfg.freeTrialCredits ?? 0);
+        setCreditCostPerJob(cfg.creditCostPerJob ?? 1);
+        setMaxJobsPerDay(cfg.maxJobsPerDay ?? 50);
         if (cfg.resolutions) setResolutions(cfg.resolutions);
       })
       .catch(() => toast({ kind: 'error', title: 'Failed to load system config' }))
@@ -352,7 +358,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     try {
       await apiFetch('/admin/config', {
         method: 'PATCH',
-        body: JSON.stringify({ freeTrialCredits, resolutions }),
+        body: JSON.stringify({ freeTrialCredits, creditCostPerJob, maxJobsPerDay, resolutions }),
       });
       toast({ title: 'System config saved' });
     } catch {
@@ -737,6 +743,54 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     />
                     <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                       credits
+                    </span>
+                  </div>
+                </div>
+
+                <div className="setting-row">
+                  <div>
+                    <div className="setting-lbl">Credit cost per job</div>
+                    <div className="setting-desc">
+                      Credits deducted for each generated job. Allowed: 1–100.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={100}
+                      style={{ width: 100, textAlign: 'right' }}
+                      value={creditCostPerJob}
+                      disabled={sysSaving}
+                      onChange={(e) => setCreditCostPerJob(Number(e.target.value))}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      credits
+                    </span>
+                  </div>
+                </div>
+
+                <div className="setting-row">
+                  <div>
+                    <div className="setting-lbl">Max jobs per day</div>
+                    <div className="setting-desc">
+                      Daily system-wide job limit. Allowed: 1–10,000.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={10000}
+                      style={{ width: 100, textAlign: 'right' }}
+                      value={maxJobsPerDay}
+                      disabled={sysSaving}
+                      onChange={(e) => setMaxJobsPerDay(Number(e.target.value))}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      jobs
                     </span>
                   </div>
                 </div>

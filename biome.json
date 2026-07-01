@@ -71,7 +71,7 @@
   },
   "overrides": [
     {
-      "includes": ["apps/admin/**"],
+      "includes": ["apps/admin-web/**"],
       "linter": {
         "rules": {
           "a11y": {

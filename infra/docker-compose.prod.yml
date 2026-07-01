@@ -148,7 +148,7 @@ services:
   admin:
     build:
       context: ..
-      dockerfile: apps/admin/Dockerfile
+      dockerfile: apps/admin-web/Dockerfile
     container_name: aivastra-prod-admin
     restart: unless-stopped
     ports:
