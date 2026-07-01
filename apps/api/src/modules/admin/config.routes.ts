@@ -2,22 +2,17 @@ import { schema } from '@aivastra/db';
 import { SystemConfigBody } from '@aivastra/types';
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { DEFAULT_RESOLUTION_CONFIG } from '../../lib/resolution-config.js';
 import { requireAdmin } from './guard.js';
 
 const KEY = 'config:system';
-
-const DEFAULT_RESOLUTIONS = {
-  HD: { enabled: false, creditCost: 10 },
-  '2K': { enabled: true, creditCost: 25 },
-  '4K': { enabled: true, creditCost: 40 },
-};
 
 export async function adminConfigRoutes(app: FastifyInstance) {
   // Public — used by the web pricing page (no auth required)
   app.get('/v1/config/resolutions', async () => {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    return { resolutions: cfg.resolutions ?? DEFAULT_RESOLUTIONS };
+    return { resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG };
   });
 
   app.get(
@@ -26,7 +21,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     async () => {
       const raw = await app.redis.get(KEY);
       const cfg = raw ? JSON.parse(raw) : { creditCostPerJob: 1, maxJobsPerDay: 50 };
-      cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTIONS;
+      cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
       return cfg;
     },
   );
