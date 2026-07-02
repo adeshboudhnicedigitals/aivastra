@@ -57,9 +57,18 @@ describe('simple tryon (garment from catalog)', () => {
   // category pointing at it → a garment type mapped to that category → a
   // COMPLETED job owned by `userId` whose job_inputs.garmentTypeId points at
   // that garment type, with a job_outputs row (thumbnail optional).
+  // By default also sets job_inputs.poseId (a real model_pose_assets row) to
+  // mimic a Studio-flow job — createJob always sets poseId, createSimpleTryonJob
+  // never does, so poseId is the picker's studio-vs-tryon discriminator.
+  // Pass studioFlow: false to seed a tryon-chain-generated job instead (no poseId).
   async function seedEligibleSourceJob(
     userId: string,
-    opts?: { withThumbnail?: boolean; categoryActive?: boolean; workflowActive?: boolean },
+    opts?: {
+      withThumbnail?: boolean;
+      categoryActive?: boolean;
+      workflowActive?: boolean;
+      studioFlow?: boolean;
+    },
   ) {
     const [workflow] = await app.db
       .insert(schema.workflowTemplates)
@@ -106,10 +115,24 @@ describe('simple tryon (garment from catalog)', () => {
       .values({ userId, status: 'COMPLETED', creditsCharged: 25 })
       .returning();
 
+    let poseId: string | null = null;
+    if (opts?.studioFlow ?? true) {
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: `Pose ${randomUUID()}`,
+          r2Key: 'poses/seed/pose.jpg',
+          thumbnailKey: 'poses/seed/pose.thumb.jpg',
+        })
+        .returning();
+      poseId = pose.id;
+    }
+
     await app.db.insert(schema.jobInputs).values({
       jobId: job.id,
       upperGarmentKey: 'inputs/seed/garment.jpg',
       garmentTypeId: subcat.id,
+      poseId,
     });
 
     await app.db.insert(schema.jobOutputs).values({
@@ -362,6 +385,9 @@ describe('simple tryon (garment from catalog)', () => {
 
       // Ineligible: mapped workflow template is inactive (admin kill-switch).
       await seedEligibleSourceJob(userId, { workflowActive: false });
+
+      // Ineligible: tryon-chain-generated image (no poseId — not from Studio).
+      await seedEligibleSourceJob(userId, { studioFlow: false });
 
       const res = await app.inject({
         method: 'GET',

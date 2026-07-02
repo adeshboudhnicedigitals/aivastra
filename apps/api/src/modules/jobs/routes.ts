@@ -6,7 +6,7 @@ import {
   CreateTryOnJobRequest,
   SareeConfigResponse,
 } from '@aivastra/types';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -154,6 +154,9 @@ export async function jobsRoutes(app: FastifyInstance) {
   // type has a tryonCategoryId mapped by admin, and that category + its workflow
   // template must still be active (admin kill-switch parity with job creation —
   // see createSimpleTryonJob). Inner joins do the eligibility filtering.
+  // poseId IS NOT NULL restricts this to Studio-flow jobs (createJob always sets
+  // poseId; simple-tryon jobs from createSimpleTryonJob never do) — excludes
+  // tryon-generated images from chaining into further tryon jobs.
   app.get('/v1/tryon/garment-images', { preHandler: app.requireUser }, async (req) => {
     const rows = await app.db
       .select({
@@ -183,7 +186,13 @@ export async function jobsRoutes(app: FastifyInstance) {
           eq(schema.workflowTemplates.isActive, true),
         ),
       )
-      .where(and(eq(schema.jobs.userId, req.userId), eq(schema.jobs.status, 'COMPLETED')))
+      .where(
+        and(
+          eq(schema.jobs.userId, req.userId),
+          eq(schema.jobs.status, 'COMPLETED'),
+          isNotNull(schema.jobInputs.poseId),
+        ),
+      )
       .orderBy(desc(schema.jobs.createdAt))
       .limit(50);
 
