@@ -354,6 +354,7 @@ export const CreateGarmentTypeBody = z.object({
   sortOrder: z.number().int().default(0),
   thumbnailKey: z.string().optional(),
   requiresLowerUpload: z.boolean().optional().default(false),
+  tryonCategoryId: z.string().uuid().nullable().optional(),
 });
 export const PatchGarmentTypeBody = z.object({
   label: z.string().min(1).max(120).optional(),
@@ -363,6 +364,7 @@ export const PatchGarmentTypeBody = z.object({
   requiresLowerUpload: z.boolean().optional(),
   defaultLowerCatalogId: z.string().uuid().nullable().optional(),
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
+  tryonCategoryId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,

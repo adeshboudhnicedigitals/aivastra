@@ -1,6 +1,6 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { InfoIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
@@ -12,6 +12,12 @@ type TryonCategoriesResponse = {
   categories: TryonCategory[];
   personSampleUrl: string | null;
   garmentSampleUrl: string | null;
+};
+type GarmentCatalogImage = {
+  jobId: string;
+  thumbnailUrl: string | null;
+  garmentTypeName: string;
+  tryonCategoryName: string;
 };
 
 const CREDITS_COST = 35;
@@ -291,18 +297,159 @@ function UploadZone({
   );
 }
 
+function GarmentCatalogModal({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (img: GarmentCatalogImage) => void;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useQuery<GarmentCatalogImage[]>({
+    queryKey: ['tryon-garment-images'],
+    queryFn: () => api.get('/v1/tryon/garment-images'),
+  });
+  const images = data ?? [];
+
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: modal backdrop close on click
+    // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: C.white,
+          borderRadius: 16,
+          width: '100%',
+          maxWidth: 640,
+          maxHeight: '80vh',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 24px 60px rgba(0,0,0,0.2)',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            padding: '16px 20px',
+            borderBottom: `1px solid ${C.border}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>Browse from Catalog</span>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 4,
+              color: C.mid,
+              fontSize: 18,
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+          {isLoading ? (
+            <div style={{ textAlign: 'center', color: C.mid, padding: '2rem' }}>Loading…</div>
+          ) : images.length === 0 ? (
+            <div style={{ textAlign: 'center', color: C.mid, padding: '2rem', fontSize: 13 }}>
+              No eligible catalog images yet — generate one in Studio first.
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                gap: 12,
+              }}
+            >
+              {images.map((img) => (
+                <button
+                  key={img.jobId}
+                  type="button"
+                  onClick={() => onSelect(img)}
+                  style={{
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 10,
+                    padding: 0,
+                    overflow: 'hidden',
+                    cursor: 'pointer',
+                    background: 'none',
+                    textAlign: 'left',
+                  }}
+                >
+                  {img.thumbnailUrl ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={img.thumbnailUrl}
+                      alt={img.garmentTypeName}
+                      style={{
+                        width: '100%',
+                        aspectRatio: '3/4',
+                        objectFit: 'cover',
+                        display: 'block',
+                      }}
+                    />
+                  ) : (
+                    <div style={{ width: '100%', aspectRatio: '3/4', background: C.bg }} />
+                  )}
+                  <div style={{ padding: '6px 8px' }}>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: C.text,
+                        display: 'block',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {img.garmentTypeName}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TryOnPage() {
   const [personFile, setPersonFile] = useState<File | null>(null);
-  const [garmentFile, setGarmentFile] = useState<File | null>(null);
   const [personPreview, setPersonPreview] = useState<string | null>(null);
-  const [garmentPreview, setGarmentPreview] = useState<string | null>(null);
   const [personProgress, setPersonProgress] = useState(0);
-  const [garmentProgress, setGarmentProgress] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [selectedGarmentJob, setSelectedGarmentJob] = useState<{
+    jobId: string;
+    thumbnailUrl: string | null;
+    garmentTypeName: string;
+  } | null>(null);
+  const [showGarmentPicker, setShowGarmentPicker] = useState(false);
 
   // Contact form
   const [showContact, setShowContact] = useState(false);
@@ -351,15 +498,7 @@ export default function TryOnPage() {
     queryFn: () => api.get('/v1/tryon/categories'),
     staleTime: 5 * 60 * 1000,
   });
-  const categories = tryonData?.categories ?? [];
   const personSampleUrl = tryonData?.personSampleUrl ?? null;
-  const garmentSampleUrl = tryonData?.garmentSampleUrl ?? null;
-
-  useEffect(() => {
-    if (categories.length > 0 && !selectedCategoryId) {
-      setSelectedCategoryId(categories[0]?.id ?? null);
-    }
-  }, [categories, selectedCategoryId]);
 
   useJobStream(
     useCallback(
@@ -374,14 +513,12 @@ export default function TryOnPage() {
             .finally(() => {
               setGenerating(false);
               setPersonProgress(0);
-              setGarmentProgress(0);
             });
         } else if (evt.status === 'FAILED') {
           setPendingJobId(null);
           setError('Generation failed. Please try again or contact support.');
           setGenerating(false);
           setPersonProgress(0);
-          setGarmentProgress(0);
         }
       },
       [pendingJobId],
@@ -408,42 +545,26 @@ export default function TryOnPage() {
   };
 
   const handleGenerate = async () => {
-    if (!personFile || !garmentFile) {
-      setError('Upload both a person image and a garment image first.');
+    if (!personFile || !selectedGarmentJob) {
+      setError('Select a garment from the catalog and upload a person image first.');
       return;
     }
     setGenerating(true);
     setError(null);
     setResultUrl(null);
     setPersonProgress(1);
-    setGarmentProgress(1);
     try {
-      const [personPresign, garmentPresign] = await Promise.all([
-        api.post<{ uploadUrl: string; r2Key: string }>('/v1/uploads/presign', {
-          contentType: personFile.type,
-          contentLength: personFile.size,
-        }),
-        api.post<{ uploadUrl: string; r2Key: string }>('/v1/uploads/presign', {
-          contentType: garmentFile.type,
-          contentLength: garmentFile.size,
-        }),
-      ]);
+      const personPresign = await api.post<{ uploadUrl: string; r2Key: string }>(
+        '/v1/uploads/presign',
+        { contentType: personFile.type, contentLength: personFile.size },
+      );
 
-      await Promise.all([
-        api.uploadToR2WithProgress(personPresign.uploadUrl, personFile, setPersonProgress),
-        api.uploadToR2WithProgress(garmentPresign.uploadUrl, garmentFile, setGarmentProgress),
-      ]);
-
+      await api.uploadToR2WithProgress(personPresign.uploadUrl, personFile, setPersonProgress);
       setPersonProgress(100);
-      setGarmentProgress(100);
 
       const { jobId } = await api.post<{ jobId: string; catalogueId: string }>(
         '/v1/jobs/simple-tryon',
-        {
-          personKey: personPresign.r2Key,
-          garmentKey: garmentPresign.r2Key,
-          ...(selectedCategoryId ? { categoryId: selectedCategoryId } : {}),
-        },
+        { personKey: personPresign.r2Key, sourceJobId: selectedGarmentJob.jobId },
       );
 
       // useJobStream callback above watches for this jobId and handles COMPLETED/FAILED
@@ -455,11 +576,21 @@ export default function TryOnPage() {
       setError(safe ? msg : 'Something went wrong. Please try again.');
       setGenerating(false);
       setPersonProgress(0);
-      setGarmentProgress(0);
     }
   };
 
-  const canGenerate = !generating && !!personFile && !!garmentFile;
+  const handleSelectGarment = (img: GarmentCatalogImage) => {
+    setSelectedGarmentJob({
+      jobId: img.jobId,
+      thumbnailUrl: img.thumbnailUrl,
+      garmentTypeName: img.garmentTypeName,
+    });
+    setShowGarmentPicker(false);
+    setError(null);
+    setResultUrl(null);
+  };
+
+  const canGenerate = !generating && !!personFile && !!selectedGarmentJob;
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -494,58 +625,152 @@ export default function TryOnPage() {
             minWidth: 320,
           }}
         >
-          {/* Category selector */}
-          {categories.length > 0 && (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
-              {categories.map((cat) => {
-                const active = cat.id === selectedCategoryId;
-                return (
-                  <label
-                    key={cat.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '4px 12px',
-                      borderRadius: 20,
-                      cursor: 'pointer',
-                      background: active ? 'rgba(245,92,122,0.12)' : C.bg,
-                      boxShadow: active
-                        ? `inset 0 0 0 1.5px ${C.pink}`
-                        : `inset 0 0 0 1px ${C.border}`,
-                      transition: 'box-shadow .15s, background .15s',
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="tryon-category"
-                      value={cat.id}
-                      checked={active}
-                      onChange={() => setSelectedCategoryId(cat.id)}
-                      style={{ display: 'none' }}
-                    />
-                    <span
+          {/* Garment picker + person upload */}
+          <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                borderRadius: 12,
+                background: C.bg,
+                boxShadow: `inset 0 0 0 1px ${C.border}`,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                padding: 12,
+                boxSizing: 'border-box',
+              }}
+            >
+              <div>
+                <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+                  1. Select Garment
+                </span>
+              </div>
+
+              {/* biome-ignore lint/a11y/useSemanticElements: matches UploadZone's drop-zone pattern */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => !generating && setShowGarmentPicker(true)}
+                onKeyDown={(e) => e.key === 'Enter' && !generating && setShowGarmentPicker(true)}
+                style={{
+                  flex: 1,
+                  margin: '12px 0',
+                  borderRadius: 12,
+                  outline: `1px dashed ${selectedGarmentJob ? 'transparent' : C.lighter}`,
+                  outlineOffset: -1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 12,
+                  padding: 12,
+                  boxSizing: 'border-box',
+                  cursor: generating ? 'default' : 'pointer',
+                  overflow: 'hidden',
+                }}
+              >
+                {selectedGarmentJob?.thumbnailUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={selectedGarmentJob.thumbnailUrl}
+                    alt={selectedGarmentJob.garmentTypeName}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 8 }}
+                  />
+                ) : (
+                  <>
+                    <div
                       style={{
-                        fontSize: 12,
-                        fontWeight: active ? 600 : 500,
-                        color: active ? C.pink : C.mid,
+                        width: 56,
+                        height: 56,
+                        borderRadius: '50%',
+                        background: C.white,
+                        boxShadow: `inset 0 0 0 1px ${C.border2}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                       }}
                     >
-                      {cat.name}
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <path
+                          d="M3 7L7 4H9.5C9.5 5.38 10.62 6.5 12 6.5C13.38 6.5 14.5 5.38 14.5 4H17L21 7L18.5 9.5L17 8V20H7V8L5.5 9.5L3 7Z"
+                          stroke={C.mid}
+                          strokeWidth="1.2"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
+                      Browse from Catalog
                     </span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
+                  </>
+                )}
+              </div>
 
-          {/* Two upload cards */}
-          <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
+              {selectedGarmentJob && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    marginBottom: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: C.mid,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {selectedGarmentJob.garmentTypeName}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowGarmentPicker(true)}
+                    disabled={generating}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: C.pink,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: generating ? 'default' : 'pointer',
+                      padding: 0,
+                    }}
+                  >
+                    Change
+                  </button>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+                {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
+                <img
+                  src="/assets/bulb.svg"
+                  alt=""
+                  width={12}
+                  height={14}
+                  style={{ flexShrink: 0, marginTop: 1 }}
+                />
+                <span style={{ fontSize: 10, fontWeight: 600, color: C.pink, flexShrink: 0 }}>
+                  Tips
+                </span>
+                <span style={{ fontSize: 10, fontWeight: 400, lineHeight: '16px', color: C.mid }}>
+                  Pick any garment you&apos;ve already generated in Studio — its tryon workflow
+                  applies automatically.
+                </span>
+              </div>
+            </div>
+
             <UploadZone
               file={personFile}
               preview={personPreview}
               progress={personProgress}
-              label="1. Upload Person Image"
+              label="2. Upload Person Image"
               tip="Front-facing images with good lighting deliver the most accurate results."
               disabled={generating}
               sampleUrl={personSampleUrl}
@@ -558,26 +783,6 @@ export default function TryOnPage() {
                     stroke={C.mid}
                     strokeWidth="1.2"
                     strokeLinecap="round"
-                  />
-                </svg>
-              }
-            />
-            <UploadZone
-              file={garmentFile}
-              preview={garmentPreview}
-              progress={garmentProgress}
-              label="2. Upload Garment Image"
-              tip="Use clean garment images with minimal background distractions."
-              disabled={generating}
-              sampleUrl={garmentSampleUrl}
-              onFile={(f) => pickFile(f, setGarmentFile, setGarmentPreview)}
-              icon={
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M3 7L7 4H9.5C9.5 5.38 10.62 6.5 12 6.5C13.38 6.5 14.5 5.38 14.5 4H17L21 7L18.5 9.5L17 8V20H7V8L5.5 9.5L3 7Z"
-                    stroke={C.mid}
-                    strokeWidth="1.2"
-                    strokeLinejoin="round"
                   />
                 </svg>
               }
@@ -1125,6 +1330,14 @@ export default function TryOnPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Garment catalog picker modal */}
+      {showGarmentPicker && (
+        <GarmentCatalogModal
+          onSelect={handleSelectGarment}
+          onClose={() => setShowGarmentPicker(false)}
+        />
       )}
     </div>
   );
