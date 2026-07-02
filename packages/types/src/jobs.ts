@@ -49,8 +49,7 @@ export const SIMPLE_TRYON_COST = 35;
 
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),
-  garmentKey: z.string().regex(INPUT_GARMENT_KEY),
-  categoryId: z.string().uuid().optional(),
+  sourceJobId: z.string().uuid(),
 });
 
 export const PresignUploadBody = z.object({
