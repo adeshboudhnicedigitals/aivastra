@@ -331,9 +331,8 @@ function GarmentCatalogModal({
         style={{
           background: C.white,
           borderRadius: 16,
-          width: '100%',
-          maxWidth: 640,
-          maxHeight: '80vh',
+          width: 'min(1180px, calc(100vw - 32px))',
+          height: 'min(857px, calc(100vh - 32px))',
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 24px 60px rgba(0,0,0,0.2)',
@@ -377,7 +376,7 @@ function GarmentCatalogModal({
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                gridTemplateColumns: 'repeat(5, 1fr)',
                 gap: 12,
               }}
             >
@@ -411,21 +410,6 @@ function GarmentCatalogModal({
                   ) : (
                     <div style={{ width: '100%', aspectRatio: '3/4', background: C.bg }} />
                   )}
-                  <div style={{ padding: '6px 8px' }}>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: C.text,
-                        display: 'block',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {img.garmentTypeName}
-                    </span>
-                  </div>
                 </button>
               ))}
             </div>
