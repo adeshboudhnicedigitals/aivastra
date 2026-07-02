@@ -7,7 +7,7 @@ After the single-page studio redesign (`docs/superpowers/specs/2026-06-17-studio
 ## Data already available
 
 - `POST /v1/jobs/tryon` returns `{ catalogueId, jobIds }` (`apps/api/src/modules/jobs/create.ts`) — `jobIds` is in the same order as the `poseIds` array sent in the request (confirmed: `for (const poseId of poseIds) { ...; created.push(job.id); }`).
-- `useJobStream` (`apps/web/src/hooks/use-job-stream.ts`) — existing SSE hook subscribing to `/v1/jobs/stream`, delivers `{ jobId, status, ... }` events for any job belonging to the logged-in user. Already used on `/catalogues/[id]` to live-update job status.
+- `useJobStream` (`apps/catalogues-web/src/hooks/use-job-stream.ts`) — existing SSE hook subscribing to `/v1/jobs/stream`, delivers `{ jobId, status, ... }` events for any job belonging to the logged-in user. Already used on `/catalogues/[id]` to live-update job status.
 - `GET /v1/jobs/:id/result` — existing endpoint returning `{ url }` for a completed job's image, already used on `/catalogues/[id]/preview`.
 - `poses.items` (already loaded in studio for the Pose section) has `id`, `label`, `thumbnailUrl` per pose — used to label/thumbnail each job row without an extra fetch.
 
@@ -24,7 +24,7 @@ A new successful submit simply calls `setActiveGeneration` again, overwriting th
 
 ## New component: `GenerationPanel`
 
-`apps/web/src/app/(app)/studio/generation-panel.tsx`, props:
+`apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`, props:
 
 ```typescript
 interface GenerationJob {
@@ -69,7 +69,7 @@ Internally:
 
 ## Testing
 
-No automated test suite for `apps/web` (project convention). Manual verification:
+No automated test suite for `apps/catalogues-web` (project convention). Manual verification:
 1. Single pose, non-Amazon: submit, panel shows one row, status updates live (QUEUED → ... → COMPLETED with image), no redirect occurs.
 2. Multiple poses: panel shows one row per pose, each updates independently.
 3. Amazon main-listing + multiple poses: confirm the existing pose-picker modal still appears, and after picking, the panel shows all submitted poses (main + remaining) as one combined list.

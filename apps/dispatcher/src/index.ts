@@ -7,7 +7,7 @@ import { Agent, setGlobalDispatcher } from 'undici';
 // Node's built-in fetch (undici) ignores NODE_TLS_REJECT_UNAUTHORIZED set via dotenv
 // because undici is initialised before env vars load. Override the global dispatcher
 // at the earliest possible moment so all subsequent fetch() calls inherit it.
-if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
   setGlobalDispatcher(new Agent({ connect: { rejectUnauthorized: false } }));
 }
 
@@ -117,11 +117,16 @@ async function main(): Promise<void> {
     5 * 60 * 1000,
   );
 
+  const recoveryInterval = setInterval(() => {
+    void recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
+  }, 60_000);
+
   log.info('dispatcher ready');
 
   async function shutdown(signal: string): Promise<void> {
     log.info({ signal }, 'shutting down dispatcher');
     clearInterval(sweeperInterval);
+    clearInterval(recoveryInterval);
     stopConsumer();
     stopWebhooks();
     stopHealthMonitor();

@@ -26,7 +26,7 @@ export const widgetClients = pgTable('widget_clients', {
   businessAddress: text('business_address').notNull(),
   passwordHash: text('password_hash').notNull(),
   widgetKey: uuid('widget_key').notNull().unique().defaultRandom(),
-  isActive: boolean('is_active').notNull().default(true),
+  isActive: boolean('is_active').notNull().default(false),
   allowedOrigins: text('allowed_origins').array().notNull().default([]),
   webhookUrl: text('webhook_url'),
   webhookSecret: text('webhook_secret'),

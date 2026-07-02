@@ -22,6 +22,7 @@
     "migrate:prod": "tsx --env-file=../../.env ./src/migrate.ts",
     "verify": "tsx --env-file=../../.env ./src/verify.ts",
     "verify:prod": "tsx --env-file=../../.env ./src/verify.ts",
+    "seed": "tsx --env-file=../../.env ./src/seed.ts",
     "studio": "drizzle-kit studio",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
@@ -31,6 +32,7 @@
     "postgres": "^3.4.4"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.5.0",
     "@testcontainers/postgresql": "^12.0.0",
     "@types/node": "^22.7.5",
     "drizzle-kit": "^0.28.0",

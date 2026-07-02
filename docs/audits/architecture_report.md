@@ -18,7 +18,7 @@ Ai Vastra is a B2B2C SaaS platform built as a **pnpm workspaces monorepo**. The 
 ### 2. Folder and Package Responsibilities
 * `apps/api`: Central backend HTTP server. Handles REST routes, BFF proxy targets, DB transactions, authentication, and SSE streams. (e.g., `apps/api/src/server.ts`).
 * `apps/dispatcher`: Background worker process. Consumes Redis streams, manages ComfyUI GPU orchestration, and updates job statuses (per `AGENTS.md` and scaffolding).
-* `apps/web`: The Next.js frontend application serving the merchant dashboard (`/studio`, `/pricing`), public marketing, and the embeddable iframe widget (`/widget`).
+* `apps/catalogues-web`: The Next.js frontend application serving the merchant dashboard (`/studio`, `/pricing`), public marketing, and the embeddable iframe widget (`/widget`).
 * `packages/db`: Drizzle ORM schema definitions, relations, and migrations (`packages/db/src/schema/`).
 * `packages/types`: Shared Zod schemas enforcing strict boundaries between frontend, backend, and DB (`packages/types/src/`).
 * `packages/storage`: S3 client wrappers for presigned URLs and bucket management (`packages/storage/src/`).
@@ -27,17 +27,17 @@ Ai Vastra is a B2B2C SaaS platform built as a **pnpm workspaces monorepo**. The 
 
 ### 3. Application Startup Flow
 * **API:** Starts in `apps/api/src/server.ts`. Instantiates Fastify. Registers core plugins (CORS, sensible, Zod validator). Establishes connections to Postgres (Drizzle), Redis (`ioredis`), and S3. Registers modules (`auth`, `admin`, `merchant`, `widget`, `jobs`). Listens on port `4000` (binding to `127.0.0.1` by default).
-* **Web:** Standard Next.js boot. Middleware (`apps/web/src/middleware.ts`) intercepts requests to validate JWTs in cookies before rendering protected routes.
+* **Web:** Standard Next.js boot. Middleware (`apps/catalogues-web/src/middleware.ts`) intercepts requests to validate JWTs in cookies before rendering protected routes.
 
 ### 4. Authentication and Authorization Flow
-* **End Users/Consumers:** `users` table. Authenticate via Google OAuth or Email/Password (`apps/api/src/modules/auth`). Next.js routes use a BFF pattern (`apps/web/src/app/api/auth/...`) to securely set `access_token` and `refresh` HTTP-only cookies.
+* **End Users/Consumers:** `users` table. Authenticate via Google OAuth or Email/Password (`apps/api/src/modules/auth`). Next.js routes use a BFF pattern (`apps/catalogues-web/src/app/api/auth/...`) to securely set `access_token` and `refresh` HTTP-only cookies.
 * **Merchants:** `merchants` table. B2B login via `/v1/merchant/login` setting a `merchant_access_token` cookie. Next.js middleware guards `/merchant/*` routes checking this specific token.
 * **Widget Authorization:** Widgets use public API keys (`api_keys` table) verified via headers/query params. Cross-Origin validation enforces domain restrictions (`apps/api/src/modules/widget/widget.routes.ts`).
 * **RBAC:** Admin endpoints use a `requireAdmin` hook checking the `admin_users` table. 
 
 ### 5. Complete Request Lifecycle (Frontend to Backend)
 *Example: Generating a Try-On in the Widget*
-1. **Frontend:** User uploads image in Widget (`apps/web/src/app/(widget)/widget/render/[key]/page.tsx`).
+1. **Frontend:** User uploads image in Widget (`apps/catalogues-web/src/app/(widget)/widget/render/[key]/page.tsx`).
 2. **Storage:** Widget requests a presigned URL from API, then PUTs the file directly to R2.
 3. **API Request:** Widget calls `POST /api/widget/jobs` (BFF) -> proxied to Fastify `POST /v1/widget/jobs`.
 4. **Validation:** Fastify validates API key and Zod payload.
@@ -56,14 +56,14 @@ Mapped via `packages/db/src/schema/`:
 
 ### 7. Shared Package Dependency Graph
 * `apps/api` depends on `@aivastra/db`, `@aivastra/types`, `@aivastra/storage`, `@aivastra/logger`, `@aivastra/observability`.
-* `apps/web` depends on `@aivastra/types`, `@aivastra/logger`.
+* `apps/catalogues-web` depends on `@aivastra/types`, `@aivastra/logger`.
 * `apps/dispatcher` depends on `@aivastra/db`, `@aivastra/types`, `@aivastra/storage`, `@aivastra/logger`.
 * `@aivastra/db`, `@aivastra/types` are foundational and depend on no internal packages.
 
 ### 8. State Management Strategy
 * **Backend:** Fully stateless HTTP nodes. State lives strictly in Postgres (persistence) and Redis (ephemeral/queue).
 * **Frontend:** 
-  * `React Query` (`@tanstack/react-query`) handles server state, caching, and mutation (configured in `apps/web/src/components/providers.tsx`).
+  * `React Query` (`@tanstack/react-query`) handles server state, caching, and mutation (configured in `apps/catalogues-web/src/components/providers.tsx`).
   * `useState` / `useReducer` handles local component UI state (e.g., upload wizard steps).
   * Context API manages global ephemeral connections (e.g., `JobStreamProvider` for SSE).
 
@@ -83,7 +83,7 @@ Mapped via `packages/db/src/schema/`:
 ### 11. Real-time Communication Flow (SSE)
 * **API:** Provides `GET /v1/jobs/stream`. Uses Fastify's raw node response to hold the connection open and stream `text/event-stream`.
 * **Redis PubSub:** API nodes subscribe to Redis PubSub. When a job completes, the dispatcher publishes a message. The API node receives it and writes it to the specific SSE client matching the Job ID or User ID (`apps/api/src/modules/jobs/sse.ts`).
-* **Frontend:** Uses a custom `createSSEConnection` (`apps/web/src/lib/sse.ts`) wrapping `fetch` and `ReadableStream` to allow passing `Authorization` headers (which native `EventSource` lacks).
+* **Frontend:** Uses a custom `createSSEConnection` (`apps/catalogues-web/src/lib/sse.ts`) wrapping `fetch` and `ReadableStream` to allow passing `Authorization` headers (which native `EventSource` lacks).
 
 ### 12. Image Generation Pipeline
 1. Client acquires presigned URL and PUTs source image to R2.
@@ -102,7 +102,7 @@ As strictly defined in `AGENTS.md`: "dispatcher is the only process that talks t
 Follows the **Direct-to-S3** pattern to avoid buffering large images in the Node API:
 1. Client calls `POST /v1/assets/presign` (or similar).
 2. API uses `@aivastra/storage` to issue an S3 `PutObjectCommand` presigned URL.
-3. Client uses `XMLHttpRequest` (`apps/web/src/lib/api.ts -> uploadToR2WithProgress`) to PUT the file directly to Cloudflare R2, tracking upload percentage.
+3. Client uses `XMLHttpRequest` (`apps/catalogues-web/src/lib/api.ts -> uploadToR2WithProgress`) to PUT the file directly to Cloudflare R2, tracking upload percentage.
 4. Client sends the generated `key` back to the API for database linkage.
 
 ### 15. Billing/Credits Workflow
@@ -116,13 +116,13 @@ Follows the **Direct-to-S3** pattern to avoid buffering large images in the Node
 * Used for platform-wide metrics, merchant onboarding overrides, and API key management.
 
 ### 17. Web Application Architecture
-* Standard Next.js 15 App Router (`apps/web/src/app`).
-* Extensive use of BFF API Routes (`apps/web/src/app/api/...`) to securely proxy requests to the Fastify backend without exposing internal URLs or mishandling tokens.
+* Standard Next.js 15 App Router (`apps/catalogues-web/src/app`).
+* Extensive use of BFF API Routes (`apps/catalogues-web/src/app/api/...`) to securely proxy requests to the Fastify backend without exposing internal URLs or mishandling tokens.
 * Heavy use of layouts (`layout.tsx`) for sidebars/topbars and `error.tsx` / `global-error.tsx` for React error boundaries.
 
 ### 18. Shared UI/Component Architecture
 * Pure Vanilla CSS (`globals.css`) + CSS Variables (`tokens.ts`) for extreme aesthetic fidelity without Tailwind clutter.
-* Bespoke React components (`apps/web/src/components/ui/`) featuring micro-animations (e.g., `.av-spin`, `.av-shimmer`, gradient hovers).
+* Bespoke React components (`apps/catalogues-web/src/components/ui/`) featuring micro-animations (e.g., `.av-spin`, `.av-shimmer`, gradient hovers).
 * Custom SVG paths (`icons.tsx`) instead of heavy icon libraries.
 
 ### 19. Current Technical Debt

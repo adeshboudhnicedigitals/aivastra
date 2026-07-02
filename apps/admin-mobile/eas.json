@@ -1,0 +1,32 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "APP_ENV": "staging",
+        "ADMIN_MOBILE_API_URL": "https://staging.aivastra.com",
+        "EXPO_PUBLIC_STORAGE_URL": "https://staging.aivastra.com/storage/virtual-tryon-dev"
+      }
+    },
+    "production": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "app-bundle",
+        "gradleCommand": ":app:bundleRelease"
+      },
+      "env": {
+        "APP_ENV": "production",
+        "ADMIN_MOBILE_API_URL": "https://app.aivastra.com",
+        "EXPO_PUBLIC_STORAGE_URL": "https://app.aivastra.com/minio/virtual-tryon-prod"
+      }
+    }
+  }
+}

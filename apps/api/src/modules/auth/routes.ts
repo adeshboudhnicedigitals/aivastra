@@ -101,52 +101,59 @@ function makeToken(): string {
 }
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post('/v1/auth/register', { schema: { body: RegisterBody } }, async (req, reply) => {
-    const { email, password, displayName } = req.body as z.infer<typeof RegisterBody>;
-    const exists = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
-    if (exists.length) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
-    const passwordHash = await hashPassword(password);
-    const [user] = await app.db
-      .insert(schema.users)
-      .values({ email, passwordHash, displayName })
-      .returning();
-    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+  // Pre-computed hash used on the not-found login path to prevent timing-based user enumeration
+  const dummyHash = await hashPassword('__timing_dummy__');
 
-    const configRaw = await app.redis.get('config:system');
-    const freeTrialCredits: number = configRaw
-      ? ((JSON.parse(configRaw) as { freeTrialCredits?: number }).freeTrialCredits ?? 0)
-      : 0;
-    if (freeTrialCredits > 0) {
-      await app.db
-        .update(schema.userCredits)
-        .set({
-          balance: sql`${schema.userCredits.balance} + ${freeTrialCredits}`,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.userCredits.userId, user.id));
-      await app.db
-        .insert(schema.creditLedger)
-        .values({ userId: user.id, delta: freeTrialCredits, reason: 'FREE_TRIAL' });
-    }
+  app.post(
+    '/v1/auth/register',
+    { schema: { body: RegisterBody }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const { email, password, displayName } = req.body as z.infer<typeof RegisterBody>;
+      const exists = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+      if (exists.length) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
+      const passwordHash = await hashPassword(password);
+      const [user] = await app.db
+        .insert(schema.users)
+        .values({ email, passwordHash, displayName })
+        .returning();
+      await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
 
-    // Send verification email
-    const token = makeToken();
-    await app.redis.set(`email:verify:${token}`, user.id, 'EX', 86400);
-    try {
-      await sendVerificationEmail(
-        app.env.RESEND_API_KEY,
-        app.env.EMAIL_FROM,
-        app.env.WEB_URL,
-        email,
-        token,
-      );
-    } catch (err) {
-      app.log.error({ err }, 'Failed to send verification email');
-    }
+      const configRaw = await app.redis.get('config:system');
+      const freeTrialCredits: number = configRaw
+        ? ((JSON.parse(configRaw) as { freeTrialCredits?: number }).freeTrialCredits ?? 0)
+        : 0;
+      if (freeTrialCredits > 0) {
+        await app.db
+          .update(schema.userCredits)
+          .set({
+            balance: sql`${schema.userCredits.balance} + ${freeTrialCredits}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.userCredits.userId, user.id));
+        await app.db
+          .insert(schema.creditLedger)
+          .values({ userId: user.id, delta: freeTrialCredits, reason: 'FREE_TRIAL' });
+      }
 
-    reply.code(201);
-    return { requiresEmailVerification: true };
-  });
+      // Send verification email
+      const token = makeToken();
+      await app.redis.set(`email:verify:${token}`, user.id, 'EX', 86400);
+      try {
+        await sendVerificationEmail(
+          app.env.RESEND_API_KEY,
+          app.env.EMAIL_FROM,
+          app.env.WEB_URL,
+          email,
+          token,
+        );
+      } catch (err) {
+        app.log.error({ err }, 'Failed to send verification email');
+      }
+
+      reply.code(201);
+      return { requiresEmailVerification: true };
+    },
+  );
 
   app.post(
     '/v1/auth/login',
@@ -157,7 +164,10 @@ export async function authRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { email, password } = req.body as z.infer<typeof LoginBody>;
       const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
-      if (!user || user.isBanned) throw new AppError('INVALID', 401, 'invalid credentials');
+      if (!user || user.isBanned) {
+        await verifyPassword(dummyHash, password); // constant-time: prevent user enumeration via timing
+        throw new AppError('INVALID', 401, 'invalid credentials');
+      }
       if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
       if (!(await verifyPassword(user.passwordHash, password)))
         throw new AppError('INVALID', 401, 'invalid credentials');

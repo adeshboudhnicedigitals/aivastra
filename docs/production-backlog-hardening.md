@@ -1,10 +1,10 @@
 # Production Readiness Report — Job Processing, Queue & Credit Integrity
 
 > **Audience:** CTO / engineering, for triage and fix assignment.
-> **Status:** Review findings. Doc-only — no code has been changed.
+> **Status:** All code-fixable items resolved. Two items blocked on product decisions (#8, #9). Two items blocked on ops/design input (#4, #5). Three items deferred. Nothing open for implementation.
 > **Scope:** the try-on job pipeline (creation → enqueue → dispatch → ComfyUI →
 > result fetch), the 3-tier priority queue, and credit accounting.
-> **Last updated:** 2026-06-25.
+> **Last updated:** 2026-06-30.
 
 ---
 
@@ -36,7 +36,7 @@ losing money, getting stuck, or starving other users.
   (15s submit, 300s completion, 30s history, 120s download) start only **after** a
   worker is claimed. A job can wait 90 min and still get a full fresh budget. **The
   original "will the 100th user's image time out?" worry is unfounded.**
-- **Result fetch is durable.** `apps/web/.../catalogues/[id]/page.tsx` loads job state
+- **Result fetch is durable.** `apps/catalogues-web/.../catalogues/[id]/page.tsx` loads job state
   from the DB (`GET /v1/catalogues/:id`), **polls** while any job is non-terminal
   (`refetchInterval`), and also receives live SSE updates with auto-reconnect. Results
   live in Postgres + R2, so closing the tab or waiting 90 min loses nothing.
@@ -51,30 +51,30 @@ The issues below are in the **failure, recovery, scheduling, and cancellation pa
 
 | # | Issue | Severity | Area | Status |
 |---|-------|----------|------|--------|
-| 12 | Credits NOT refunded on pre-flight failures | **High (money)** | Credits | 🔴 Open |
-| 13 | Zombie jobs after dispatcher crash mid-processing | **High** | Recovery | 🔴 Open |
-| 8 | Priority scheduler is starvation-prone | **High** | Scheduling | 🔴 Open |
-| 9 | Priority/tier is permanent after one purchase | **High (business)** | Scheduling | 🔴 Open |
-| 1 | Redis stream unbounded growth | High | Infra | 🔴 Open |
-| 2 | Adding a GPU is unreliable (frozen concurrency + stale script) | High (ops) | Ops | 🔴 Open |
-| 14 | Refund and state transition not atomic | Medium | Credits | 🔴 Open |
-| 15 | No-worker requeue loops forever, loses position | Medium | Recovery | 🔴 Open |
-| 16 | No cancel path for queued/active jobs | Medium | UX/cost | 🔴 Open |
-| 3 | Stale-job reclaim only runs at boot | Medium | Recovery | 🔴 Open |
-| 4 | SSE Redis connection fan-out under backlog | Medium | Scale | 🔴 Open |
-| 5 | Input retention must exceed max queue wait | Medium | Infra | 🔴 Open |
-| 17 | No idempotency key on job submission | Low–Med | Credits | 🔴 Open |
-| 10 | `jobs.priority` boolean is lossy | Low | Scheduling | 🔴 Open |
-| 11 | `jobs:low` queue depth never measured | Low | Observability | 🔴 Open |
-| 6 | No per-user fairness within a tier | Low | Scheduling | 🔴 Open |
-| 7 | No ComfyUI batching | Low (future) | Throughput | 🔴 Open |
-| S1 | Credit cost is client-declared & decoupled from real output | **High (money)** | Security | 🔴 Open |
-| S2 | Payment verify/webhook can double-credit (race + no idempotency) | **High (money)** | Security | 🔴 Open |
-| S3 | App-level (non-atomic) idempotency on credits/refunds | Medium | Security | 🔴 Open |
-| S4 | Client-controlled compute (steps/dims) at flat price | Medium | Security | 🔴 Open |
-| S5 | Free-trial credits farmable via disposable emails | Low (mitigated) | Security | 🔴 Open |
-| S6 | `lowerCatalogId`/`shoeCatalogId`/`garmentTypeId` not validated at creation | Low | Security | 🔴 Open |
-| S7 | No idempotency key on job submission (= #17) | Low–Med | Security | 🔴 Open |
+| 12 | Credits NOT refunded on pre-flight failures | **High (money)** | Credits | ✅ Fixed |
+| 13 | Zombie jobs after dispatcher crash mid-processing | **High** | Recovery | ✅ Fixed |
+| 8 | Priority scheduler is starvation-prone | **High** | Scheduling | 🔵 Blocked — product decision needed |
+| 9 | Priority/tier is permanent after one purchase | **High (business)** | Scheduling | 🔵 Blocked — product decision needed |
+| 1 | Redis stream unbounded growth | High | Infra | ✅ Fixed |
+| 2 | Adding a GPU is unreliable (frozen concurrency + stale script) | High (ops) | Ops | ✅ Fixed |
+| 14 | Refund and state transition not atomic | Medium | Credits | ✅ Fixed |
+| 15 | No-worker requeue loops forever, loses position | Medium | Recovery | ✅ Fixed |
+| 16 | No cancel path for queued/active jobs | Medium | UX/cost | ✅ Fixed |
+| 3 | Stale-job reclaim only runs at boot | Medium | Recovery | ✅ Fixed |
+| 4 | SSE Redis connection fan-out under backlog | Medium | Scale | 🔵 Blocked — needs prod Redis maxclients + peak tab count |
+| 5 | Input retention must exceed max queue wait | Medium | Infra | 🔵 Blocked — ops must confirm R2 lifecycle ≥ 24h |
+| 17 | No idempotency key on job submission | Low–Med | Credits | ✅ Fixed |
+| 10 | `jobs.priority` boolean is lossy | Low | Scheduling | ✅ Fixed |
+| 11 | `jobs:low` queue depth never measured | Low | Observability | ✅ Fixed |
+| 6 | No per-user fairness within a tier | Low | Scheduling | 🔴 Deferred |
+| 7 | No ComfyUI batching | Low (future) | Throughput | 🔴 Deferred |
+| S1 | Credit cost is client-declared & decoupled from real output | **High (money)** | Security | ✅ Fixed |
+| S2 | Payment verify/webhook can double-credit (race + no idempotency) | **High (money)** | Security | ✅ Fixed |
+| S3 | App-level (non-atomic) idempotency on credits/refunds | Medium | Security | ✅ Fixed |
+| S4 | Client-controlled compute (steps/dims) at flat price | Medium | Security | ✅ Fixed (steps capped at 30; per-tier limit deferred until step pricing decided) |
+| S5 | Free-trial credits farmable via disposable emails | Low (mitigated) | Security | 🟡 Mitigated — defer unless abuse observed |
+| S6 | `lowerCatalogId`/`shoeCatalogId`/`garmentTypeId` not validated at creation | Low | Security | ✅ Fixed |
+| S7 | No idempotency key on job submission (= #17) | Low–Med | Security | ✅ Fixed |
 
 Severity key: **High** = correctness/money/availability risk that the backlog scenario
 actively triggers. **Medium** = real reliability/UX gap under load. **Low** =
@@ -761,44 +761,50 @@ For completeness / reassurance — these common attack surfaces were checked and
 ## 7. Recommended sequencing
 
 **Phase 1 — Pre-prod must-haves (correctness, money, availability):**
-- **S1 server-side cost from real output dims (money exploit)**
-- **S2 atomic/idempotent payment crediting (money exploit)**
-- #12 refund on pre-flight failure (money bug)
-- #13 zombie-job recovery + #14 atomic refund/transition (do together)
-- S3 unique index on `creditLedger(jobId, reason)` (do alongside #14)
-- #1 Redis stream trimming
-- #2 register-workers fix + add-a-GPU runbook
-- #5 verify input retention
-- #9 decide & implement the tier-expiry rule (product decision required)
+- ✅ **S1** server-side cost from real output dims — `resolutionFromDims()` in `@aivastra/types`; create.ts derives COST from actual dims
+- ✅ **S2** atomic/idempotent payment crediting — conditional `UPDATE WHERE status='created' RETURNING` in verify + webhook
+- ✅ **#12** refund on pre-flight failure — `markFailed` routes through `terminateJob` (shared with `handleFailure`)
+- ✅ **#13** zombie-job recovery — in-progress statuses on reclaim route through `handleFailure` instead of silent ACK
+- ✅ **#14** atomic refund/transition — single DB transaction in `terminateJob` (refund + UPDATE jobs + INSERT jobEvents)
+- ✅ **S3** unique index on `creditLedger(job_id, reason)` — migration 0074; all refund paths use `onConflictDoNothing`
+- ✅ **#1** Redis stream trimming — all `xadd` calls (create.ts, requeue paths) use `MAXLEN ~ 10000`
+- ✅ **#2** register-workers.ts deleted (obsolete — admin panel is source of truth); runbook in CLAUDE.md
+- 🔵 **#5** verify input retention — ops action: confirm R2/MinIO lifecycle on `inputs/` prefix ≥ 24h
+- 🔵 **#9** tier-expiry rule — product decision required (credits > 0 / N-day window / recurring plan)
 
 **Phase 2 — Reliability & scale under load:**
-- #3 periodic stale-job reclaim
-- #8 anti-starvation scheduling
-- #15 no-worker dead-letter / max-wait
-- #16 cancel path (+ wire up `CANCELLED`)
-- #4 shared SSE subscriber
-- #17 / S7 idempotency key
-- S4 cap compute (steps/dims) per paid tier
+- ✅ **#3** periodic stale-job reclaim — `setInterval(recoverPendingJobs, 60s)` in dispatcher index
+- ✅ **#15** no-worker dead-letter — 3h timestamp check; terminates + refunds instead of looping forever
+- ✅ **#16** cancel path — `POST /v1/jobs/:id/cancel`; `CANCELLED` added to `JobStatus`; atomic refund
+- ✅ **#11** measure `jobs:low` — added to `JOB_STREAMS` in health-monitor
+- 🔵 **#8** anti-starvation scheduling — product decision required (reserved capacity / weighted round-robin / aging)
+- 🔵 **#4** shared SSE subscriber — needs prod Redis `maxclients` + expected peak concurrent tabs before design
+- ✅ **#17 / S7** idempotency key — `Idempotency-Key` header; 24h Redis cache on all three job endpoints
+- ✅ **S4** compute abuse capped — `stepsStage1/2` max halved to 30 in Zod schema; per-tier limit deferred until step pricing decided
 
 **Phase 3 — Cleanup / future:**
-- #10 drop the lossy boolean (single tier field)
-- #11 measure `jobs:low`
-- #6 per-user fairness
-- #7 batching, dynamic concurrency
-- S5 anti-farming controls (only if free-trial abuse is observed)
-- S6 validate `lowerCatalogId`/`shoeCatalogId`/`garmentTypeId` at creation
+- ✅ **#10** lossy `priority` boolean — migration 0075 adds `queue_stream` column; backfill from boolean; admin retry uses it directly
+- ✅ **#11** measure `jobs:low` — done ahead of schedule
+- ✅ **S6** validate `lowerCatalogId`/`shoeCatalogId`/`garmentTypeId` at creation — done
+- 🔴 Deferred: #6 per-user fairness, #7 ComfyUI batching, S5 anti-farming (only if abuse observed)
 
 ---
 
 ## 8. Decisions needed from product/leadership
 
 1. **Issue 9 — tier expiry rule.** Priority only while credits > 0? For N days after
-   purchase? Only on an active recurring plan? (Blocks #9 and shapes #8.)
+   purchase? Only on an active recurring plan? Once decided, #9 can be implemented in
+   `create.ts` (compute effective tier from live balance instead of sticky `users.tier`)
+   and #8 (anti-starvation) can be sized appropriately.
 2. **Issue 8 — anti-starvation strategy.** Reserved capacity vs. weighted round-robin
-   vs. aging.
-3. **Issue 4 — connection ceiling.** Prod Redis `maxclients` and expected peak
-   concurrent tabs.
-4. **Issue 5 — upload lifecycle.** Confirm current R2/MinIO retention for upload keys.
+   vs. aging. Depends on #9 decision — if the priority cohort naturally shrinks (credits
+   expiry), starvation pressure may be acceptable without structural changes.
+3. **Issue 4 — connection ceiling.** Provide prod Redis `maxclients` and expected peak
+   concurrent open tabs. Once known, the shared-subscriber refactor can be scoped or
+   deferred if the ceiling is comfortably above expected load.
+4. **Issue 5 — upload lifecycle.** Ops action (no code): confirm that the R2/MinIO
+   lifecycle rule for the `inputs/` key prefix retains objects for ≥ 24 hours. Document
+   the confirmed value. No code change if already safe.
 
 ---
 

@@ -75,8 +75,7 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
       mc mb --ignore-existing local/${R2_BUCKET} &&
-      mc anonymous set download local/${R2_BUCKET} &&
-      printf '{\"CORSRules\":[{\"AllowedOrigin\":[\"*\"],\"AllowedMethod\":[\"GET\",\"PUT\",\"POST\",\"HEAD\"],\"AllowedHeader\":[\"*\"],\"ExposeHeader\":[\"ETag\"],\"MaxAgeSeconds\":3000}]}' > /tmp/cors.json &&
+      printf '{\"CORSRules\":[{\"AllowedOrigin\":[\"${CORS_ORIGIN}\"],\"AllowedMethod\":[\"GET\",\"PUT\",\"POST\",\"HEAD\"],\"AllowedHeader\":[\"*\"],\"ExposeHeader\":[\"ETag\"],\"MaxAgeSeconds\":3000}]}' > /tmp/cors.json &&
       mc cors set local/${R2_BUCKET} /tmp/cors.json &&
       echo 'minio bucket ready: ${R2_BUCKET}'
       "
@@ -132,7 +131,7 @@ services:
   web:
     build:
       context: ..
-      dockerfile: apps/web/Dockerfile
+      dockerfile: apps/catalogues-web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
@@ -149,7 +148,7 @@ services:
   admin:
     build:
       context: ..
-      dockerfile: apps/admin/Dockerfile
+      dockerfile: apps/admin-web/Dockerfile
     container_name: aivastra-prod-admin
     restart: unless-stopped
     ports:

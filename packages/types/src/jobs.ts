@@ -8,6 +8,22 @@ export const RESOLUTION_COSTS = {
 
 export type Resolution = keyof typeof RESOLUTION_COSTS;
 
+/** Canonical output pixel dimensions per aspect ratio — matches patcher.ts ASPECT_DIMENSIONS. */
+export const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  '1:1': { width: 2048, height: 2048 },
+  '2:3': { width: 1365, height: 2048 },
+  '3:4': { width: 1331, height: 1774 },
+  '4:5': { width: 1375, height: 1718 },
+};
+
+/** Derive the server-authoritative resolution tier from actual output pixel dimensions. */
+export function resolutionFromDims(width: number, height: number): Resolution {
+  const longEdge = Math.max(width, height);
+  if (longEdge > 3000) return '4K';
+  if (longEdge > 1200) return '2K';
+  return 'HD';
+}
+
 /**
  * Shape of a user-uploaded garment R2 key, exactly as issued by
  * `/v1/uploads/presign` (`inputs/<uuid>/garment.jpg`). Pinning the format here
@@ -33,8 +49,8 @@ export const CreateTryOnJobRequest = z.object({
     .object({
       seedStage1: z.number().int().optional(),
       seedStage2: z.number().int().optional(),
-      stepsStage1: z.number().int().min(1).max(60).optional(),
-      stepsStage2: z.number().int().min(1).max(60).optional(),
+      stepsStage1: z.number().int().min(1).max(30).optional(), // ponytail: flat cap; make per-tier when step pricing is decided
+      stepsStage2: z.number().int().min(1).max(30).optional(),
       outputWidth: z.number().int().min(512).max(4096).optional(),
       outputHeight: z.number().int().min(512).max(4096).optional(),
     })

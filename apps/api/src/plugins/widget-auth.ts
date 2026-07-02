@@ -20,6 +20,12 @@ export const widgetAuthPlugin = fp(async (app) => {
     if (!client?.isActive) {
       throw new AppError('UNAUTHORIZED', 401, 'Invalid or inactive widget key');
     }
+    if (client.allowedOrigins.length > 0) {
+      const origin = req.headers.origin ?? '';
+      if (!client.allowedOrigins.includes(origin)) {
+        throw new AppError('FORBIDDEN', 403, 'Origin not allowed');
+      }
+    }
     req.widgetClientId = client.id;
     req.widgetClient = client;
   });

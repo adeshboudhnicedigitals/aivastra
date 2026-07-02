@@ -43,7 +43,7 @@ describe('jobs-sse', () => {
         },
       );
       req.on('error', (e) => {
-        if ((e as any).code === 'ECONNRESET') resolve();
+        if ((e as NodeJS.ErrnoException).code === 'ECONNRESET') resolve();
         else reject(e);
       });
       setTimeout(() => {

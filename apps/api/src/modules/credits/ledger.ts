@@ -29,17 +29,18 @@ export async function refund(
   reason = 'REFUND',
 ) {
   const refunded = await db.transaction(async (tx) => {
-    // idempotent: skip if matching refund already logged for this jobId
-    const existing = await tx
-      .select()
-      .from(schema.creditLedger)
-      .where(and(eq(schema.creditLedger.jobId, jobId), eq(schema.creditLedger.reason, reason)));
-    if (existing.length) return false;
+    // Insert ledger row first — unique index on (job_id, reason) WHERE job_id IS NOT NULL
+    // guarantees at-most-once without a racy SELECT check.
+    const inserted = await tx
+      .insert(schema.creditLedger)
+      .values({ userId, delta: amount, reason, jobId })
+      .onConflictDoNothing()
+      .returning({ id: schema.creditLedger.id });
+    if (!inserted.length) return false; // already refunded
     await tx
       .update(schema.userCredits)
       .set({ balance: sql`${schema.userCredits.balance} + ${amount}`, updatedAt: new Date() })
       .where(eq(schema.userCredits.userId, userId));
-    await tx.insert(schema.creditLedger).values({ userId, delta: amount, reason, jobId });
     return true;
   });
   if (refunded) creditsRefundedTotal.inc(amount);

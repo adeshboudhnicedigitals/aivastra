@@ -16,8 +16,8 @@ User → Next.js (web) → Fastify API → Redis Streams → Dispatcher → Comf
 |---------|------|-------------|
 | API | `apps/api` | Fastify 5 REST API — auth, credits, catalog, jobs |
 | Dispatcher | `apps/dispatcher` | Redis Stream consumer — routes jobs to GPU workers |
-| Web | `apps/web` | Next.js 15 user-facing frontend |
-| Admin | `apps/admin` | Vite + React internal admin panel |
+| Web | `apps/catalogues-web` | Next.js 15 user-facing frontend |
+| Admin | `apps/admin-web` | Vite + React internal admin panel |
 
 | Package | Path | Description |
 |---------|------|-------------|
