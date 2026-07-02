@@ -4,7 +4,13 @@ import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
 import { apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
-import type { GarmentType, GenderSlug, PoseGarmentConfig, WorkflowOption } from '../../types';
+import type {
+  GarmentType,
+  GenderSlug,
+  PoseGarmentConfig,
+  TryonCategory,
+  WorkflowOption,
+} from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
 type SubView = { kind: 'list' } | { kind: 'configs'; sub: GarmentType };
@@ -38,6 +44,7 @@ export function GarmentTypesTab() {
   const [configsLoading, setConfigsLoading] = useState(false);
   const [savingConfigId, setSavingConfigId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
+  const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
 
   // Add garment type modal
   const [showSubcatModal, setShowSubcatModal] = useState(false);
@@ -58,6 +65,7 @@ export function GarmentTypesTab() {
   const [editSubcatRequiresLowerUpload, setEditSubcatRequiresLowerUpload] = useState(false);
   const [editSubcatDefaultLowerId, setEditSubcatDefaultLowerId] = useState<string>('');
   const [editSubcatDefaultShoeId, setEditSubcatDefaultShoeId] = useState<string>('');
+  const [editSubcatTryonCategoryId, setEditSubcatTryonCategoryId] = useState<string>('');
 
   const loadPoseConfigs = useCallback(
     async (garmentTypeId: string) => {
@@ -98,6 +106,12 @@ export function GarmentTypesTab() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [subView, loadGarmentTypes, loadPoseConfigs]);
+
+  useEffect(() => {
+    apiFetch<TryonCategory[]>('/admin/tryon-categories')
+      .then(setTryonCategories)
+      .catch(() => {});
+  }, []);
 
   const saveConfig = async (
     garmentTypeId: string,
@@ -258,6 +272,7 @@ export function GarmentTypesTab() {
                   <th>Gender</th>
                   <th>Default Lower</th>
                   <th>Default Shoe</th>
+                  <th>Tryon Category</th>
                   <th>Active</th>
                   <th></th>
                 </tr>
@@ -355,6 +370,16 @@ export function GarmentTypesTab() {
                         );
                       })()}
                     </td>
+                    <td>
+                      {(() => {
+                        const cat = tryonCategories.find((c) => c.id === sub.tryonCategoryId);
+                        return cat ? (
+                          <span className="badge dot accent">{cat.name}</span>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
+                        );
+                      })()}
+                    </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <Switch
                         checked={sub.isActive}
@@ -392,6 +417,7 @@ export function GarmentTypesTab() {
                             setEditSubcatRequiresLowerUpload(sub.requiresLowerUpload);
                             setEditSubcatDefaultLowerId(sub.defaultLowerCatalogId ?? '');
                             setEditSubcatDefaultShoeId(sub.defaultShoeCatalogId ?? '');
+                            setEditSubcatTryonCategoryId(sub.tryonCategoryId ?? '');
                             setEditSubcatImageFile(null);
                           }}
                         >
@@ -412,7 +438,7 @@ export function GarmentTypesTab() {
                 {filteredGarmentTypes.length === 0 && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       style={{ textAlign: 'center', color: 'var(--muted)', padding: '2rem' }}
                     >
                       No garment types found.
@@ -685,6 +711,7 @@ export function GarmentTypesTab() {
                   setEditSubcatRequiresLowerUpload(false);
                   setEditSubcatDefaultLowerId('');
                   setEditSubcatDefaultShoeId('');
+                  setEditSubcatTryonCategoryId('');
                 }}
                 disabled={editSubcatSaving}
                 style={{ marginLeft: 'auto' }}
@@ -718,6 +745,26 @@ export function GarmentTypesTab() {
                     (user uploads bottom wear separately)
                   </span>
                 </label>
+              </div>
+              <div className="field">
+                <label>Tryon Category</label>
+                <select
+                  className="select"
+                  value={editSubcatTryonCategoryId}
+                  disabled={editSubcatSaving}
+                  onChange={(e) => setEditSubcatTryonCategoryId(e.target.value)}
+                >
+                  <option value="">— none —</option>
+                  {tryonCategories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                  Maps this garment type to a tryon workflow for the "Browse from Catalog" picker on
+                  the tryon page.
+                </span>
               </div>
               <div className="field">
                 <label>Default lower garment</label>
@@ -999,6 +1046,7 @@ export function GarmentTypesTab() {
                   setEditSubcatRequiresLowerUpload(false);
                   setEditSubcatDefaultLowerId('');
                   setEditSubcatDefaultShoeId('');
+                  setEditSubcatTryonCategoryId('');
                 }}
                 disabled={editSubcatSaving}
               >
@@ -1012,7 +1060,8 @@ export function GarmentTypesTab() {
                     editSubcatLabel.trim() === editingSubcat.label.trim() &&
                     editSubcatRequiresLowerUpload === editingSubcat.requiresLowerUpload &&
                     editSubcatDefaultLowerId === (editingSubcat.defaultLowerCatalogId ?? '') &&
-                    editSubcatDefaultShoeId === (editingSubcat.defaultShoeCatalogId ?? ''))
+                    editSubcatDefaultShoeId === (editingSubcat.defaultShoeCatalogId ?? '') &&
+                    editSubcatTryonCategoryId === (editingSubcat.tryonCategoryId ?? ''))
                 }
                 onClick={async () => {
                   setEditSubcatSaving(true);
@@ -1023,6 +1072,7 @@ export function GarmentTypesTab() {
                       requiresLowerUpload?: boolean;
                       defaultLowerCatalogId?: string | null;
                       defaultShoeCatalogId?: string | null;
+                      tryonCategoryId?: string | null;
                     } = {};
                     if (editSubcatImageFile) {
                       const presign = await apiFetch<{ uploadUrl: string; thumbnailKey: string }>(
@@ -1052,6 +1102,9 @@ export function GarmentTypesTab() {
                     if (editSubcatDefaultShoeId !== (editingSubcat.defaultShoeCatalogId ?? '')) {
                       patchBody.defaultShoeCatalogId = editSubcatDefaultShoeId || null;
                     }
+                    if (editSubcatTryonCategoryId !== (editingSubcat.tryonCategoryId ?? '')) {
+                      patchBody.tryonCategoryId = editSubcatTryonCategoryId || null;
+                    }
                     if (Object.keys(patchBody).length > 0) {
                       await apiFetch(`/admin/assets/garment-types/${editingSubcat.id}`, {
                         method: 'PATCH',
@@ -1068,6 +1121,7 @@ export function GarmentTypesTab() {
                     setEditSubcatRequiresLowerUpload(false);
                     setEditSubcatDefaultLowerId('');
                     setEditSubcatDefaultShoeId('');
+                    setEditSubcatTryonCategoryId('');
                   } catch {
                     toast({ kind: 'error', title: 'Failed to save' });
                   } finally {
