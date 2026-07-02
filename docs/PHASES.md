@@ -170,7 +170,7 @@ Goal: Users can build a try-on job through the browser. Admins can manage the pl
 
 ### 3A — Next.js App Setup [B, Days 9–11]
 
-- `apps/web/` — Next.js 15 with App Router
+- `apps/catalogues-web/` — Next.js 15 with App Router
 - Install dependencies: Tailwind CSS, `@tanstack/react-query` (server state), `zustand` (client state), `shadcn/ui` component library, `react-hook-form` + `zod` resolvers
 - Auth flow: login page, register page, JWT stored in `httpOnly` cookie via server action proxy, `middleware.ts` for route protection
 - API client: typed wrapper around `fetch` using `@aivastra/types` Zod schemas for request/response
@@ -220,7 +220,7 @@ Goal: Users can build a try-on job through the browser. Admins can manage the pl
 
 ### 3D — Admin Panel [B, Days 14–18] — **DONE** (as standalone Vite SPA)
 
-> **Deviation from plan:** Admin panel built as `apps/admin` (Vite + React), not embedded in `apps/web` (Next.js). Deployed separately. No migration planned.
+> **Deviation from plan:** Admin panel built as `apps/admin-web` (Vite + React), not embedded in `apps/catalogues-web` (Next.js). Deployed separately. No migration planned.
 
 **Completed:**
 - Users page: search, filters, tier/ban/force-logout controls, credit grant/deduct
@@ -277,7 +277,7 @@ Goal: E2E with real ComfyUI workers. Load-tested at 2-worker concurrency. Ready 
 
 - Dockerfile for `apps/api` (done in plan Task 16)
 - Dockerfile for `apps/dispatcher`
-- Dockerfile for `apps/web` (Next.js standalone output)
+- Dockerfile for `apps/catalogues-web` (Next.js standalone output)
 - `docker-compose.prod.yml` on main VPS — no MinIO (real R2), no exposed dev ports
 - GitHub Actions CI: `pnpm typecheck`, `pnpm test`, `docker build` on every PR
 - Deploy script: `git pull → docker compose pull → docker compose up -d --no-deps api dispatcher web`

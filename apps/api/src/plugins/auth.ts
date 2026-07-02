@@ -1,13 +1,14 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../lib/errors.js';
 import { verifyAccess, verifyAdminAccess } from '../modules/auth/service.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    requireUser: (req: any, reply: any) => Promise<void>;
-    requireAdminUser: (req: any, reply: any) => Promise<void>;
+    requireUser: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireAdminUser: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     userId: string;
@@ -26,10 +27,9 @@ export const authPlugin = fp(async (app) => {
     let userId: string;
     try {
       const payload = await verifyAccess(secret, token);
-      // Reject admin-portal tokens from user routes
-      const aud = payload.aud;
-      const isAdmin = Array.isArray(aud) ? aud.includes('admin') : aud === 'admin';
-      if (isAdmin) throw new AppError('UNAUTH', 401, 'invalid token');
+      // Reject tokens not issued for the user portal (kind must be 'access')
+      if ((payload as Record<string, unknown>).kind !== 'access')
+        throw new AppError('UNAUTH', 401, 'invalid token');
       userId = String(payload.sub);
     } catch (err) {
       if (err instanceof AppError) throw err;

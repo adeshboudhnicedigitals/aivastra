@@ -27,6 +27,7 @@ import { patchWorkflow } from '../workflow/patcher.js';
 import { transitionJob } from './state.js';
 
 const MAX_ATTEMPTS = 2;
+const MAX_QUEUE_WAIT_MS = 3 * 60 * 60 * 1000; // 3 h — dead-letter if no worker found this long
 
 type JobOutcome = 'success' | 'failed' | 'retried';
 
@@ -68,6 +69,7 @@ export async function processJob(
       customerPhotoKey: schema.jobs.customerPhotoKey,
       creditsCharged: schema.jobs.creditsCharged,
       attempts: schema.jobs.attempts,
+      createdAt: schema.jobs.createdAt,
     })
     .from(schema.jobs)
     .where(eq(schema.jobs.id, jobId));
@@ -77,8 +79,28 @@ export async function processJob(
     return;
   }
   if (job.status !== 'QUEUED') {
-    jobLog.warn({ status: job.status }, 'job not QUEUED — skipping');
-    await redis.xack(stream, 'dispatcher-cg', messageId);
+    const IN_PROGRESS = ['PREPROCESSING', 'GENERATING', 'UPLOADING'] as const;
+    if ((IN_PROGRESS as readonly string[]).includes(job.status)) {
+      // Dispatcher crashed mid-job — count as a failed attempt so it retries or terminates+refunds
+      jobLog.warn(
+        { status: job.status },
+        'job found in-progress after reclaim — treating as crash failure',
+      );
+      await handleFailure(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        jobLog,
+        startedAt,
+        'DISPATCHER_CRASH',
+      );
+    } else {
+      // Already terminal (COMPLETED, FAILED) — ACK the stale PEL entry and move on
+      jobLog.warn({ status: job.status }, 'job already terminal — ACKing stale PEL entry');
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+    }
     return;
   }
 
@@ -276,13 +298,27 @@ export async function processJob(
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const worker = await selectWorker(redis, 'catalogue');
   if (!worker) {
-    jobLog.warn('no idle worker — re-enqueuing with backoff');
-    await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-    // Wait 10s before re-enqueuing to prevent stream flood when all workers are unhealthy
-    await new Promise((resolve) => setTimeout(resolve, 10_000));
-    await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
-    await redis.xack(stream, 'dispatcher-cg', messageId);
-    recordJobOutcome('retried', startedAt);
+    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+      jobLog.warn('no idle worker — job exceeded max queue wait, terminating with refund');
+      await terminateJob(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'NO_WORKER',
+        job.creditsCharged,
+        jobLog,
+        startedAt,
+      );
+    } else {
+      jobLog.warn('no idle worker — re-enqueuing with backoff');
+      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      recordJobOutcome('retried', startedAt);
+    }
     return;
   }
   const w = worker;
@@ -494,6 +530,7 @@ type TryonDirectJob = {
   id: string;
   creditsCharged: number;
   attempts: number;
+  createdAt: Date;
 };
 
 async function processTryonDirectJob(
@@ -565,12 +602,27 @@ async function processTryonDirectJob(
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
   const worker = await selectWorker(redis, 'tryon');
   if (!worker) {
-    jobLog.warn('no idle worker — re-enqueuing tryon direct job with backoff');
-    await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-    await new Promise((resolve) => setTimeout(resolve, 10_000));
-    await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
-    await redis.xack(stream, 'dispatcher-cg', messageId);
-    recordJobOutcome('retried', startedAt);
+    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+      jobLog.warn('no idle tryon worker — job exceeded max queue wait, terminating with refund');
+      await terminateJob(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'NO_WORKER',
+        job.creditsCharged,
+        jobLog,
+        startedAt,
+      );
+    } else {
+      jobLog.warn('no idle worker — re-enqueuing tryon direct job with backoff');
+      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      recordJobOutcome('retried', startedAt);
+    }
     return;
   }
   const w = worker;
@@ -696,6 +748,7 @@ type SareeJob = {
   id: string;
   creditsCharged: number;
   attempts: number;
+  createdAt: Date;
 };
 
 async function processSareeJob(
@@ -780,12 +833,27 @@ async function processSareeJob(
   // self-declare this in the workers table (admin can edit from the Workers page).
   const worker = await selectWorker(redis, 'saree');
   if (!worker) {
-    jobLog.warn('no idle saree worker — re-enqueuing with backoff');
-    await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-    await new Promise((resolve) => setTimeout(resolve, 10_000));
-    await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
-    await redis.xack(stream, 'dispatcher-cg', messageId);
-    recordJobOutcome('retried', startedAt);
+    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+      jobLog.warn('no idle saree worker — job exceeded max queue wait, terminating with refund');
+      await terminateJob(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'NO_WORKER',
+        job.creditsCharged,
+        jobLog,
+        startedAt,
+      );
+    } else {
+      jobLog.warn('no idle saree worker — re-enqueuing with backoff');
+      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      recordJobOutcome('retried', startedAt);
+    }
     return;
   }
   const w = worker;
@@ -1223,6 +1291,65 @@ async function markWidgetFailed(
 
 // ── Regular job failure handling ───────────────────────────────────────────
 
+// Shared terminal path: refund credits + mark FAILED atomically, then ACK.
+// Called by both markFailed (pre-flight) and handleFailure (max retries).
+// The refund and status transition share one DB transaction so a crash between
+// them can't leave the job refunded-but-not-failed or failed-but-not-refunded.
+// SSE publish is after the transaction — best-effort; clients reconnect on miss.
+async function terminateJob(
+  cfg: ProcessorConfig,
+  jobId: string,
+  userId: string,
+  stream: string,
+  messageId: string,
+  errorCode: string,
+  creditsCharged: number,
+  _log: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub } = cfg;
+  const now = new Date();
+
+  await db.transaction(async (tx) => {
+    // Insert ledger row first — unique index on (job_id, reason) prevents double-refund.
+    if (creditsCharged > 0) {
+      const inserted = await tx
+        .insert(schema.creditLedger)
+        .values({ userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId })
+        .onConflictDoNothing()
+        .returning({ id: schema.creditLedger.id });
+      if (!inserted.length) return; // already refunded — skip balance update too
+      await tx
+        .update(schema.userCredits)
+        .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+        .where(eq(schema.userCredits.userId, userId));
+    }
+
+    // Status transition — inlined so it's atomic with the refund above
+    await tx
+      .update(schema.jobs)
+      .set({ status: 'FAILED', errorCode, completedAt: now } as Parameters<
+        ReturnType<typeof tx.update>['set']
+      >[0])
+      .where(eq(schema.jobs.id, jobId));
+    await tx.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'FAILED',
+      payload: { errorCode } as Record<string, unknown>,
+    });
+  });
+
+  // SSE publish after commit — not critical, clients reconnect on miss
+  const ssePayload = JSON.stringify({ jobId, userId, type: 'STATUS', status: 'FAILED', errorCode });
+  await Promise.all([
+    pub.publish(`sse:events:${userId}`, ssePayload),
+    pub.publish('sse:events:admin', ssePayload),
+  ]);
+
+  await redis.xack(stream, 'dispatcher-cg', messageId);
+  recordJobOutcome('failed', startedAt);
+}
+
 async function handleFailure(
   cfg: ProcessorConfig,
   jobId: string,
@@ -1242,28 +1369,18 @@ async function handleFailure(
   await db.update(schema.jobs).set({ attempts: newAttempts }).where(eq(schema.jobs.id, jobId));
 
   if (newAttempts >= MAX_ATTEMPTS) {
-    // Terminal failure: refund credits (idempotent)
-    await db.transaction(async (tx) => {
-      const existing = await tx
-        .select()
-        .from(schema.creditLedger)
-        .where(eq(schema.creditLedger.jobId, jobId));
-      if (existing.some((e) => e.reason === 'JOB_FAIL_REFUND')) return;
-      await tx
-        .update(schema.userCredits)
-        .set({ balance: sql`${schema.userCredits.balance} + ${current.creditsCharged}` })
-        .where(eq(schema.userCredits.userId, userId));
-      await tx.insert(schema.creditLedger).values({
-        userId,
-        delta: current.creditsCharged,
-        reason: 'JOB_FAIL_REFUND',
-        jobId,
-      });
-    });
     const errorCode = errorMessage ? errorMessage.slice(0, 1000) : 'MAX_RETRIES';
-    await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
-    await redis.xack(stream, 'dispatcher-cg', messageId);
-    recordJobOutcome('failed', startedAt);
+    await terminateJob(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      errorCode,
+      current.creditsCharged,
+      log,
+      startedAt,
+    );
     log.warn(
       { jobId, attempts: newAttempts, errorCode },
       'job FAILED after max retries — credits refunded',
@@ -1271,7 +1388,7 @@ async function handleFailure(
   } else {
     // Re-enqueue for retry
     await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
-    await redis.xadd(stream, '*', 'jobId', jobId, 'userId', userId);
+    await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
     await redis.xack(stream, 'dispatcher-cg', messageId);
     recordJobOutcome('retried', startedAt);
     log.info(
@@ -1291,8 +1408,17 @@ async function markFailed(
   log: Logger,
   startedAt: number,
 ): Promise<void> {
-  const { db, redis, pub } = cfg;
-  await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
-  await redis.xack(stream, 'dispatcher-cg', messageId);
-  recordJobOutcome('failed', startedAt);
+  const [job] = await cfg.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+  await terminateJob(
+    cfg,
+    jobId,
+    userId,
+    stream,
+    messageId,
+    errorCode,
+    job?.creditsCharged ?? 0,
+    log,
+    startedAt,
+  );
+  log.warn({ jobId, errorCode }, 'job FAILED (pre-flight) — credits refunded');
 }

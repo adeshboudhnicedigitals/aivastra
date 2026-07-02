@@ -11,6 +11,7 @@ export const jobs = pgTable('jobs', {
   status: text('status').notNull().default('QUEUED'),
   workerId: text('worker_id'),
   priority: boolean('priority').notNull().default(false),
+  queueStream: text('queue_stream').notNull().default('normal'),
   creditsCharged: integer('credits_charged').notNull().default(1),
   attempts: integer('attempts').notNull().default(0),
   errorCode: text('error_code'),

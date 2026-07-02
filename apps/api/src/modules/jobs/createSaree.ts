@@ -67,6 +67,7 @@ export async function createSareeJob(
         catalogueId,
         status: 'QUEUED',
         priority,
+        queueStream,
         creditsCharged: COST,
       })
       .returning();

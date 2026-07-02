@@ -239,7 +239,11 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
         const garmentNodeId = body.tryonGarmentNodeId ?? autoDetected.garmentNodeId ?? '';
         const outputNodeId = body.tryonOutputNodeId ?? autoDetected.outputNodeId ?? '';
+        // CreateWorkflowBody.superRefine() requires these fields for workflowType 'tryon',
+        // but the zod type itself keeps them optional — safe to assert here.
+        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
         const negNode = body.facePhasePromptNode!;
+        // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
         const posNode = body.garmentPhasePromptNode!;
 
         if (!personNodeId)
@@ -314,12 +318,20 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         };
       }
 
-      // Regular workflow — full node validation
+      // Regular workflow — full node validation.
+      // CreateWorkflowBody.superRefine() requires these fields for workflowType 'regular',
+      // but the zod type itself keeps them optional — safe to assert here.
+      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const faceNodeId = body.faceNodeId!;
+      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const poseNodeId = body.poseNodeId!;
+      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const bgNodeId = body.bgNodeId!;
+      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const upperNodeIds = body.upperNodeIds!;
+      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const facePhasePromptNode = body.facePhasePromptNode!;
+      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const garmentPhasePromptNode = body.garmentPhasePromptNode!;
 
       validateNodeExists(body.jsonContent, faceNodeId, 'face');
