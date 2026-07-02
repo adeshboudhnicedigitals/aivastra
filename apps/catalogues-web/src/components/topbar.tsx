@@ -9,11 +9,13 @@ export function TopBar({
   subtitle,
   right,
   lead,
+  hideTryonCta,
 }: {
   title?: string;
   subtitle?: string;
   right?: React.ReactNode;
   lead?: React.ReactNode;
+  hideTryonCta?: boolean;
 }) {
   return (
     <div
@@ -54,30 +56,32 @@ export function TopBar({
         {right}
 
         {/* AI Virtual Try-On CTA */}
-        <Link
-          href="/tryon"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            width: 163,
-            height: 40,
-            padding: '0 10px',
-            borderRadius: 8,
-            background: 'linear-gradient(180deg, #7C3AED 0%, #310380 100%)',
-            color: '#fff',
-            fontSize: 13,
-            fontWeight: 600,
-            textDecoration: 'none',
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-            boxShadow: '0 2px 8px rgba(124,58,237,0.35)',
-            boxSizing: 'border-box',
-          }}
-        >
-          <Shirt size={15} />
-          AI Virtual Try-On
-        </Link>
+        {!hideTryonCta && (
+          <Link
+            href="/tryon"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: 163,
+              height: 40,
+              padding: '0 10px',
+              borderRadius: 8,
+              background: 'linear-gradient(180deg, #7C3AED 0%, #310380 100%)',
+              color: '#fff',
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              boxShadow: '0 2px 8px rgba(124,58,237,0.35)',
+              boxSizing: 'border-box',
+            }}
+          >
+            <Shirt size={15} />
+            AI Virtual Try-On
+          </Link>
+        )}
 
         {/* Support button */}
         <SupportButton />
