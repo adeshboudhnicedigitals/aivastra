@@ -45,15 +45,23 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       schema: { body: CreateGarmentTypeBody },
     },
     async (req) => {
-      const { genderSlug, slug, label, sortOrder, thumbnailKey, requiresLowerUpload } =
-        req.body as {
-          genderSlug: string;
-          slug: string;
-          label: string;
-          sortOrder: number;
-          thumbnailKey?: string;
-          requiresLowerUpload?: boolean;
-        };
+      const {
+        genderSlug,
+        slug,
+        label,
+        sortOrder,
+        thumbnailKey,
+        requiresLowerUpload,
+        tryonCategoryId,
+      } = req.body as {
+        genderSlug: string;
+        slug: string;
+        label: string;
+        sortOrder: number;
+        thumbnailKey?: string;
+        requiresLowerUpload?: boolean;
+        tryonCategoryId?: string | null;
+      };
       const [row] = await app.db
         .insert(schema.garmentSubcategories)
         .values({
@@ -63,6 +71,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           sortOrder,
           thumbnailKey,
           requiresLowerUpload: requiresLowerUpload ?? false,
+          tryonCategoryId: tryonCategoryId ?? null,
         })
         .returning();
       return row;
