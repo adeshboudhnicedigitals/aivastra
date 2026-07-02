@@ -43,6 +43,7 @@ export interface GarmentType {
   requiresLowerUpload: boolean;
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
+  tryonCategoryId?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
