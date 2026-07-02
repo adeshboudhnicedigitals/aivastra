@@ -5,6 +5,7 @@ import { ActivityIndicator, AppState, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Toast } from '../components/Toast';
 import { useAuthStore } from '../store/auth';
+import { useNotificationConfig } from '../store/notifications';
 import { useAppTheme, useThemeStore } from '../store/theme';
 
 function AuthGate({ children }: { children: React.ReactNode }) {
@@ -46,11 +47,13 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 export default function RootLayout() {
   const bootstrap = useAuthStore((state) => state.bootstrap);
   const loadTheme = useThemeStore((state) => state.load);
+  const loadNotificationConfig = useNotificationConfig((state) => state.load);
   const { colors, isDark } = useAppTheme();
   useEffect(() => {
     void bootstrap();
     void loadTheme();
-  }, [bootstrap, loadTheme]);
+    void loadNotificationConfig();
+  }, [bootstrap, loadTheme, loadNotificationConfig]);
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
