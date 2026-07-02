@@ -62,6 +62,9 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   defaultShoeCatalogId: uuid('default_shoe_catalog_id').references(() => catalogItems.id, {
     onDelete: 'set null',
   }),
+  // FK to tryon_categories.id enforced in SQL only — see migration 0074. Not a
+  // typed drizzle reference to avoid a circular import with schema/tryon.ts.
+  tryonCategoryId: uuid('tryon_category_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

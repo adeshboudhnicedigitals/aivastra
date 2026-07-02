@@ -149,6 +149,63 @@ export async function jobsRoutes(app: FastifyInstance) {
     };
   });
 
+  // GET /v1/tryon/garment-images — caller's own completed catalog images eligible
+  // for reuse as a simple-tryon garment: must carry a garmentTypeId whose garment
+  // type has a tryonCategoryId mapped by admin, and that category + its workflow
+  // template must still be active (admin kill-switch parity with job creation —
+  // see createSimpleTryonJob). Inner joins do the eligibility filtering.
+  app.get('/v1/tryon/garment-images', { preHandler: app.requireUser }, async (req) => {
+    const rows = await app.db
+      .select({
+        jobId: schema.jobs.id,
+        thumbnailKey: schema.jobOutputs.thumbnailKey,
+        garmentTypeName: schema.garmentSubcategories.label,
+        tryonCategoryName: schema.tryonCategories.name,
+      })
+      .from(schema.jobs)
+      .innerJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+      .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .innerJoin(
+        schema.garmentSubcategories,
+        eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+      )
+      .innerJoin(
+        schema.tryonCategories,
+        and(
+          eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
+          eq(schema.tryonCategories.isActive, true),
+        ),
+      )
+      .innerJoin(
+        schema.workflowTemplates,
+        and(
+          eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
+          eq(schema.workflowTemplates.isActive, true),
+        ),
+      )
+      .where(and(eq(schema.jobs.userId, req.userId), eq(schema.jobs.status, 'COMPLETED')))
+      .orderBy(desc(schema.jobs.createdAt))
+      .limit(50);
+
+    return Promise.all(
+      rows.map(async (r) => {
+        const thumbKey = r.thumbnailKey ?? keys.output(r.jobId);
+        let thumbnailUrl: string | null = null;
+        try {
+          thumbnailUrl = (await app.storage.presignGet(thumbKey, 3600)).url;
+        } catch {
+          /* missing object — leave null, client shows placeholder */
+        }
+        return {
+          jobId: r.jobId,
+          thumbnailUrl,
+          garmentTypeName: r.garmentTypeName,
+          tryonCategoryName: r.tryonCategoryName,
+        };
+      }),
+    );
+  });
+
   // List catalogues — grouped by catalogue_id, ordered newest first
   app.get('/v1/catalogues', { preHandler: app.requireUser }, async (req) => {
     const rows = await app.db
