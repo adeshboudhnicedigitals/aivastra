@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { type DB, schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
+import { keys } from '@aivastra/storage';
 import {
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
@@ -283,11 +284,46 @@ export async function createSimpleTryonJob(
   userId: string,
   body: z.infer<typeof CreateSimpleTryonRequest>,
 ) {
-  const { personKey, garmentKey, categoryId } = body;
+  const { personKey, sourceJobId } = body;
   const COST = SIMPLE_TRYON_COST;
 
   await assertOwnsUploadKey(app, userId, personKey);
-  await assertOwnsUploadKey(app, userId, garmentKey);
+
+  // Resolve the source image's garment type → tryon category → workflow template.
+  // Left-joins because a job with no garmentTypeId or an unmapped garment type
+  // must fail with a clear VALIDATION error, not silently 404.
+  const [source] = await app.db
+    .select({
+      jobUserId: schema.jobs.userId,
+      jobStatus: schema.jobs.status,
+      garmentTypeId: schema.jobInputs.garmentTypeId,
+      workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+    })
+    .from(schema.jobs)
+    .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .leftJoin(
+      schema.garmentSubcategories,
+      eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+    )
+    .leftJoin(
+      schema.tryonCategories,
+      eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
+    )
+    .where(eq(schema.jobs.id, sourceJobId));
+
+  if (!source) throw new AppError('NOT_FOUND', 404, 'source image not found');
+  if (source.jobUserId !== userId) {
+    throw new AppError('FORBIDDEN', 403, 'source image not owned by caller');
+  }
+  if (source.jobStatus !== 'COMPLETED') {
+    throw new AppError('VALIDATION', 400, 'source image is not a completed job');
+  }
+  if (!source.workflowTemplateId) {
+    throw new AppError('VALIDATION', 400, 'garment type has no tryon category configured');
+  }
+
+  const garmentKey = keys.output(sourceJobId);
+  const workflowTemplateId = source.workflowTemplateId;
 
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
@@ -302,46 +338,6 @@ export async function createSimpleTryonJob(
   const queueStream: string = planRow?.queueStream ?? 'normal';
   const priority = queueStream === 'priority';
 
-  // Resolve workflow template: category → its template → fallback to any active tryon template
-  let workflowTemplateId: string;
-  if (categoryId) {
-    const [cat] = await app.db
-      .select({ workflowTemplateId: schema.tryonCategories.workflowTemplateId })
-      .from(schema.tryonCategories)
-      .where(
-        and(eq(schema.tryonCategories.id, categoryId), eq(schema.tryonCategories.isActive, true)),
-      );
-    if (cat?.workflowTemplateId) {
-      workflowTemplateId = cat.workflowTemplateId;
-    } else {
-      const [tmpl] = await app.db
-        .select({ id: schema.workflowTemplates.id })
-        .from(schema.workflowTemplates)
-        .where(
-          and(
-            eq(schema.workflowTemplates.workflowType, 'tryon'),
-            eq(schema.workflowTemplates.isActive, true),
-          ),
-        )
-        .limit(1);
-      if (!tmpl) throw new AppError('CONFIG', 400, 'no active tryon workflow template configured');
-      workflowTemplateId = tmpl.id;
-    }
-  } else {
-    const [tmpl] = await app.db
-      .select({ id: schema.workflowTemplates.id })
-      .from(schema.workflowTemplates)
-      .where(
-        and(
-          eq(schema.workflowTemplates.workflowType, 'tryon'),
-          eq(schema.workflowTemplates.isActive, true),
-        ),
-      )
-      .limit(1);
-    if (!tmpl) throw new AppError('CONFIG', 400, 'no active tryon workflow template configured');
-    workflowTemplateId = tmpl.id;
-  }
-
   const catalogueId = randomUUID();
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx
@@ -352,6 +348,7 @@ export async function createSimpleTryonJob(
     await tx.insert(schema.jobInputs).values({
       jobId: newJob.id,
       upperGarmentKey: garmentKey,
+      garmentTypeId: source.garmentTypeId,
       params: { personKey, workflowTemplateId },
     });
     return [newJob];
