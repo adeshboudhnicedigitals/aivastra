@@ -9,20 +9,20 @@ const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 const NAV: { id: string; href: string; label: string; icon: string; badge?: string }[] = [
   { id: 'studio', href: '/studio', label: 'Studio', icon: `${BASE}/assets/studio-icon.svg` },
-  // {
-  //   id: 'tryon',
-  //   href: '/tryon',
-  //   label: 'Try-On',
-  //   icon: `${BASE}/assets/tryon-icon.svg`,
-  //   badge: 'New',
-  // },
-  // {
-  //   id: 'saree',
-  //   href: '/saree',
-  //   label: 'Saree',
-  //   icon: `${BASE}/assets/saree-icon.svg`,
-  //   badge: 'New',
-  // },
+  {
+    id: 'tryon',
+    href: '/tryon',
+    label: 'Try-On',
+    icon: `${BASE}/assets/tryon-icon.svg`,
+    badge: 'New',
+  },
+  {
+    id: 'saree',
+    href: '/saree',
+    label: 'Saree',
+    icon: `${BASE}/assets/saree-icon.svg`,
+    badge: 'New',
+  },
   {
     id: 'catalogues',
     href: '/catalogues',

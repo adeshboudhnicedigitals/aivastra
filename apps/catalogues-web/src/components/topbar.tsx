@@ -54,7 +54,7 @@ export function TopBar({
         {right}
 
         {/* AI Virtual Try-On CTA */}
-        {/* <Link
+        <Link
           href="/tryon"
           style={{
             display: 'flex',
@@ -77,7 +77,7 @@ export function TopBar({
         >
           <Shirt size={15} />
           AI Virtual Try-On
-        </Link> */}
+        </Link>
 
         {/* Support button */}
         <SupportButton />
