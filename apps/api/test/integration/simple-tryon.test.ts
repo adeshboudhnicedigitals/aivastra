@@ -57,7 +57,10 @@ describe('simple tryon (garment from catalog)', () => {
   // category pointing at it → a garment type mapped to that category → a
   // COMPLETED job owned by `userId` whose job_inputs.garmentTypeId points at
   // that garment type, with a job_outputs row (thumbnail optional).
-  async function seedEligibleSourceJob(userId: string, opts?: { withThumbnail?: boolean }) {
+  async function seedEligibleSourceJob(
+    userId: string,
+    opts?: { withThumbnail?: boolean; categoryActive?: boolean; workflowActive?: boolean },
+  ) {
     const [workflow] = await app.db
       .insert(schema.workflowTemplates)
       .values({
@@ -65,7 +68,7 @@ describe('simple tryon (garment from catalog)', () => {
         label: 'Tryon workflow',
         workflowType: 'tryon',
         jsonContent: {},
-        isActive: true,
+        isActive: opts?.workflowActive ?? true,
         tryonPersonNodeId: '1',
         tryonGarmentNodeId: '2',
         tryonOutputNodeId: '3',
@@ -84,7 +87,7 @@ describe('simple tryon (garment from catalog)', () => {
         name: 'Upper',
         slug: `upper-${randomUUID()}`,
         workflowTemplateId: workflow.id,
-        isActive: true,
+        isActive: opts?.categoryActive ?? true,
       })
       .returning();
 
@@ -254,6 +257,40 @@ describe('simple tryon (garment from catalog)', () => {
     expect(res.json().error.code).toBe('VALIDATION');
   });
 
+  it('rejects with VALIDATION when the mapped tryon category is inactive (admin kill-switch)', async () => {
+    const { token, userId } = await registerUser('tryon-catinactive@x.com');
+    await grantCredits(userId, 100);
+    const { jobId: sourceJobId } = await seedEligibleSourceJob(userId, { categoryActive: false });
+    const personKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, personKey);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/simple-tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { personKey, sourceJobId },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION');
+  });
+
+  it('rejects with VALIDATION when the mapped workflow template is inactive (admin kill-switch)', async () => {
+    const { token, userId } = await registerUser('tryon-wfinactive@x.com');
+    await grantCredits(userId, 100);
+    const { jobId: sourceJobId } = await seedEligibleSourceJob(userId, { workflowActive: false });
+    const personKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, personKey);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/simple-tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { personKey, sourceJobId },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION');
+  });
+
   it('refunds credits and marks FAILED on enqueue failure', async () => {
     const { token, userId } = await registerUser('tryon-enqfail@x.com');
     await grantCredits(userId, 100);
@@ -319,6 +356,12 @@ describe('simple tryon (garment from catalog)', () => {
       // Ineligible: another user's eligible job.
       const { userId: otherUserId } = await registerUser('tryon-picker-other@x.com');
       await seedEligibleSourceJob(otherUserId);
+
+      // Ineligible: mapped tryon category is inactive (admin kill-switch).
+      await seedEligibleSourceJob(userId, { categoryActive: false });
+
+      // Ineligible: mapped workflow template is inactive (admin kill-switch).
+      await seedEligibleSourceJob(userId, { workflowActive: false });
 
       const res = await app.inject({
         method: 'GET',

@@ -298,6 +298,8 @@ export async function createSimpleTryonJob(
       jobStatus: schema.jobs.status,
       garmentTypeId: schema.jobInputs.garmentTypeId,
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+      tryonCategoryIsActive: schema.tryonCategories.isActive,
+      workflowTemplateIsActive: schema.workflowTemplates.isActive,
     })
     .from(schema.jobs)
     .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
@@ -309,6 +311,10 @@ export async function createSimpleTryonJob(
       schema.tryonCategories,
       eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
     )
+    .leftJoin(
+      schema.workflowTemplates,
+      eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
+    )
     .where(eq(schema.jobs.id, sourceJobId));
 
   if (!source) throw new AppError('NOT_FOUND', 404, 'source image not found');
@@ -318,7 +324,15 @@ export async function createSimpleTryonJob(
   if (source.jobStatus !== 'COMPLETED') {
     throw new AppError('VALIDATION', 400, 'source image is not a completed job');
   }
-  if (!source.workflowTemplateId) {
+  // Kill-switch parity: a tryon category (or its workflow template) that an admin
+  // deactivated after garment types were mapped to it must not resolve — same
+  // VALIDATION error as "no tryon category configured" since it's the same
+  // "not usable" outcome from the caller's perspective.
+  if (
+    !source.workflowTemplateId ||
+    !source.tryonCategoryIsActive ||
+    !source.workflowTemplateIsActive
+  ) {
     throw new AppError('VALIDATION', 400, 'garment type has no tryon category configured');
   }
 
