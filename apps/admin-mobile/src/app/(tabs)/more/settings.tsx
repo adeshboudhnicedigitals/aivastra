@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccordionSection } from '../../../components/AccordionSection';
 import { confirmAction } from '../../../components/ConfirmDialog';
 import { EmptyState } from '../../../components/EmptyState';
+import { NotificationsSection } from '../../../components/NotificationsSection';
 import { useApi } from '../../../hooks/useApi';
 import { ApiError, apiFetch } from '../../../lib/api';
 import { isSuperAdmin } from '../../../lib/roles';
@@ -152,48 +153,7 @@ export default function SettingsScreen() {
 
       <AccordionSection title="Notifications" initiallyExpanded={false}>
         <View style={styles.sectionContent}>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.toggleLabel, { color: colors.textMuted }]}>
-              Sound alerts (Coming soon)
-            </Text>
-            <Switch
-              disabled
-              value={localSettings.soundAlerts}
-              onValueChange={(v) => void localSettings.update({ soundAlerts: v })}
-            />
-          </View>
-          <View style={styles.toggleRow}>
-            <Text style={[styles.toggleLabel, { color: colors.textMuted }]}>
-              Email alerts (Coming soon)
-            </Text>
-            <Switch
-              disabled
-              value={localSettings.emailAlerts}
-              onValueChange={(v) => void localSettings.update({ emailAlerts: v })}
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>
-              Slack webhook URL (Coming soon)
-            </Text>
-            <TextInput
-              editable={false}
-              value={localSettings.slackWebhookUrl}
-              onChangeText={(v) => void localSettings.update({ slackWebhookUrl: v })}
-              placeholder="https://hooks.slack.com/services/..."
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[
-                styles.input,
-                {
-                  color: colors.text,
-                  backgroundColor: colors.surface,
-                  borderColor: colors.border,
-                },
-              ]}
-            />
-          </View>
+          <NotificationsSection />
         </View>
       </AccordionSection>
 
@@ -259,7 +219,7 @@ function PlanRow({ plan, onPress }: { plan: CreditPlan; onPress: () => void }) {
         </Text>
         <Text style={[styles.price, { color: colors.text }]}>
           {'\u20B9'}
-          {(plan.basePaise / 100).toFixed(2)} · {plan.credits} credits
+          {(plan.basePaise / 100).toFixed(2)} Â· {plan.credits} credits
         </Text>
       </View>
       <View
@@ -337,7 +297,7 @@ function PlanModal({
     )
       return Alert.alert(
         'Invalid plan',
-        'Name, valid slug, positive credits, and positive price (₹) are required.',
+        'Name, valid slug, positive credits, and positive price (â‚¹) are required.',
       );
     setSubmitting(true);
     try {
@@ -429,15 +389,15 @@ function PlanModal({
           <PlanField label="Subtext" value={subtext} onChangeText={setSubtext} maxLength={200} />
           <PlanField label="Credits" value={credits} onChangeText={setCredits} numeric />
           <PlanField
-            label="Price (₹, excl. GST)"
+            label="Price (â‚¹, excl. GST)"
             value={priceRupees}
             onChangeText={setPriceRupees}
             numeric
           />
           {Number(priceRupees) > 0 ? (
             <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-              {'₹'}
-              {Number(priceRupees).toLocaleString('en-IN')} + 18% GST = {'₹'}
+              {'â‚¹'}
+              {Number(priceRupees).toLocaleString('en-IN')} + 18% GST = {'â‚¹'}
               {(Number(priceRupees) * 1.18).toLocaleString('en-IN', {
                 maximumFractionDigits: 2,
               })}
@@ -452,9 +412,9 @@ function PlanModal({
             <View style={styles.chipRow}>
               {(
                 [
-                  ['priority', '1st — Priority'],
-                  ['normal', '2nd — Normal'],
-                  ['low', '3rd — Low'],
+                  ['priority', '1st â€” Priority'],
+                  ['normal', '2nd â€” Normal'],
+                  ['low', '3rd â€” Low'],
                 ] as const
               ).map(([value, label]) => (
                 <TouchableOpacity

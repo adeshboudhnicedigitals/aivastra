@@ -19,6 +19,7 @@ import { SkeletonLoader } from '../../../components/SkeletonLoader';
 import { StatusBadge } from '../../../components/StatusBadge';
 import { useAdminJobStream } from '../../../hooks/useAdminJobStream';
 import { useApi } from '../../../hooks/useApi';
+import { useJobNotifications } from '../../../hooks/useJobNotifications';
 import { ApiError, apiFetch } from '../../../lib/api';
 import { formatDate, formatNumber } from '../../../lib/format';
 import { useAuthStore } from '../../../store/auth';
@@ -75,6 +76,7 @@ export default function JobDetailScreen() {
     [data?.events, liveEvents],
   );
   const status = liveStatus ?? data?.status;
+  useJobNotifications(id, status);
 
   async function runAction(action: 'cancel' | 'retry') {
     setActioning(action);
