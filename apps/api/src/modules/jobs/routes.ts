@@ -125,8 +125,9 @@ export async function jobsRoutes(app: FastifyInstance) {
 
   // GET /v1/tryon/garment-images — caller's own completed catalog images eligible
   // for reuse as a simple-tryon garment: must carry a garmentTypeId whose garment
-  // type has a tryonCategoryId mapped by admin. Inner joins do the eligibility
-  // filtering — no explicit IS NOT NULL checks needed.
+  // type has a tryonCategoryId mapped by admin, and that category + its workflow
+  // template must still be active (admin kill-switch parity with job creation —
+  // see createSimpleTryonJob). Inner joins do the eligibility filtering.
   app.get('/v1/tryon/garment-images', { preHandler: app.requireUser }, async (req) => {
     const rows = await app.db
       .select({
@@ -144,7 +145,17 @@ export async function jobsRoutes(app: FastifyInstance) {
       )
       .innerJoin(
         schema.tryonCategories,
-        eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
+        and(
+          eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
+          eq(schema.tryonCategories.isActive, true),
+        ),
+      )
+      .innerJoin(
+        schema.workflowTemplates,
+        and(
+          eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
+          eq(schema.workflowTemplates.isActive, true),
+        ),
       )
       .where(and(eq(schema.jobs.userId, req.userId), eq(schema.jobs.status, 'COMPLETED')))
       .orderBy(desc(schema.jobs.createdAt))
