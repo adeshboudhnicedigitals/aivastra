@@ -31,6 +31,8 @@ const Env = z.object({
   RAZORPAY_KEY_SECRET: z.string().min(1).optional(),
   RAZORPAY_WEBHOOK_SECRET: z.string().min(1).optional(),
   SENTRY_DSN: z.string().url().optional(),
+  CHATBOT_URL: z.string().url().optional(),
+  CHATBOT_SERVICE_TOKEN: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {
