@@ -28,6 +28,7 @@ Read `docs/virtual-tryon-system-design.md` before changing architecture. See `do
 ```
 apps/api           Fastify 5 REST API — auth, credits, catalog, jobs, admin
 apps/dispatcher    Redis Stream consumer — routes jobs to GPU workers
+apps/chatbot       Fastify + WS support chatbot — LangGraph bot, HITL, pgvector RAG
 apps/catalogues-web           Next.js 15 — user-facing UI (auth, studio, catalogues, pricing)
 apps/admin-web         Vite + React SPA — internal admin panel (separate from apps/catalogues-web)
 apps/admin-mobile  Expo SDK 53 React Native — admin app (Android, mirrors apps/admin-web features)
@@ -67,6 +68,7 @@ pnpm db:migrate               # apply migrations to DATABASE_URL
 | `pnpm dev` | Run all services in parallel (turbo) |
 | `pnpm --filter @aivastra/api dev` | API only |
 | `pnpm --filter @aivastra/dispatcher dev` | Dispatcher only |
+| `pnpm --filter @aivastra/chatbot dev` | Chatbot service only |
 | `pnpm --filter @aivastra/web dev` | Next.js web only |
 | `pnpm --filter @aivastra/admin dev` | Admin SPA only |
 | `pnpm build` | Typecheck + build all |
@@ -113,7 +115,7 @@ Input model: 1 user-uploaded garment + `faceId` + `backgroundId` + `poseId` (all
 Next.js API routes in `apps/catalogues-web/src/app/api/auth/` act as a **BFF (Backend For Frontend)** proxy. They receive auth requests from the browser, call the Fastify API, then set httpOnly cookies via `apps/catalogues-web/src/lib/auth-cookies.ts`. This means:
 - Browser never directly calls the Fastify API for auth.
 - The `access_token` cookie is set by the Next.js server, not by the client.
-- `apps/catalogues-web/src/lib/api.ts` reads the token from `document.cookie` for authenticated API calls and auto-refreshes on 401.
+- `apps/catalogues-web/src/lib/api.ts` holds the access token in a module-level in-memory variable (never a JS-readable cookie — see SEC-H2 in `docs/progress.md`), seeded via `initToken()` at login, and auto-refreshes on 401 through the httpOnly refresh cookie.
 
 ### Route Groups
 

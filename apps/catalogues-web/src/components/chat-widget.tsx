@@ -1,15 +1,9 @@
 'use client';
 import type { ChatMessageT, WsServerFrameT } from '@aivastra/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getToken } from '../lib/api';
 
 const CHATBOT_URL = process.env.NEXT_PUBLIC_CHATBOT_URL || 'http://localhost:4200';
-
-function accessToken(): string | undefined {
-  return document.cookie
-    .split('; ')
-    .find((c) => c.startsWith('access_token='))
-    ?.split('=')[1];
-}
 
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
@@ -22,7 +16,7 @@ export function ChatWidget() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const connect = useCallback(async () => {
-    const token = accessToken();
+    const token = getToken();
     if (!token) return;
     const tRes = await fetch(`${CHATBOT_URL}/ws-ticket`, {
       method: 'POST',
@@ -38,7 +32,7 @@ export function ChatWidget() {
         setStatus(f.status);
         const h = await fetch(
           `${CHATBOT_URL}/conversations/${f.conversationId}/messages?limit=50`,
-          { headers: { authorization: `Bearer ${accessToken()}` } },
+          { headers: { authorization: `Bearer ${getToken()}` } },
         );
         if (h.ok) setMessages(((await h.json()) as { messages: ChatMessageT[] }).messages);
       } else if (f.type === 'message') {
