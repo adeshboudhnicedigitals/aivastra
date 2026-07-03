@@ -116,6 +116,12 @@ const groups: NavGroup[] = [
         icon: Icon.Bell,
         roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN', 'SUPPORT'],
       },
+      {
+        k: 'chatbot-qna',
+        label: 'Chatbot Q&A',
+        icon: Icon.MessageSquare,
+        roles: ['SUPER_ADMIN', 'ADMIN'],
+      },
     ],
   },
 ];
