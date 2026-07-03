@@ -1,3 +1,4 @@
+import { ChatWidget } from '@/components/chat-widget';
 import { JobStreamProvider } from '@/components/job-stream-provider';
 import { Sidebar } from '@/components/sidebar';
 
@@ -9,6 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {children}
         </div>
+        <ChatWidget />
       </div>
     </JobStreamProvider>
   );
