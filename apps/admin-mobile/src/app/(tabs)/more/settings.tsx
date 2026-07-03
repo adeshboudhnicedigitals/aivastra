@@ -28,7 +28,6 @@ import type { CreditPlan } from '../../../types';
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100] as const;
 
-
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -97,7 +96,6 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             ))}
           </View>
-
         </View>
       </AccordionSection>
 
@@ -420,7 +418,9 @@ function PlanModal({
               <Text style={[styles.deleteButtonText, { color: colors.error }]}>Delete plan</Text>
             </TouchableOpacity>
           ) : plan ? (
-            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>The free plan cannot be deleted.</Text>
+            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
+              The free plan cannot be deleted.
+            </Text>
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>

@@ -47,7 +47,10 @@ export async function createSareeJob(
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
     app.db
-      .select({ queueStream: schema.creditPlans.queueStream, watermark: schema.creditPlans.watermark })
+      .select({
+        queueStream: schema.creditPlans.queueStream,
+        watermark: schema.creditPlans.watermark,
+      })
       .from(schema.users)
       .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
       .where(eq(schema.users.id, userId)),

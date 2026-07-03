@@ -45,7 +45,10 @@ async function main(): Promise<void> {
       await initWatermarkTile();
       log.info('watermark tile initialized');
     } catch (err) {
-      log.fatal({ err }, 'failed to initialize watermark tile; ENABLE_WATERMARKING is true, failing closed');
+      log.fatal(
+        { err },
+        'failed to initialize watermark tile; ENABLE_WATERMARKING is true, failing closed',
+      );
       process.exit(1);
     }
   }

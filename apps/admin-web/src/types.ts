@@ -216,8 +216,6 @@ export interface Stats {
   jobsPerDayLabels: string[];
 }
 
-
-
 export interface CreditPlan {
   id: string;
   slug: string;

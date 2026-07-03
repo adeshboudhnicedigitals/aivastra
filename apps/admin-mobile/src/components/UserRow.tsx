@@ -72,4 +72,3 @@ const styles = StyleSheet.create({
   tier: { paddingHorizontal: Spacing.sm, paddingVertical: 3, borderRadius: Radius.full },
   tierLabel: { ...Typography.label },
 });
-

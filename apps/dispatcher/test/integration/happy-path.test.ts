@@ -146,4 +146,3 @@ describe('dispatcher happy path', () => {
     expect(workers.get(WORKER_ID)?.status).toBe('IDLE');
   });
 });
-
