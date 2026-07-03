@@ -1,5 +1,36 @@
 # Project Progress
 
+## 2026-07-03 — Chatbot Multi-Provider Model Selection
+
+Implemented per `docs/superpowers/plans/2026-07-03-chatbot-multi-provider-models.md` (3 tasks),
+via `superpowers:subagent-driven-development`.
+
+### Done
+- New `apps/chatbot/src/agent/models.ts` — provider-agnostic `makeModel()` factory
+  (`anthropic` / `google` / `openai-compatible`), env-var config resolution with per-field
+  fallback (`genModelConfig`/`toolModelConfig`).
+- `runBotTurn()` split into a router (tool-calling) model and a generation model — router
+  makes one tool-decision pass (no loop), generation model synthesizes the final reply and
+  applies the existing escalate/grounding gate. `createReactAgent` no longer used.
+- Pinned `@langchain/openai@0.3.17` and `@langchain/google-genai@0.2.18` (not `^` ranges) —
+  their latest majors require `@langchain/core@^1.x`, incompatible with this repo's
+  `@langchain/core@0.3.80` (pinned via `@langchain/langgraph`/`@langchain/anthropic`).
+- Fixed a pre-existing duplication in `apps/chatbot/src/index.ts` where `deps` was
+  constructed twice (once for the server, once for the sweeper) — now built once.
+- Post-review fix: hand-off test (`bot.test.ts`) didn't prove the tool result actually
+  reached `genModel`'s input, only that the final text passed through — added a spy wrapper
+  on `genModel.invoke` to assert on the received message content.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Admin-configurable (DB-backed, no-redeploy) model switching is explicitly deferred —
+  decide later per user.
+- `CHATBOT_MAX_TOOL_ITERATIONS` is now an orphaned env var (its only consumer, the
+  `recursionLimit` on the old `createReactAgent` call, was removed). Left declared in
+  `env.ts` for backward compatibility; not wired to anything.
+
 ## 2026-07-03 — Support Chatbot v1 (as built)
 
 Implemented per `docs/superpowers/plans/2026-07-03-support-chatbot.md` (all 15 tasks),
