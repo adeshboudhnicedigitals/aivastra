@@ -729,22 +729,6 @@ export default function PricingPage(): React.ReactElement {
       <div style={{ background: C.bg }}>
         {activeTab === 'tryon' && (
           <div style={{ padding: '0 24px 48px', maxWidth: 1080, margin: '0 auto' }}>
-            {/* Header */}
-            <div style={{ textAlign: 'center', marginBottom: 36 }}>
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: C.mid,
-                  letterSpacing: '1.5px',
-                  textTransform: 'uppercase',
-                  marginBottom: 8,
-                }}
-              >
-                Choose the plan that fits your business
-              </div>
-            </div>
-
             {/* Two option cards */}
             <div
               style={{
@@ -755,254 +739,11 @@ export default function PricingPage(): React.ReactElement {
                 justifyContent: 'center',
               }}
             >
-              {/* Option 1 — Virtual Try-On + Catalogue */}
-              <div
-                style={{
-                  flex: '1 1 440px',
-                  maxWidth: 520,
-                  background: C.card,
-                  border: `2px solid color-mix(in srgb, ${C.pink} 40%, transparent)`,
-                  borderRadius: 20,
-                  padding: 32,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 20,
-                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
-                }}
-              >
-                {/* Badge */}
-                <span
-                  style={{
-                    alignSelf: 'flex-start',
-                    padding: '4px 14px',
-                    borderRadius: 6,
-                    background: `color-mix(in srgb, ${C.pink} 10%, transparent)`,
-                    border: `1px solid color-mix(in srgb, ${C.pink} 40%, transparent)`,
-                    color: C.text,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: '0.5px',
-                  }}
-                >
-                  Best Value
-                </span>
-
-                <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
-                  Virtual Try-On + Catalogue Studio
-                </div>
-
-                {/* Price */}
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span
-                    style={{ fontSize: 42, fontWeight: 900, color: C.text, letterSpacing: '-2px' }}
-                  >
-                    ₹49,999
-                  </span>
-                  <span style={{ fontSize: 15, color: C.mid }}>/month + GST</span>
-                </div>
-
-                {/* Key stats */}
-                <div
-                  style={{
-                    display: 'flex',
-                    background:
-                      'linear-gradient(90deg, rgba(245,92,122,0.05) 0%, rgba(246,181,83,0.05) 100%)',
-                    border: `1px solid color-mix(in srgb, ${C.pink} 20%, transparent)`,
-                    borderRadius: 12,
-                    overflow: 'hidden',
-                  }}
-                >
-                  {[
-                    {
-                      icon: <Image size={20} color="#fff" />,
-                      iconBg: 'linear-gradient(to right, #F55C7A, #F6B553)',
-                      count: '2,500',
-                      label: 'AI Catalogue Images',
-                    },
-                    {
-                      icon: <Shirt size={20} color="#fff" />,
-                      iconBg: 'linear-gradient(to right, #F55C7A, #F6B553)',
-                      count: '25,000',
-                      label: 'Virtual Try-On Sessions',
-                    },
-                  ].map((s, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: static list, no reorder
-                    <Fragment key={i}>
-                      {i > 0 && (
-                        <div
-                          style={{
-                            width: 1,
-                            background: `color-mix(in srgb, ${C.pink} 20%, transparent)`,
-                            margin: '12px 0',
-                          }}
-                        />
-                      )}
-                      <div
-                        key={s.label}
-                        style={{
-                          flex: 1,
-                          padding: '16px 14px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                        }}
-                      >
-                        <span
-                          style={{
-                            width: 38,
-                            height: 38,
-                            borderRadius: 8,
-                            background: s.iconBg,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                          }}
-                        >
-                          {s.icon}
-                        </span>
-                        <div>
-                          <div
-                            style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1 }}
-                          >
-                            {s.count}
-                          </div>
-                          <div
-                            style={{ fontSize: 12, color: C.mid, marginTop: 3, lineHeight: '15px' }}
-                          >
-                            {s.label}
-                          </div>
-                        </div>
-                      </div>
-                    </Fragment>
-                  ))}
-                </div>
-
-                {/* Features */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {[
-                    'AI Catalogue Generation & Virtual Try-On',
-                    'Unlimited AI Models',
-                    'Unlimited Backgrounds Library',
-                    'White-Label Branding',
-                    'Priority Technical Support',
-                  ].map((f) => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <span
-                        style={{
-                          width: 20,
-                          height: 20,
-                          borderRadius: '50%',
-                          background: `color-mix(in srgb, ${C.amber} 18%, transparent)`,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <CheckIcon size={11} color={C.pink} />
-                      </span>
-                      <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{f}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {/* Add-on label */}
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
-                    Pay ₹5,000 Extra and Get
-                  </div>
-
-                  {/* Add-on box */}
-                  <div
-                    style={{
-                      background: C.field,
-                      border: `1px solid ${C.border}`,
-                      borderRadius: 12,
-                      padding: '14px 16px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', gap: 12 }}>
-                      {(
-                        [
-                          {
-                            icon: <ImagePlus size={18} color={C.text} />,
-                            val: '+500',
-                            label: 'AI Catalogue Creation',
-                          },
-                          {
-                            icon: <Shirt size={18} color={C.text} />,
-                            val: '+5,000',
-                            label: 'Virtual Try-On Sessions',
-                          },
-                        ] as const
-                      ).map((a) => (
-                        <div
-                          key={a.label}
-                          style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}
-                        >
-                          <span
-                            style={{
-                              width: 40,
-                              height: 40,
-                              borderRadius: 8,
-                              border: `1px solid ${C.border}`,
-                              background: C.card,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {a.icon}
-                          </span>
-                          <div>
-                            <div style={{ fontSize: 18, fontWeight: 800, color: C.text }}>
-                              {a.val}
-                            </div>
-                            <div style={{ fontSize: 11, color: C.mid }}>{a.label}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  className="hover-brightness"
-                  onClick={() =>
-                    setSalesModal(
-                      "Hi, I'm interested in the Virtual Try-On + Catalogue Creation plan (Option 1 — ₹49,999/month). Please get in touch with more details.",
-                    )
-                  }
-                  style={{
-                    marginTop: 'auto',
-                    width: '100%',
-                    padding: '13px',
-                    borderRadius: 10,
-                    border: 'none',
-                    background: 'linear-gradient(to right, #F55C7A, #F6B553)',
-                    color: '#fff',
-                    fontFamily: 'inherit',
-                    fontWeight: 700,
-                    fontSize: 15,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8,
-                  }}
-                >
-                  Contact Sales <ArrowRight size={18} />
-                </button>
-              </div>
-
               {/* Option 2 — Only Try-On */}
               <div
                 style={{
-                  flex: '1 1 440px',
-                  maxWidth: 520,
+                  width: 330,
+                  flex: '0 0 auto',
                   background: C.card,
                   border: `2px solid color-mix(in srgb, ${C.mid} 30%, transparent)`,
                   borderRadius: 20,
@@ -1027,21 +768,26 @@ export default function PricingPage(): React.ReactElement {
                     letterSpacing: '0.5px',
                   }}
                 >
-                  Retail Ready
+                  Offline
                 </span>
 
-                <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
                   Virtual Try-On Platform
                 </div>
 
                 {/* Price */}
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                   <span
-                    style={{ fontSize: 42, fontWeight: 900, color: C.text, letterSpacing: '-2px' }}
+                    style={{
+                      fontSize: 36,
+                      fontWeight: 900,
+                      color: C.text,
+                      letterSpacing: '-1.5px',
+                    }}
                   >
                     ₹30,000
                   </span>
-                  <span style={{ fontSize: 15, color: C.mid }}>/month + GST</span>
+                  <span style={{ fontSize: 13, color: C.mid }}>/month + GST</span>
                 </div>
 
                 {/* Key stat */}
@@ -1050,16 +796,16 @@ export default function PricingPage(): React.ReactElement {
                     background: C.field,
                     border: `1px solid ${C.border}`,
                     borderRadius: 12,
-                    padding: '16px 14px',
+                    padding: '12px 12px',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 14,
+                    gap: 12,
                   }}
                 >
                   <span
                     style={{
-                      width: 40,
-                      height: 40,
+                      width: 32,
+                      height: 32,
                       borderRadius: 10,
                       background: C.card,
                       border: `1px solid ${C.border}`,
@@ -1069,20 +815,20 @@ export default function PricingPage(): React.ReactElement {
                       flexShrink: 0,
                     }}
                   >
-                    <Shirt size={22} color={C.text} />
+                    <Shirt size={16} color={C.text} />
                   </span>
                   <div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: C.text, lineHeight: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.text, lineHeight: 1 }}>
                       50,000
                     </div>
-                    <div style={{ fontSize: 12, color: C.mid, marginTop: 3 }}>
+                    <div style={{ fontSize: 9, color: C.mid, marginTop: 2 }}>
                       Virtual Try-On Sessions
                     </div>
                   </div>
                 </div>
 
                 {/* Features */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {[
                     'Unlimited AI Models',
                     'Unlimited Backgrounds Library',
@@ -1090,11 +836,11 @@ export default function PricingPage(): React.ReactElement {
                     'Priority Support',
                     'Regular Feature Updates',
                   ].map((f) => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span
                         style={{
-                          width: 20,
-                          height: 20,
+                          width: 18,
+                          height: 18,
                           borderRadius: '50%',
                           background: C.field,
                           display: 'inline-flex',
@@ -1103,16 +849,16 @@ export default function PricingPage(): React.ReactElement {
                           flexShrink: 0,
                         }}
                       >
-                        <CheckIcon size={11} color={C.text} />
+                        <CheckIcon size={10} color={C.text} />
                       </span>
-                      <span style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>{f}</span>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 500 }}>{f}</span>
                     </div>
                   ))}
                 </div>
 
                 {/* Catalogue note — below features */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
                     Need AI Catalogue Images?
                   </div>
                   <div
@@ -1120,16 +866,16 @@ export default function PricingPage(): React.ReactElement {
                       background: C.field,
                       border: `1px solid ${C.border}`,
                       borderRadius: 10,
-                      padding: '12px 14px',
+                      padding: '10px 12px',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 10,
+                      gap: 8,
                     }}
                   >
                     <span
                       style={{
-                        width: 40,
-                        height: 40,
+                        width: 34,
+                        height: 34,
                         borderRadius: 8,
                         background: C.card,
                         border: `1px solid ${C.border}`,
@@ -1139,13 +885,13 @@ export default function PricingPage(): React.ReactElement {
                         flexShrink: 0,
                       }}
                     >
-                      <ImagePlus size={18} color={C.text} />
+                      <ImagePlus size={14} color={C.text} />
                     </span>
                     <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
                         ₹15 per Image
                       </div>
-                      <div style={{ fontSize: 11, color: C.mid, marginTop: 2 }}>
+                      <div style={{ fontSize: 10, color: C.mid, marginTop: 1 }}>
                         Generate additional AI catalogue images
                       </div>
                     </div>
@@ -1163,22 +909,459 @@ export default function PricingPage(): React.ReactElement {
                   style={{
                     marginTop: 'auto',
                     width: '100%',
-                    padding: '13px',
+                    padding: 11,
                     borderRadius: 10,
                     border: 'none',
                     background: C.text,
                     color: C.card,
                     fontFamily: 'inherit',
                     fontWeight: 700,
-                    fontSize: 15,
+                    fontSize: 14,
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 8,
+                    gap: 6,
                   }}
                 >
-                  Contact Sales <ArrowRight size={18} />
+                  Contact Sales <ArrowRight size={14} />
+                </button>
+              </div>
+
+              {/* Option 1 — Virtual Try-On + Catalogue */}
+              <div
+                style={{
+                  width: 330,
+                  flex: '0 0 auto',
+                  background: C.card,
+                  border: `2px solid color-mix(in srgb, ${C.pink} 40%, transparent)`,
+                  borderRadius: 20,
+                  padding: 32,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 20,
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+                }}
+              >
+                {/* Badge */}
+                <span
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '4px 14px',
+                    borderRadius: 6,
+                    background: `color-mix(in srgb, ${C.pink} 10%, transparent)`,
+                    border: `1px solid color-mix(in srgb, ${C.pink} 40%, transparent)`,
+                    color: C.text,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  Offline
+                </span>
+
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+                  Virtual Try-On + Catalogue Studio
+                </div>
+
+                {/* Price */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span
+                    style={{
+                      fontSize: 36,
+                      fontWeight: 900,
+                      color: C.text,
+                      letterSpacing: '-1.5px',
+                    }}
+                  >
+                    ₹49,999
+                  </span>
+                  <span style={{ fontSize: 13, color: C.mid }}>/month + GST</span>
+                </div>
+
+                {/* Key stats */}
+                <div
+                  style={{
+                    display: 'flex',
+                    background:
+                      'linear-gradient(90deg, rgba(245,92,122,0.05) 0%, rgba(246,181,83,0.05) 100%)',
+                    border: `1px solid color-mix(in srgb, ${C.pink} 20%, transparent)`,
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {[
+                    {
+                      icon: <Image size={14} color="#fff" />,
+                      iconBg: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                      count: '2,500',
+                      label: 'AI Catalogue Images',
+                    },
+                    {
+                      icon: <Shirt size={14} color="#fff" />,
+                      iconBg: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                      count: '25,000',
+                      label: 'Virtual Try-On Sessions',
+                    },
+                  ].map((s, i) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static list, no reorder
+                    <Fragment key={i}>
+                      {i > 0 && (
+                        <div
+                          style={{
+                            width: 1,
+                            background: `color-mix(in srgb, ${C.pink} 20%, transparent)`,
+                            margin: '8px 0',
+                          }}
+                        />
+                      )}
+                      <div
+                        key={s.label}
+                        style={{
+                          flex: 1,
+                          padding: '8px 6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: 6,
+                            background: s.iconBg,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          {s.icon}
+                        </span>
+                        <div>
+                          <div
+                            style={{ fontSize: 14, fontWeight: 800, color: C.text, lineHeight: 1 }}
+                          >
+                            {s.count}
+                          </div>
+                          <div
+                            style={{ fontSize: 9, color: C.mid, marginTop: 1, lineHeight: '12px' }}
+                          >
+                            {s.label}
+                          </div>
+                        </div>
+                      </div>
+                    </Fragment>
+                  ))}
+                </div>
+
+                {/* Features */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    'AI Catalogue Generation & Virtual Try-On',
+                    'Unlimited AI Models',
+                    'Unlimited Backgrounds Library',
+                    'White-Label Branding',
+                    'Priority Technical Support',
+                  ].map((f) => (
+                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: '50%',
+                          background: `color-mix(in srgb, ${C.amber} 18%, transparent)`,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <CheckIcon size={10} color={C.pink} />
+                      </span>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 500 }}>{f}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Add-on label */}
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
+                    Pay ₹5,000 Extra and Get
+                  </div>
+
+                  {/* Add-on box */}
+                  <div
+                    style={{
+                      background: C.field,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 10,
+                      padding: '12px 14px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      {(
+                        [
+                          {
+                            icon: <ImagePlus size={14} color={C.text} />,
+                            val: '+500',
+                            label: 'AI Catalogue Creation',
+                          },
+                          {
+                            icon: <Shirt size={14} color={C.text} />,
+                            val: '+5,000',
+                            label: 'Virtual Try-On Sessions',
+                          },
+                        ] as const
+                      ).map((a) => (
+                        <div
+                          key={a.label}
+                          style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}
+                        >
+                          <span
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 8,
+                              border: `1px solid ${C.border}`,
+                              background: C.card,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {a.icon}
+                          </span>
+                          <div>
+                            <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>
+                              {a.val}
+                            </div>
+                            <div style={{ fontSize: 10, color: C.mid }}>{a.label}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="hover-brightness"
+                  onClick={() =>
+                    setSalesModal(
+                      "Hi, I'm interested in the Virtual Try-On + Catalogue Creation plan (Option 1 — ₹49,999/month). Please get in touch with more details.",
+                    )
+                  }
+                  style={{
+                    marginTop: 'auto',
+                    width: '100%',
+                    padding: 11,
+                    borderRadius: 10,
+                    border: 'none',
+                    background: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                    color: '#fff',
+                    fontFamily: 'inherit',
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  Contact Sales <ArrowRight size={14} />
+                </button>
+              </div>
+
+              {/* Option 3 — copy of Option 2 */}
+              <div
+                style={{
+                  width: 330,
+                  flex: '0 0 auto',
+                  background: C.card,
+                  border: `2px solid color-mix(in srgb, ${C.mid} 30%, transparent)`,
+                  borderRadius: 20,
+                  padding: 32,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 20,
+                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+                }}
+              >
+                {/* Badge */}
+                <span
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '4px 14px',
+                    borderRadius: 6,
+                    background: C.field,
+                    border: `1px solid color-mix(in srgb, ${C.mid} 35%, transparent)`,
+                    color: C.text,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.5px',
+                  }}
+                >
+                  Offline
+                </span>
+
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
+                  Virtual Try-On Platform
+                </div>
+
+                {/* Price */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span
+                    style={{
+                      fontSize: 36,
+                      fontWeight: 900,
+                      color: C.text,
+                      letterSpacing: '-1.5px',
+                    }}
+                  >
+                    ₹30,000
+                  </span>
+                  <span style={{ fontSize: 13, color: C.mid }}>/month + GST</span>
+                </div>
+
+                {/* Key stat */}
+                <div
+                  style={{
+                    background: C.field,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 12,
+                    padding: '12px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 10,
+                      background: C.card,
+                      border: `1px solid ${C.border}`,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Shirt size={16} color={C.text} />
+                  </span>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.text, lineHeight: 1 }}>
+                      50,000
+                    </div>
+                    <div style={{ fontSize: 9, color: C.mid, marginTop: 2 }}>
+                      Virtual Try-On Sessions
+                    </div>
+                  </div>
+                </div>
+
+                {/* Features */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {[
+                    'Unlimited AI Models',
+                    'Unlimited Backgrounds Library',
+                    'White-Label Integration',
+                    'Priority Support',
+                    'Regular Feature Updates',
+                  ].map((f) => (
+                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: '50%',
+                          background: C.field,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <CheckIcon size={10} color={C.text} />
+                      </span>
+                      <span style={{ fontSize: 12, color: C.text, fontWeight: 500 }}>{f}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Catalogue note — below features */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
+                    Need AI Catalogue Images?
+                  </div>
+                  <div
+                    style={{
+                      background: C.field,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 8,
+                        background: C.card,
+                        border: `1px solid ${C.border}`,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <ImagePlus size={14} color={C.text} />
+                    </span>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
+                        ₹15 per Image
+                      </div>
+                      <div style={{ fontSize: 10, color: C.mid, marginTop: 1 }}>
+                        Generate additional AI catalogue images
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn-hover-opacity"
+                  onClick={() =>
+                    setSalesModal(
+                      "Hi, I'm interested in the Virtual Try-On Only plan (Option 2 — ₹30,000/month). Please get in touch with more details.",
+                    )
+                  }
+                  style={{
+                    marginTop: 'auto',
+                    width: '100%',
+                    padding: 11,
+                    borderRadius: 10,
+                    border: 'none',
+                    background: C.text,
+                    color: C.card,
+                    fontFamily: 'inherit',
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  Contact Sales <ArrowRight size={14} />
                 </button>
               </div>
             </div>
