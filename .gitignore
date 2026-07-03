@@ -34,7 +34,7 @@ logs/
 
 .ai/
 .claude/
-/docs/superpowers/plans/*
+# /docs/superpowers/plans/*
 client_secret_35415564946-g67lkjr3oso891lovqjaffqfd3gbhllq.apps.googleusercontent.com.json
 automation/*
 templates/*
