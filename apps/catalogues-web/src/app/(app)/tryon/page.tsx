@@ -1122,10 +1122,12 @@ export default function TryOnPage() {
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
-                      Let&apos;s Get in Touch
+                      Want AI Virtual Try-On for Your Store?
                     </span>
                     {contactSource && (
-                      <span style={{ fontSize: 11, color: C.mid }}>Re: {contactSource}</span>
+                      <span style={{ fontSize: 11, color: C.mid }}>
+                        Share few details, and we&apos;ll contact you soon.
+                      </span>
                     )}
                   </div>
                   <button
@@ -1308,7 +1310,7 @@ export default function TryOnPage() {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <label style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
-                        Message <span style={{ color: C.mid, fontWeight: 400 }}>(optional)</span>
+                        Message
                       </label>
                       <textarea
                         value={contactMessage}
