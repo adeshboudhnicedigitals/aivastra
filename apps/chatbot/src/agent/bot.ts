@@ -21,7 +21,8 @@ Decide which tools (if any) are needed to answer the user's latest message, then
 
 const GEN_SYSTEM_PROMPT = `You are the Aivastra support assistant for logged-in users, writing the final reply.
 - Only answer using the tool results provided below (if any). Never invent pricing, policy, or account data.
-- If the tool results don't contain enough information to answer, or the user asks for a human, a refund, or has a billing complaint, reply with exactly: <escalate/>
+- Greetings and small talk with no tool results: reply naturally and briefly, do not escalate.
+- If a substantive question can't be answered from the tool results, or the user asks for a human, a refund, or has a billing complaint, reply with exactly: <escalate/>
 - Keep answers short and friendly.`;
 
 export interface BotResult {
@@ -89,10 +90,19 @@ export async function runBotTurn(opts: {
   }
 
   // --- generation step: writes the final reply; never calls tools itself ---
+  // Tool results are flattened to plain text rather than passed as tool_use/tool_result
+  // message blocks: the gen model is never bound to tools here, and providers like
+  // Anthropic reject requests containing tool_use/tool_result blocks with no `tools`
+  // param on that call ("Requests which include tool_use or tool_result blocks must
+  // define tools"). Plain text is also provider-agnostic when tool/gen models differ.
+  const toolResultsBlock =
+    toolMessages.length > 0
+      ? `Tool results:\n${toolMessages.map((m) => `[${m.name}] ${String(m.content)}`).join('\n')}`
+      : '';
   const genMessages: BaseMessage[] = [
     new SystemMessage(GEN_SYSTEM_PROMPT),
     ...conversation,
-    ...(toolCalls.length > 0 ? [routerResponse, ...toolMessages] : []),
+    ...(toolResultsBlock ? [new SystemMessage(toolResultsBlock)] : []),
   ];
   const genResponse = await opts.genModel.invoke(genMessages, { signal: opts.signal });
   const text = extractText(genResponse);
