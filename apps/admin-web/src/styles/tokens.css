@@ -1,3 +1,6 @@
+/* biome-ignore-all lint/style/noDescendingSpecificity: base tag/class styles are deliberately
+   collected near the end of the file; CSS specificity (not source order) is what actually
+   determines which rule wins, so this file's structure is intentional, not a bug. */
 :root {
   --bg: oklch(0.985 0.005 80);
   --surface: oklch(0.99 0.005 80);
@@ -373,7 +376,6 @@ svg {
 .brand--collapsed .brand-mark--logo:hover .collapsed-logo-icon--off {
   opacity: 1;
 }
-
 
 .sidebar-spacer {
   flex: 1;

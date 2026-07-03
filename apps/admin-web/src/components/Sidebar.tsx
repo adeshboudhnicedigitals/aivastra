@@ -141,7 +141,6 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
     .map((g) => ({ ...g, items: g.items.filter((item) => item.roles.includes(role)) }))
     .filter((g) => g.items.length > 0);
 
-
   const showSettings = ['SUPER_ADMIN'].includes(role);
 
   if (collapsed) {
@@ -161,11 +160,13 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
             title="Expand sidebar"
           >
             <span className="collapsed-logo-icon">
+              {/* biome-ignore lint/performance/noImgElement: admin panel */}
               <img
                 className="collapsed-logo-icon--on"
                 src={`${import.meta.env.BASE_URL}assets/logo.svg`}
                 alt="Ai Vastra"
               />
+              {/* biome-ignore lint/performance/noImgElement: admin panel */}
               <img
                 className="collapsed-logo-icon--off"
                 src={`${import.meta.env.BASE_URL}assets/dock-to-right.svg`}
@@ -206,7 +207,6 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
             <Icon.Settings />
           </button>
         )}
-
       </aside>
     );
   }
@@ -215,8 +215,10 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
     <aside className="sidebar">
       <div className="brand">
         <span className="brand-mark brand-mark--logo">
+          {/* biome-ignore lint/performance/noImgElement: admin panel */}
           <img src={`${import.meta.env.BASE_URL}assets/logo.svg`} alt="Ai Vastra" />
         </span>
+        {/* biome-ignore lint/performance/noImgElement: admin panel */}
         <img
           className="brand-word--logo"
           src={`${import.meta.env.BASE_URL}assets/logo-text.svg`}
@@ -227,6 +229,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
           onClick={onToggleCollapse}
           title="Collapse sidebar"
         >
+          {/* biome-ignore lint/performance/noImgElement: admin panel */}
           <img
             src={`${import.meta.env.BASE_URL}assets/dock-to-right.svg`}
             alt="Collapse"
@@ -265,7 +268,6 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
           <span>Settings</span>
         </button>
       )}
-
     </aside>
   );
 }
