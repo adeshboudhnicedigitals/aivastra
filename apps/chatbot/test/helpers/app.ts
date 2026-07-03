@@ -47,7 +47,8 @@ export async function buildTestApp(c: Containers, partial: Partial<ChatbotDeps> 
     pub,
     sub,
     embed: async (texts) => texts.map(() => Array(1536).fill(0)),
-    makeModel: () => new FakeStreamingChatModel({ responses: [new AIMessage('ok')] }),
+    makeGenModel: () => new FakeStreamingChatModel({ responses: [new AIMessage('ok')] }),
+    makeToolModel: () => new FakeStreamingChatModel({ responses: [new AIMessage('')] }),
     log: createLogger('chatbot-test'),
     ...partial,
   };

@@ -57,7 +57,8 @@ export class Orchestrator {
         const botTimer = chatbotBotTurnDuration.startTimer();
         const result = await runBotTurn({
           deps,
-          model: deps.makeModel(),
+          toolModel: deps.makeToolModel(),
+          genModel: deps.makeGenModel(),
           userId,
           convId,
           history: history.slice(0, -1),

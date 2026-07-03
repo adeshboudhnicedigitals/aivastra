@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { AIMessage } from '@langchain/core/messages';
+import { AIMessage, AIMessageChunk } from '@langchain/core/messages';
 import { FakeStreamingChatModel } from '@langchain/core/utils/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runBotTurn } from '../src/agent/bot.js';
@@ -37,13 +37,16 @@ describe('bot agent', () => {
     expect(String(out)).toContain('42');
   });
 
-  it('plain answer path', async () => {
-    const model = new FakeStreamingChatModel({
+  it('router calls no tools, generation model answers directly', async () => {
+    // router response has no tool_calls -> empty array is the "call nothing" case
+    const toolModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });
+    const genModel = new FakeStreamingChatModel({
       responses: [new AIMessage('You get 1 credit per try-on.')],
     });
     const r = await runBotTurn({
       deps: t.deps,
-      model,
+      toolModel,
+      genModel,
       userId,
       convId: crypto.randomUUID(),
       history: [],
@@ -52,13 +55,52 @@ describe('bot agent', () => {
     });
     expect(r.kind).toBe('answer');
     expect(r.content).toContain('1 credit');
+    expect(r.meta.toolCalls).toEqual([]);
   });
 
-  it('escalate sentinel routes to escalate', async () => {
-    const model = new FakeStreamingChatModel({ responses: [new AIMessage('<escalate/>')] });
+  it('router calls getCredits, generation model synthesizes from the tool result', async () => {
+    const toolModel = new FakeStreamingChatModel({
+      responses: [
+        new AIMessage({
+          content: '',
+          tool_calls: [{ name: 'getCredits', args: {}, id: 'call_1' }],
+        }),
+      ],
+      // FakeStreamingChatModel@0.3.80's non-streaming _generate() reads tool_calls from
+      // `chunks[0]`, not `responses[0]` (it only reads `.content` off `responses[0]`) — both
+      // are needed to get a tool-calling AIMessage back from a plain `.invoke()`.
+      chunks: [
+        new AIMessageChunk({
+          content: '',
+          tool_calls: [{ name: 'getCredits', args: {}, id: 'call_1' }],
+        }),
+      ],
+    });
+    const genModel = new FakeStreamingChatModel({
+      responses: [new AIMessage('You have 42 credits.')],
+    });
     const r = await runBotTurn({
       deps: t.deps,
-      model,
+      toolModel,
+      genModel,
+      userId,
+      convId: crypto.randomUUID(),
+      history: [],
+      userMessage: 'how many credits do I have?',
+      signal: new AbortController().signal,
+    });
+    expect(r.kind).toBe('answer');
+    expect(r.content).toBe('You have 42 credits.');
+    expect(r.meta.toolCalls).toEqual(['getCredits']);
+  });
+
+  it('escalate sentinel from generation model routes to escalate', async () => {
+    const toolModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });
+    const genModel = new FakeStreamingChatModel({ responses: [new AIMessage('<escalate/>')] });
+    const r = await runBotTurn({
+      deps: t.deps,
+      toolModel,
+      genModel,
       userId,
       convId: crypto.randomUUID(),
       history: [],
@@ -66,5 +108,21 @@ describe('bot agent', () => {
       signal: new AbortController().signal,
     });
     expect(r.kind).toBe('escalate');
+  });
+
+  it('empty generation output falls back rather than answering blank', async () => {
+    const toolModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });
+    const genModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });
+    const r = await runBotTurn({
+      deps: t.deps,
+      toolModel,
+      genModel,
+      userId,
+      convId: crypto.randomUUID(),
+      history: [],
+      userMessage: 'anything',
+      signal: new AbortController().signal,
+    });
+    expect(r.kind).toBe('fallback');
   });
 });
