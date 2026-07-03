@@ -8,7 +8,6 @@ import {
   jobsProcessedTotal,
 } from '@aivastra/observability';
 import type { StorageProvider } from '@aivastra/storage';
-import { keys } from '@aivastra/storage';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
@@ -23,8 +22,8 @@ import {
 import { waitForCompletion } from '../comfyui/progress.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
-import { patchWorkflow } from '../workflow/patcher.js';
 import { finalizeOutput } from '../workflow/finalize.js';
+import { patchWorkflow } from '../workflow/patcher.js';
 import { transitionJob } from './state.js';
 
 const MAX_ATTEMPTS = 2;
@@ -1304,7 +1303,7 @@ async function handleFailure(
   startedAt: number,
   errorMessage?: string,
 ): Promise<void> {
-  const { db, redis, pub } = cfg;
+  const { db, redis } = cfg;
 
   const [current] = await db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
   if (!current) return;

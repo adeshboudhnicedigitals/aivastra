@@ -1,6 +1,6 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { InfoIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
@@ -17,7 +17,6 @@ type SareeConfig = {
 };
 
 function SareeUploadZone({
-  file,
   preview,
   progress,
   label,
@@ -27,7 +26,6 @@ function SareeUploadZone({
   sampleUrl,
   sampleLabel = 'Reference',
 }: {
-  file: File | null;
   preview: string | null;
   progress: number;
   label: string;
@@ -53,7 +51,7 @@ function SareeUploadZone({
       const f = e.dataTransfer.files[0];
       if (f) accept(f);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // biome-ignore lint/correctness/useExhaustiveDependencies: accept is a stable inline closure over onFile, not state
     [accept],
   );
 
@@ -95,6 +93,7 @@ function SareeUploadZone({
             <InfoIcon size={16} color={C.mid} />
           </button>
           {showSamples && (
+            // biome-ignore lint/a11y/noStaticElementInteractions: hover-only preview popover, not a keyboard-operable control
             <div
               onMouseEnter={() => setShowSamples(true)}
               onMouseLeave={() => setShowSamples(false)}
@@ -120,7 +119,7 @@ function SareeUploadZone({
               >
                 {sampleLabel}
               </span>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* biome-ignore lint/performance/noImgElement: presigned/static asset URL */}
               <img
                 src={sampleUrl}
                 alt=""
@@ -173,7 +172,7 @@ function SareeUploadZone({
         }}
       >
         {preview ? (
-          // eslint-disable-next-line @next/next/no-img-element
+          // biome-ignore lint/performance/noImgElement: presigned/static asset URL
           <img
             src={preview}
             alt="preview"
@@ -193,7 +192,7 @@ function SareeUploadZone({
                 justifyContent: 'center',
               }}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path
                   d="M9 3h6l-1 4 4 14H6l4-14z"
                   stroke={C.mid}
@@ -214,7 +213,7 @@ function SareeUploadZone({
               Drag and drop an image here · JPG, PNG · Max 10MB
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.text }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* biome-ignore lint/performance/noImgElement: presigned/static asset URL */}
               <img
                 src="/assets/image-upload.svg"
                 alt=""
@@ -308,7 +307,6 @@ export default function SareePage() {
     queryFn: () => api.get('/v1/saree/config'),
     staleTime: 5 * 60_000,
   });
-  const modelImageUrl = cfg?.modelImageUrl ?? null;
   const sampleSareeImageUrl = cfg?.sampleSareeImageUrl ?? null;
   const isConfigured = cfg?.isConfigured ?? false;
 
@@ -430,7 +428,6 @@ export default function SareePage() {
           )}
 
           <SareeUploadZone
-            file={sareeFile}
             preview={sareePreview}
             progress={sareeProgress}
             label="Upload Saree Image"
@@ -465,7 +462,7 @@ export default function SareePage() {
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* biome-ignore lint/performance/noImgElement: presigned/static asset URL */}
               <img
                 src="/assets/credit.png"
                 alt=""
@@ -483,6 +480,7 @@ export default function SareePage() {
               </span>
             </div>
             <button
+              type="button"
               onClick={handleGenerate}
               disabled={!canGenerate}
               style={{
@@ -568,7 +566,7 @@ export default function SareePage() {
           >
             {resultUrl ? (
               <div style={{ flex: 1, borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {/* biome-ignore lint/performance/noImgElement: presigned/static asset URL */}
                 <img
                   src={resultUrl}
                   alt="Saree result"
@@ -682,4 +680,3 @@ export default function SareePage() {
     </div>
   );
 }
-
