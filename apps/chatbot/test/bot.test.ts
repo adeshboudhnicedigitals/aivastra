@@ -107,7 +107,20 @@ describe('bot agent', () => {
         ? (m as { content: unknown }).content
         : undefined,
     );
-    expect(genMessageContents).toContain('Current credit balance: 42');
+    expect(
+      genMessageContents.some(
+        (c) => typeof c === 'string' && c.includes('Current credit balance: 42'),
+      ),
+    ).toBe(true);
+
+    // Regression guard: the gen model is never bound to tools, so it must never receive
+    // structured tool_use/tool_result blocks — Anthropic rejects those with "Requests
+    // which include tool_use or tool_result blocks must define tools" when `tools` isn't
+    // passed on that call. Tool results must be flattened to plain text instead.
+    for (const m of genInputMessages as { _getType?: () => string; tool_calls?: unknown[] }[]) {
+      expect(m._getType?.()).not.toBe('tool');
+      expect(m.tool_calls ?? []).toEqual([]);
+    }
   });
 
   it('escalate sentinel from generation model routes to escalate', async () => {
