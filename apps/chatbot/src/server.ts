@@ -4,6 +4,7 @@ import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Redis } from 'ioredis';
 import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
+import { conversationRoutes } from './routes/conversations.js';
 import { ingestRoutes } from './routes/ingest.js';
 
 export type EmbedFn = (texts: string[]) => Promise<number[][]>;
@@ -49,6 +50,7 @@ export async function buildChatbotServer(deps: ChatbotDeps): Promise<FastifyInst
   });
 
   await app.register(ingestRoutes);
+  await app.register(conversationRoutes);
 
   return app;
 }
