@@ -24,6 +24,7 @@ import { runSweeper } from './stream/sweeper.js';
 import { runWebhooksConsumer } from './stream/webhooks.js';
 import { startHealthMonitor } from './worker/health-monitor.js';
 import { registerWorkers } from './worker/registry.js';
+import { initWatermarkTile } from './workflow/watermark.js';
 
 const log = createLogger('dispatcher', { hostname: hostname() });
 
@@ -38,6 +39,16 @@ async function main(): Promise<void> {
     });
   }
   log.info({ NODE_ENV: env.NODE_ENV }, 'dispatcher starting');
+
+  if (env.ENABLE_WATERMARKING) {
+    try {
+      await initWatermarkTile();
+      log.info('watermark tile initialized');
+    } catch (err) {
+      log.fatal({ err }, 'failed to initialize watermark tile; ENABLE_WATERMARKING is true, failing closed');
+      process.exit(1);
+    }
+  }
 
   const { db, close: closeDb } = makeDb(env);
   const { main: redis, pub, close: closeRedis } = makeRedis(env);
