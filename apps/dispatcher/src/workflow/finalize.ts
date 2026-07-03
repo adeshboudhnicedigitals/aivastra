@@ -22,6 +22,8 @@ import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import type { Redis } from 'ioredis';
 import { transitionJob } from '../job/state.js';
+import { loadEnv } from '../env.js';
+import { applyWatermark, WATERMARK_VERSION } from './watermark.js';
 
 export interface FinalizeOutputOpts {
   /** Raw image bytes downloaded from ComfyUI. */
@@ -49,11 +51,32 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
   const { imageBytes, jobId, userId, db, pub, s3, r2Bucket, jobLog } = opts;
   const finalizeStartedAt = Date.now();
 
-  // Step 4 will conditionally apply WatermarkService here when ENABLE_WATERMARKING is on.
-  // For now, the buffer is used as-is.
-  const finalBuffer = imageBytes;
-  const watermarkApplied = false;
-  const watermarkVersion: number | null = null;
+  const env = loadEnv();
+  
+  let finalBuffer: Uint8Array = imageBytes;
+  let watermarkApplied = false;
+  let watermarkVersion: number | null = null;
+
+  if (opts.jobWatermark) {
+    if (env.ENABLE_WATERMARKING) {
+      try {
+        finalBuffer = await applyWatermark({ image: imageBytes, jobId });
+        watermarkApplied = true;
+        watermarkVersion = WATERMARK_VERSION;
+      } catch (err) {
+        // Fail-closed requirement: if applying throws, fail the job and do not upload original.
+        throw err;
+      }
+    } else {
+      jobLog.warn({
+        stage: 'watermark',
+        jobId,
+        expectedWatermark: true,
+        appliedWatermark: false,
+        reason: 'ENABLE_WATERMARKING_DISABLED',
+      }, 'watermark disabled by kill switch');
+    }
+  }
 
   // Upload result to R2
   const resultKey = keys.output(jobId);
