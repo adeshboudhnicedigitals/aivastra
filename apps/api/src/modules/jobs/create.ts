@@ -237,7 +237,10 @@ export async function createJob(
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
     app.db
-      .select({ queueStream: schema.creditPlans.queueStream, watermark: schema.creditPlans.watermark })
+      .select({
+        queueStream: schema.creditPlans.queueStream,
+        watermark: schema.creditPlans.watermark,
+      })
       .from(schema.users)
       .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
       .where(eq(schema.users.id, userId)),
@@ -395,7 +398,10 @@ export async function createSimpleTryonJob(
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
     app.db
-      .select({ queueStream: schema.creditPlans.queueStream, watermark: schema.creditPlans.watermark })
+      .select({
+        queueStream: schema.creditPlans.queueStream,
+        watermark: schema.creditPlans.watermark,
+      })
       .from(schema.users)
       .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
       .where(eq(schema.users.id, userId)),
@@ -425,7 +431,11 @@ export async function createSimpleTryonJob(
       jobId: newJob.id,
       upperGarmentKey: garmentKey,
       garmentTypeId: source.garmentTypeId,
-      params: { personKey, workflowTemplateId },
+      // sourceJobId is stored (not just resolved into garmentKey) so a later
+      // regenerate can re-derive the garment from the CURRENT output of the
+      // source job, exactly as a fresh request would, instead of needing a
+      // separate code path.
+      params: { personKey, workflowTemplateId, sourceJobId },
     });
     return [newJob];
   });
