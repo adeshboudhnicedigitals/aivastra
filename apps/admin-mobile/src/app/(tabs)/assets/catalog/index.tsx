@@ -86,7 +86,7 @@ export default function CatalogScreen() {
     setCategoryFilter(null);
     setCategoryId(null);
     setSelected(new Set());
-  }, [type]);
+  }, []);
 
   const filteredCategories = (categories.data ?? []).filter((cat) => cat.typeSlug === type);
 

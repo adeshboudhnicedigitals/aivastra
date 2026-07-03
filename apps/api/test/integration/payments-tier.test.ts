@@ -34,14 +34,14 @@ describe('payments -> tier promotion', () => {
     await app.db
       .update(schema.users)
       .set({ emailVerified: true })
-      .where(eq(schema.users.id, user!.id));
+      .where(eq(schema.users.id, user?.id));
 
     const loginRes = await app.inject({
       method: 'POST',
       url: '/v1/auth/login',
       payload: { email, password: 'password123' },
     });
-    return { token: loginRes.json().accessToken as string, userId: user!.id };
+    return { token: loginRes.json().accessToken as string, userId: user?.id };
   }
 
   async function seedPlan(slug: string) {
@@ -92,7 +92,7 @@ describe('payments -> tier promotion', () => {
     const orderId = 'order_promo_1';
     await seedPendingPayment({
       userId,
-      planId: plan!.slug,
+      planId: plan?.slug,
       razorpayOrderId: orderId,
       credits: 1000,
     });
@@ -113,7 +113,7 @@ describe('payments -> tier promotion', () => {
     expect(res.json().ok).toBe(true);
 
     const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
-    expect(user?.tier).toBe(plan!.slug);
+    expect(user?.tier).toBe(plan?.slug);
 
     const [credits] = await app.db
       .select()
@@ -134,7 +134,7 @@ describe('payments -> tier promotion', () => {
     const orderId = 'order_badsig_1';
     await seedPendingPayment({
       userId,
-      planId: plan!.slug,
+      planId: plan?.slug,
       razorpayOrderId: orderId,
       credits: 500,
     });
@@ -161,7 +161,7 @@ describe('payments -> tier promotion', () => {
     const orderId = 'order_idempotent_1';
     await seedPendingPayment({
       userId,
-      planId: plan!.slug,
+      planId: plan?.slug,
       razorpayOrderId: orderId,
       credits: 750,
     });
