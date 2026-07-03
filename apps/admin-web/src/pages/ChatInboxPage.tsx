@@ -122,7 +122,6 @@ export default function ChatInboxPage({ toast }: Props) {
       const r = await apiFetch<{ on: boolean }>('/admin/chatbot/duty', {
         method: 'POST',
         body: JSON.stringify({ on: !onDuty }),
-        headers: { 'content-type': 'application/json' },
       });
       setOnDuty(r.on);
     } catch {

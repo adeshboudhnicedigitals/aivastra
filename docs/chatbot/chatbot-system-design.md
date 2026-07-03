@@ -1,7 +1,7 @@
 # Support Chatbot — System Design & HLD v2
 
-Status: **proposed** (not yet built). Read alongside `docs/virtual-tryon-system-design.md`
-for platform conventions. This doc is the source of truth for the chatbot until "as built".
+Status: **as built (v1)**, implemented per `docs/superpowers/plans/2026-07-03-support-chatbot.md`.
+Read alongside `docs/virtual-tryon-system-design.md` for platform conventions.
 
 v2 supersedes v1 (RAG-only). Scope grew to a **stateful, logged-in live-chat system** with
 a **tool-using bot** and **human-in-the-loop (HITL) takeover**.

@@ -1,5 +1,71 @@
 # Project Progress
 
+## 2026-07-03 — Support Chatbot v1 (as built)
+
+Implemented per `docs/superpowers/plans/2026-07-03-support-chatbot.md` (all 15 tasks),
+following `docs/chatbot/chatbot-system-design.md` v2.
+
+### Done
+- New `apps/chatbot` service: Fastify + `@fastify/websocket`, pgvector + tsvector hybrid
+  retrieval (RRF-merged), LangGraph ReAct bot (`claude-haiku-4-5-20251001`) with
+  userId-bound `getCredits`/`getRecentJobs`/`searchKnowledge` tools (no identity args —
+  §7.2 invariant), one-time WS ticket auth, Redis pub/sub fanout, presence ZSET,
+  claim/takeover/end state machine with abort-safe bot termination, email fallback to
+  `contact_requests` (both "no agent available" and "PENDING_HUMAN timeout" paths), 60s
+  sweeper (idle close, agent-drop re-queue, presence prune). 8 test files, 23 tests.
+- `apps/api`: `/admin/chatbot/*` — Q&A CRUD, ingest proxy, inbox list, atomic
+  claim/takeover/end (Redis `NX` lock), duty toggle. 7 integration tests
+  (`test/integration/admin-chatbot*.test.ts` — run via `vitest.integration.config.ts`,
+  **not** the default `pnpm test`, see Open Questions).
+- `apps/admin-web`: Chatbot Q&A page (CRUD + re-ingest) and Chat Inbox (duty, queue,
+  claim/takeover, live conversation pane) — web-only in v1, explicit admin-mobile parity
+  exception per the design doc.
+- `apps/catalogues-web`: floating chat widget, WS streaming, human-handoff UX.
+- `packages/db`: migration `0078_chatbot.sql` — `pgvector/pgvector:pg16` image swap,
+  5 new tables + HNSW/GIN indexes + partial unique index (one active conversation/user).
+  Applied and verified against the running dev DB.
+- Prometheus metrics (`chatbot_messages_total`, `_escalations_total`, `_fallbacks_total`,
+  `_bot_turn_duration_seconds`, `_active_sockets`), per-user WS rate limit (10 msg/30s).
+- Self-corrected mid-build (own commits): OpenAI embed response validation, grounded-check
+  scoping bug in hybrid search.
+
+### Fixed in post-execution review (2026-07-03)
+- **Duty toggle 415 (Unsupported Media Type):** `ChatInboxPage.tsx` passed an explicit
+  `content-type` header alongside `apiFetch`'s auto-injected `Content-Type` — the two
+  differently-cased keys survived into the `fetch()` `Headers` object and got
+  comma-joined (`"application/json, application/json"`), which Fastify's content-type
+  parser rejected. Fix: dropped the redundant header (every other admin-web page already
+  relies on `apiFetch`'s auto-injection; this was the one page that duplicated it).
+- **Chat widget could never authenticate:** the original plan spec read `access_token`
+  from `document.cookie`, but that cookie was deliberately removed in SEC-H2 (2026-06-30) —
+  the token now lives only in `apps/catalogues-web/src/lib/api.ts`'s in-memory `_memToken`.
+  Someone caught this during/after execution and switched the widget to the exported
+  `getToken()`; verified correct against the actual auth implementation.
+- Doc follow-through gaps closed: system-design doc now marked "as built (v1)" (was still
+  "proposed"); `apps/chatbot` added to CLAUDE.md's monorepo table + commands table; fixed
+  a stale CLAUDE.md line that claimed `api.ts` reads the token from `document.cookie`
+  (pre-existing inaccuracy — root cause of the widget bug above).
+
+### Failed / Not Done
+- None — all 15 planned tasks landed and pass.
+
+### Open Questions / Decisions
+- **Widget cold-load race:** `ChatWidget.connect()` reads `getToken()` directly instead of
+  going through `api.ts`'s `request()` wrapper, so it doesn't benefit from that wrapper's
+  own 401→refresh self-healing. If a user reloads the page and opens the chat bubble
+  before any other authenticated call has hydrated `_memToken`, `connect()` returns
+  silently with no UI feedback. Low likelihood (most pages fire an authenticated call
+  before this is reachable) but not proven impossible. Left as-is pending a decision on
+  whether the widget should proactively call refresh itself.
+- **`apps/api` `test` script doesn't run integration tests by default:** `vitest.config.ts`
+  excludes `test/integration/**`; the actual runner is `vitest.integration.config.ts`, not
+  wired into `package.json`'s `test`/`test:unit` scripts or the `make test-api` target.
+  This is a pre-existing gap (predates this build — the config's own comments reference
+  unrelated pre-existing failing tests), not something this chatbot work introduced, but
+  it means CLAUDE.md's description of `pnpm --filter @aivastra/api test` as the "Full API
+  integration suite" is currently inaccurate. Flagging for a separate fix; the two new
+  `admin-chatbot*.test.ts` files were verified manually against the integration config.
+
 ## 2026-06-30 — Security Audit: H1/H2/H3/C2 Fixed
 
 ### Done
