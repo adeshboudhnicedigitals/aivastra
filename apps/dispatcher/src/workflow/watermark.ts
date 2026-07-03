@@ -50,6 +50,7 @@ export async function initWatermarkTile() {
         input: logoBuffer,
         gravity: 'center',
         blend: 'over',
+        // @ts-expect-error: opacity is supported at runtime but missing from TS types in this sharp version
         opacity: WATERMARK_OPACITY,
       },
     ])
