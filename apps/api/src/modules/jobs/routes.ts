@@ -13,6 +13,7 @@ import { AppError } from '../../lib/errors.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { createJob, createSimpleTryonJob } from './create.js';
 import { createSareeJob } from './createSaree.js';
+import { regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
 // Caches 201 responses for 24h keyed on (userId, Idempotency-Key header).
@@ -44,6 +45,20 @@ export async function jobsRoutes(app: FastifyInstance) {
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
       );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.post(
+    '/v1/jobs/:id/regenerate',
+    {
+      preHandler: app.requireUser,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const result = await regenerateJob(app, req.userId, id);
       reply.code(201);
       return result;
     },
