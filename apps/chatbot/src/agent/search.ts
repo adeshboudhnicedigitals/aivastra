@@ -65,7 +65,6 @@ export async function searchKnowledge(
   });
 
   const hits = [...merged.values()].sort((a, b) => b.score - a.score).slice(0, topK);
-  const grounded =
-    hits.some((h) => h.sim >= simThreshold) || txtRows.some((r) => Number(r.rank) > 0.05);
+  const grounded = hits.some((h) => h.sim >= simThreshold);
   return { hits, grounded };
 }
