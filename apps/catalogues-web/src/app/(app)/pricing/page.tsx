@@ -239,6 +239,7 @@ export default function PricingPage(): React.ReactElement {
     queryFn: () => api.get<CreditPlan[]>('/v1/payments/plans'),
     staleTime: 5 * 60 * 1000,
   });
+  const visiblePlans = plans.filter((plan) => plan.slug !== 'free');
 
   const { data: resolutionData } = useQuery<{ resolutions: ResolutionConfigs }>({
     queryKey: ['resolution-configs'],
@@ -1244,7 +1245,7 @@ export default function PricingPage(): React.ReactElement {
                     }}
                   />
                 ))
-              : plans.map((plan, idx) => {
+              : visiblePlans.map((plan, idx) => {
                   // biome-ignore lint/style/noNonNullAssertion: PLAN_META has entries for every plan index
                   const meta = PLAN_META[idx] ?? PLAN_META[0]!;
                   const features = PLAN_FEATURES[idx] ?? PLAN_FEATURES[0];
@@ -1659,3 +1660,4 @@ export default function PricingPage(): React.ReactElement {
     </div>
   );
 }
+

@@ -373,7 +373,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               <KV k="User" v={j.userEmail ?? '—'} />
               <KV k="Status" v={<StatusBadge status={j.status} />} />
               <KV k="Credits charged" v={String(j.creditsCharged)} />
-              <KV k="Priority" v={j.priority ? 'PRO' : 'Normal'} />
+              <KV k="Priority" v={j.priority ? 'Priority' : 'Normal'} />
               <KV k="Face" v={j.faceLabel ?? '—'} />
               <KV k="Background" v={j.backgroundLabel ?? '—'} />
               <KV k="Pose" v={j.poseLabel ?? '—'} />

@@ -190,7 +190,7 @@ export default function UserDetailScreen() {
         title="User not found"
       />
     );
-  const tierBackground = user.tier === 'PRO' ? colors.accentContainer : colors.surfaceVariant;
+  const tierBackground = user.tier === 'free' ? colors.surfaceVariant : colors.accentContainer;
 
   return (
     <>
@@ -221,7 +221,7 @@ export default function UserDetailScreen() {
           <View style={styles.chips}>
             <Chip
               background={tierBackground}
-              color={user.tier === 'PRO' ? colors.onAccentContainer : colors.textSecondary}
+              color={user.tier === 'free' ? colors.textSecondary : colors.onAccentContainer}
               label={user.tier}
             />
             {user.isAdmin ? (
@@ -487,3 +487,4 @@ const styles = StyleSheet.create({
   actionLabel: { ...Typography.bodyBold },
   disabled: { opacity: 0.4 },
 });
+

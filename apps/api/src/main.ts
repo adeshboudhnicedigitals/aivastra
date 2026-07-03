@@ -21,6 +21,7 @@ if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
         email: env.ADMIN_BOOTSTRAP_EMAIL,
         passwordHash,
         displayName: 'Admin',
+        tier: 'free',
         emailVerified: true,
       })
       .returning();
@@ -37,3 +38,4 @@ if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
     }
   }
 }
+

@@ -4,7 +4,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -95,24 +95,30 @@ function PlanModal({
       onSaved(saved);
       toast({ title: plan ? `${saved.name} updated` : `${saved.name} created` });
       onClose();
-    } catch {
-      toast({ kind: 'error', title: plan ? 'Failed to update plan' : 'Failed to create plan' });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: plan ? 'Failed to update plan' : 'Failed to create plan',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const valid = form.slug.trim() && form.name.trim() && form.credits > 0 && form.priceRupees > 0;
+  const isFreePlan = plan?.slug === 'free';
+  const valid =
+    form.slug.trim() &&
+    form.name.trim() &&
+    form.credits >= 0 &&
+    form.priceRupees >= 0 &&
+    (isFreePlan || (form.credits > 0 && form.priceRupees > 0));
 
   return (
     <div className="modal-overlay" onClick={saving ? undefined : onClose}>
-      <div
-        className="modal"
-        onClick={(e) => e.stopPropagation()}
-        style={{ width: 'min(600px, calc(100vw - 40px))' }}
-      >
-        <div className="modal-head">
-          <h3>{plan ? 'Edit plan' : 'Add plan'}</h3>
+      <div className="drawer" onClick={(e) => e.stopPropagation()}>
+        <div className="drawer-head">
+          <h2>{plan ? 'Edit plan' : 'Add plan'}</h2>
           <button
             className="btn sm ghost"
             onClick={onClose}
@@ -123,10 +129,11 @@ function PlanModal({
           </button>
         </div>
 
-        <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'flex', gap: 12 }}>
+        <div className="drawer-body" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Identity Group */}
+          <div style={{ display: 'flex', gap: 16 }}>
             <div className="field" style={{ flex: 1 }}>
-              <label>Slug</label>
+              <label>Slug (Identifier)</label>
               <input
                 className="input"
                 value={form.slug}
@@ -138,36 +145,24 @@ function PlanModal({
               />
               {!plan && (
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  Lowercase letters, numbers, hyphens. Cannot change after creation.
+                  Lowercase letters, numbers, hyphens. Cannot change later.
                 </span>
               )}
             </div>
-            <div className="field" style={{ width: 100 }}>
-              <label>Sort order</label>
+            <div className="field" style={{ flex: 1.5 }}>
+              <label>Plan Name</label>
               <input
                 className="input"
-                type="number"
-                min={0}
-                value={form.sortOrder}
+                value={form.name}
                 disabled={saving}
-                onChange={(e) => set('sortOrder', Number(e.target.value))}
+                placeholder="e.g. Starter Pack"
+                onChange={(e) => set('name', e.target.value)}
               />
             </div>
           </div>
 
           <div className="field">
-            <label>Name</label>
-            <input
-              className="input"
-              value={form.name}
-              disabled={saving}
-              placeholder="e.g. Starter Pack"
-              onChange={(e) => set('name', e.target.value)}
-            />
-          </div>
-
-          <div className="field">
-            <label>Subtext</label>
+            <label>Subtext Description</label>
             <input
               className="input"
               value={form.subtext}
@@ -177,121 +172,164 @@ function PlanModal({
             />
           </div>
 
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+
+          {/* Value Group */}
+          <div style={{ display: 'flex', gap: 16 }}>
             <div className="field" style={{ flex: 1 }}>
-              <label>Credits</label>
+              <label>{isFreePlan ? 'Signup credits' : 'Credit Allocation'}</label>
               <input
                 className="input"
                 type="number"
-                min={1}
+                min={0}
                 value={form.credits}
                 disabled={saving}
                 onChange={(e) => set('credits', Number(e.target.value))}
               />
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label>Price (₹, excl. GST)</label>
-              <div style={{ position: 'relative' }}>
-                <span
-                  style={{
-                    position: 'absolute',
-                    left: 10,
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    fontSize: 13,
-                    color: 'var(--muted)',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  ₹
-                </span>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={form.priceRupees || ''}
-                  disabled={saving}
-                  placeholder="e.g. 2500"
-                  style={{ paddingLeft: 22 }}
-                  onChange={(e) => set('priceRupees', Number(e.target.value))}
-                />
-              </div>
-              {form.priceRupees > 0 && (
+              {isFreePlan && (
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                  ₹{form.priceRupees.toLocaleString('en-IN')} + 18% GST = ₹
-                  {(form.priceRupees * 1.18).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                  Granted once to every new signup. Set to 0 to disable.
                 </span>
               )}
             </div>
-          </div>
-
-          <div className="field">
-            <label>Badge label (optional)</label>
-            <input
-              className="input"
-              value={form.badge}
-              disabled={saving}
-              placeholder="e.g. Best Value  (leave blank for none)"
-              onChange={(e) => set('badge', e.target.value)}
-            />
-          </div>
-
-          <div className="field">
-            <label>Job Queue Priority</label>
-            <select
-              className="input"
-              value={form.queueStream}
-              disabled={saving}
-              onChange={(e) => set('queueStream', e.target.value as 'priority' | 'normal' | 'low')}
-            >
-              <option value="priority">1st — Priority (jobs processed first)</option>
-              <option value="normal">2nd — Normal</option>
-              <option value="low">3rd — Low (processed last)</option>
-            </select>
-          </div>
-
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 12px',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--r)',
-                background: 'var(--surface-2)',
-              }}
-            >
-              <div>
-                <div className="setting-lbl">Active</div>
-                <div className="setting-desc">Visible and purchasable by users</div>
+            {!isFreePlan && (
+              <div className="field" style={{ flex: 1 }}>
+                <label>Price (₹, excl. GST)</label>
+                <div style={{ position: 'relative' }}>
+                  <span
+                    style={{
+                      position: 'absolute',
+                      left: 12,
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      fontSize: 14,
+                      color: 'var(--muted)',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    ₹
+                  </span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={form.priceRupees || ''}
+                    disabled={saving}
+                    placeholder="e.g. 2500"
+                    style={{ paddingLeft: 26 }}
+                    onChange={(e) => set('priceRupees', Number(e.target.value))}
+                  />
+                </div>
+                {form.priceRupees > 0 && (
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    ₹{form.priceRupees.toLocaleString('en-IN')} + 18% GST = ₹
+                    {(form.priceRupees * 1.18).toLocaleString('en-IN', {
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                )}
               </div>
-              <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} />
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 16 }}>
+            <div className="field" style={{ flex: 1.5 }}>
+              <label>Job Queue Priority</label>
+              <select
+                className="input"
+                value={form.queueStream}
+                disabled={saving}
+                onChange={(e) =>
+                  set('queueStream', e.target.value as 'priority' | 'normal' | 'low')
+                }
+              >
+                <option value="priority">1st — Priority (jobs processed first)</option>
+                <option value="normal">2nd — Normal</option>
+                <option value="low">3rd — Low (processed last)</option>
+              </select>
             </div>
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 12px',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--r)',
-                background: 'var(--surface-2)',
-              }}
-            >
-              <div>
-                <div className="setting-lbl">Highlighted</div>
-                <div className="setting-desc">Pink gradient card on pricing page</div>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Marketing Badge</label>
+              <input
+                className="input"
+                value={form.badge}
+                disabled={saving}
+                placeholder="e.g. Best Value"
+                onChange={(e) => set('badge', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+
+          {/* Settings Group */}
+          <div
+            style={{
+              display: 'flex',
+              gap: 24,
+              alignItems: 'center',
+              background: 'var(--surface-2)',
+              padding: 16,
+              borderRadius: 'var(--r-lg)',
+              border: '1px solid var(--border)',
+            }}
+          >
+            <div className="field" style={{ width: 100, marginBottom: 0 }}>
+              <label>Sort order</label>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={form.sortOrder}
+                disabled={saving}
+                style={{ background: 'var(--surface)' }}
+                onChange={(e) => set('sortOrder', Number(e.target.value))}
+              />
+            </div>
+
+            <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
+
+            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 32 }}>
+              {!isFreePlan && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Switch checked={form.isActive} onChange={(v) => set('isActive', v)} />
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: 'var(--ink)',
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      Active
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      Purchasable
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Switch checked={form.isHighlighted} onChange={(v) => set('isHighlighted', v)} />
+                <div>
+                  <div
+                    style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2 }}
+                  >
+                    Featured
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    Accent styling
+                  </div>
+                </div>
               </div>
-              <Switch checked={form.isHighlighted} onChange={(v) => set('isHighlighted', v)} />
             </div>
           </div>
         </div>
 
-        <div className="modal-foot">
+        <div className="drawer-foot">
           <button className="btn ghost" onClick={onClose} disabled={saving}>
             Cancel
           </button>
@@ -309,14 +347,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [searchParams, setSearchParams] = useSearchParams();
   const section = (searchParams.get('s') as SettingsSection | null) ?? 'appearance';
   const [pageSize, setPageSize] = useState<number>(25);
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState(30);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
 
-  const [freeTrialCredits, setFreeTrialCredits] = useState(0);
-  const [creditCostPerJob, setCreditCostPerJob] = useState(1);
-  const [maxJobsPerDay, setMaxJobsPerDay] = useState(50);
   const [resolutions, setResolutions] = useState<
     Record<string, { enabled: boolean; creditCost: number }>
   >({
@@ -337,16 +370,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    apiFetch<{
-      freeTrialCredits?: number;
-      creditCostPerJob?: number;
-      maxJobsPerDay?: number;
-      resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
-    }>('/admin/config')
+    apiFetch<{ resolutions?: Record<string, { enabled: boolean; creditCost: number }> }>(
+      '/admin/config',
+    )
       .then((cfg) => {
-        setFreeTrialCredits(cfg.freeTrialCredits ?? 0);
-        setCreditCostPerJob(cfg.creditCostPerJob ?? 1);
-        setMaxJobsPerDay(cfg.maxJobsPerDay ?? 50);
         if (cfg.resolutions) setResolutions(cfg.resolutions);
       })
       .catch(() => toast({ kind: 'error', title: 'Failed to load system config' }))
@@ -358,7 +385,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     try {
       await apiFetch('/admin/config', {
         method: 'PATCH',
-        body: JSON.stringify({ freeTrialCredits, creditCostPerJob, maxJobsPerDay, resolutions }),
+        body: JSON.stringify({ resolutions }),
       });
       toast({ title: 'System config saved' });
     } catch {
@@ -395,11 +422,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       setPlans((prev) => prev.filter((p) => p.id !== confirmDelete.id));
       toast({ title: `${confirmDelete.name} deleted` });
     } catch (err) {
-      const msg =
-        err instanceof Error && err.message.includes('existing payments')
-          ? 'Cannot delete — plan has existing payments. Deactivate it instead.'
-          : 'Failed to delete plan';
-      toast({ kind: 'error', title: msg });
+      toast({
+        kind: 'error',
+        title: 'Failed to delete plan',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
     } finally {
       setDeleting(false);
       setConfirmDelete(null);
@@ -413,6 +440,9 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       toast({ title: `${section} saved` });
     }, 500);
   };
+
+  const freePlan = plans.find((plan) => plan.slug === 'free') ?? null;
+  const paidPlans = plans.filter((plan) => plan.slug !== 'free');
 
   return (
     <>
@@ -483,33 +513,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                 ))}
               </select>
             </div>
-
-            <div className="setting-row">
-              <div>
-                <div className="setting-lbl">Auto-refresh</div>
-                <div className="setting-desc">Automatically refresh dashboard data.</div>
-              </div>
-              <Switch checked={autoRefresh} onChange={setAutoRefresh} />
-            </div>
-
-            {autoRefresh && (
-              <div className="setting-row">
-                <div>
-                  <div className="setting-lbl">Refresh interval</div>
-                  <div className="setting-desc">How often to poll for updates.</div>
-                </div>
-                <select
-                  className="select"
-                  value={refreshInterval}
-                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                >
-                  <option value={15}>15 seconds</option>
-                  <option value={30}>30 seconds</option>
-                  <option value={60}>1 minute</option>
-                  <option value={300}>5 minutes</option>
-                </select>
-              </div>
-            )}
 
             <div className="setting-actions">
               <button className="btn" onClick={() => save('Appearance')} disabled={saving !== null}>
@@ -585,128 +588,313 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
 
       {/* Credit Plans */}
       {section === 'credit-plans' && (
-        <div className="card settings-card">
-          <div className="card-head">
-            <h3>
-              <Icon.Coin /> Credit plans
-            </h3>
-            <div className="tools">
-              <button className="btn sm" onClick={() => setPlanModal({ open: true, plan: null })}>
-                <Icon.Add /> Add plan
-              </button>
+        <>
+          <div
+            style={{
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r-lg)',
+              padding: '24px 32px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 40,
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 280 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                <div
+                  style={{
+                    background: 'var(--ink)',
+                    color: 'var(--bg)',
+                    width: 32,
+                    height: 32,
+                    borderRadius: '50%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Icon.Coin style={{ width: 16, height: 16 }} />
+                </div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--ink)' }}>
+                  Free Signup Plan
+                </h3>
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 14, lineHeight: 1.5, maxWidth: 500 }}>
+                New users are automatically granted a one-time credit allocation at signup. This
+                system-owned plan is permanent and free.
+              </div>
             </div>
-          </div>
-          <div className="card-body" style={{ padding: 0 }}>
+
             {plansLoading ? (
-              <div style={{ padding: '20px 18px', color: 'var(--muted)', fontSize: 13 }}>
-                Loading…
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+            ) : freePlan ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Allocation
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <div
+                      style={{
+                        fontSize: 32,
+                        fontWeight: 700,
+                        letterSpacing: '-0.02em',
+                        color: 'var(--ink)',
+                      }}
+                    >
+                      {freePlan.credits.toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: 14, color: 'var(--muted)' }}>credits</div>
+                  </div>
+                </div>
+
+                <div style={{ width: 1, height: 48, background: 'var(--border)' }} />
+
+                <div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--muted)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Queue
+                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 500, color: 'var(--ink)', marginTop: 8 }}>
+                    {freePlan.queueStream === 'priority'
+                      ? 'Priority'
+                      : freePlan.queueStream === 'normal'
+                        ? 'Normal'
+                        : 'Low'}
+                  </div>
+                </div>
+
+                <div style={{ marginLeft: 16 }}>
+                  <button
+                    className="btn"
+                    onClick={() => setPlanModal({ open: true, plan: freePlan })}
+                  >
+                    <Icon.Edit /> Edit
+                  </button>
+                </div>
               </div>
             ) : (
-              <div
-                className="table-wrap"
-                style={{ border: 'none', borderRadius: '0 0 var(--r-lg) var(--r-lg)' }}
-              >
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Plan</th>
-                      <th>Slug</th>
-                      <th>Credits</th>
-                      <th>Price (incl. 18% GST)</th>
-                      <th>Queue Priority</th>
-                      <th>Status</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {plans.map((p) => (
-                      <tr key={p.id}>
-                        <td>
-                          <span className="semi">{p.name}</span>
-                          {p.badge && (
-                            <span className="badge warn" style={{ marginLeft: 8 }}>
-                              {p.badge}
-                            </span>
-                          )}
-                          {p.isHighlighted && !p.badge && (
-                            <span className="badge accent" style={{ marginLeft: 8 }}>
-                              Featured
-                            </span>
-                          )}
-                        </td>
-                        <td>
-                          <span className="mono">{p.slug}</span>
-                        </td>
-                        <td>
-                          <span className="mono">{p.credits.toLocaleString()}</span>
-                        </td>
-                        <td>
-                          <span className="mono">
-                            ₹
-                            {((p.basePaise * 1.18) / 100).toLocaleString('en-IN', {
-                              maximumFractionDigits: 2,
-                            })}
-                          </span>
-                          <span
-                            className="sub"
-                            style={{ display: 'block', fontSize: 11, marginTop: 1 }}
-                          >
-                            ₹{(p.basePaise / 100).toLocaleString('en-IN')} + GST
-                          </span>
-                        </td>
-                        <td>
-                          <span
-                            className={`badge dot ${p.queueStream === 'priority' ? 'success' : p.queueStream === 'normal' ? 'accent' : ''}`}
-                          >
-                            {p.queueStream === 'priority'
-                              ? '1st'
-                              : p.queueStream === 'normal'
-                                ? '2nd'
-                                : '3rd'}
-                          </span>
-                        </td>
-                        <td>
-                          {p.isActive ? (
-                            <span className="badge dot success">Active</span>
-                          ) : (
-                            <span className="badge dot">Inactive</span>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 4 }}>
-                            <button
-                              className="btn sm ghost"
-                              onClick={() => setPlanModal({ open: true, plan: p })}
-                            >
-                              <Icon.Edit />
-                            </button>
-                            <button
-                              className="btn sm ghost"
-                              style={{ color: 'var(--danger)' }}
-                              onClick={() => setConfirmDelete(p)}
-                            >
-                              <Icon.Trash />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {plans.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={7}
-                          style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}
-                        >
-                          No plans yet — click "Add plan" to create one.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+              <div style={{ color: 'var(--danger)', fontSize: 13 }}>
+                Free plan missing. Run migrations to seed it.
               </div>
             )}
           </div>
-        </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 20,
+              marginTop: 32,
+            }}
+          >
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 500,
+                color: 'var(--ink)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon.Coin /> Paid Credit Plans
+            </h3>
+            <button
+              className="btn sm primary"
+              onClick={() => setPlanModal({ open: true, plan: null })}
+            >
+              <Icon.Add /> Add paid plan
+            </button>
+          </div>
+
+          {plansLoading ? (
+            <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 24 }}>
+              {paidPlans.map((p) => (
+                <div
+                  key={p.id}
+                  className="card"
+                  style={{
+                    flex: '1 1 300px',
+                    maxWidth: 380,
+                    padding: 24,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    opacity: p.isActive ? 1 : 0.6,
+                    borderColor: p.isHighlighted && p.isActive ? 'var(--accent)' : 'var(--border)',
+                  }}
+                >
+                  {p.isHighlighted && p.isActive && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: 4,
+                        background: 'var(--accent)',
+                      }}
+                    />
+                  )}
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      marginBottom: 16,
+                    }}
+                  >
+                    <div style={{ minWidth: 0, flex: 1, paddingRight: 8 }}>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: 'var(--ink)',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {p.name}
+                      </div>
+                      <div
+                        className="mono"
+                        style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}
+                      >
+                        {p.slug}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                      {p.badge && <span className="badge warn">{p.badge}</span>}
+                      {!p.isActive && <span className="badge dot">Inactive</span>}
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: 24 }}>
+                    <div
+                      style={{
+                        fontSize: 28,
+                        fontWeight: 700,
+                        letterSpacing: '-0.02em',
+                        color: 'var(--ink)',
+                      }}
+                    >
+                      ₹
+                      {((p.basePaise * 1.18) / 100).toLocaleString('en-IN', {
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                      ₹{(p.basePaise / 100).toLocaleString('en-IN')} + 18% GST
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12,
+                      marginBottom: 28,
+                      flex: 1,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        fontSize: 13.5,
+                        color: 'var(--ink)',
+                      }}
+                    >
+                      <Icon.Coin style={{ color: 'var(--accent)', width: 16, height: 16 }} />
+                      <span>
+                        <strong className="mono">{p.credits.toLocaleString()}</strong> credits
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        fontSize: 13.5,
+                        color: 'var(--muted)',
+                      }}
+                    >
+                      <Icon.Workflow style={{ width: 16, height: 16 }} />
+                      <span>
+                        {p.queueStream === 'priority'
+                          ? 'Priority'
+                          : p.queueStream === 'normal'
+                            ? 'Normal'
+                            : 'Low'}{' '}
+                        queue processing
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+                    <button
+                      className="btn sm"
+                      style={{ flex: 1, justifyContent: 'center' }}
+                      onClick={() => setPlanModal({ open: true, plan: p })}
+                    >
+                      Edit Plan
+                    </button>
+                    <button
+                      className="btn sm ghost"
+                      style={{ color: 'var(--danger)', padding: '0 10px' }}
+                      onClick={() => setConfirmDelete(p)}
+                      title="Delete Plan"
+                    >
+                      <Icon.Trash />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {paidPlans.length === 0 && (
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    textAlign: 'center',
+                    padding: '40px 20px',
+                    color: 'var(--muted)',
+                    background: 'var(--surface-2)',
+                    borderRadius: 'var(--r-lg)',
+                    border: '1px dashed var(--border)',
+                  }}
+                >
+                  No paid plans yet — click "Add paid plan" to create one.
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* System */}
@@ -722,79 +910,6 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
               <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
             ) : (
               <>
-                <div className="setting-row">
-                  <div>
-                    <div className="setting-lbl">Free trial credits</div>
-                    <div className="setting-desc">
-                      One-time credits granted to every new user on registration. Set to 0 to
-                      disable.
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      max={10000}
-                      style={{ width: 100, textAlign: 'right' }}
-                      value={freeTrialCredits}
-                      disabled={sysSaving}
-                      onChange={(e) => setFreeTrialCredits(Number(e.target.value))}
-                    />
-                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      credits
-                    </span>
-                  </div>
-                </div>
-
-                <div className="setting-row">
-                  <div>
-                    <div className="setting-lbl">Credit cost per job</div>
-                    <div className="setting-desc">
-                      Credits deducted for each generated job. Allowed: 1–100.
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      className="input"
-                      type="number"
-                      min={1}
-                      max={100}
-                      style={{ width: 100, textAlign: 'right' }}
-                      value={creditCostPerJob}
-                      disabled={sysSaving}
-                      onChange={(e) => setCreditCostPerJob(Number(e.target.value))}
-                    />
-                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      credits
-                    </span>
-                  </div>
-                </div>
-
-                <div className="setting-row">
-                  <div>
-                    <div className="setting-lbl">Max jobs per day</div>
-                    <div className="setting-desc">
-                      Daily system-wide job limit. Allowed: 1–10,000.
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      className="input"
-                      type="number"
-                      min={1}
-                      max={10000}
-                      style={{ width: 100, textAlign: 'right' }}
-                      value={maxJobsPerDay}
-                      disabled={sysSaving}
-                      onChange={(e) => setMaxJobsPerDay(Number(e.target.value))}
-                    />
-                    <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      jobs
-                    </span>
-                  </div>
-                </div>
-
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
                   <div className="setting-lbl" style={{ marginBottom: 4 }}>
                     Resolution Pricing

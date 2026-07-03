@@ -216,19 +216,7 @@ export interface Stats {
   jobsPerDayLabels: string[];
 }
 
-export interface SystemConfig {
-  credit: {
-    costPerJob: number;
-    maxJobsPerDay: number;
-    maxConcurrentPerUser: number;
-    defaultCreditsNewUser: number;
-  };
-  job: {
-    maxRetries: number;
-    timeoutMinutes: number;
-    xpendingClaimMs: number;
-  };
-}
+
 
 export interface CreditPlan {
   id: string;

@@ -1,4 +1,13 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  smallint,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { catalogItems } from './catalog.js';
 import { garmentSubcategories, modelBackgrounds, modelFaces, modelPoseAssets } from './models.js';
 import { users } from './users.js';
@@ -12,9 +21,13 @@ export const jobs = pgTable('jobs', {
   workerId: text('worker_id'),
   priority: boolean('priority').notNull().default(false),
   queueStream: text('queue_stream').notNull().default('normal'),
+  // Snapshotted from credit_plans.watermark at job creation — never re-derived from the plan.
+  watermark: boolean('watermark').notNull().default(false),
   creditsCharged: integer('credits_charged').notNull().default(1),
   attempts: integer('attempts').notNull().default(0),
   errorCode: text('error_code'),
+  // Nullable self-FK: set only by the regenerate endpoint for traceability.
+  parentJobId: uuid('parent_job_id'),
   widgetClientId: uuid('widget_client_id').references(() => widgetClients.id, {
     onDelete: 'set null',
   }),
@@ -48,6 +61,10 @@ export const jobOutputs = pgTable('job_outputs', {
     .references(() => jobs.id, { onDelete: 'cascade' }),
   resultKey: text('result_key'),
   thumbnailKey: text('thumbnail_key'),
+  // 'ORIGINAL' | 'WATERMARKED' — recorded by finalizeOutput() from actual runtime result.
+  assetKind: text('asset_kind').notNull().default('ORIGINAL'),
+  // The WatermarkService version used; null when assetKind='ORIGINAL'.
+  watermarkVersion: smallint('watermark_version'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

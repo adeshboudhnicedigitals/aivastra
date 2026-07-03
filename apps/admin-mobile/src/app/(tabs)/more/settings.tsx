@@ -27,7 +27,7 @@ import { Radius, Spacing, TabBarClearance, Typography } from '../../../styles/to
 import type { CreditPlan } from '../../../types';
 
 const PAGE_SIZE_OPTIONS = [15, 25, 50, 100] as const;
-const REFRESH_INTERVAL_OPTIONS = [15, 30, 60, 300] as const;
+
 
 function slugify(value: string) {
   return value
@@ -98,56 +98,6 @@ export default function SettingsScreen() {
             ))}
           </View>
 
-          <View style={styles.toggleRow}>
-            <Text style={[styles.toggleLabel, { color: colors.text }]}>Auto refresh</Text>
-            <Switch
-              value={localSettings.autoRefresh}
-              onValueChange={(v) => void localSettings.update({ autoRefresh: v })}
-            />
-          </View>
-
-          {localSettings.autoRefresh ? (
-            <View style={styles.sliderSection}>
-              <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-                Refresh interval
-              </Text>
-              <View style={styles.chipRow}>
-                {REFRESH_INTERVAL_OPTIONS.map((interval) => (
-                  <TouchableOpacity
-                    key={interval}
-                    onPress={() => void localSettings.update({ refreshInterval: interval })}
-                    style={[
-                      styles.chip,
-                      {
-                        backgroundColor:
-                          localSettings.refreshInterval === interval
-                            ? colors.accentContainer
-                            : colors.surfaceVariant,
-                        borderColor:
-                          localSettings.refreshInterval === interval
-                            ? colors.accent
-                            : colors.border,
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        {
-                          color:
-                            localSettings.refreshInterval === interval
-                              ? colors.onAccentContainer
-                              : colors.textSecondary,
-                        },
-                      ]}
-                    >
-                      {interval}s
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          ) : null}
         </View>
       </AccordionSection>
 
@@ -286,18 +236,20 @@ function PlanModal({
     const creditsValue = Number(credits);
     const priceValue = Number(priceRupees);
     const orderValue = Number(sortOrder) || 0;
+    const isFreePlan = plan?.slug === 'free';
     if (
       !name.trim() ||
       !slug ||
       !/^[a-z0-9-]+$/.test(slug) ||
       !Number.isInteger(creditsValue) ||
-      creditsValue < 1 ||
+      creditsValue < 0 ||
       !Number.isInteger(priceValue) ||
-      priceValue < 1
+      priceValue < 0 ||
+      (!isFreePlan && (creditsValue < 1 || priceValue < 1))
     )
       return Alert.alert(
         'Invalid plan',
-        'Name, valid slug, positive credits, and positive price (â‚¹) are required.',
+        'Name, valid slug, and non-negative credits and price are required. Paid plans must stay above zero.',
       );
     setSubmitting(true);
     try {
@@ -381,6 +333,7 @@ function PlanModal({
           <PlanField
             label="Slug"
             value={slug}
+            editable={!plan}
             onChangeText={(value) => {
               setSlugEdited(true);
               setSlug(slugify(value));
@@ -459,13 +412,15 @@ function PlanModal({
               {plan ? 'Save changes' : 'Create plan'}
             </Text>
           </TouchableOpacity>
-          {plan ? (
+          {plan && plan.slug !== 'free' ? (
             <TouchableOpacity
               onPress={remove}
               style={[styles.deleteButton, { borderColor: colors.error }]}
             >
               <Text style={[styles.deleteButtonText, { color: colors.error }]}>Delete plan</Text>
             </TouchableOpacity>
+          ) : plan ? (
+            <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>The free plan cannot be deleted.</Text>
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -479,18 +434,21 @@ function PlanField({
   onChangeText,
   numeric,
   maxLength,
+  editable = true,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   numeric?: boolean;
   maxLength?: number;
+  editable?: boolean;
 }) {
   const { colors } = useAppTheme();
   return (
     <View style={styles.field}>
       <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>{label}</Text>
       <TextInput
+        editable={editable}
         keyboardType={numeric ? 'number-pad' : 'default'}
         maxLength={maxLength}
         onChangeText={(value) => onChangeText(numeric ? value.replace(/\D/g, '') : value)}

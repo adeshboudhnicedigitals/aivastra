@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { Icon } from './Icons';
 
 interface TopbarProps {
@@ -9,6 +10,11 @@ interface TopbarProps {
 }
 
 export function Topbar({ trail, onNavTrail, theme, onToggleTheme }: TopbarProps) {
+  const { email, role } = useAuth();
+  const emailUser = email ? email.split('@')[0] : 'Admin';
+  const initials = emailUser.slice(0, 2).toUpperCase();
+  const displayEmail = email ?? '';
+
   return (
     <div className="topbar">
       <div className="crumbs">
@@ -35,6 +41,15 @@ export function Topbar({ trail, onNavTrail, theme, onToggleTheme }: TopbarProps)
         >
           {theme === 'system' ? <Icon.Monitor /> : theme === 'dark' ? <Icon.Moon /> : <Icon.Sun />}
         </button>
+        <div className="topbar-user">
+          <div className="who">
+            <b>{emailUser}</b>
+            <span className="role-pill">{role}</span>
+          </div>
+          <span className="avatar" title={displayEmail}>
+            {initials}
+          </span>
+        </div>
       </div>
     </div>
   );

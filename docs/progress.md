@@ -1,3 +1,48 @@
+## 2026-07-02 - Free Plan Design Gap Fixes
+
+### Done
+- Reviewed `docs/superpowers/specs/2026-07-02-unify-free-plan-credit-plans-design.md` against the actual codebase and found the design was already fully implemented (migrations 0077-0079, admin/pricing UI, tier validation) — the doc's own "Trade-offs" section still listed 4 real gaps in the shipped design, all now fixed:
+- Added migration `0080_users_tier_fk_credit_plans.sql`: normalizes any orphaned `users.tier` value to `'free'`, then adds a DB-level `FOREIGN KEY (tier) REFERENCES credit_plans(slug) ON DELETE RESTRICT` — the design's stated invariant ("tier always matches a plan") is now enforced by Postgres, not just convention.
+- `creditPlans.routes.ts` DELETE now also blocks deleting a plan that any user currently has as their `tier` (409, in addition to the existing payments check) — the FK is a backstop, this gives a clean error instead of a raw constraint violation.
+- `creditPlans.routes.ts` PATCH now blocks deactivating the free plan (`isActive: false`) — previously an admin could silently zero out free-signup credits for new users with no warning, since only slug-change and delete were guarded.
+- Applied migration 0080 against local dev DB (clean, no orphaned data); `pnpm --filter @aivastra/api typecheck`, `pnpm --filter @aivastra/db typecheck`, and `pnpm --filter @aivastra/api test:unit` all pass.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Did not add `.references()` on the `users.tier` schema.ts column to avoid a circular import with `credits.ts` (which already imports `users.ts`) — the FK exists at the DB level via the raw SQL migration; a comment in `schema.ts` documents this.
+
+## 2026-07-02 - Admin Free Plan Card
+
+### Done
+- Added a dedicated `Free Plan` card to `Settings -> Credit Plans` in the admin web app.
+- Split the generic credit-plan table so the `free` plan is shown separately from paid plans.
+- Added explicit copy that the `Credits` field on the free plan controls the one-time signup allocation for new users.
+- Kept the free-plan edit action prominent while leaving deletion available only for paid plans.
+- Validation passed: `pnpm --filter @aivastra/admin build`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+## 2026-07-02 - Free Plan Unified Into Credit Plans
+
+### Done
+- Added migration `0079_user_tier_default_free.sql` and updated the Drizzle schema so new users default to `tier = 'free'` instead of `'FREE'`.
+- Completed backend tier normalization follow-through: bootstrap admin creation now sets `tier: 'free'`; admin user PATCH now validates tier values against active `credit_plans.slug`; public `/v1/payments/plans` no longer returns the `free` plan.
+- Updated seed and dispatcher integration fixtures to use plan slugs (`free`, `starter`, `growth`, `business`) instead of legacy `FREE/PRO/ENTERPRISE` values.
+- Removed stale `freeTrialCredits` usage from admin web and admin mobile system-config flows so free credits are no longer edited through Redis-backed config.
+- Added admin-web tier assignment UI backed by `/admin/credit-plans`, and blocked free-plan deletion in both admin web and admin mobile editors.
+- Updated storefront pricing to filter out the `free` plan and refreshed mobile tier presentation to treat `free` as the baseline plan slug instead of a special uppercase tier.
+- Validation passed: `pnpm --filter @aivastra/api typecheck`, `pnpm --filter @aivastra/admin build`, `pnpm --filter @aivastra/web typecheck`.
+
+### Failed / Not Done
+- Admin mobile was not typechecked in this pass; the repo's Expo setup does not expose a lightweight standalone typecheck command here.
+
+### Open Questions / Decisions
+- The job creation paths still keep a defensive `?? 'normal'` queue fallback even though tiers now normalize to credit plan slugs. That fallback is harmless, but if you want the code to hard-fail on data drift instead, that would be a separate tightening change.
 # Project Progress
 
 ## 2026-06-30 — Security Audit: H1/H2/H3/C2 Fixed
@@ -1669,3 +1714,5 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
+
+

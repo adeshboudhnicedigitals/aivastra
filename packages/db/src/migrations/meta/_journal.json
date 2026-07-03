@@ -547,6 +547,42 @@
       "when": 1751548800000,
       "tag": "0077_garment_tryon_category",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1751635200000,
+      "tag": "0078_free_credit_plan_seed",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1751721600000,
+      "tag": "0079_normalize_user_tier",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1751808000000,
+      "tag": "0080_user_tier_default_free",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1751894400000,
+      "tag": "0081_users_tier_fk_credit_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1751980800000,
+      "tag": "0082_watermarking_columns",
+      "breakpoints": false
     }
   ]
 }
+

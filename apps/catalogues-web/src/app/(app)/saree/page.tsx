@@ -384,7 +384,7 @@ export default function SareePage() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <TopBar title="Saree Drapping (Beta)" subtitle="" />
+      <TopBar title="Saree Draping (Beta)" subtitle="" />
 
       <div
         style={{
@@ -682,3 +682,4 @@ export default function SareePage() {
     </div>
   );
 }
+

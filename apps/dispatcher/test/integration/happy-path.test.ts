@@ -43,7 +43,7 @@ describe('dispatcher happy path', () => {
   async function seedJob() {
     const [user] = await env.db
       .insert(schema.users)
-      .values({ email: `happy-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
+      .values({ email: `happy-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
       .returning();
     await env.db.insert(schema.userCredits).values({ userId: user?.id, balance: 5 });
 
@@ -146,3 +146,4 @@ describe('dispatcher happy path', () => {
     expect(workers.get(WORKER_ID)?.status).toBe('IDLE');
   });
 });
+
