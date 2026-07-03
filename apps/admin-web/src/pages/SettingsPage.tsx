@@ -40,6 +40,7 @@ const EMPTY_FORM = {
   badge: '',
   sortOrder: 0,
   queueStream: 'normal' as 'priority' | 'normal' | 'low',
+  watermark: false,
 };
 
 function PlanModal({
@@ -66,6 +67,7 @@ function PlanModal({
           badge: plan.badge ?? '',
           sortOrder: plan.sortOrder,
           queueStream: plan.queueStream ?? ('normal' as 'priority' | 'normal' | 'low'),
+          watermark: plan.watermark ?? false,
         }
       : EMPTY_FORM,
   );
@@ -322,6 +324,20 @@ function PlanModal({
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                     Accent styling
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Switch checked={form.watermark} onChange={(v) => set('watermark', v)} />
+                <div>
+                  <div
+                    style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)', lineHeight: 1.2 }}
+                  >
+                    Watermark
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    Apply logo to jobs
                   </div>
                 </div>
               </div>
