@@ -1,3 +1,65 @@
+## 2026-07-03 - Watermark Opacity Tuned to 0.055
+
+### Done
+- Lowered dispatcher watermark compositing opacity in `apps/dispatcher/src/workflow/watermark.ts` from `0.11` to `0.055` per visual review of generated samples.
+- This is a calibration-only change on top of the earlier renderer bug fix; tiling behavior and jobId-seeded layout remain unchanged.
+- Verified with `pnpm --filter @aivastra/dispatcher test -- watermark`.
+
+### Failed / Not Done
+- Did not yet convert the watermark asset itself from multicolor branding to monochrome white; that remains a separate visual-direction change if the lighter alpha still feels too prominent.
+
+### Open Questions / Decisions
+- After redeploy, compare one fresh sample against the previous build. If the watermark still feels too visible, the next effective change is asset simplification rather than reducing alpha much further.
+## 2026-07-03 - Watermark Opacity Bug Fixed
+
+### Done
+- Fixed the dispatcher watermark compositing bug in `apps/dispatcher/src/workflow/watermark.ts` that was making the overlay appear much stronger than intended.
+- Root cause: the old code used `ensureAlpha(0.12)` on the full watermark tile canvas, which applied low alpha to the entire tile instead of only the logo region and created a subtle full-image veil underneath the repeated watermark.
+- Changed the renderer so the tile background stays fully transparent and only the centered watermark logo/wordmark is composited at low opacity (`0.11`).
+- Increased tile spacing modestly so the repeated pattern reads lighter and less busy.
+- Added a regression test in `apps/dispatcher/src/workflow/watermark.test.ts` that checks the composite stays visually subtle instead of globally lifting a black image too much.
+- Verified with `pnpm --filter @aivastra/dispatcher test -- watermark`.
+
+### Failed / Not Done
+- Did not yet calibrate against multiple real production samples with very bright garments/backgrounds; this pass fixes the renderer bug and brings the effect closer to the intended stock-watermark style.
+
+### Open Questions / Decisions
+- After the next deploy, re-check one dark-background and one light-background catalogue output. If the watermark still feels too visible, the next adjustment should be reducing `WATERMARK_OPACITY` slightly before changing the brand asset again.
+## 2026-07-03 - Dedicated Dispatcher Watermark Asset
+
+### Done
+- Replaced the placeholder text-only dispatcher watermark asset in `apps/dispatcher/assets/watermark-logo.svg` with a dedicated white watermark SVG.
+- The new asset now includes a simple geometric brand mark plus the `Aivastra` wordmark, designed specifically for the tiled low-opacity watermark overlay.
+- Kept the asset lightweight and Sharp-compatible so dispatcher startup and watermark compositing remain stable.
+- Verified with `pnpm --filter @aivastra/dispatcher test -- watermark`.
+
+### Failed / Not Done
+- Did not attempt to reuse the existing public logo SVGs because they are raster images embedded inside SVG wrappers, which would make the watermark asset heavier and less predictable for backend compositing.
+
+### Open Questions / Decisions
+- If design later provides a true vector master logo, we should swap this handcrafted watermark asset for the canonical brand asset while preserving the same dimensions and white-on-transparent treatment.
+## 2026-07-03 - Watermark Visual Tone Updated to Light White
+
+### Done
+- Updated apps/dispatcher/assets/watermark-logo.svg so the watermark wordmark renders in white instead of black.
+- This keeps the existing low-opacity tiling/compositing behavior but makes the final watermark read as a lighter, less intrusive protective overlay on catalogue images.
+
+### Failed / Not Done
+- Did not add adaptive light/dark watermark variants in this pass; the asset is now uniformly white.
+
+### Open Questions / Decisions
+- If the watermark becomes too faint on very bright garments or backgrounds, the next step should be adaptive contrast rather than increasing global opacity too aggressively.
+## 2026-07-03 - Pricing Page Current Plan Source-of-Truth Fix
+
+### Done
+- Fixed the catalogue pricing banner in apps/catalogues-web/src/app/(app)/pricing/page.tsx to use /v1/me.tier as the source of truth for the current plan instead of deriving it from the latest paid payment row.
+- The page now only uses payment history for activation date and paid-plan metadata that matches the active tier, which prevents free-tier users from being shown as Starter/Growth/Business just because they purchased that plan in the past.
+
+### Failed / Not Done
+- Did not change payment history itself or admin user tier behavior; this was a frontend source-of-truth mismatch.
+
+### Open Questions / Decisions
+- If you want the pricing page to show richer free-plan metadata in the future, that should come from a dedicated API response or an authenticated plan-details endpoint rather than inferred from payment history.
 ## 2026-07-03 - Dispatcher Production Watermark Asset Path Fix
 
 ### Done
@@ -1817,5 +1879,8 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
+
+
+
 
 

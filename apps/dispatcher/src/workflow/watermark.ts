@@ -11,6 +11,8 @@ let tileHeight = 0;
 
 const WATERMARK_LOGO_URL = new URL('../../assets/watermark-logo.svg', import.meta.url);
 const WATERMARK_LOGO_PATH = fileURLToPath(WATERMARK_LOGO_URL);
+const WATERMARK_OPACITY = 0.01;
+const WATERMARK_TILE_SPACING = 160;
 
 /**
  * Initialize the watermark tile. Must be called at startup.
@@ -21,11 +23,9 @@ export async function initWatermarkTile() {
 
   const logoBytes = readFileSync(WATERMARK_LOGO_PATH);
 
-  // Pre-render the small repeating unit once: logo + wordmark, ~35? rotation, ~12% opacity.
-  // Materialize to a buffer before reading dimensions ? .metadata() on a
-  // pipeline reflects the SOURCE image, not the post-resize/rotate output, so
-  // sizing the tile canvas from it undersizes the canvas and .composite()
-  // throws ("Image to composite must have same dimensions or smaller").
+  // Pre-render the repeating watermark unit once. The tile itself must stay
+  // fully transparent outside the logo; only the composited logo should carry
+  // low alpha, otherwise the whole image gets an unintended grey veil.
   const logoBuffer = await sharp(logoBytes)
     .resize({ width: 200 })
     .rotate(-35, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
@@ -34,13 +34,9 @@ export async function initWatermarkTile() {
   const width = logoMetadata.width ?? 200;
   const height = logoMetadata.height ?? 200;
 
-  // Create a slightly larger tile to give spacing between repeated logos
-  tileWidth = width + 100;
-  tileHeight = height + 100;
+  tileWidth = width + WATERMARK_TILE_SPACING;
+  tileHeight = height + WATERMARK_TILE_SPACING;
 
-  // Composite the logo onto the center of the tile, with opacity applied.
-  // Instead of applying opacity to the base, we composite it such that
-  // the resulting tile has the logo faintly visible.
   tileBuffer = await sharp({
     create: {
       width: tileWidth,
@@ -54,10 +50,9 @@ export async function initWatermarkTile() {
         input: logoBuffer,
         gravity: 'center',
         blend: 'over',
+        opacity: WATERMARK_OPACITY,
       },
     ])
-    // Reduce overall opacity of the tile to ~12% by adjusting the alpha channel.
-    .ensureAlpha(0.12)
     .png()
     .toBuffer();
 }
@@ -88,14 +83,6 @@ export async function applyWatermark(opts: { image: Uint8Array; jobId: string })
   const baseHeight = metadata.height ?? 1024;
   const { x: offsetX, y: offsetY } = tileOffsetForJob(jobId);
 
-  // We tile the pre-rendered tileBuffer across the entire baseImage, offset by
-  // a jobId-seeded amount so the pattern does not land identically on every
-  // image. Extend on all four sides by the offset (plus enough to cover the
-  // canvas) then crop back to the base dimensions from the offset origin.
-  // Materialized as two separate toBuffer() calls, not chained ? chaining
-  // .extend({ extendWith: 'repeat' }) directly into .extract() in one sharp
-  // pipeline throws "bad extract area" in this sharp version even when the
-  // extended buffer is provably large enough.
   const extendedTile = await sharp(tileBuffer)
     .extend({
       top: offsetY,
@@ -123,3 +110,4 @@ export async function applyWatermark(opts: { image: Uint8Array; jobId: string })
     .png()
     .toBuffer();
 }
+
