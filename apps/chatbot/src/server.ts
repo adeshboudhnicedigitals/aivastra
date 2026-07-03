@@ -1,4 +1,5 @@
 import { type DB, schema, sql } from '@aivastra/db';
+import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
@@ -34,6 +35,7 @@ declare module 'fastify' {
 export async function buildChatbotServer(deps: ChatbotDeps): Promise<FastifyInstance> {
   const app = Fastify({ loggerInstance: deps.log });
   app.decorate('deps', deps);
+  await app.register(cors, { origin: true });
   await app.register(websocket);
 
   app.setErrorHandler((err, req, reply) => {
