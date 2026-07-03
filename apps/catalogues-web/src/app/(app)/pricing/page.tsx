@@ -461,7 +461,8 @@ export default function PricingPage(): React.ReactElement {
         const balance = credits?.balance ?? 0;
         const currentPaidPlan = plans.find((plan) => plan.slug === currentTier) ?? null;
         const latestPaidForCurrentTier =
-          paymentHistory?.payments?.find((p) => p.status === 'paid' && p.planId === currentTier) ?? null;
+          paymentHistory?.payments?.find((p) => p.status === 'paid' && p.planId === currentTier) ??
+          null;
         const freeTrialGrant =
           credits?.recent?.find((e) => e.reason === 'FREE_TRIAL' && e.delta > 0)?.delta ?? null;
         const isFreeTier = currentTier === 'free';

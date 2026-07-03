@@ -65,7 +65,7 @@ export default function PreviewPage({
   // Reset inner scroll to top whenever the device view switches.
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
-  }, [viewMode]);
+  }, []);
 
   // Keep activeIndex valid if the gallery shrinks (e.g. a job is deleted elsewhere).
   useEffect(() => {

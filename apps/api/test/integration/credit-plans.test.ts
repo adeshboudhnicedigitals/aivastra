@@ -27,7 +27,7 @@ describe('credit-plans admin guards', () => {
       .select()
       .from(schema.users)
       .where(eq(schema.users.email, 'plans-admin@x.com'));
-    const userId = user!.id;
+    const userId = user?.id;
     await app.db
       .update(schema.users)
       .set({ emailVerified: true })
@@ -35,7 +35,7 @@ describe('credit-plans admin guards', () => {
     await app.db.insert(schema.adminUsers).values({
       userId,
       role: 'SUPER_ADMIN',
-      passwordHash: user!.passwordHash,
+      passwordHash: user?.passwordHash,
     });
 
     const loginRes = await app.inject({
@@ -67,7 +67,7 @@ describe('credit-plans admin guards', () => {
       payload: { email, password: 'password123' },
     });
     const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
-    return user!.id;
+    return user?.id;
   }
 
   it('seeds the free plan via migration 0077 with slug "free"', async () => {

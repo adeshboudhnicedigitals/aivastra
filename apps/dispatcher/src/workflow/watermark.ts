@@ -110,4 +110,3 @@ export async function applyWatermark(opts: { image: Uint8Array; jobId: string })
     .png()
     .toBuffer();
 }
-
