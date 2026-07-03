@@ -305,12 +305,23 @@ export async function jobsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const jobs = await app.db
-        .select()
+      const rows = await app.db
+        .select({
+          job: schema.jobs,
+          assetKind: schema.jobOutputs.assetKind,
+          watermarkVersion: schema.jobOutputs.watermarkVersion,
+        })
         .from(schema.jobs)
+        .leftJoin(schema.jobOutputs, eq(schema.jobs.id, schema.jobOutputs.jobId))
         .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
         .orderBy(schema.jobs.createdAt);
-      if (jobs.length === 0) throw new AppError('NOT_FOUND', 404, 'catalogue not found');
+      if (rows.length === 0) throw new AppError('NOT_FOUND', 404, 'catalogue not found');
+
+      const jobs = rows.map((r) => ({
+        ...r.job,
+        assetKind: r.assetKind,
+        watermarkVersion: r.watermarkVersion,
+      }));
 
       // All jobs in a catalogue share the same aspectRatio and garment (set once at creation).
       // Pull both from any one job's inputs.
@@ -336,7 +347,19 @@ export async function jobsRoutes(app: FastifyInstance) {
         }
       }
 
-      return { catalogueId: id, jobs, aspectRatio, garmentUrl };
+      // Current plan's watermark entitlement — NOT the per-job snapshot. The UI
+      // needs both: assetKind (what was actually delivered) tells it whether to
+      // show the watermark banner at all, and this tells it whether the viewer
+      // is still on a watermarked plan (so "Regenerate without Watermark" is
+      // actually worth offering, vs. already-paid users seeing a stale CTA).
+      const [planRow] = await app.db
+        .select({ watermark: schema.creditPlans.watermark })
+        .from(schema.users)
+        .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
+        .where(eq(schema.users.id, req.userId));
+      const currentPlanWatermark = planRow?.watermark ?? false;
+
+      return { catalogueId: id, jobs, aspectRatio, garmentUrl, currentPlanWatermark };
     },
   );
 
