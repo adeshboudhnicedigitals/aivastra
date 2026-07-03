@@ -20,13 +20,17 @@ export interface TestEnv {
 
 export async function setupTestEnv(): Promise<TestEnv> {
   const dbName = `disp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const adminUrl = 'postgres://tryon:tryon_dev_pw@127.0.0.1:5432/tryon_dev';
+  // Matches docker-compose.yml's POSTGRES_PORT override (default 5432) — some
+  // local setups remap this to avoid colliding with a natively-installed
+  // Postgres, so it must not be hardcoded.
+  const pgPort = process.env.POSTGRES_PORT ?? '5432';
+  const adminUrl = `postgres://tryon:tryon_dev_pw@127.0.0.1:${pgPort}/tryon_dev`;
 
   const adminClient = postgres(adminUrl, { max: 1 });
   await adminClient.unsafe(`CREATE DATABASE "${dbName}"`);
   await adminClient.end();
 
-  const pgUrl = `postgres://tryon:tryon_dev_pw@127.0.0.1:5432/${dbName}`;
+  const pgUrl = `postgres://tryon:tryon_dev_pw@127.0.0.1:${pgPort}/${dbName}`;
   const migClient = postgres(pgUrl, { max: 1 });
   await migrate(drizzle(migClient), {
     migrationsFolder: './node_modules/@aivastra/db/src/migrations',

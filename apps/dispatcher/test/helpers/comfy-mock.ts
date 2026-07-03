@@ -31,15 +31,8 @@ export function startComfyMock(): Promise<ComfyMock> {
       }
 
       if (req.method === 'POST' && url.pathname === '/prompt') {
-        let body = '';
-        req.on('data', (chunk) => {
-          body += chunk;
-        });
+        req.on('data', () => {});
         req.on('end', () => {
-          const { prompt_id: _, client_id } = JSON.parse(body) as {
-            prompt_id?: string;
-            client_id: string;
-          };
           const promptId = `mock-prompt-${Date.now()}`;
           lastPromptId = promptId;
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -72,6 +65,16 @@ export function startComfyMock(): Promise<ComfyMock> {
             },
           }),
         );
+        return;
+      }
+
+      if (req.method === 'POST' && url.pathname === '/upload/image') {
+        // Drain the multipart body; contents aren't inspected by the mock.
+        req.on('data', () => {});
+        req.on('end', () => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ name: `uploaded-${Date.now()}.jpg` }));
+        });
         return;
       }
 
