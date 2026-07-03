@@ -17,6 +17,12 @@ export interface TransitionOptions {
   errorCode?: string;
   resultKey?: string;
   thumbnailKey?: string;
+  /**
+   * When true, skip the job_outputs insert/upsert — the caller has already
+   * written that row (e.g. finalizeOutput() writes it with assetKind/watermarkVersion).
+   * The resultKey/thumbnailKey are still included in the SSE payload.
+   */
+  skipOutputInsert?: boolean;
 }
 
 export async function transitionJob(
@@ -41,7 +47,7 @@ export async function transitionJob(
     .set(patch as Parameters<ReturnType<typeof db.update>['set']>[0])
     .where(eq(schema.jobs.id, jobId));
 
-  if (opts.resultKey && status === 'COMPLETED') {
+  if (opts.resultKey && status === 'COMPLETED' && !opts.skipOutputInsert) {
     await db
       .insert(schema.jobOutputs)
       .values({ jobId, resultKey: opts.resultKey, thumbnailKey: opts.thumbnailKey ?? null })

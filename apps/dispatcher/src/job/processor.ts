@@ -13,7 +13,7 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
-import sharp from 'sharp';
+
 import {
   downloadOutputImage,
   fetchHistory,
@@ -24,6 +24,7 @@ import { waitForCompletion } from '../comfyui/progress.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { patchWorkflow } from '../workflow/patcher.js';
+import { finalizeOutput } from '../workflow/finalize.js';
 import { transitionJob } from './state.js';
 
 const MAX_ATTEMPTS = 2;
@@ -70,6 +71,7 @@ export async function processJob(
       creditsCharged: schema.jobs.creditsCharged,
       attempts: schema.jobs.attempts,
       createdAt: schema.jobs.createdAt,
+      watermark: schema.jobs.watermark,
     })
     .from(schema.jobs)
     .where(eq(schema.jobs.id, jobId));
@@ -476,42 +478,18 @@ export async function processJob(
 
     const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
 
-    // 9. Upload result to R2
-    const resultKey = keys.output(jobId);
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: resultKey,
-        Body: imageBytes,
-        ContentType: 'image/png',
-      }),
-    );
-
-    // Generate and upload thumbnail (512px, JPEG) — non-blocking for the COMPLETED transition
-    let thumbnailKey: string | undefined;
-    try {
-      const thumbBytes = await sharp(imageBytes)
-        .rotate()
-        .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-      thumbnailKey = keys.outputThumb(jobId);
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: r2Bucket,
-          Key: thumbnailKey,
-          Body: thumbBytes,
-          ContentType: 'image/jpeg',
-        }),
-      );
-      jobLog.info({ thumbnailKey }, 'thumbnail uploaded');
-    } catch (thumbErr) {
-      jobLog.warn({ err: thumbErr }, 'thumbnail generation failed — proceeding without thumbnail');
-      thumbnailKey = undefined;
-    }
-
-    // 10. Mark COMPLETED
-    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey, thumbnailKey }, jobLog);
+    // 9. Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    await finalizeOutput({
+      imageBytes,
+      jobId,
+      userId,
+      jobWatermark: job.watermark,
+      db,
+      pub,
+      s3,
+      r2Bucket,
+      jobLog,
+    });
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt);
@@ -531,6 +509,7 @@ type TryonDirectJob = {
   creditsCharged: number;
   attempts: number;
   createdAt: Date;
+  watermark: boolean;
 };
 
 async function processTryonDirectJob(
@@ -699,41 +678,23 @@ async function processTryonDirectJob(
     if (!firstImage) throw new Error('ComfyUI returned no output images for tryon direct job');
 
     const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
-    const resultKey = keys.output(jobId);
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: resultKey,
-        Body: imageBytes,
-        ContentType: 'image/png',
-      }),
-    );
 
-    let thumbnailKey: string | undefined;
-    try {
-      const thumbBytes = await sharp(imageBytes)
-        .rotate()
-        .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-      thumbnailKey = keys.outputThumb(jobId);
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: r2Bucket,
-          Key: thumbnailKey,
-          Body: thumbBytes,
-          ContentType: 'image/jpeg',
-        }),
-      );
-    } catch (thumbErr) {
-      jobLog.warn({ err: thumbErr }, 'thumbnail generation failed for tryon direct job');
-    }
-
-    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey, thumbnailKey }, jobLog);
+    // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    await finalizeOutput({
+      imageBytes,
+      jobId,
+      userId,
+      jobWatermark: job.watermark,
+      db,
+      pub,
+      s3,
+      r2Bucket,
+      jobLog,
+    });
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt);
-    jobLog.info({ resultKey }, 'tryon direct job completed');
+    jobLog.info('tryon direct job completed');
   } catch (err) {
     jobLog.error({ err }, 'tryon direct job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
@@ -749,6 +710,7 @@ type SareeJob = {
   creditsCharged: number;
   attempts: number;
   createdAt: Date;
+  watermark: boolean;
 };
 
 async function processSareeJob(
@@ -930,41 +892,23 @@ async function processSareeJob(
     if (!firstImage) throw new Error('ComfyUI returned no output images for saree job');
 
     const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
-    const resultKey = keys.output(jobId);
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: r2Bucket,
-        Key: resultKey,
-        Body: imageBytes,
-        ContentType: 'image/png',
-      }),
-    );
 
-    let thumbnailKey: string | undefined;
-    try {
-      const thumbBytes = await sharp(imageBytes)
-        .rotate()
-        .resize({ width: 512, height: 512, fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-      thumbnailKey = keys.outputThumb(jobId);
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: r2Bucket,
-          Key: thumbnailKey,
-          Body: thumbBytes,
-          ContentType: 'image/jpeg',
-        }),
-      );
-    } catch (thumbErr) {
-      jobLog.warn({ err: thumbErr }, 'thumbnail generation failed for saree job');
-    }
-
-    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey, thumbnailKey }, jobLog);
+    // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    await finalizeOutput({
+      imageBytes,
+      jobId,
+      userId,
+      jobWatermark: job.watermark,
+      db,
+      pub,
+      s3,
+      r2Bucket,
+      jobLog,
+    });
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt);
-    jobLog.info({ resultKey }, 'saree job completed successfully');
+    jobLog.info('saree job completed successfully');
   } catch (err) {
     jobLog.error({ err }, 'saree job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
