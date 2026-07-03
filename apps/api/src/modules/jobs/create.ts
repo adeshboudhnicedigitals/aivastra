@@ -237,7 +237,7 @@ export async function createJob(
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
     app.db
-      .select({ queueStream: schema.creditPlans.queueStream })
+      .select({ queueStream: schema.creditPlans.queueStream, watermark: schema.creditPlans.watermark })
       .from(schema.users)
       .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
       .where(eq(schema.users.id, userId)),
@@ -247,6 +247,9 @@ export async function createJob(
   // Fall back to 'normal' if the user's tier has no matching credit_plans row.
   const queueStream: string = planRow?.queueStream ?? 'normal';
   const priority = queueStream === 'priority';
+  // Snapshot watermark entitlement from the plan at job creation time.
+  // Never re-derived after this point — see spec precedence rule.
+  const watermark: boolean = planRow?.watermark ?? false;
 
   const catalogueId = body.catalogueId ?? randomUUID();
   const jobIds = await app.db.transaction(async (tx) => {
@@ -271,6 +274,7 @@ export async function createJob(
           status: 'QUEUED',
           priority,
           queueStream,
+          watermark,
           creditsCharged: COST,
         })
         .returning();
@@ -391,7 +395,7 @@ export async function createSimpleTryonJob(
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
     app.db
-      .select({ queueStream: schema.creditPlans.queueStream })
+      .select({ queueStream: schema.creditPlans.queueStream, watermark: schema.creditPlans.watermark })
       .from(schema.users)
       .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
       .where(eq(schema.users.id, userId)),
@@ -400,6 +404,7 @@ export async function createSimpleTryonJob(
 
   const queueStream: string = planRow?.queueStream ?? 'normal';
   const priority = queueStream === 'priority';
+  const watermark: boolean = planRow?.watermark ?? false;
 
   const catalogueId = randomUUID();
   const [job] = await app.db.transaction(async (tx) => {
@@ -411,6 +416,7 @@ export async function createSimpleTryonJob(
         status: 'QUEUED',
         priority,
         queueStream,
+        watermark,
         creditsCharged: COST,
       })
       .returning();
