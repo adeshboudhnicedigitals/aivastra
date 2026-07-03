@@ -1,12 +1,12 @@
 import { eq, schema } from '@aivastra/db';
 import { runBotTurn } from '../agent/bot.js';
 import type { ChatbotDeps } from '../server.js';
+import { escalate } from './escalation.js';
 import {
   appendMessage,
   getOrCreateActiveConversation,
   listMessages,
   publishConv,
-  transition,
 } from './service.js';
 
 const HISTORY_N = 12;
@@ -64,7 +64,7 @@ export class Orchestrator {
         });
 
         if (result.kind === 'escalate') {
-          await this.escalate(convId, userId, 'user_request');
+          await escalate(this.deps, convId, userId, 'user_request');
           return;
         }
 
@@ -72,7 +72,7 @@ export class Orchestrator {
           const n = await deps.redis.incr(`chatbot:conv:${convId}:fallbacks`);
           await deps.redis.expire(`chatbot:conv:${convId}:fallbacks`, 3600);
           if (n >= deps.env.CHATBOT_FALLBACK_LIMIT) {
-            await this.escalate(convId, userId, 'low_confidence');
+            await escalate(this.deps, convId, userId, 'low_confidence');
             return;
           }
         } else {
@@ -114,23 +114,8 @@ export class Orchestrator {
     });
   }
 
-  // Stub — replaced in Task 11
-  async escalate(convId: string, _userId: string, reason: string): Promise<void> {
-    await transition(this.deps.db, this.deps.pub, convId, {
-      from: 'BOT',
-      to: 'PENDING_HUMAN',
-      type: 'escalate',
-      reason,
-    });
-    await appendMessage(this.deps.db, this.deps.pub, convId, {
-      role: 'system',
-      content: 'Connecting you to a human agent…',
-    });
-    await this.deps.pub.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
-  }
-
   async handleUserEscalate(convId: string, userId: string): Promise<void> {
-    await this.escalate(convId, userId, 'user_request');
+    await escalate(this.deps, convId, userId, 'user_request');
   }
 }
 
