@@ -39,7 +39,7 @@ export async function initWatermarkTile() {
     .raw()
     .toBuffer({ resolveWithObject: true });
   for (let i = 3; i < data.length; i += 4) {
-    data[i] = Math.round(data[i] * WATERMARK_OPACITY);
+    data[i] = Math.round((data[i] ?? 0) * WATERMARK_OPACITY);
   }
   const logoBuffer = await sharp(data, {
     raw: { width: info.width, height: info.height, channels: 4 },
