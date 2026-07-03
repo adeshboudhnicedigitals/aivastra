@@ -79,6 +79,13 @@ describe('bot agent', () => {
     const genModel = new FakeStreamingChatModel({
       responses: [new AIMessage('You have 42 credits.')],
     });
+    let genInputMessages: unknown[] = [];
+    const originalInvoke = genModel.invoke.bind(genModel);
+    genModel.invoke = (async (input: unknown, options?: unknown) => {
+      genInputMessages = input as unknown[];
+      return originalInvoke(input as never, options as never);
+    }) as typeof genModel.invoke;
+
     const r = await runBotTurn({
       deps: t.deps,
       toolModel,
@@ -92,6 +99,15 @@ describe('bot agent', () => {
     expect(r.kind).toBe('answer');
     expect(r.content).toBe('You have 42 credits.');
     expect(r.meta.toolCalls).toEqual(['getCredits']);
+
+    // Prove the tool result actually reached genModel's input, not just that the
+    // final text passed through — the hand-off, not only the exit.
+    const genMessageContents = genInputMessages.map((m) =>
+      typeof m === 'object' && m !== null && 'content' in m
+        ? (m as { content: unknown }).content
+        : undefined,
+    );
+    expect(genMessageContents).toContain('Current credit balance: 42');
   });
 
   it('escalate sentinel from generation model routes to escalate', async () => {
