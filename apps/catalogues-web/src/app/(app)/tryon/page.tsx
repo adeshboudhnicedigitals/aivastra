@@ -1310,7 +1310,7 @@ export default function TryOnPage() {
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <label style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
-                        Message <span style={{ color: C.mid, fontWeight: 400 }}>(optional)</span>
+                        Message
                       </label>
                       <textarea
                         value={contactMessage}
