@@ -6,6 +6,7 @@ import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
 import { apiFetch, patchAdminPreferences } from './lib/data';
 import AssetsPage from './pages/AssetsPage';
+import ChatbotQnaPage from './pages/ChatbotQnaPage';
 import ContactRequestsPage from './pages/ContactRequestsPage';
 import DashboardPage from './pages/DashboardPage';
 import JobsPage from './pages/JobsPage';
@@ -29,6 +30,7 @@ const PATH_LABELS: Record<string, string> = {
   users: 'Users',
   jobs: 'Jobs',
   workflows: 'Workflows',
+  'chatbot-qna': 'Chatbot Q&A',
   'recycle-bin': 'Recycle bin',
   contacts: 'Contact Requests',
   settings: 'Settings',
@@ -194,6 +196,7 @@ export default function App() {
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />
             <Route path="/saree" element={<SareePage {...pageProps} />} />
+            <Route path="/chatbot-qna" element={<ChatbotQnaPage {...pageProps} />} />
             <Route path="/contacts" element={<ContactRequestsPage {...pageProps} />} />
             <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
