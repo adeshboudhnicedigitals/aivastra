@@ -1,5 +1,4 @@
 import { type DB, eq, schema } from '@aivastra/db';
-import type { Logger } from '@aivastra/logger';
 import type { Redis } from 'ioredis';
 import { AppError } from '../lib/errors.js';
 import type { EmbedFn } from '../server.js';
@@ -8,7 +7,7 @@ export async function runIngest(deps: {
   db: DB;
   redis: Redis;
   embed: EmbedFn;
-  log: Logger;
+  log: { info: (o: object, s: string) => void };
 }): Promise<{ ingested: number; durationMs: number }> {
   const t0 = Date.now();
   const lock = await deps.redis.set('chatbot:ingest:lock', '1', 'EX', 120, 'NX');
@@ -23,11 +22,13 @@ export async function runIngest(deps: {
     await deps.db.transaction(async (tx) => {
       await tx.delete(schema.chatbotEmbeddings);
       if (rows.length > 0) {
-        await tx
-          .insert(schema.chatbotEmbeddings)
-          .values(
-            rows.map((r, i) => ({ qnaId: r.id, content: contents[i], embedding: vectors[i] })),
-          );
+        await tx.insert(schema.chatbotEmbeddings).values(
+          rows.map((r, i) => ({
+            qnaId: r.id,
+            content: contents[i]!,
+            embedding: vectors[i]!,
+          })),
+        );
       }
     });
     const durationMs = Date.now() - t0;
