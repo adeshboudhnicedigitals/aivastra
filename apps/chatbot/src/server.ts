@@ -1,11 +1,15 @@
 import { type DB, schema, sql } from '@aivastra/db';
 import websocket from '@fastify/websocket';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { Redis } from 'ioredis';
+import { Orchestrator } from './conversation/orchestrator.js';
 import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
 import { conversationRoutes } from './routes/conversations.js';
 import { ingestRoutes } from './routes/ingest.js';
+import { setupGateway } from './ws/gateway.js';
+import { ticketRoutes } from './ws/tickets.js';
 
 export type EmbedFn = (texts: string[]) => Promise<number[][]>;
 
@@ -16,12 +20,14 @@ export interface ChatbotDeps {
   pub: Redis;
   sub: Redis;
   embed: EmbedFn;
+  makeModel: () => BaseChatModel;
   log: FastifyBaseLogger;
 }
 
 declare module 'fastify' {
   interface FastifyInstance {
     deps: ChatbotDeps;
+    orchestrator: Orchestrator;
   }
 }
 
@@ -48,6 +54,11 @@ export async function buildChatbotServer(deps: ChatbotDeps): Promise<FastifyInst
       .from(schema.chatbotEmbeddings);
     return { ok: true, qna: qna?.n ?? 0, embedded: emb?.n ?? 0 };
   });
+
+  const orchestrator = new Orchestrator(deps);
+  app.decorate('orchestrator', orchestrator);
+  await app.register(ticketRoutes);
+  await app.register(async (a) => setupGateway(a, orchestrator));
 
   await app.register(ingestRoutes);
   await app.register(conversationRoutes);
