@@ -76,6 +76,8 @@ export async function runBotTurn(opts: {
       : last.content
           .map((c: { type?: string; text?: string }) => (c.type === 'text' ? (c.text ?? '') : ''))
           .join('');
+  if (!text.trim())
+    return { kind: 'fallback', content: FALLBACK_COPY, meta: { toolCalls: [], qnaIds: [] } };
   turnCtx.toolCalls = result.messages
     .filter((m: BaseMessage) => m.getType() === 'tool')
     .map((m: BaseMessage & { name?: string }) => m.name ?? 'tool');
