@@ -64,6 +64,12 @@ export async function runBotTurn(opts: {
   );
 
   const last = result.messages[result.messages.length - 1];
+  if (!last)
+    return {
+      kind: 'fallback' as const,
+      content: FALLBACK_COPY,
+      meta: { toolCalls: [], qnaIds: [] },
+    };
   const text =
     typeof last.content === 'string'
       ? last.content

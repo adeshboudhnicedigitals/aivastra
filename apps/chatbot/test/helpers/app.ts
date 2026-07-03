@@ -1,5 +1,7 @@
 import { createDb } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
+import { AIMessage } from '@langchain/core/messages';
+import { FakeStreamingChatModel } from '@langchain/core/utils/testing';
 import { Redis } from 'ioredis';
 import type { Env } from '../../src/env.js';
 import { buildChatbotServer, type ChatbotDeps } from '../../src/server.js';
@@ -42,6 +44,7 @@ export async function buildTestApp(c: Containers, partial: Partial<ChatbotDeps> 
     pub,
     sub,
     embed: async (texts) => texts.map(() => Array(1536).fill(0)),
+    makeModel: () => new FakeStreamingChatModel({ responses: [new AIMessage('ok')] }),
     log: createLogger('chatbot-test'),
     ...partial,
   };
