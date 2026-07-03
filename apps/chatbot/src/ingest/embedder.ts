@@ -17,10 +17,13 @@ export function makeOpenAiEmbedder(apiKey: string, model: string): EmbedFn {
         signal: AbortSignal.timeout(30_000),
       });
       if (!res.ok) throw new Error(`openai embeddings ${res.status}: ${await res.text()}`);
-      const json = (await res.json()) as {
-        data: { index: number; embedding: number[] }[];
-      };
-      out.push(...json.data.sort((a, b) => a.index - b.index).map((d) => d.embedding));
+      const body = (await res.json()) as Record<string, unknown>;
+      if (!Array.isArray(body?.data))
+        throw new Error('openai embeddings: unexpected response shape');
+      const data = body.data as { index: number; embedding: number[] }[];
+      if (data.length !== chunk.length)
+        throw new Error(`openai embeddings: expected ${chunk.length} results, got ${data.length}`);
+      out.push(...data.sort((a, b) => a.index - b.index).map((d) => d.embedding));
     }
     return out;
   };
