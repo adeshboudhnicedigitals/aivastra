@@ -45,6 +45,9 @@ interface Job {
   status: string;
   createdAt: string;
   creditsCharged: number;
+  watermark: boolean;
+  watermarkVersion?: number;
+  assetKind?: string;
 }
 interface CatalogueDetail {
   catalogueId: string;
@@ -143,8 +146,9 @@ function ImageCard({
   job: Job;
   catalogueId: string;
   queuePosition: number;
+  queuePosition: number;
   garmentUrl?: string | null;
-  onZoom: (url: string) => void;
+  onZoom: (data: { url: string; job: Job }) => void;
 }) {
   const isCompleted = job.status === 'COMPLETED';
   const isFailed = job.status === 'FAILED';
@@ -232,7 +236,7 @@ function ImageCard({
             }}
             onClick={() => {
               // Always zoom into full-resolution image even when card shows thumbnail
-              if (isCompleted && result?.url) onZoom(result.url);
+              if (isCompleted && result?.url) onZoom({ url: result.url, job });
             }}
           >
             {/* Garment preview as blurred background for in-progress states */}
@@ -399,6 +403,27 @@ function ImageCard({
                 ) : null}
               </div>
             )}
+            
+            {/* Watermark Banner */}
+            {isCompleted && job.watermark && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  background: 'rgba(0,0,0,0.6)',
+                  color: 'white',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  textAlign: 'center',
+                  padding: '4px 0',
+                  backdropFilter: 'blur(4px)',
+                }}
+              >
+                Watermarked - Upgrade to remove
+              </div>
+            )}
           </button>
         </div>
         <div
@@ -461,7 +486,7 @@ function ImageCard({
               <>
                 <button
                   type="button"
-                  onClick={() => onZoom(result.url)}
+                  onClick={() => onZoom({ url: result.url, job })}
                   style={{
                     width: 28,
                     height: 28,
@@ -553,10 +578,11 @@ export default function CataloguePage({
 }): React.ReactElement {
   const { id } = use(params);
   const qc = useQueryClient();
-  const [zoom, setZoom] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<{ url: string; job: Job } | null>(null);
   const [zoomVisible, setZoomVisible] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadErr, setDownloadErr] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
   const zoomDialogRef = useRef<HTMLDivElement>(null);
   const zoomTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -722,6 +748,20 @@ export default function CataloguePage({
       setDownloadErr('Download failed. Please try again.');
     } finally {
       setDownloading(false);
+    }
+  }
+
+  async function handleRegenerate(jobId: string) {
+    if (regenerating) return;
+    setRegenerating(true);
+    try {
+      await api.post(`/v1/jobs/${jobId}/regenerate`);
+      qc.invalidateQueries({ queryKey: ['catalogue', id] });
+      setZoom(null);
+    } catch (e) {
+      alert((e as Error).message || 'Failed to regenerate. Check if you have enough credits.');
+    } finally {
+      setRegenerating(false);
     }
   }
 
@@ -906,6 +946,33 @@ export default function CataloguePage({
               pointerEvents: 'none',
             }}
           />
+          {zoom.job.watermark && (
+            <button
+              type="button"
+              onClick={() => handleRegenerate(zoom.job.id)}
+              disabled={regenerating}
+              style={{
+                position: 'absolute',
+                bottom: 40,
+                padding: '12px 24px',
+                borderRadius: 8,
+                background: 'linear-gradient(135deg, var(--c-pink), var(--c-amber))',
+                color: 'white',
+                border: 'none',
+                fontWeight: 600,
+                fontSize: 14,
+                cursor: regenerating ? 'not-allowed' : 'pointer',
+                opacity: regenerating ? 0.7 : 1,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              {regenerating ? <SpinnerIcon size={16} /> : null}
+              Regenerate without Watermark
+            </button>
+          )}
         </div>
       )}
 
