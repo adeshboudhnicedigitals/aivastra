@@ -20,6 +20,17 @@ via `superpowers:subagent-driven-development`.
 - Post-review fix: hand-off test (`bot.test.ts`) didn't prove the tool result actually
   reached `genModel`'s input, only that the final text passed through — added a spy wrapper
   on `genModel.invoke` to assert on the received message content.
+- Final whole-branch review caught a **critical bug before merge**: the generation model
+  (never bound to tools) was being handed the router's tool-call `AIMessage` plus
+  `ToolMessage` results as structured `tool_use`/`tool_result` blocks. Anthropic rejects any
+  request containing those blocks unless `tools` is also passed on that same call
+  ("Requests which include tool_use or tool_result blocks must define tools") — this would
+  have 400'd on every tool-using turn against the default anthropic config. Fixed by
+  flattening tool output into a plain-text `SystemMessage` instead (also sidesteps
+  cross-provider tool-call id format mismatches when tool/gen models differ). Also softened
+  `GEN_SYSTEM_PROMPT` so greetings/small talk with no tool results don't escalate to a human.
+  Added a regression-guard test asserting the gen model never receives a `tool`-typed
+  message or non-empty `tool_calls`.
 
 ### Failed / Not Done
 - None.
