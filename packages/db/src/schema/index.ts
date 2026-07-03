@@ -1,5 +1,6 @@
 export * from './admin.js';
 export * from './catalog.js';
+export * from './chatbot.js';
 export * from './contact.js';
 export * from './credits.js';
 export * from './jobs.js';
