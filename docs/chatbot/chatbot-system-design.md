@@ -261,6 +261,15 @@ data exfiltration (§16).
 getRecentJobs only for the current user's account. If you cannot answer from these,
 escalate to a human. Never invent pricing, policy, or account data."*
 
+### 7.4 Multi-provider model selection (added post-v1)
+
+Tool-calling and generation use separately configurable models — see
+`docs/superpowers/specs/2026-07-03-chatbot-multi-provider-models-design.md`. Router model
+makes one tool-decision pass per turn (no loop-back); generation model writes the final reply
+from the tool results and applies the escalate/grounding gate. Supports Anthropic, Google AI
+Studio, and any OpenAI-compatible host (OpenRouter, NVIDIA NIM, Ollama, vLLM) via
+`CHATBOT_GEN_*` / `CHATBOT_TOOL_*` env vars — see `.env.production.example`.
+
 ---
 
 ## 8. Escalation & Handoff
