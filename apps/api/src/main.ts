@@ -38,4 +38,3 @@ if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
     }
   }
 }
-

@@ -140,4 +140,3 @@ describe('dispatcher crash recovery', () => {
     expect(completed?.status).toBe('COMPLETED');
   });
 });
-

@@ -435,4 +435,3 @@ export async function paymentsRoutes(app: FastifyInstance) {
     });
   });
 }
-

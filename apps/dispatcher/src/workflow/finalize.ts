@@ -18,11 +18,10 @@ import type { Logger } from '@aivastra/logger';
 import { keys } from '@aivastra/storage';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { eq } from 'drizzle-orm';
-import sharp from 'sharp';
 import type { Redis } from 'ioredis';
-import { transitionJob } from '../job/state.js';
+import sharp from 'sharp';
 import { loadEnv } from '../env.js';
+import { transitionJob } from '../job/state.js';
 import { applyWatermark, WATERMARK_VERSION } from './watermark.js';
 
 export interface FinalizeOutputOpts {
@@ -52,29 +51,27 @@ export async function finalizeOutput(opts: FinalizeOutputOpts): Promise<{
   const finalizeStartedAt = Date.now();
 
   const env = loadEnv();
-  
+
   let finalBuffer: Uint8Array = imageBytes;
   let watermarkApplied = false;
   let watermarkVersion: number | null = null;
 
   if (opts.jobWatermark) {
     if (env.ENABLE_WATERMARKING) {
-      try {
-        finalBuffer = await applyWatermark({ image: imageBytes, jobId });
-        watermarkApplied = true;
-        watermarkVersion = WATERMARK_VERSION;
-      } catch (err) {
-        // Fail-closed requirement: if applying throws, fail the job and do not upload original.
-        throw err;
-      }
+      finalBuffer = await applyWatermark({ image: imageBytes, jobId });
+      watermarkApplied = true;
+      watermarkVersion = WATERMARK_VERSION;
     } else {
-      jobLog.warn({
-        stage: 'watermark',
-        jobId,
-        expectedWatermark: true,
-        appliedWatermark: false,
-        reason: 'ENABLE_WATERMARKING_DISABLED',
-      }, 'watermark disabled by kill switch');
+      jobLog.warn(
+        {
+          stage: 'watermark',
+          jobId,
+          expectedWatermark: true,
+          appliedWatermark: false,
+          reason: 'ENABLE_WATERMARKING_DISABLED',
+        },
+        'watermark disabled by kill switch',
+      );
     }
   }
 

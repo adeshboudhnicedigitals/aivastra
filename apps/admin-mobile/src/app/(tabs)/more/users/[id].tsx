@@ -487,4 +487,3 @@ const styles = StyleSheet.create({
   actionLabel: { ...Typography.bodyBold },
   disabled: { opacity: 0.4 },
 });
-
