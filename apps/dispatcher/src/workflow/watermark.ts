@@ -11,7 +11,7 @@ let tileHeight = 0;
 
 const WATERMARK_LOGO_URL = new URL('../../assets/watermark-logo.svg', import.meta.url);
 const WATERMARK_LOGO_PATH = fileURLToPath(WATERMARK_LOGO_URL);
-const WATERMARK_OPACITY = 0.32;
+const WATERMARK_OPACITY = 0.26;
 const WATERMARK_TILE_SPACING = 160;
 
 /**
