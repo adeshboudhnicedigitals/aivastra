@@ -1,3 +1,15 @@
+## 2026-07-03 - Dispatcher Production Watermark Asset Path Fix
+
+### Done
+- Fixed the dispatcher watermark asset lookup in apps/dispatcher/src/workflow/watermark.ts to resolve the SVG relative to the module via import.meta.url instead of process.cwd().
+- This fixes the production container crash loop where the dispatcher looked for /app/assets/watermark-logo.svg even though the file is shipped at /app/apps/dispatcher/assets/watermark-logo.svg.
+- Root cause confirmed from production logs: watermark initialization failed closed at startup, which in turn let worker health TTLs expire and made healthy workers appear unhealthy in admin.
+
+### Failed / Not Done
+- Did not change watermarking behavior itself or the fail-closed startup policy; this fix is strictly path resolution.
+
+### Open Questions / Decisions
+- After deploy, confirm the dispatcher remains up with ENABLE_WATERMARKING=true and that admin worker health repopulates within one health-monitor interval.
 ## 2026-07-03 - Watermarking/Regenerate: Fixed 3 Blockers Found in Review
 
 ### Done

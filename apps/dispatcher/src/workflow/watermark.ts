@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
 export const WATERMARK_VERSION = 1;
@@ -9,6 +9,9 @@ let tileBuffer: Buffer | null = null;
 let tileWidth = 0;
 let tileHeight = 0;
 
+const WATERMARK_LOGO_URL = new URL('../../assets/watermark-logo.svg', import.meta.url);
+const WATERMARK_LOGO_PATH = fileURLToPath(WATERMARK_LOGO_URL);
+
 /**
  * Initialize the watermark tile. Must be called at startup.
  * Throws if the logo is missing or Sharp fails to init, failing the dispatcher closed.
@@ -16,11 +19,10 @@ let tileHeight = 0;
 export async function initWatermarkTile() {
   if (tileBuffer) return;
 
-  const logoPath = join(process.cwd(), 'assets', 'watermark-logo.svg');
-  const logoBytes = readFileSync(logoPath);
+  const logoBytes = readFileSync(WATERMARK_LOGO_PATH);
 
-  // Pre-render the small repeating unit once: logo + wordmark, ~35° rotation, ~12% opacity.
-  // Materialize to a buffer before reading dimensions — .metadata() on a
+  // Pre-render the small repeating unit once: logo + wordmark, ~35? rotation, ~12% opacity.
+  // Materialize to a buffer before reading dimensions ? .metadata() on a
   // pipeline reflects the SOURCE image, not the post-resize/rotate output, so
   // sizing the tile canvas from it undersizes the canvas and .composite()
   // throws ("Image to composite must have same dimensions or smaller").
@@ -87,10 +89,10 @@ export async function applyWatermark(opts: { image: Uint8Array; jobId: string })
   const { x: offsetX, y: offsetY } = tileOffsetForJob(jobId);
 
   // We tile the pre-rendered tileBuffer across the entire baseImage, offset by
-  // a jobId-seeded amount so the pattern doesn't land identically on every
+  // a jobId-seeded amount so the pattern does not land identically on every
   // image. Extend on all four sides by the offset (plus enough to cover the
   // canvas) then crop back to the base dimensions from the offset origin.
-  // Materialized as two separate toBuffer() calls, not chained — chaining
+  // Materialized as two separate toBuffer() calls, not chained ? chaining
   // .extend({ extendWith: 'repeat' }) directly into .extract() in one sharp
   // pipeline throws "bad extract area" in this sharp version even when the
   // extended buffer is provably large enough.
