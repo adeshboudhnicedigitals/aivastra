@@ -1,3 +1,94 @@
+## 2026-07-03 - Watermarking/Regenerate: Fixed 3 Blockers Found in Review
+
+### Done
+Review of the antigravity implementation (previous entry below) found 3 blocking gaps against the
+spec and 2 follow-ups; all fixed and verified with new tests run against live Postgres/Redis/MinIO
+(`pnpm docker:up`), not just typecheck:
+- **Regenerate now reuses job creation instead of duplicating it.** `apps/api/src/modules/jobs/regenerate.ts`
+  previously hand-rolled its own plan lookup, cost calc, and insert/enqueue — already diverging from
+  `create.ts`'s pose-workflow-driven lower/shoe catalog stripping. Rewrote it to reconstruct the
+  request shape and call `createJob` / `createSimpleTryonJob` / `createSareeJob` directly, matching
+  the spec's explicit "do not special-case pricing for regenerate" rule. Added `sourceJobId` to the
+  stored params on tryon-direct jobs (`create.ts`) so regenerate can resolve that path the same way.
+- **UI now gates on `assetKind` + current plan, not the creation-time `job.watermark` snapshot.**
+  `apps/catalogues-web/.../catalogues/[id]/page.tsx` was checking `job.watermark`, which meant a
+  kill-switch override during processing would show a false watermark banner, and a still-free user
+  could see a "Regenerate without Watermark" CTA that would just charge them for another watermarked
+  image. Added `currentPlanWatermark` to the `/v1/catalogues/:id` response and switched both the
+  banner and CTA to `assetKind === 'WATERMARKED'` (+ `currentPlanWatermark === false` for the CTA).
+  Also fixed two pre-existing typecheck errors in this file (duplicate `queuePosition` prop, `zoom`
+  passed directly as an `img src` instead of `zoom.url`) that meant this file had never actually
+  typechecked since being written.
+- **Wrote the missing test suite** — none existed before this pass despite the spec calling several
+  out explicitly ("write a test for it" / "regression guard"): dispatcher unit tests for
+  `WatermarkService` (5 tests, `src/workflow/watermark.test.ts`), dispatcher integration tests for
+  fail-closed behavior and the end-to-end upgrade-mid-flight snapshot regression (5 tests across two
+  new files in `test/integration/`), and API integration tests for the regenerate endpoint including
+  the exact lower/shoe-stripping parity scenario the review flagged (6 tests,
+  `apps/api/test/integration/regenerate.test.ts`).
+- Writing real tests surfaced two additional bugs that had never been exercised:
+  1. `WatermarkService.initWatermarkTile()` sized the tile canvas from the SVG logo's *pre-transform*
+     metadata instead of the post-resize/rotate buffer, so `.composite()` always threw — the
+     dispatcher would `process.exit(1)` on every boot with `ENABLE_WATERMARKING=true` (the default).
+  2. Chaining `.extend({ extendWith: 'repeat' })` directly into `.extract()` in one sharp pipeline
+     throws `bad extract area` in the installed sharp version even when the extended buffer is
+     provably large enough; fixed by materializing the extended buffer first.
+- Seeded the jobId offset that P1-5 called for (`tileOffsetForJob()`, sha256-derived, mod tile
+  dimensions) — the original `applyWatermark()` ignored `opts.jobId` entirely and always composited
+  from `(0,0)`, so every image got an identical watermark placement.
+- Fixed a pre-existing dispatcher test-infra bug unrelated to this feature but blocking all
+  integration tests locally: `test/helpers/containers.ts` hardcoded Postgres port 5432, this machine's
+  `.env` uses 5433. Now reads `POSTGRES_PORT` with the same default docker-compose uses. Added
+  `/upload/image` support to `test/helpers/comfy-mock.ts` (needed by the saree job path, previously
+  unsupported) and a `vitest.integration.config.ts` for the dispatcher package, mirroring the API
+  package's existing split between unit (`vitest.config.ts`, excludes `test/integration`) and
+  integration (`vitest.integration.config.ts`) runs.
+
+### Failed / Not Done
+- Did **not** attempt to fix the pre-existing `happy-path.test.ts` / `recovery.test.ts` /
+  `retry.test.ts` dispatcher integration tests — they seed `catalog_items` with columns from a schema
+  version that predates the current `faceId`/`backgroundId`/`poseId` model-asset split (`type` is now
+  `NOT NULL` with no default and means `'lower' | 'shoe'`, not a free-form label). This is unrelated
+  pre-existing rot, confirmed by reverting all watermarking changes and re-running them with the same
+  failure. Out of scope for this pass; flagging here since it means the "regular studio job" path has
+  no passing dispatcher-level test coverage at all right now.
+
+### Open Questions / Decisions
+- `apps/dispatcher/assets/watermark-logo.svg` is still a placeholder (per the entry below) — needs a
+  real asset from design before production rollout with `ENABLE_WATERMARKING=true`.
+
+## 2026-07-03 - Implemented Free-Tier Watermarking & Regenerate Feature
+
+### Done
+- Implemented the free-tier watermarking and regenerate feature according to the frozen spec (`2026-07-02-free-tier-watermarking-and-regenerate.md`).
+- **Step 1:** Added migrations for `credit_plans.watermark`, `jobs.watermark`, `jobs.parent_job_id`, `job_outputs.asset_kind`, and `job_outputs.watermark_version`.
+- **Step 2:** Refactored `apps/dispatcher/src/workflow/finalize.ts` to centralize output finalization across all job types (`tryon`, `saree`, `tryon_direct`).
+- **Step 3:** Updated job creation routes (`create.ts`, `createSaree.ts`) to snapshot the `watermark` entitlement onto the `jobs` table.
+- **Step 4:** Implemented `WatermarkService` (`watermark.ts`) to initialize and tile a placeholder SVG logo during dispatcher startup, failing closed on initialization errors. Wired it into `finalizeOutput` behind the `ENABLE_WATERMARKING` kill switch.
+- **Step 5:** Updated Admin UI (`SettingsPage.tsx`) and API validation (`creditPlans.routes.ts`) to include a "Watermark" toggle for credit plans.
+- **Step 6:** Created the `POST /v1/jobs/:id/regenerate` endpoint (`regenerate.ts`) that re-validates assets, resolves current cost and entitlement, creates a new job with `parentJobId`, and enqueues it.
+- **Step 7:** Updated Catalogue UI (`CataloguePage.tsx`) to display a "Watermarked - Upgrade to remove" banner over watermarked image cards and added a "Regenerate without Watermark" CTA button in the expanded view.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- A placeholder SVG logo (`watermark-logo.svg`) was added to `apps/dispatcher/assets/` to satisfy the dispatcher's strict startup requirements. A proper asset needs to be provided by the design team for production.
+
+## 2026-07-03 - Free-Tier Watermarking Spec Frozen, Handed Off
+### Done
+- Ran a multi-round architecture review of `docs/superpowers/specs/2026-07-02-free-tier-watermarking-and-regenerate.md` (free-tier images watermarked, paid-tier clean, upgrade unlocks a billed "regenerate" job rather than retroactively unwatermarking).
+- Settled the core invariant: `credit_plans.watermark` is joined once at job creation and snapshotted onto `jobs.watermark` (mirroring the existing `queueStream` precedent); the dispatcher only ever reads the snapshot, never `credit_plans`/`users.tier` directly, so mid-queue plan changes can't retroactively affect an in-flight job.
+- Spec covers: additive-only migrations (`credit_plans.watermark`, `jobs.watermark`, `jobs.parent_job_id`, `job_outputs.asset_kind`, `job_outputs.watermark_version`), a shared `finalizeOutput()` dispatcher helper (also removes existing triplicated download/upload/thumbnail logic), fail-closed watermark failure handling, `ENABLE_WATERMARKING` kill switch with WARN-level logging on override, dispatcher startup validation for the watermark asset, structured per-job logging, and a `POST /v1/jobs/:id/regenerate` endpoint that re-validates and re-bills as a new job.
+- Rollout intentionally sequenced so the dispatcher refactor ships and is verified before any watermarking behavior is enabled.
+- Spec marked **Architecture Approved / frozen** and handed off for implementation (outside this session's architect/reviewer role).
+
+### Failed / Not Done
+- No code written this session — pure design/spec work, as scoped.
+
+### Open Questions / Decisions
+- None outstanding; any further changes are expected to come from implementation/staging findings, not further design discussion.
+
 ## 2026-07-02 - Free Plan Design Gap Fixes
 
 ### Done
