@@ -53,6 +53,7 @@ interface CatalogueDetail {
   catalogueId: string;
   jobs: Job[];
   garmentUrl?: string | null;
+  currentPlanWatermark: boolean;
 }
 
 const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
@@ -145,7 +146,6 @@ function ImageCard({
 }: {
   job: Job;
   catalogueId: string;
-  queuePosition: number;
   queuePosition: number;
   garmentUrl?: string | null;
   onZoom: (data: { url: string; job: Job }) => void;
@@ -403,9 +403,11 @@ function ImageCard({
                 ) : null}
               </div>
             )}
-            
-            {/* Watermark Banner */}
-            {isCompleted && job.watermark && (
+
+            {/* Watermark Banner — reflects what was actually delivered (assetKind),
+                not the creation-time entitlement snapshot (job.watermark), so a
+                kill-switch override during processing never shows a false banner. */}
+            {isCompleted && job.assetKind === 'WATERMARKED' && (
               <div
                 style={{
                   position: 'absolute',
@@ -755,7 +757,7 @@ export default function CataloguePage({
     if (regenerating) return;
     setRegenerating(true);
     try {
-      await api.post(`/v1/jobs/${jobId}/regenerate`);
+      await api.post(`/v1/jobs/${jobId}/regenerate`, {});
       qc.invalidateQueries({ queryKey: ['catalogue', id] });
       setZoom(null);
     } catch (e) {
@@ -934,7 +936,7 @@ export default function CataloguePage({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible */}
           <img
-            src={zoom}
+            src={zoom.url}
             alt=""
             style={{
               maxWidth: '100%',
@@ -946,7 +948,7 @@ export default function CataloguePage({
               pointerEvents: 'none',
             }}
           />
-          {zoom.job.watermark && (
+          {zoom.job.assetKind === 'WATERMARKED' && data?.currentPlanWatermark === false && (
             <button
               type="button"
               onClick={() => handleRegenerate(zoom.job.id)}
