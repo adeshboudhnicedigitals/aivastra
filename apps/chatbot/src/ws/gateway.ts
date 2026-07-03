@@ -1,4 +1,5 @@
 import { and, eq, schema } from '@aivastra/db';
+import { chatbotActiveSockets } from '@aivastra/observability';
 import { WsAgentFrame, WsClientFrame } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 import type { WebSocket } from 'ws';
@@ -67,7 +68,12 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
       return;
     }
     const ctx: SocketCtx = { principal, convIds: new Set() };
-    socket.on('close', () => cleanup(socket, ctx));
+    const kind = principal.role === 'agent' ? 'agent' : 'user';
+    chatbotActiveSockets.inc({ kind });
+    socket.on('close', () => {
+      cleanup(socket, ctx);
+      chatbotActiveSockets.dec({ kind });
+    });
 
     if (principal.role === 'user') {
       const conv = await getOrCreateActiveConversation(deps.db, principal.userId);
@@ -83,9 +89,18 @@ export function setupGateway(app: FastifyInstance, orchestrator: Orchestrator) {
             return;
           }
           const f = parsed.data;
-          if (f.type === 'message')
+          if (f.type === 'message') {
+            const rlKey = `chatbot:rl:${principal.userId}`;
+            const n = await deps.redis.incr(rlKey);
+            if (n === 1) await deps.redis.expire(rlKey, 30);
+            if (n > 10) {
+              socket.send(
+                JSON.stringify({ type: 'error', code: 'RATE_LIMITED', message: 'slow down' }),
+              );
+              return;
+            }
             await orchestrator.handleUserMessage(conv.id, principal.userId, f.content);
-          else if (f.type === 'typing')
+          } else if (f.type === 'typing')
             await deps.pub.publish(
               `chatbot:conv:${conv.id}`,
               JSON.stringify({ type: 'typing', conversationId: conv.id, role: 'user' }),

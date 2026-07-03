@@ -1,4 +1,5 @@
 import { type DB, schema, sql } from '@aivastra/db';
+import { metricsContentType, metricsText } from '@aivastra/observability';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
@@ -44,6 +45,11 @@ export async function buildChatbotServer(deps: ChatbotDeps): Promise<FastifyInst
     }
     app.log.error({ err, url: req.url }, 'unhandled');
     return reply.code(500).send({ error: { code: 'INTERNAL', message: 'internal error' } });
+  });
+
+  app.get('/metrics', async (_req, reply) => {
+    reply.header('Content-Type', metricsContentType);
+    return metricsText();
   });
 
   app.get('/health', async () => {

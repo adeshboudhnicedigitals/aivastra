@@ -1,4 +1,5 @@
 import { and, type DB, eq, inArray, schema, sql } from '@aivastra/db';
+import { chatbotMessagesTotal } from '@aivastra/observability';
 import type { ChatMessageT } from '@aivastra/types';
 import type { Redis } from 'ioredis';
 
@@ -81,6 +82,7 @@ export async function appendMessage(
     })
     .returning();
   if (!row) throw new Error('appendMessage: insert returned no row');
+  chatbotMessagesTotal.inc({ role: msg.role });
   await db
     .update(schema.chatbotConversations)
     .set({ lastMessageAt: new Date() })
