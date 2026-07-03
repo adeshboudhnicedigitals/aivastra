@@ -11,7 +11,7 @@ let tileHeight = 0;
 
 const WATERMARK_LOGO_URL = new URL('../../assets/watermark-logo.svg', import.meta.url);
 const WATERMARK_LOGO_PATH = fileURLToPath(WATERMARK_LOGO_URL);
-const WATERMARK_OPACITY = 0.01;
+const WATERMARK_OPACITY = 0.22;
 const WATERMARK_TILE_SPACING = 160;
 
 /**
@@ -26,13 +26,29 @@ export async function initWatermarkTile() {
   // Pre-render the repeating watermark unit once. The tile itself must stay
   // fully transparent outside the logo; only the composited logo should carry
   // low alpha, otherwise the whole image gets an unintended grey veil.
-  const logoBuffer = await sharp(logoBytes)
+  const rotatedLogo = await sharp(logoBytes)
     .resize({ width: 200 })
     .rotate(-35, { background: { r: 0, g: 0, b: 0, alpha: 0 } })
     .toBuffer();
-  const logoMetadata = await sharp(logoBuffer).metadata();
-  const width = logoMetadata.width ?? 200;
-  const height = logoMetadata.height ?? 200;
+
+  // sharp's composite() has no real "opacity" option, so the alpha channel
+  // must be scaled by hand before compositing, otherwise the logo always
+  // renders fully opaque.
+  const { data, info } = await sharp(rotatedLogo)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = Math.round(data[i] * WATERMARK_OPACITY);
+  }
+  const logoBuffer = await sharp(data, {
+    raw: { width: info.width, height: info.height, channels: 4 },
+  })
+    .png()
+    .toBuffer();
+
+  const width = info.width;
+  const height = info.height;
 
   tileWidth = width + WATERMARK_TILE_SPACING;
   tileHeight = height + WATERMARK_TILE_SPACING;
@@ -50,8 +66,6 @@ export async function initWatermarkTile() {
         input: logoBuffer,
         gravity: 'center',
         blend: 'over',
-        // @ts-expect-error: opacity is supported at runtime but missing from TS types in this sharp version
-        opacity: WATERMARK_OPACITY,
       },
     ])
     .png()

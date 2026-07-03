@@ -35,8 +35,8 @@ describe('WatermarkService', () => {
     const channelMeans = stats.channels.slice(0, 3).map((channel) => channel.mean);
     const averageMean = channelMeans.reduce((sum, value) => sum + value, 0) / channelMeans.length;
 
-    expect(averageMean).toBeGreaterThan(1);
-    expect(averageMean).toBeLessThan(12);
+    expect(averageMean).toBeGreaterThan(0.05);
+    expect(averageMean).toBeLessThan(2);
   });
 
   it('is deterministic for the same jobId', async () => {
