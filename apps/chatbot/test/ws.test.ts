@@ -39,7 +39,8 @@ describe('ws gateway', () => {
   beforeAll(async () => {
     c = await startContainers();
     t = await buildTestApp(c, {
-      makeModel: () => new FakeStreamingChatModel({ responses: [new AIMessage('Hello from bot')] }),
+      makeGenModel: () =>
+        new FakeStreamingChatModel({ responses: [new AIMessage('Hello from bot')] }),
     });
     const [u] = await t.deps.db
       .insert(schema.users)

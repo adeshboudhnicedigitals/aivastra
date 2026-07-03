@@ -1,5 +1,5 @@
 import { createLogger } from '@aivastra/logger';
-import { makeProdModel } from './agent/bot.js';
+import { genModelConfig, makeModel, toolModelConfig } from './agent/models.js';
 import { runChatSweeper } from './conversation/sweeper.js';
 import { loadEnv } from './env.js';
 import { makeOpenAiEmbedder } from './ingest/embedder.js';
@@ -15,20 +15,22 @@ async function main(): Promise<void> {
   const { main: redis, pub, sub, close: closeRedis } = makeRedis(env);
   const embed = makeOpenAiEmbedder(env.OPENAI_API_KEY, env.CHATBOT_EMBED_MODEL);
 
-  const app = await buildChatbotServer({
+  const deps = {
     env,
     db,
     redis,
     pub,
     sub,
     embed,
-    makeModel: () => makeProdModel(env),
+    makeGenModel: () => makeModel(genModelConfig(env)),
+    makeToolModel: () => makeModel(toolModelConfig(env)),
     log,
-  });
+  };
+
+  const app = await buildChatbotServer(deps);
   await app.listen({ port: env.CHATBOT_PORT, host: '0.0.0.0' });
   log.info({ port: env.CHATBOT_PORT }, 'chatbot ready');
 
-  const deps = { env, db, redis, pub, sub, embed, makeModel: () => makeProdModel(env), log };
   const sweepInterval = setInterval(() => {
     void runChatSweeper(deps).catch((err) => log.error({ err }, 'sweeper failed'));
   }, 60_000);

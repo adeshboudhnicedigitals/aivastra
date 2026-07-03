@@ -25,7 +25,7 @@ describe('rate limit', () => {
   beforeAll(async () => {
     c = await startContainers();
     t = await buildTestApp(c, {
-      makeModel: () => new FakeStreamingChatModel({ responses: ['ok'] }),
+      makeGenModel: () => new FakeStreamingChatModel({ responses: ['ok'] }),
     });
     const [u] = await t.deps.db
       .insert(schema.users)

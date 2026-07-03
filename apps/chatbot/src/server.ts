@@ -22,7 +22,8 @@ export interface ChatbotDeps {
   pub: Redis;
   sub: Redis;
   embed: EmbedFn;
-  makeModel: () => BaseChatModel;
+  makeGenModel: () => BaseChatModel;
+  makeToolModel: () => BaseChatModel;
   log: FastifyBaseLogger;
 }
 
