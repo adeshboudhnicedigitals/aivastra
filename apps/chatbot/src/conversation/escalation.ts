@@ -1,4 +1,5 @@
 import { eq, schema } from '@aivastra/db';
+import { chatbotEscalationsTotal } from '@aivastra/observability';
 import type { Redis } from 'ioredis';
 import type { ChatbotDeps } from '../server.js';
 import { appendMessage, transition } from './service.js';
@@ -34,10 +35,12 @@ export async function escalate(
       role: 'system',
       content: 'Connecting you to a human agent…',
     });
+    chatbotEscalationsTotal.inc({ reason });
     await deps.pub.publish('chatbot:queue', JSON.stringify({ type: 'queue_update' }));
     return;
   }
 
+  chatbotEscalationsTotal.inc({ reason });
   await emailFallback(deps, convId, userId, reason);
 }
 

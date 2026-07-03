@@ -1,4 +1,5 @@
 import { eq, schema } from '@aivastra/db';
+import { chatbotBotTurnDuration, chatbotFallbacksTotal } from '@aivastra/observability';
 import { runBotTurn } from '../agent/bot.js';
 import type { ChatbotDeps } from '../server.js';
 import { escalate } from './escalation.js';
@@ -53,6 +54,7 @@ export class Orchestrator {
           role: 'bot',
         });
         const history = await listMessages(deps.db, convId, { limit: HISTORY_N });
+        const botTimer = chatbotBotTurnDuration.startTimer();
         const result = await runBotTurn({
           deps,
           model: deps.makeModel(),
@@ -62,6 +64,7 @@ export class Orchestrator {
           userMessage: content,
           signal: ac.signal,
         });
+        botTimer();
 
         if (result.kind === 'escalate') {
           await escalate(this.deps, convId, userId, 'user_request');
@@ -69,6 +72,7 @@ export class Orchestrator {
         }
 
         if (result.kind === 'fallback') {
+          chatbotFallbacksTotal.inc();
           const n = await deps.redis.incr(`chatbot:conv:${convId}:fallbacks`);
           await deps.redis.expire(`chatbot:conv:${convId}:fallbacks`, 3600);
           if (n >= deps.env.CHATBOT_FALLBACK_LIMIT) {
