@@ -230,6 +230,7 @@ export interface CreditPlan {
   badge: string | null;
   sortOrder: number;
   queueStream: 'priority' | 'normal' | 'low';
+  watermark: boolean;
   createdAt: string;
   updatedAt: string;
 }
