@@ -163,7 +163,7 @@ export default function JobDetailScreen() {
           </Text>
           <View style={styles.metrics}>
             <Metric label="Credits" value={formatNumber(data.creditsCharged)} />
-            <Metric label="Priority" value={data.priority ? 'PRO' : 'Normal'} />
+            <Metric label="Priority" value={data.priority ? 'Priority' : 'Normal'} />
             <Metric label="Attempts" value={formatNumber(data.attempts ?? 0)} />
           </View>
           <Text style={[styles.created, { color: colors.onAccentContainer }]}>

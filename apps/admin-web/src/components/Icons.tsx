@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import type { CSSProperties, JSX } from 'react';
 
 const S = (d: string) => (
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -6,7 +6,9 @@ const S = (d: string) => (
   </svg>
 );
 
-export const Icon: Record<string, () => JSX.Element> = {
+type IconProps = { style?: CSSProperties };
+
+export const Icon: Record<string, (props?: IconProps) => JSX.Element> = {
   Dashboard: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
       <rect x="2" y="2" width="5" height="6" rx="1" />
@@ -148,8 +150,14 @@ export const Icon: Record<string, () => JSX.Element> = {
     </svg>
   ),
   Activity: () => S('M1 8h3l2-5 4 10 2-5h3'),
-  Coin: () => (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+  Coin: (props) => (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      style={props?.style}
+    >
       <circle cx="8" cy="8" r="5.5" />
       <path d="M8 4v8M6 6h3a1.5 1.5 0 0 1 0 3H6h3a1.5 1.5 0 0 1 0 3H6" />
     </svg>
@@ -259,8 +267,14 @@ export const Icon: Record<string, () => JSX.Element> = {
       <circle cx="13" cy="8" r="1.2" />
     </svg>
   ),
-  Workflow: () => (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+  Workflow: (props) => (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      style={props?.style}
+    >
       <rect x="1.5" y="2.5" width="4" height="3" rx="0.8" />
       <rect x="1.5" y="10.5" width="4" height="3" rx="0.8" />
       <rect x="10.5" y="6.5" width="4" height="3" rx="0.8" />

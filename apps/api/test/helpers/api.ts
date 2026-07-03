@@ -1,9 +1,10 @@
+import type { Env } from '../../src/env';
 import { buildServer } from '../../src/server';
 import type { Containers } from './containers';
 
 export type TestApp = Awaited<ReturnType<typeof buildTestApp>>;
 
-export async function buildTestApp(c: Containers) {
+export async function buildTestApp(c: Containers, envOverrides: Partial<Env> = {}) {
   const app = await buildServer({
     NODE_ENV: 'test',
     LOG_LEVEL: 'silent',
@@ -21,7 +22,8 @@ export async function buildTestApp(c: Containers) {
     R2_FORCE_PATH_STYLE: true,
     CORS_ORIGIN: 'http://localhost:3000',
     COOKIE_SECRET: 'test-cookie-secret-0123456789abcdef-32min',
-  });
+    ...envOverrides,
+  } as Env);
   await app.listen({ port: 0 });
   return app;
 }

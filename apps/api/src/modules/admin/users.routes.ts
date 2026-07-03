@@ -118,6 +118,14 @@ export async function adminUsersRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { tier, isBanned, banReason, forceLogout } = req.body as z.infer<typeof UpdateUserBody>;
 
+      if (tier !== undefined) {
+        const [plan] = await app.db
+          .select({ slug: schema.creditPlans.slug })
+          .from(schema.creditPlans)
+          .where(and(eq(schema.creditPlans.slug, tier), eq(schema.creditPlans.isActive, true)));
+        if (!plan) throw new AppError('BAD_REQUEST', 400, 'tier must be an active credit plan slug');
+      }
+
       if (isBanned) {
         const [adminRow] = await app.db
           .select({ id: schema.adminUsers.id })
@@ -275,3 +283,4 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
   );
 }
+

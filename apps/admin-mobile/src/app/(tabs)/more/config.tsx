@@ -34,28 +34,21 @@ export default function SystemConfigScreen() {
   const { colors } = useAppTheme();
   const { bottom } = useSafeAreaInsets();
   const config = useApi<SystemConfig>('/admin/config');
-  const [creditCost, setCreditCost] = useState('');
-  const [maxJobs, setMaxJobs] = useState('');
-  const [freeTrialCredits, setFreeTrialCredits] = useState('');
   const [resolutions, setResolutions] = useState(DEFAULT_RESOLUTIONS);
   const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     if (config.data) {
-      setCreditCost(String(config.data.creditCostPerJob));
-      setMaxJobs(String(config.data.maxJobsPerDay));
-      setFreeTrialCredits(String(config.data.freeTrialCredits ?? 0));
       setResolutions({ ...DEFAULT_RESOLUTIONS, ...config.data.resolutions });
     }
   }, [config.data]);
+
   const dirty = useMemo(
     () =>
       Boolean(config.data) &&
-      (creditCost !== String(config.data?.creditCostPerJob) ||
-        maxJobs !== String(config.data?.maxJobsPerDay) ||
-        freeTrialCredits !== String(config.data?.freeTrialCredits ?? 0) ||
-        JSON.stringify(resolutions) !==
-          JSON.stringify({ ...DEFAULT_RESOLUTIONS, ...config.data?.resolutions })),
-    [config.data, creditCost, maxJobs, freeTrialCredits, resolutions],
+      JSON.stringify(resolutions) !==
+        JSON.stringify({ ...DEFAULT_RESOLUTIONS, ...config.data?.resolutions }),
+    [config.data, resolutions],
   );
 
   if (!isSuperAdmin(role)) return <EmptyState title="Access denied" message="Super admin only." />;
@@ -70,42 +63,16 @@ export default function SystemConfigScreen() {
     );
 
   async function save() {
-    const creditCostPerJob = Number(creditCost);
-    const maxJobsPerDay = Number(maxJobs);
-    const freeTrialCreditsValue = Number(freeTrialCredits);
-    if (
-      !Number.isInteger(creditCostPerJob) ||
-      creditCostPerJob < 1 ||
-      creditCostPerJob > 100 ||
-      !Number.isInteger(maxJobsPerDay) ||
-      maxJobsPerDay < 1 ||
-      maxJobsPerDay > 10_000
-    )
-      return Alert.alert(
-        'Invalid config',
-        'Credit cost must be 1–100 and max jobs must be 1–10,000.',
-      );
-    if (
-      !Number.isInteger(freeTrialCreditsValue) ||
-      freeTrialCreditsValue < 0 ||
-      freeTrialCreditsValue > 10_000
-    )
-      return Alert.alert('Invalid config', 'Free trial credits must be 0–10,000.');
     for (const res of RESOLUTIONS) {
       const cost = resolutions[res].creditCost;
       if (!Number.isInteger(cost) || cost < 1 || cost > 1_000)
-        return Alert.alert('Invalid config', `${res} credit cost must be 1–1,000.`);
+        return Alert.alert('Invalid config', `${res} credit cost must be 1-1,000.`);
     }
     setSaving(true);
     try {
       await apiFetch('/admin/config', {
         method: 'PATCH',
-        body: JSON.stringify({
-          creditCostPerJob,
-          maxJobsPerDay,
-          freeTrialCredits: freeTrialCreditsValue,
-          resolutions,
-        }),
+        body: JSON.stringify({ resolutions }),
       });
       useToastStore.getState().show('Config saved', 'success');
       await config.refresh();
@@ -147,11 +114,6 @@ export default function SystemConfigScreen() {
             {dirty ? 'Unsaved changes' : 'All changes saved'}
           </Text>
         </View>
-      </View>
-      <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-        <Field label="Credit Cost Per Job" value={creditCost} onChange={setCreditCost} />
-        <Field label="Max Jobs Per Day" value={maxJobs} onChange={setMaxJobs} />
-        <Field label="Free Trial Credits" value={freeTrialCredits} onChange={setFreeTrialCredits} />
       </View>
       <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <Text style={[styles.label, { color: colors.text }]}>Resolution Pricing</Text>
@@ -203,48 +165,13 @@ export default function SystemConfigScreen() {
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const { colors } = useAppTheme();
-  return (
-    <View style={styles.field}>
-      <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
-      <TextInput
-        keyboardType="number-pad"
-        onChangeText={(value) => onChange(value.replace(/\D/g, ''))}
-        style={[
-          styles.input,
-          { color: colors.text, backgroundColor: colors.bgSecondary, borderColor: colors.border },
-        ]}
-        value={value}
-      />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   content: { flexGrow: 1, gap: Spacing.lg, padding: Spacing.lg, paddingBottom: Spacing.xxxl },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { ...Typography.h1 },
   subtitle: { ...Typography.captionBold, marginTop: 2 },
   card: { gap: Spacing.xl, padding: Spacing.lg, borderWidth: 1, borderRadius: Radius.xl },
-  field: { gap: Spacing.sm },
   label: { ...Typography.bodyBold },
-  input: {
-    minHeight: 52,
-    paddingHorizontal: Spacing.lg,
-    borderWidth: 1,
-    borderRadius: Radius.lg,
-    ...Typography.h3,
-    fontVariant: ['tabular-nums'],
-  },
   help: { ...Typography.caption },
   resolutionRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   resolutionLabel: { ...Typography.bodyBold, width: 32 },

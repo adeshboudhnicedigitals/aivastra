@@ -21,7 +21,7 @@ async function main() {
     const newUsers = Array.from({ length: 100 }).map(() => ({
       email: `${faker.internet.email()}_${faker.string.uuid()}`,
       displayName: faker.person.fullName(),
-      tier: faker.helpers.arrayElement(['FREE', 'PRO', 'ENTERPRISE']),
+      tier: faker.helpers.arrayElement(['free', 'starter', 'growth', 'business']),
       emailVerified: true,
     }));
     await db.insert(schema.users).values(newUsers).onConflictDoNothing();
@@ -78,3 +78,4 @@ async function main() {
 }
 
 main();
+

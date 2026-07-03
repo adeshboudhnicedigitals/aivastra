@@ -121,7 +121,7 @@ const groups: NavGroup[] = [
 ];
 
 export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: SidebarProps) {
-  const { email, token } = useAuth();
+  const { token } = useAuth();
   const [contactBadge, setContactBadge] = useState(0);
 
   useEffect(() => {
@@ -141,9 +141,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
     .map((g) => ({ ...g, items: g.items.filter((item) => item.roles.includes(role)) }))
     .filter((g) => g.items.length > 0);
 
-  const emailUser = email ? email.split('@')[0] : 'Admin';
-  const initials = emailUser.slice(0, 2).toUpperCase();
-  const displayEmail = email ?? '';
+
   const showSettings = ['SUPER_ADMIN'].includes(role);
 
   if (collapsed) {
@@ -208,11 +206,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
             <Icon.Settings />
           </button>
         )}
-        <div className="sidebar-foot sidebar-foot--collapsed">
-          <span className="avatar" title={displayEmail}>
-            {initials}
-          </span>
-        </div>
+
       </aside>
     );
   }
@@ -271,14 +265,7 @@ export function Sidebar({ page, onNav, role, collapsed, onToggleCollapse }: Side
           <span>Settings</span>
         </button>
       )}
-      <div className="sidebar-foot">
-        <span className="avatar">{initials}</span>
-        <div className="who">
-          <b>{emailUser}</b>
-          <span>{displayEmail}</span>
-          <span className="role-pill">{role}</span>
-        </div>
-      </div>
+
     </aside>
   );
 }

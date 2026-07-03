@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -78,7 +78,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
     return app.db
       .select()
       .from(schema.creditPlans)
-      .where(eq(schema.creditPlans.isActive, true))
+      .where(and(eq(schema.creditPlans.isActive, true), ne(schema.creditPlans.slug, 'free')))
       .orderBy(asc(schema.creditPlans.sortOrder));
   });
 
@@ -435,3 +435,4 @@ export async function paymentsRoutes(app: FastifyInstance) {
     });
   });
 }
+

@@ -7,8 +7,8 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../lib/data';
-import type { User } from '../types';
+import { apiErrorMessage, apiFetch } from '../lib/data';
+import type { CreditPlan, User } from '../types';
 
 const PAGE_SIZE = 20;
 
@@ -36,6 +36,9 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
   const [grantReason, setGrantReason] = useState('');
   const [granting, setGranting] = useState(false);
   const [adminActioning, setAdminActioning] = useState(false);
+  const [tierOptions, setTierOptions] = useState<string[]>([]);
+  const [selectedTier, setSelectedTier] = useState('');
+  const [tierSaving, setTierSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,6 +58,12 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    apiFetch<CreditPlan[]>('/admin/credit-plans')
+      .then((rows) => setTierOptions(rows.filter((plan) => plan.isActive).map((plan) => plan.slug)))
+      .catch(() => toast({ kind: 'error', title: 'Failed to load credit plan tiers' }));
+  }, [toast]);
 
   const handleSearch = (q: string) => {
     setQuery(q);
@@ -83,10 +92,12 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
 
   const openDetail = async (u: User) => {
     setDetail(u);
+    setSelectedTier(u.tier);
     setDetailLoading(true);
     try {
       const full = await apiFetch<User>(`/admin/users/${u.id}`);
       setDetail(full);
+      setSelectedTier(full.tier);
     } catch {
       toast({ kind: 'error', title: 'Failed to load user detail' });
     } finally {
@@ -109,6 +120,30 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
       toast({ kind: 'error', title: 'Action failed' });
     }
     setConfirmSuspend(null);
+  };
+
+  const handleTierSave = async () => {
+    if (!detail || !selectedTier || selectedTier === detail.tier) return;
+    setTierSaving(true);
+    try {
+      await apiFetch(`/admin/users/${detail.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ tier: selectedTier }),
+      });
+      setDetail((prev) => (prev ? { ...prev, tier: selectedTier } : null));
+      setUsers((prev) =>
+        prev.map((user) => (user.id === detail.id ? { ...user, tier: selectedTier } : user)),
+      );
+      toast({ title: 'User tier updated' });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update tier',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setTierSaving(false);
+    }
   };
 
   const handleGrant = async () => {
@@ -146,11 +181,10 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
       setGrantAmount('');
       setGrantReason('');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '';
       toast({
         kind: 'error',
         title: grantMode === 'grant' ? 'Failed to grant credits' : 'Failed to deduct credits',
-        body: msg.includes('INSUFFICIENT') ? 'Balance would go below zero' : undefined,
+        body: apiErrorMessage(err, 'Please try again.'),
       });
     } finally {
       setGranting(false);
@@ -159,6 +193,10 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
 
   if (detail) {
     const u = detail;
+    const effectiveTierOptions =
+      selectedTier && !tierOptions.includes(selectedTier)
+        ? [selectedTier, ...tierOptions]
+        : tierOptions;
     return (
       <>
         <div className="page-head">
@@ -275,6 +313,42 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                 k="Banned"
                 v={u.isBanned ? `Yes${u.banReason ? ` — ${u.banReason}` : ''}` : 'No'}
               />
+            </div>
+
+            <div className="card" style={{ marginBottom: 20 }}>
+              <div className="card-head">
+                <h3>Plan assignment</h3>
+              </div>
+              <div
+                className="card-body"
+                style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}
+              >
+                <div className="field" style={{ minWidth: 240 }}>
+                  <label>Tier / credit plan</label>
+                  <select
+                    className="input"
+                    value={selectedTier}
+                    disabled={tierSaving || detailLoading}
+                    onChange={(e) => setSelectedTier(e.target.value)}
+                  >
+                    {effectiveTierOptions.map((slug) => (
+                      <option key={slug} value={slug}>
+                        {slug}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  className="btn primary"
+                  disabled={tierSaving || detailLoading || !selectedTier || selectedTier === u.tier}
+                  onClick={handleTierSave}
+                >
+                  {tierSaving ? 'Saving...' : 'Save Tier'}
+                </button>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Only active credit plans can be assigned.
+                </span>
+              </div>
             </div>
 
             <div className="card">

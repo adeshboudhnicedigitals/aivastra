@@ -397,6 +397,19 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * ApiError.message is just "API <status>" — the actual backend reason (e.g. an
+ * AppError's message) lives in ApiError.body.error.message. Use this wherever a
+ * catch block needs to show the admin *why* a request failed, not just that it did.
+ */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { error?: { message?: string } } | undefined;
+    if (body?.error?.message) return body.error.message;
+  }
+  return fallback;
+}
+
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const makeHeaders = (token: string | null): HeadersInit => ({
     ...(init.body != null ? { 'Content-Type': 'application/json' } : {}),
