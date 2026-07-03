@@ -2,9 +2,13 @@ import sharp from 'sharp';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { applyWatermark, initWatermarkTile, tileOffsetForJob } from './watermark.js';
 
-async function makeTestImage(width: number, height: number): Promise<Uint8Array> {
+async function makeTestImage(
+  width: number,
+  height: number,
+  background: { r: number; g: number; b: number } = { r: 200, g: 200, b: 200 },
+): Promise<Uint8Array> {
   return sharp({
-    create: { width, height, channels: 3, background: { r: 200, g: 200, b: 200 } },
+    create: { width, height, channels: 3, background },
   })
     .png()
     .toBuffer();
@@ -24,6 +28,17 @@ describe('WatermarkService', () => {
     expect(meta.format).toBe('png');
   });
 
+  it('keeps watermark intensity subtle instead of veiling the full image', async () => {
+    const image = await makeTestImage(800, 1200, { r: 0, g: 0, b: 0 });
+    const result = await applyWatermark({ image, jobId: 'subtle-check' });
+    const stats = await sharp(result).stats();
+    const channelMeans = stats.channels.slice(0, 3).map((channel) => channel.mean);
+    const averageMean = channelMeans.reduce((sum, value) => sum + value, 0) / channelMeans.length;
+
+    expect(averageMean).toBeGreaterThan(1);
+    expect(averageMean).toBeLessThan(12);
+  });
+
   it('is deterministic for the same jobId', async () => {
     const image = await makeTestImage(600, 600);
     const a = await applyWatermark({ image, jobId: 'same-job' });
@@ -35,9 +50,6 @@ describe('WatermarkService', () => {
     const image = await makeTestImage(600, 600);
     const a = await applyWatermark({ image, jobId: 'job-one' });
     const b = await applyWatermark({ image, jobId: 'job-two' });
-    // Not a byte-for-byte guarantee for every possible pair, but job-one/job-two
-    // hash to different offsets — this pins the regression the spec calls out
-    // (every image getting the identical watermark placement).
     expect(Buffer.compare(a, b)).not.toBe(0);
   });
 
@@ -50,10 +62,6 @@ describe('WatermarkService', () => {
   });
 
   it('rejects with a clear error if applyWatermark is called before initWatermarkTile', async () => {
-    // The module-level tile cache is a singleton, so exercise the uninitialized
-    // state via a fresh module instance rather than the shared import above.
-    // finalize.ts's fail-closed guarantee depends on apply() throwing here,
-    // not silently returning the un-watermarked buffer.
     vi.resetModules();
     const fresh = await import('./watermark.js');
     const image = await makeTestImage(400, 400);

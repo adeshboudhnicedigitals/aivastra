@@ -220,6 +220,12 @@ export default function PricingPage(): React.ReactElement {
     staleTime: 60_000,
   });
 
+  const { data: me } = useQuery<{ tier: string }>({
+    queryKey: ['me'],
+    queryFn: () => api.get('/v1/me'),
+    staleTime: 60_000,
+  });
+
   const { data: paymentHistory } = useQuery<{
     payments: {
       planId: string;
@@ -451,16 +457,23 @@ export default function PricingPage(): React.ReactElement {
 
       {/* Current Plan Banner */}
       {(() => {
-        const latestPaid = paymentHistory?.payments?.find((p) => p.status === 'paid') ?? null;
-        const planName = latestPaid?.planName ?? 'Free Trial';
+        const currentTier = me?.tier ?? 'free';
         const balance = credits?.balance ?? 0;
-        // For paid plans use the plan's credit count; for free trial find the FREE_TRIAL ledger entry
+        const currentPaidPlan = plans.find((plan) => plan.slug === currentTier) ?? null;
+        const latestPaidForCurrentTier =
+          paymentHistory?.payments?.find((p) => p.status === 'paid' && p.planId === currentTier) ?? null;
         const freeTrialGrant =
           credits?.recent?.find((e) => e.reason === 'FREE_TRIAL' && e.delta > 0)?.delta ?? null;
-        const planCredits: number | null = latestPaid?.credits ?? freeTrialGrant;
+        const isFreeTier = currentTier === 'free';
+        const planName = isFreeTier
+          ? 'Free'
+          : (currentPaidPlan?.name ?? latestPaidForCurrentTier?.planName ?? currentTier);
+        const planCredits: number | null = isFreeTier
+          ? freeTrialGrant
+          : (currentPaidPlan?.credits ?? latestPaidForCurrentTier?.credits ?? null);
         const pct = planCredits ? Math.min(100, Math.round((balance / planCredits) * 100)) : 100;
-        const activatedDate = latestPaid?.paidAt
-          ? new Date(latestPaid.paidAt).toLocaleDateString('en-IN', {
+        const activatedDate = latestPaidForCurrentTier?.paidAt
+          ? new Date(latestPaidForCurrentTier.paidAt).toLocaleDateString('en-IN', {
               day: 'numeric',
               month: 'long',
               year: 'numeric',
