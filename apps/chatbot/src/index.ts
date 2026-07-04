@@ -2,7 +2,7 @@ import { createLogger } from '@aivastra/logger';
 import { genModelConfig, makeModel, toolModelConfig } from './agent/models.js';
 import { runChatSweeper } from './conversation/sweeper.js';
 import { loadEnv } from './env.js';
-import { makeOpenAiEmbedder } from './ingest/embedder.js';
+import { makeGeminiEmbedder } from './ingest/embedder.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
 import { buildChatbotServer } from './server.js';
@@ -13,7 +13,7 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const { db, close: closeDb } = makeDb(env);
   const { main: redis, pub, sub, close: closeRedis } = makeRedis(env);
-  const embed = makeOpenAiEmbedder(env.OPENAI_API_KEY, env.CHATBOT_EMBED_MODEL);
+  const embed = makeGeminiEmbedder(env.GOOGLE_API_KEY, env.CHATBOT_EMBED_MODEL);
 
   const deps = {
     env,
