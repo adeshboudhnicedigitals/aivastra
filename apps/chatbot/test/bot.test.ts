@@ -139,6 +139,27 @@ describe('bot agent', () => {
     expect(r.kind).toBe('escalate');
   });
 
+  it('escalate sentinel missing the closing slash still escalates, not leaks as text', async () => {
+    // Regression: a real free-tier model emitted `<escalate>` (no slash) in live testing —
+    // the exact-match `<escalate/>` check missed it and leaked the tag into the user answer.
+    const toolModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });
+    const genModel = new FakeStreamingChatModel({
+      responses: [new AIMessage('Sorry, let me get a human.\n<escalate>')],
+    });
+    const r = await runBotTurn({
+      deps: t.deps,
+      toolModel,
+      genModel,
+      userId,
+      convId: crypto.randomUUID(),
+      history: [],
+      userMessage: 'I demand a refund now',
+      signal: new AbortController().signal,
+    });
+    expect(r.kind).toBe('escalate');
+    expect(r.content).toBe('');
+  });
+
   it('empty generation output falls back rather than answering blank', async () => {
     const toolModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });
     const genModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });

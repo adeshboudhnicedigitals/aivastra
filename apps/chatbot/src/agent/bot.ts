@@ -16,7 +16,11 @@ export const FALLBACK_COPY =
 const ROUTER_PROMPT = `You are the tool-routing step of the Aivastra support assistant.
 Decide which tools (if any) are needed to answer the user's latest message, then call them.
 - Use searchKnowledge for policy/how-to/pricing questions.
-- Use getCredits / getRecentJobs for questions about the current user's own account.
+- Use getCredits for balance/credits questions (e.g. "how many credits do I have", "what's my balance").
+- Use getRecentJobs for ANY question about the user's own jobs, generations, orders, or history
+  (e.g. "my recent jobs", "job history", "what have I submitted", "last generation", "my orders").
+  Never answer these from memory — always call getRecentJobs first, even if you think you know
+  the answer, since you have no real data about this user's account.
 - For greetings, small talk, or anything no tool can help with, call no tools.`;
 
 const GEN_SYSTEM_PROMPT = `You are the Aivastra support assistant for logged-in users, writing the final reply.
@@ -110,7 +114,10 @@ export async function runBotTurn(opts: {
   const meta = { toolCalls: turnCtx.toolCalls, qnaIds: [...new Set(turnCtx.qnaIds)] };
 
   if (!text.trim()) return { kind: 'fallback', content: FALLBACK_COPY, meta };
-  if (text.includes('<escalate/>')) return { kind: 'escalate', content: '', meta };
+  // Weaker/free models don't always reproduce the exact self-closing `<escalate/>` sentinel
+  // (observed live: a model emitted `<escalate>` with no slash) — match both forms so the
+  // marker never leaks into the user-facing answer instead of triggering escalation.
+  if (/<escalate\s*\/?\s*>/i.test(text)) return { kind: 'escalate', content: '', meta };
 
   const usedAccountTool = turnCtx.toolCalls.some(
     (n) => n === 'getCredits' || n === 'getRecentJobs',
