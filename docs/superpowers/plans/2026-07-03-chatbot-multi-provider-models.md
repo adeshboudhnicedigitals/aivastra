@@ -534,9 +534,7 @@ describe('bot agent', () => {
     expect(r.kind).toBe('escalate');
   });
 
-  it('generation model without tool bindings still receives tool results as messages', async () => {
-    // this is really the same case as the getCredits test above; kept as a separate
-    // assertion that empty genModel content falls back to 'fallback', not 'answer'
+  it('empty generation output falls back rather than answering blank', async () => {
     const toolModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });
     const genModel = new FakeStreamingChatModel({ responses: [new AIMessage('')] });
     const r = await runBotTurn({
