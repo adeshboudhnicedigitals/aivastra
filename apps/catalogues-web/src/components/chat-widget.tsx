@@ -1,9 +1,65 @@
 'use client';
 import type { ChatMessageT, WsServerFrameT } from '@aivastra/types';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { getToken } from '../lib/api';
 
 const CHATBOT_URL = process.env.NEXT_PUBLIC_CHATBOT_URL || 'http://localhost:4200';
+
+// Renders the light markdown subset the bot model actually emits (**bold**, numbered/
+// bulleted lists) — no markdown library in this repo, and the widget has no other rich
+// content needs, so a small hand-rolled parser avoids pulling one in.
+function renderInline(text: string) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+  return parts.map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') ? (
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : (
+      <Fragment key={i}>{part}</Fragment>
+    ),
+  );
+}
+
+function renderMessageContent(content: string) {
+  const lines = content.split('\n');
+  const blocks: React.ReactNode[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+
+  const flushList = () => {
+    if (!list) return;
+    const Tag = list.ordered ? 'ol' : 'ul';
+    blocks.push(
+      <Tag key={blocks.length} style={{ margin: '4px 0', paddingLeft: '20px' }}>
+        {list.items.map((item, i) => (
+          <li key={i}>{renderInline(item)}</li>
+        ))}
+      </Tag>,
+    );
+    list = null;
+  };
+
+  for (const line of lines) {
+    const ordered = line.match(/^\s*\d+\.\s+(.*)/);
+    const bulleted = line.match(/^\s*[-*]\s+(.*)/);
+    if (ordered) {
+      if (!list || !list.ordered) {
+        flushList();
+        list = { ordered: true, items: [] };
+      }
+      list.items.push(ordered[1] ?? '');
+    } else if (bulleted) {
+      if (!list || list.ordered) {
+        flushList();
+        list = { ordered: false, items: [] };
+      }
+      list.items.push(bulleted[1] ?? '');
+    } else {
+      flushList();
+      if (line.trim()) blocks.push(<div key={blocks.length}>{renderInline(line)}</div>);
+    }
+  }
+  flushList();
+  return blocks;
+}
 
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
@@ -169,7 +225,7 @@ export function ChatWidget() {
                   textAlign: m.role === 'system' ? 'center' : 'left',
                 }}
               >
-                {m.content}
+                {renderMessageContent(m.content)}
               </div>
             ))}
             {typing && (
