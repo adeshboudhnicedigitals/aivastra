@@ -20,7 +20,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
     { preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'SUPPORT', 'ADMIN']) },
     async () => {
       const raw = await app.redis.get(KEY);
-      const cfg = raw ? JSON.parse(raw) : { creditCostPerJob: 1, maxJobsPerDay: 50 };
+      const cfg = raw ? JSON.parse(raw) : {};
       cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
       return cfg;
     },

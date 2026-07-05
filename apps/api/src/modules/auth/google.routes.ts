@@ -82,10 +82,11 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       picture?: string;
     };
 
-    const configRaw = await app.redis.get('config:system');
-    const freeTrialCredits: number = configRaw
-      ? ((JSON.parse(configRaw) as { freeTrialCredits?: number }).freeTrialCredits ?? 0)
-      : 0;
+    const [freePlan] = await app.db
+      .select({ credits: schema.creditPlans.credits })
+      .from(schema.creditPlans)
+      .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
+    const freeCredits = freePlan?.credits ?? 0;
 
     // Upsert user in a transaction
     const userId = await app.db.transaction(async (tx) => {
@@ -144,21 +145,22 @@ export async function googleAuthRoutes(app: FastifyInstance) {
             passwordHash: null,
             displayName: googleUser.name ?? null,
             emailVerified: true,
+            tier: 'free',
           })
           .returning({ id: schema.users.id });
         uid = newUser?.id;
         await tx.insert(schema.userCredits).values({ userId: uid, balance: 0 });
-        if (freeTrialCredits > 0) {
+        if (freeCredits > 0) {
           await tx
             .update(schema.userCredits)
             .set({
-              balance: sql`${schema.userCredits.balance} + ${freeTrialCredits}`,
+              balance: sql`${schema.userCredits.balance} + ${freeCredits}`,
               updatedAt: new Date(),
             })
             .where(eq(schema.userCredits.userId, uid));
           await tx
             .insert(schema.creditLedger)
-            .values({ userId: uid, delta: freeTrialCredits, reason: 'FREE_TRIAL' });
+            .values({ userId: uid, delta: freeCredits, reason: 'FREE_TRIAL' });
         }
       }
 

@@ -1,3 +1,213 @@
+## 2026-07-03 - Watermark Opacity Tuned to 0.055
+
+### Done
+- Lowered dispatcher watermark compositing opacity in `apps/dispatcher/src/workflow/watermark.ts` from `0.11` to `0.055` per visual review of generated samples.
+- This is a calibration-only change on top of the earlier renderer bug fix; tiling behavior and jobId-seeded layout remain unchanged.
+- Verified with `pnpm --filter @aivastra/dispatcher test -- watermark`.
+
+### Failed / Not Done
+- Did not yet convert the watermark asset itself from multicolor branding to monochrome white; that remains a separate visual-direction change if the lighter alpha still feels too prominent.
+
+### Open Questions / Decisions
+- After redeploy, compare one fresh sample against the previous build. If the watermark still feels too visible, the next effective change is asset simplification rather than reducing alpha much further.
+## 2026-07-03 - Watermark Opacity Bug Fixed
+
+### Done
+- Fixed the dispatcher watermark compositing bug in `apps/dispatcher/src/workflow/watermark.ts` that was making the overlay appear much stronger than intended.
+- Root cause: the old code used `ensureAlpha(0.12)` on the full watermark tile canvas, which applied low alpha to the entire tile instead of only the logo region and created a subtle full-image veil underneath the repeated watermark.
+- Changed the renderer so the tile background stays fully transparent and only the centered watermark logo/wordmark is composited at low opacity (`0.11`).
+- Increased tile spacing modestly so the repeated pattern reads lighter and less busy.
+- Added a regression test in `apps/dispatcher/src/workflow/watermark.test.ts` that checks the composite stays visually subtle instead of globally lifting a black image too much.
+- Verified with `pnpm --filter @aivastra/dispatcher test -- watermark`.
+
+### Failed / Not Done
+- Did not yet calibrate against multiple real production samples with very bright garments/backgrounds; this pass fixes the renderer bug and brings the effect closer to the intended stock-watermark style.
+
+### Open Questions / Decisions
+- After the next deploy, re-check one dark-background and one light-background catalogue output. If the watermark still feels too visible, the next adjustment should be reducing `WATERMARK_OPACITY` slightly before changing the brand asset again.
+## 2026-07-03 - Dedicated Dispatcher Watermark Asset
+
+### Done
+- Replaced the placeholder text-only dispatcher watermark asset in `apps/dispatcher/assets/watermark-logo.svg` with a dedicated white watermark SVG.
+- The new asset now includes a simple geometric brand mark plus the `Aivastra` wordmark, designed specifically for the tiled low-opacity watermark overlay.
+- Kept the asset lightweight and Sharp-compatible so dispatcher startup and watermark compositing remain stable.
+- Verified with `pnpm --filter @aivastra/dispatcher test -- watermark`.
+
+### Failed / Not Done
+- Did not attempt to reuse the existing public logo SVGs because they are raster images embedded inside SVG wrappers, which would make the watermark asset heavier and less predictable for backend compositing.
+
+### Open Questions / Decisions
+- If design later provides a true vector master logo, we should swap this handcrafted watermark asset for the canonical brand asset while preserving the same dimensions and white-on-transparent treatment.
+## 2026-07-03 - Watermark Visual Tone Updated to Light White
+
+### Done
+- Updated apps/dispatcher/assets/watermark-logo.svg so the watermark wordmark renders in white instead of black.
+- This keeps the existing low-opacity tiling/compositing behavior but makes the final watermark read as a lighter, less intrusive protective overlay on catalogue images.
+
+### Failed / Not Done
+- Did not add adaptive light/dark watermark variants in this pass; the asset is now uniformly white.
+
+### Open Questions / Decisions
+- If the watermark becomes too faint on very bright garments or backgrounds, the next step should be adaptive contrast rather than increasing global opacity too aggressively.
+## 2026-07-03 - Pricing Page Current Plan Source-of-Truth Fix
+
+### Done
+- Fixed the catalogue pricing banner in apps/catalogues-web/src/app/(app)/pricing/page.tsx to use /v1/me.tier as the source of truth for the current plan instead of deriving it from the latest paid payment row.
+- The page now only uses payment history for activation date and paid-plan metadata that matches the active tier, which prevents free-tier users from being shown as Starter/Growth/Business just because they purchased that plan in the past.
+
+### Failed / Not Done
+- Did not change payment history itself or admin user tier behavior; this was a frontend source-of-truth mismatch.
+
+### Open Questions / Decisions
+- If you want the pricing page to show richer free-plan metadata in the future, that should come from a dedicated API response or an authenticated plan-details endpoint rather than inferred from payment history.
+## 2026-07-03 - Dispatcher Production Watermark Asset Path Fix
+
+### Done
+- Fixed the dispatcher watermark asset lookup in apps/dispatcher/src/workflow/watermark.ts to resolve the SVG relative to the module via import.meta.url instead of process.cwd().
+- This fixes the production container crash loop where the dispatcher looked for /app/assets/watermark-logo.svg even though the file is shipped at /app/apps/dispatcher/assets/watermark-logo.svg.
+- Root cause confirmed from production logs: watermark initialization failed closed at startup, which in turn let worker health TTLs expire and made healthy workers appear unhealthy in admin.
+
+### Failed / Not Done
+- Did not change watermarking behavior itself or the fail-closed startup policy; this fix is strictly path resolution.
+
+### Open Questions / Decisions
+- After deploy, confirm the dispatcher remains up with ENABLE_WATERMARKING=true and that admin worker health repopulates within one health-monitor interval.
+## 2026-07-03 - Watermarking/Regenerate: Fixed 3 Blockers Found in Review
+
+### Done
+Review of the antigravity implementation (previous entry below) found 3 blocking gaps against the
+spec and 2 follow-ups; all fixed and verified with new tests run against live Postgres/Redis/MinIO
+(`pnpm docker:up`), not just typecheck:
+- **Regenerate now reuses job creation instead of duplicating it.** `apps/api/src/modules/jobs/regenerate.ts`
+  previously hand-rolled its own plan lookup, cost calc, and insert/enqueue — already diverging from
+  `create.ts`'s pose-workflow-driven lower/shoe catalog stripping. Rewrote it to reconstruct the
+  request shape and call `createJob` / `createSimpleTryonJob` / `createSareeJob` directly, matching
+  the spec's explicit "do not special-case pricing for regenerate" rule. Added `sourceJobId` to the
+  stored params on tryon-direct jobs (`create.ts`) so regenerate can resolve that path the same way.
+- **UI now gates on `assetKind` + current plan, not the creation-time `job.watermark` snapshot.**
+  `apps/catalogues-web/.../catalogues/[id]/page.tsx` was checking `job.watermark`, which meant a
+  kill-switch override during processing would show a false watermark banner, and a still-free user
+  could see a "Regenerate without Watermark" CTA that would just charge them for another watermarked
+  image. Added `currentPlanWatermark` to the `/v1/catalogues/:id` response and switched both the
+  banner and CTA to `assetKind === 'WATERMARKED'` (+ `currentPlanWatermark === false` for the CTA).
+  Also fixed two pre-existing typecheck errors in this file (duplicate `queuePosition` prop, `zoom`
+  passed directly as an `img src` instead of `zoom.url`) that meant this file had never actually
+  typechecked since being written.
+- **Wrote the missing test suite** — none existed before this pass despite the spec calling several
+  out explicitly ("write a test for it" / "regression guard"): dispatcher unit tests for
+  `WatermarkService` (5 tests, `src/workflow/watermark.test.ts`), dispatcher integration tests for
+  fail-closed behavior and the end-to-end upgrade-mid-flight snapshot regression (5 tests across two
+  new files in `test/integration/`), and API integration tests for the regenerate endpoint including
+  the exact lower/shoe-stripping parity scenario the review flagged (6 tests,
+  `apps/api/test/integration/regenerate.test.ts`).
+- Writing real tests surfaced two additional bugs that had never been exercised:
+  1. `WatermarkService.initWatermarkTile()` sized the tile canvas from the SVG logo's *pre-transform*
+     metadata instead of the post-resize/rotate buffer, so `.composite()` always threw — the
+     dispatcher would `process.exit(1)` on every boot with `ENABLE_WATERMARKING=true` (the default).
+  2. Chaining `.extend({ extendWith: 'repeat' })` directly into `.extract()` in one sharp pipeline
+     throws `bad extract area` in the installed sharp version even when the extended buffer is
+     provably large enough; fixed by materializing the extended buffer first.
+- Seeded the jobId offset that P1-5 called for (`tileOffsetForJob()`, sha256-derived, mod tile
+  dimensions) — the original `applyWatermark()` ignored `opts.jobId` entirely and always composited
+  from `(0,0)`, so every image got an identical watermark placement.
+- Fixed a pre-existing dispatcher test-infra bug unrelated to this feature but blocking all
+  integration tests locally: `test/helpers/containers.ts` hardcoded Postgres port 5432, this machine's
+  `.env` uses 5433. Now reads `POSTGRES_PORT` with the same default docker-compose uses. Added
+  `/upload/image` support to `test/helpers/comfy-mock.ts` (needed by the saree job path, previously
+  unsupported) and a `vitest.integration.config.ts` for the dispatcher package, mirroring the API
+  package's existing split between unit (`vitest.config.ts`, excludes `test/integration`) and
+  integration (`vitest.integration.config.ts`) runs.
+
+### Failed / Not Done
+- Did **not** attempt to fix the pre-existing `happy-path.test.ts` / `recovery.test.ts` /
+  `retry.test.ts` dispatcher integration tests — they seed `catalog_items` with columns from a schema
+  version that predates the current `faceId`/`backgroundId`/`poseId` model-asset split (`type` is now
+  `NOT NULL` with no default and means `'lower' | 'shoe'`, not a free-form label). This is unrelated
+  pre-existing rot, confirmed by reverting all watermarking changes and re-running them with the same
+  failure. Out of scope for this pass; flagging here since it means the "regular studio job" path has
+  no passing dispatcher-level test coverage at all right now.
+
+### Open Questions / Decisions
+- `apps/dispatcher/assets/watermark-logo.svg` is still a placeholder (per the entry below) — needs a
+  real asset from design before production rollout with `ENABLE_WATERMARKING=true`.
+
+## 2026-07-03 - Implemented Free-Tier Watermarking & Regenerate Feature
+
+### Done
+- Implemented the free-tier watermarking and regenerate feature according to the frozen spec (`2026-07-02-free-tier-watermarking-and-regenerate.md`).
+- **Step 1:** Added migrations for `credit_plans.watermark`, `jobs.watermark`, `jobs.parent_job_id`, `job_outputs.asset_kind`, and `job_outputs.watermark_version`.
+- **Step 2:** Refactored `apps/dispatcher/src/workflow/finalize.ts` to centralize output finalization across all job types (`tryon`, `saree`, `tryon_direct`).
+- **Step 3:** Updated job creation routes (`create.ts`, `createSaree.ts`) to snapshot the `watermark` entitlement onto the `jobs` table.
+- **Step 4:** Implemented `WatermarkService` (`watermark.ts`) to initialize and tile a placeholder SVG logo during dispatcher startup, failing closed on initialization errors. Wired it into `finalizeOutput` behind the `ENABLE_WATERMARKING` kill switch.
+- **Step 5:** Updated Admin UI (`SettingsPage.tsx`) and API validation (`creditPlans.routes.ts`) to include a "Watermark" toggle for credit plans.
+- **Step 6:** Created the `POST /v1/jobs/:id/regenerate` endpoint (`regenerate.ts`) that re-validates assets, resolves current cost and entitlement, creates a new job with `parentJobId`, and enqueues it.
+- **Step 7:** Updated Catalogue UI (`CataloguePage.tsx`) to display a "Watermarked - Upgrade to remove" banner over watermarked image cards and added a "Regenerate without Watermark" CTA button in the expanded view.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- A placeholder SVG logo (`watermark-logo.svg`) was added to `apps/dispatcher/assets/` to satisfy the dispatcher's strict startup requirements. A proper asset needs to be provided by the design team for production.
+
+## 2026-07-03 - Free-Tier Watermarking Spec Frozen, Handed Off
+### Done
+- Ran a multi-round architecture review of `docs/superpowers/specs/2026-07-02-free-tier-watermarking-and-regenerate.md` (free-tier images watermarked, paid-tier clean, upgrade unlocks a billed "regenerate" job rather than retroactively unwatermarking).
+- Settled the core invariant: `credit_plans.watermark` is joined once at job creation and snapshotted onto `jobs.watermark` (mirroring the existing `queueStream` precedent); the dispatcher only ever reads the snapshot, never `credit_plans`/`users.tier` directly, so mid-queue plan changes can't retroactively affect an in-flight job.
+- Spec covers: additive-only migrations (`credit_plans.watermark`, `jobs.watermark`, `jobs.parent_job_id`, `job_outputs.asset_kind`, `job_outputs.watermark_version`), a shared `finalizeOutput()` dispatcher helper (also removes existing triplicated download/upload/thumbnail logic), fail-closed watermark failure handling, `ENABLE_WATERMARKING` kill switch with WARN-level logging on override, dispatcher startup validation for the watermark asset, structured per-job logging, and a `POST /v1/jobs/:id/regenerate` endpoint that re-validates and re-bills as a new job.
+- Rollout intentionally sequenced so the dispatcher refactor ships and is verified before any watermarking behavior is enabled.
+- Spec marked **Architecture Approved / frozen** and handed off for implementation (outside this session's architect/reviewer role).
+
+### Failed / Not Done
+- No code written this session — pure design/spec work, as scoped.
+
+### Open Questions / Decisions
+- None outstanding; any further changes are expected to come from implementation/staging findings, not further design discussion.
+
+## 2026-07-02 - Free Plan Design Gap Fixes
+
+### Done
+- Reviewed `docs/superpowers/specs/2026-07-02-unify-free-plan-credit-plans-design.md` against the actual codebase and found the design was already fully implemented (migrations 0077-0079, admin/pricing UI, tier validation) — the doc's own "Trade-offs" section still listed 4 real gaps in the shipped design, all now fixed:
+- Added migration `0080_users_tier_fk_credit_plans.sql`: normalizes any orphaned `users.tier` value to `'free'`, then adds a DB-level `FOREIGN KEY (tier) REFERENCES credit_plans(slug) ON DELETE RESTRICT` — the design's stated invariant ("tier always matches a plan") is now enforced by Postgres, not just convention.
+- `creditPlans.routes.ts` DELETE now also blocks deleting a plan that any user currently has as their `tier` (409, in addition to the existing payments check) — the FK is a backstop, this gives a clean error instead of a raw constraint violation.
+- `creditPlans.routes.ts` PATCH now blocks deactivating the free plan (`isActive: false`) — previously an admin could silently zero out free-signup credits for new users with no warning, since only slug-change and delete were guarded.
+- Applied migration 0080 against local dev DB (clean, no orphaned data); `pnpm --filter @aivastra/api typecheck`, `pnpm --filter @aivastra/db typecheck`, and `pnpm --filter @aivastra/api test:unit` all pass.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Did not add `.references()` on the `users.tier` schema.ts column to avoid a circular import with `credits.ts` (which already imports `users.ts`) — the FK exists at the DB level via the raw SQL migration; a comment in `schema.ts` documents this.
+
+## 2026-07-02 - Admin Free Plan Card
+
+### Done
+- Added a dedicated `Free Plan` card to `Settings -> Credit Plans` in the admin web app.
+- Split the generic credit-plan table so the `free` plan is shown separately from paid plans.
+- Added explicit copy that the `Credits` field on the free plan controls the one-time signup allocation for new users.
+- Kept the free-plan edit action prominent while leaving deletion available only for paid plans.
+- Validation passed: `pnpm --filter @aivastra/admin build`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+## 2026-07-02 - Free Plan Unified Into Credit Plans
+
+### Done
+- Added migration `0079_user_tier_default_free.sql` and updated the Drizzle schema so new users default to `tier = 'free'` instead of `'FREE'`.
+- Completed backend tier normalization follow-through: bootstrap admin creation now sets `tier: 'free'`; admin user PATCH now validates tier values against active `credit_plans.slug`; public `/v1/payments/plans` no longer returns the `free` plan.
+- Updated seed and dispatcher integration fixtures to use plan slugs (`free`, `starter`, `growth`, `business`) instead of legacy `FREE/PRO/ENTERPRISE` values.
+- Removed stale `freeTrialCredits` usage from admin web and admin mobile system-config flows so free credits are no longer edited through Redis-backed config.
+- Added admin-web tier assignment UI backed by `/admin/credit-plans`, and blocked free-plan deletion in both admin web and admin mobile editors.
+- Updated storefront pricing to filter out the `free` plan and refreshed mobile tier presentation to treat `free` as the baseline plan slug instead of a special uppercase tier.
+- Validation passed: `pnpm --filter @aivastra/api typecheck`, `pnpm --filter @aivastra/admin build`, `pnpm --filter @aivastra/web typecheck`.
+
+### Failed / Not Done
+- Admin mobile was not typechecked in this pass; the repo's Expo setup does not expose a lightweight standalone typecheck command here.
+
+### Open Questions / Decisions
+- The job creation paths still keep a defensive `?? 'normal'` queue fallback even though tiers now normalize to credit plan slugs. That fallback is harmless, but if you want the code to hard-fail on data drift instead, that would be a separate tightening change.
 # Project Progress
 
 ## 2026-07-03 — Chatbot Multi-Provider Model Selection
@@ -1777,3 +1987,8 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
+
+
+
+
+

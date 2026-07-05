@@ -47,7 +47,10 @@ export async function createSareeJob(
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
     app.db
-      .select({ queueStream: schema.creditPlans.queueStream })
+      .select({
+        queueStream: schema.creditPlans.queueStream,
+        watermark: schema.creditPlans.watermark,
+      })
       .from(schema.users)
       .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
       .where(eq(schema.users.id, userId)),
@@ -56,6 +59,7 @@ export async function createSareeJob(
 
   const queueStream: string = planRow?.queueStream ?? 'normal';
   const priority = queueStream === 'priority';
+  const watermark: boolean = planRow?.watermark ?? false;
 
   // 5. Deduct + insert in a single txn (mirrors createSimpleTryonJob).
   const catalogueId = randomUUID();
@@ -68,6 +72,7 @@ export async function createSareeJob(
         status: 'QUEUED',
         priority,
         queueStream,
+        watermark,
         creditsCharged: COST,
       })
       .returning();

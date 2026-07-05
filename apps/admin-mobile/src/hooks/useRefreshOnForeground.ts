@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus } from 'react-native';
 
-export function useRefreshOnForeground(refresh: () => Promise<unknown> | void) {
+export function useRefreshOnForeground(refresh: () => Promise<unknown> | undefined) {
   const appState = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {

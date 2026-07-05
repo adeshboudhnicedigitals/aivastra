@@ -6,18 +6,8 @@ import type { User } from '../types';
 
 export function UserRow({ user, onPress }: { user: User; onPress: () => void }) {
   const { colors } = useAppTheme();
-  const tierBackground =
-    user.tier === 'FREE'
-      ? colors.surfaceVariant
-      : user.tier === 'PRO'
-        ? colors.accentContainer
-        : colors.infoContainer;
-  const tierText =
-    user.tier === 'PRO'
-      ? colors.onAccentContainer
-      : user.tier === 'FREE'
-        ? colors.textSecondary
-        : colors.info;
+  const tierBackground = user.tier === 'free' ? colors.surfaceVariant : colors.accentContainer;
+  const tierText = user.tier === 'free' ? colors.textSecondary : colors.onAccentContainer;
   return (
     <TouchableOpacity
       accessibilityHint="Opens user details"

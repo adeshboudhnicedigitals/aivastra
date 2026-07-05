@@ -114,25 +114,26 @@ export async function authRoutes(app: FastifyInstance) {
       const passwordHash = await hashPassword(password);
       const [user] = await app.db
         .insert(schema.users)
-        .values({ email, passwordHash, displayName })
+        .values({ email, passwordHash, displayName, tier: 'free' })
         .returning();
       await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
 
-      const configRaw = await app.redis.get('config:system');
-      const freeTrialCredits: number = configRaw
-        ? ((JSON.parse(configRaw) as { freeTrialCredits?: number }).freeTrialCredits ?? 0)
-        : 0;
-      if (freeTrialCredits > 0) {
+      const [freePlan] = await app.db
+        .select({ credits: schema.creditPlans.credits })
+        .from(schema.creditPlans)
+        .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
+      const freeCredits = freePlan?.credits ?? 0;
+      if (freeCredits > 0) {
         await app.db
           .update(schema.userCredits)
           .set({
-            balance: sql`${schema.userCredits.balance} + ${freeTrialCredits}`,
+            balance: sql`${schema.userCredits.balance} + ${freeCredits}`,
             updatedAt: new Date(),
           })
           .where(eq(schema.userCredits.userId, user.id));
         await app.db
           .insert(schema.creditLedger)
-          .values({ userId: user.id, delta: freeTrialCredits, reason: 'FREE_TRIAL' });
+          .values({ userId: user.id, delta: freeCredits, reason: 'FREE_TRIAL' });
       }
 
       // Send verification email

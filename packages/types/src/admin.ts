@@ -6,13 +6,13 @@ export const GrantCreditsBody = z.object({
   reason: z.string().max(200).optional(),
 });
 export const BulkGrantBody = z.object({
-  tier: z.enum(['FREE', 'PRO']),
+  tier: z.string().min(1).max(64),
   amount: z.number().int().positive().max(10_000),
   reason: z.string().min(1).max(200),
 });
 export const DeductCreditsBody = GrantCreditsBody;
 export const UpdateUserBody = z.object({
-  tier: z.enum(['FREE', 'PRO']).optional(),
+  tier: z.string().min(1).max(64).optional(),
   isBanned: z.boolean().optional(),
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
@@ -67,9 +67,6 @@ const ResolutionConfig = z.object({
 });
 
 export const SystemConfigBody = z.object({
-  creditCostPerJob: z.number().int().positive().max(100).optional(),
-  maxJobsPerDay: z.number().int().positive().max(10_000).optional(),
-  freeTrialCredits: z.number().int().min(0).max(10_000).optional(),
   resolutions: z
     .object({
       HD: ResolutionConfig.optional(),

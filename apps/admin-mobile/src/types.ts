@@ -314,9 +314,6 @@ export interface ResolutionConfig {
 }
 
 export interface SystemConfig {
-  creditCostPerJob: number;
-  maxJobsPerDay: number;
-  freeTrialCredits: number;
   resolutions: Record<'HD' | '2K' | '4K', ResolutionConfig>;
 }
 

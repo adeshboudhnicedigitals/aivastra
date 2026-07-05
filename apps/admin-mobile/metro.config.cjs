@@ -6,6 +6,7 @@ const workspaceRoot = path.resolve(projectRoot, '../..');
 const config = getDefaultConfig(projectRoot);
 const mobileNodeModules = path.resolve(projectRoot, 'node_modules');
 
+config.projectRoot = projectRoot;
 config.watchFolders = [workspaceRoot];
 
 const { transformer, resolver } = config;

@@ -10,7 +10,6 @@ import { StatCard } from '../../components/StatCard';
 import { WorkerCard } from '../../components/WorkerCard';
 import { useApi } from '../../hooks/useApi';
 import { useRefreshOnForeground } from '../../hooks/useRefreshOnForeground';
-import { timeAgo } from '../../lib/format';
 import { useAppTheme } from '../../store/theme';
 import { Radius, Spacing, Typography } from '../../styles/tokens';
 import type { Stats } from '../../types';

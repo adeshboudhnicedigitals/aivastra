@@ -424,7 +424,6 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                   value={editLabel}
                   disabled={editSaving}
                   onChange={(e) => setEditLabel(e.target.value)}
-                  autoFocus
                 />
               </div>
               <div className="field">

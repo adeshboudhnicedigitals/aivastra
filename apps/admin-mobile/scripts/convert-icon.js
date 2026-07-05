@@ -1,9 +1,9 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import sharp from 'sharp';
 
 const svgPath = 'D:\\aivastra\\webtool\\apps\\admin-mobile\\assets\\favicon.svg';
-const svg = fs.readFileSync(svgPath);
+const _svg = fs.readFileSync(svgPath);
 
 // Android mipmap sizes (actual icon size, not pixel density)
 const DENSITIES = {
@@ -38,7 +38,7 @@ async function generateIcons() {
   const foreground1024 = await sharp(svgBuffer).resize(1024, 1024).png().toBuffer();
   // For the foreground, we need a drawable that has proper padding
   // Adaptive icons typically have a 25% safe zone, so we create a padded version
-  const padded1024 = await sharp({
+  const _padded1024 = await sharp({
     create: {
       width: 1024,
       height: 1024,
