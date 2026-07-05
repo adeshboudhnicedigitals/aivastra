@@ -1,3 +1,25 @@
+## 2026-07-05 - Multi-App Phase 0 Auth Foundation Implemented
+
+### Done
+- Added the `kiosk_devices` schema/table migration and extended `refresh_tokens` with nullable `kiosk_device_id` / `widget_client_id` owners plus the database `num_nonnulls(...) = 1` check.
+- Added kiosk pairing, claim, refresh, logout, merchant device management, admin nested device management, and `requireKioskDevice` auth plumbing.
+- Added `apps/api/test/integration/kiosk-auth.test.ts`; the new kiosk integration file passes against live Docker Postgres/Redis/MinIO.
+- Verified `pnpm --filter @aivastra/api typecheck` and repo-wide `pnpm typecheck` pass.
+
+### Failed / Not Done
+- `pnpm db:generate` could not safely generate the migration because Drizzle snapshots stop at `0045_snapshot.json` while the journal/SQL migrations continue through `0082`; it prompted about unrelated old table rename/create decisions. Migration `0083_kiosk_auth_foundation.sql` was added manually and documented in the phase Report Back.
+- The full API integration suite is still not green due to pre-existing stale tests outside this phase, including auth tests expecting register/login helpers to return access tokens and catalog/job tests seeding old schema shapes.
+
+### Open Questions / Decisions
+- Admin kiosk-device create/update routes are `SUPER_ADMIN`-only to match sibling widget-client mutation routes.
+- Pairing-code hashing normalizes input with `trim().toUpperCase()` while still only returning the plaintext code once.
+
+### Review follow-up (same day)
+- Codex's PowerShell-based file writes (its normal `apply_patch` sandbox was unavailable) introduced encoding damage: mojibake in two docs and stripped em-dashes across several source comments/log strings, plus one clobbered `app.log.error` call in the password-reset flow. All repaired during review.
+- Found and fixed a real ordering bug in `server.ts`'s error handler: the new generic-4xx branch was placed *before* the validation-error branch, which would have changed schema-validation failures from `code: 'VALIDATION'` to `code: 'HTTP_ERROR'` repo-wide. Reordered so validation keeps precedence; only framework-level 4xx (e.g. rate-limit's 429) falls through to the new branch.
+- Confirmed the 5 failing integration test files (`auth`, `catalog`, `credits`, `jobs-create`, `uploads`) are pre-existing rot unrelated to this phase — `registerAndLogin` fails before any Phase 0 code path runs, and the pre-push gate only runs `test:unit`, so these were already red at `origin/master`.
+- Full DoD re-verified after fixes: repo-wide `biome check --diagnostic-level=error` clean, `pnpm typecheck` all 10 projects pass, kiosk integration test (3/3) and full API unit suite (55/55) pass.
+
 ## 2026-07-03 - Watermark Opacity Tuned to 0.055
 
 ### Done
