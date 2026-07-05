@@ -44,3 +44,6 @@ assets/*
 .superpowers/*
 .opencode/*
 .codeboarding/
+
+/legacy_ecosystem/
+/apps/virtual-tryon-mobile&kiosk/
