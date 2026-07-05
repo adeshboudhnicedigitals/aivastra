@@ -41,6 +41,9 @@ export async function verifyAccess(secret: Uint8Array, token: string) {
 export async function verifyAdminAccess(secret: Uint8Array, token: string) {
   return (await jwtVerify(token, secret, { audience: 'admin', algorithms: ['HS256'] })).payload;
 }
+export async function verifyKioskAccess(secret: Uint8Array, token: string) {
+  return (await jwtVerify(token, secret, { audience: 'kiosk', algorithms: ['HS256'] })).payload;
+}
 
 export function newRefreshToken(): { plain: string; hash: string } {
   const plain = randomBytes(48).toString('base64url');
