@@ -1,10 +1,11 @@
 import { schema } from '@aivastra/db';
 import { WidgetClientSignup } from '@aivastra/types';
-import { count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../auth/service.js';
+import { createKioskDevice } from '../kiosk/provisioning.js';
 import { widgetAdminGrant } from '../widget/ledger.js';
 import { requireAdmin } from './guard.js';
 
@@ -16,6 +17,21 @@ const AdminCreditBody = z.object({
   amount: z.number().int().positive(),
   reason: z.string().min(1),
 });
+
+const AdminKioskDeviceBody = z.object({ label: z.string().min(1).max(120) });
+const AdminPatchKioskDeviceBody = z
+  .object({
+    label: z.string().min(1).max(120).optional(),
+    status: z.literal('revoked').optional(),
+  })
+  .refine((body) => body.label !== undefined || body.status !== undefined, {
+    message: 'label or status is required',
+  });
+
+function publicKioskDevice(device: typeof schema.kioskDevices.$inferSelect) {
+  const { pairingCodeHash: _pairingCodeHash, ...rest } = device;
+  return rest;
+}
 
 // Save-time shape check for merchant webhook URLs. This rejects the obvious cases
 // (non-https, hostnames that are literal private/loopback IPs) so an admin gets an
@@ -299,6 +315,53 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
         .limit(1);
 
       return { newBalance: credits?.balance ?? amount };
+    },
+  );
+  app.post(
+    '/v1/admin/widget-clients/:id/kiosk-devices',
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN']),
+      schema: { body: AdminKioskDeviceBody },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { label } = req.body as z.infer<typeof AdminKioskDeviceBody>;
+      const [client] = await app.db
+        .select({ id: schema.widgetClients.id })
+        .from(schema.widgetClients)
+        .where(eq(schema.widgetClients.id, id))
+        .limit(1);
+      if (!client) throw new AppError('NOT_FOUND', 404, 'Widget client not found');
+
+      const { device, pairingCode } = await createKioskDevice(app, id, label);
+      reply.code(201);
+      return { device: publicKioskDevice(device), pairingCode };
+    },
+  );
+
+  app.patch(
+    '/v1/admin/widget-clients/:id/kiosk-devices/:deviceId',
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN']),
+      schema: { body: AdminPatchKioskDeviceBody },
+    },
+    async (req) => {
+      const { id, deviceId } = req.params as { id: string; deviceId: string };
+      const body = req.body as z.infer<typeof AdminPatchKioskDeviceBody>;
+      const now = new Date();
+      const [updated] = await app.db
+        .update(schema.kioskDevices)
+        .set({
+          ...(body.label !== undefined ? { label: body.label } : {}),
+          ...(body.status === 'revoked' ? { status: 'revoked', revokedAt: now } : {}),
+          updatedAt: now,
+        })
+        .where(
+          and(eq(schema.kioskDevices.id, deviceId), eq(schema.kioskDevices.widgetClientId, id)),
+        )
+        .returning();
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'kiosk device not found');
+      return publicKioskDevice(updated);
     },
   );
 }

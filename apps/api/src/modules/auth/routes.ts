@@ -15,20 +15,44 @@ import {
 } from './service.js';
 import { createSessionTokens, parseDuration } from './tokens.js';
 
+type RefreshOwnerType = 'user' | 'kioskDevice' | 'widgetClient';
+
+type RefreshOwner = {
+  ownerType: RefreshOwnerType;
+  ownerId: string;
+};
+
 type RotationResult =
   | { kind: 'invalid' }
-  | { kind: 'reissue'; userId: string }
-  | {
+  | ({ kind: 'reissue' } & RefreshOwner)
+  | ({
       kind: 'rotated';
-      userId: string;
       refreshPlain: string;
       expiresAt: Date;
-    };
+    } & RefreshOwner);
 
-async function rotateTokenFamily(
+function refreshOwner(row: {
+  userId: string | null;
+  kioskDeviceId: string | null;
+  widgetClientId: string | null;
+}): RefreshOwner | null {
+  if (row.userId) return { ownerType: 'user', ownerId: row.userId };
+  if (row.kioskDeviceId) return { ownerType: 'kioskDevice', ownerId: row.kioskDeviceId };
+  if (row.widgetClientId) return { ownerType: 'widgetClient', ownerId: row.widgetClientId };
+  return null;
+}
+
+function refreshOwnerInsert(owner: RefreshOwner) {
+  if (owner.ownerType === 'user') return { userId: owner.ownerId };
+  if (owner.ownerType === 'kioskDevice') return { kioskDeviceId: owner.ownerId };
+  return { widgetClientId: owner.ownerId };
+}
+
+export async function rotateTokenFamily(
   app: FastifyInstance,
   plain: string,
   portal: string,
+  refreshExpiry = app.env.REFRESH_TOKEN_EXPIRY,
 ): Promise<RotationResult> {
   const tokenHash = hashRefresh(plain);
 
@@ -41,11 +65,17 @@ async function rotateTokenFamily(
 
     if (!row || row.expiresAt < new Date() || row.revokedAt) return { kind: 'invalid' } as const;
     if (row.portal !== portal) return { kind: 'invalid' } as const;
+    const owner = refreshOwner(row);
+    if (!owner) return { kind: 'invalid' } as const;
 
     if (row.usedAt) {
       const ageMs = Date.now() - row.usedAt.getTime();
       const [successor] = await tx
-        .select({ userId: schema.refreshTokens.userId })
+        .select({
+          userId: schema.refreshTokens.userId,
+          kioskDeviceId: schema.refreshTokens.kioskDeviceId,
+          widgetClientId: schema.refreshTokens.widgetClientId,
+        })
         .from(schema.refreshTokens)
         .where(
           and(
@@ -56,12 +86,13 @@ async function rotateTokenFamily(
         )
         .orderBy(desc(schema.refreshTokens.generation))
         .limit(1);
-      if (successor) {
+      const successorOwner = successor ? refreshOwner(successor) : null;
+      if (successorOwner) {
         app.log.info(
           { familyId: row.familyId, generation: row.generation, ageMs },
           'concurrent refresh: reissuing from active successor',
         );
-        return { kind: 'reissue', userId: successor.userId } as const;
+        return { kind: 'reissue', ...successorOwner } as const;
       }
       app.log.warn(
         { familyId: row.familyId, generation: row.generation, ageMs },
@@ -77,9 +108,9 @@ async function rotateTokenFamily(
       .where(eq(schema.refreshTokens.id, row.id));
 
     const r = newRefreshToken();
-    const expiresAt = new Date(Date.now() + parseDuration(app.env.REFRESH_TOKEN_EXPIRY));
+    const expiresAt = new Date(Date.now() + parseDuration(refreshExpiry));
     await tx.insert(schema.refreshTokens).values({
-      userId: row.userId,
+      ...refreshOwnerInsert(owner),
       familyId: row.familyId,
       generation: row.generation + 1,
       tokenHash: r.hash,
@@ -89,13 +120,12 @@ async function rotateTokenFamily(
 
     return {
       kind: 'rotated',
-      userId: row.userId,
+      ...owner,
       refreshPlain: r.plain,
       expiresAt,
     } as const;
   });
 }
-
 function makeToken(): string {
   return randomBytes(32).toString('hex');
 }
@@ -198,6 +228,7 @@ export async function authRoutes(app: FastifyInstance) {
 
       if (!row || row.expiresAt < new Date() || row.revokedAt) return { kind: 'invalid' } as const;
       if (row.portal !== 'web') return { kind: 'invalid' } as const;
+      if (!row.userId) return { kind: 'invalid' } as const;
 
       if (row.usedAt) {
         const ageMs = Date.now() - row.usedAt.getTime();
@@ -213,7 +244,7 @@ export async function authRoutes(app: FastifyInstance) {
           )
           .orderBy(desc(schema.refreshTokens.generation))
           .limit(1);
-        if (successor) {
+        if (successor?.userId) {
           app.log.info(
             { familyId: row.familyId, generation: row.generation, ageMs },
             'concurrent refresh: reissuing from active successor',
@@ -424,12 +455,15 @@ export async function authRoutes(app: FastifyInstance) {
       if (result.kind === 'invalid') {
         throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
       }
+      if (result.ownerType !== 'user') {
+        throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
+      }
 
       if (result.kind === 'reissue') {
         return {
           accessToken: await signAccess(
             secret,
-            result.userId,
+            result.ownerId,
             { kind: 'access' },
             app.env.JWT_EXPIRY,
             'admin',
@@ -441,7 +475,7 @@ export async function authRoutes(app: FastifyInstance) {
       return {
         accessToken: await signAccess(
           secret,
-          result.userId,
+          result.ownerId,
           { kind: 'access' },
           app.env.JWT_EXPIRY,
           'admin',

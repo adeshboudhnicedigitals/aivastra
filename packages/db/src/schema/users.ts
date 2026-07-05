@@ -1,4 +1,16 @@
-import { boolean, integer, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  boolean,
+  check,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import { kioskDevices } from './kiosk.js';
+import { widgetClients } from './widget.js';
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -16,21 +28,34 @@ export const users = pgTable('users', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const refreshTokens = pgTable('refresh_tokens', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  familyId: uuid('family_id').notNull(),
-  generation: integer('generation').notNull().default(1),
-  tokenHash: text('token_hash').notNull(),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-  revoked: boolean('revoked').notNull().default(false),
-  usedAt: timestamp('used_at', { withTimezone: true }),
-  revokedAt: timestamp('revoked_at', { withTimezone: true }),
-  portal: text('portal').notNull().default('web'), // 'web' | 'admin'
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const refreshTokens = pgTable(
+  'refresh_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
+      onDelete: 'cascade',
+    }),
+    widgetClientId: uuid('widget_client_id').references(() => widgetClients.id, {
+      onDelete: 'cascade',
+    }),
+    familyId: uuid('family_id').notNull(),
+    generation: integer('generation').notNull().default(1),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revoked: boolean('revoked').notNull().default(false),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    portal: text('portal').notNull().default('web'), // 'web' | 'admin' | 'mobile' | 'kiosk'
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    check(
+      'refresh_tokens_exactly_one_owner',
+      sql`num_nonnulls(user_id, kiosk_device_id, widget_client_id) = 1`,
+    ),
+  ],
+);
 
 export const oauthAccounts = pgTable(
   'oauth_accounts',
