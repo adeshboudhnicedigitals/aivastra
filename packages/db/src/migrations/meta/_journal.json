@@ -549,10 +549,10 @@
       "breakpoints": true
     },
     {
-      "idx": 78,
+      "idx": 83,
       "version": "7",
-      "when": 1751635200000,
-      "tag": "0078_chatbot_schema",
+      "when": 1752067200000,
+      "tag": "0083_chatbot_schema",
       "breakpoints": true
     }
   ]
