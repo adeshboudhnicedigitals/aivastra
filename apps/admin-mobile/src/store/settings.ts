@@ -5,8 +5,6 @@ const SETTINGS_KEY = 'aivastra-local-settings';
 
 export interface LocalSettings {
   pageSize: number;
-  autoRefresh: boolean;
-  refreshInterval: number;
   soundAlerts: boolean;
   emailAlerts: boolean;
   slackWebhookUrl: string;
@@ -20,8 +18,6 @@ interface SettingsState extends LocalSettings {
 
 const defaults: LocalSettings = {
   pageSize: 25,
-  autoRefresh: true,
-  refreshInterval: 30,
   soundAlerts: false,
   emailAlerts: false,
   slackWebhookUrl: '',
@@ -50,8 +46,6 @@ export const useLocalSettings = create<SettingsState>((set, get) => ({
       SETTINGS_KEY,
       JSON.stringify({
         pageSize: current.pageSize,
-        autoRefresh: current.autoRefresh,
-        refreshInterval: current.refreshInterval,
         soundAlerts: current.soundAlerts,
         emailAlerts: current.emailAlerts,
         slackWebhookUrl: current.slackWebhookUrl,

@@ -45,7 +45,7 @@ export default function WidgetRenderPage() {
   const key = params.key as string;
 
   const [step, setStep] = useState<Step>('validating');
-  const [config, setConfig] = useState<WidgetConfig | null>(null);
+  const [_config, setConfig] = useState<WidgetConfig | null>(null);
   const [garmentImageUrl, setGarmentImageUrl] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState('');
 

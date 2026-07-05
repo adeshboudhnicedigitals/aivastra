@@ -47,17 +47,10 @@ export async function uploadTwoImage<T = unknown>(opts: TwoImageOpts): Promise<T
   await uploadFile(signed.uploadUrl, opts.fileUri, opts.contentType, (progress) =>
     opts.onProgress?.('uploading-main', progress),
   );
-  try {
-    const thumbnailUri = await makeThumbnail(opts.fileUri);
-    await uploadFile(signed.thumbnailUploadUrl, thumbnailUri, 'image/jpeg', (progress) =>
-      opts.onProgress?.('uploading-thumbnail', progress),
-    );
-  } catch (cause) {
-    // Note: If thumbnail generation or upload fails, the main image is left orphaned in R2.
-    // We rely on the bucket's 24-hour lifecycle rule for unconfirmed uploads to clean this up,
-    // avoiding the need for a generic compensating DELETE endpoint here.
-    throw cause;
-  }
+  const thumbnailUri = await makeThumbnail(opts.fileUri);
+  await uploadFile(signed.thumbnailUploadUrl, thumbnailUri, 'image/jpeg', (progress) =>
+    opts.onProgress?.('uploading-thumbnail', progress),
+  );
   opts.onProgress?.('confirming', 100);
   return apiFetch<T>(opts.confirmEndpoint, {
     method: opts.confirmMethod ?? 'POST',

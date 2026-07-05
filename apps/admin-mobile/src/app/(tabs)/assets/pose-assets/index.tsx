@@ -158,7 +158,7 @@ export default function Screen() {
         useToastStore.getState().show(`Renamed ${selected.size} assets`, 'success');
       } else if (bulkMode === 'sort') {
         const start = parseInt(trimmed, 10);
-        if (isNaN(start)) {
+        if (Number.isNaN(start)) {
           Alert.alert('Invalid number', 'Please enter a valid starting sort order.');
           setBulkSubmitting(false);
           return;

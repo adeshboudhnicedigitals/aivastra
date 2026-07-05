@@ -18,6 +18,7 @@ const Env = z.object({
   // Widget VPS — dedicated ComfyUI instance for widget try-on jobs
   WIDGET_COMFYUI_URL: z.string().url().optional(),
   WIDGET_COMFYUI_BASIC_AUTH: z.string().optional(), // "user:password"
+  ENABLE_WATERMARKING: z.coerce.boolean().default(true),
 });
 
 export type Env = z.infer<typeof Env>;

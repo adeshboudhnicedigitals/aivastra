@@ -62,7 +62,7 @@ export default function LoginScreen() {
       <View style={[styles.orbTwo, { backgroundColor: colors.errorContainer }]} />
       <View style={styles.brand}>
         <Image
-          source={require('../../../assets/admin_logo.png')}
+          source={require('../../../../assets/admin_logo.png')}
           style={styles.logo}
           resizeMode="cover"
         />

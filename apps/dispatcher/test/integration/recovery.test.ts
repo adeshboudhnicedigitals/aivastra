@@ -50,7 +50,7 @@ describe('dispatcher crash recovery', () => {
     // Seed a job in DB
     const [user] = await env.db
       .insert(schema.users)
-      .values({ email: `rec-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
+      .values({ email: `rec-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
       .returning();
     await env.db.insert(schema.userCredits).values({ userId: user?.id, balance: 5 });
 

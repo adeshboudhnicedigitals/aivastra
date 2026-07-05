@@ -14,6 +14,8 @@ export const creditPlans = pgTable('credit_plans', {
   sortOrder: integer('sort_order').notNull().default(0),
   // 'priority' | 'normal' | 'low' — maps users who purchased this plan to a queue tier
   queueStream: text('queue_stream').notNull().default('normal'),
+  // watermark: true → jobs created under this plan are watermarked (default true for free plan)
+  watermark: boolean('watermark').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

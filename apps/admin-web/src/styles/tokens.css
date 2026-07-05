@@ -1,3 +1,6 @@
+/* biome-ignore-all lint/style/noDescendingSpecificity: base tag/class styles are deliberately
+   collected near the end of the file; CSS specificity (not source order) is what actually
+   determines which rule wins, so this file's structure is intentional, not a bug. */
 :root {
   --bg: oklch(0.985 0.005 80);
   --surface: oklch(0.99 0.005 80);
@@ -373,21 +376,17 @@ svg {
 .brand--collapsed .brand-mark--logo:hover .collapsed-logo-icon--off {
   opacity: 1;
 }
-.sidebar-foot--collapsed {
-  border-top: 1px solid var(--sidebar-border);
-  padding-top: 14px;
-  justify-content: center;
-}
 
 .sidebar-spacer {
   flex: 1;
 }
-.sidebar-foot {
-  border-top: 1px solid var(--sidebar-border);
-  padding-top: 14px;
+.topbar-user {
   display: flex;
   align-items: center;
   gap: 10px;
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+  margin-left: 4px;
 }
 .avatar {
   width: 30px;
@@ -400,32 +399,24 @@ svg {
   color: var(--bg);
   font-weight: 500;
 }
-.sidebar-foot .who {
+.topbar-user .who {
   display: flex;
   flex-direction: column;
   line-height: 1.2;
-  min-width: 0;
-  flex: 1;
+  align-items: flex-end;
+  text-align: right;
 }
-.sidebar-foot .who b {
+.topbar-user .who b {
   font-size: 12.5px;
-  color: var(--sidebar-text-active);
+  color: var(--ink);
   font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
-.sidebar-foot .who > span {
+.topbar-user .who > span {
   font-size: 10.5px;
-  color: var(--sidebar-text-muted);
-  letter-spacing: 0;
-  text-transform: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--muted);
 }
 .role-pill {
-  align-self: flex-start;
+  align-self: flex-end;
   margin-top: 4px;
   font-size: 9.5px;
   background: var(--accent);
@@ -846,15 +837,29 @@ svg {
   color: var(--muted);
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
 .select,
 .input {
   border: 1px solid var(--border);
   border-radius: var(--r);
-  padding: 7px 11px;
+  padding: 9px 12px;
   background: var(--surface);
   font-size: 14px;
   color: var(--ink);
   outline: 0;
+  transition: all 0.15s ease;
+  width: 100%;
 }
 .select {
   padding-right: 24px;
@@ -866,6 +871,7 @@ svg {
 .input:focus,
 .select:focus {
   border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink);
 }
 
 .pager {

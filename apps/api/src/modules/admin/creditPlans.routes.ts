@@ -13,13 +13,16 @@ const PlanBody = z.object({
     .regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, numbers, hyphens only'),
   name: z.string().min(1).max(100),
   subtext: z.string().max(200).default(''),
-  credits: z.number().int().positive(),
-  basePaise: z.number().int().positive(),
+  // .nonnegative() not .positive() — the free plan legitimately costs 0 paise,
+  // and 0 credits is a valid "free signups get nothing right now" state.
+  credits: z.number().int().nonnegative(),
+  basePaise: z.number().int().nonnegative(),
   isActive: z.boolean().default(true),
   isHighlighted: z.boolean().default(false),
   badge: z.string().max(50).nullable().default(null),
   sortOrder: z.number().int().default(0),
   queueStream: z.enum(['priority', 'normal', 'low']).default('normal'),
+  watermark: z.boolean().default(false),
 });
 
 export async function adminCreditPlansRoutes(app: FastifyInstance) {
@@ -47,6 +50,19 @@ export async function adminCreditPlansRoutes(app: FastifyInstance) {
     async (req) => {
       const { id } = req.params as { id: string };
       const body = req.body as Partial<z.infer<typeof PlanBody>>;
+      const [existing] = await app.db
+        .select({ slug: schema.creditPlans.slug })
+        .from(schema.creditPlans)
+        .where(eq(schema.creditPlans.id, id));
+      if (!existing) throw new AppError('NOT_FOUND', 404, 'plan not found');
+      if (existing.slug === 'free' && body.slug && body.slug !== 'free')
+        throw new AppError('FORBIDDEN', 403, 'cannot change the free plan slug');
+      if (existing.slug === 'free' && body.isActive === false)
+        throw new AppError(
+          'FORBIDDEN',
+          403,
+          'cannot deactivate the free plan — new signups would silently get 0 free credits',
+        );
       const [plan] = await app.db
         .update(schema.creditPlans)
         .set({ ...body, updatedAt: new Date() })
@@ -70,6 +86,7 @@ export async function adminCreditPlansRoutes(app: FastifyInstance) {
         .from(schema.creditPlans)
         .where(eq(schema.creditPlans.id, id));
       if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
+      if (plan.slug === 'free') throw new AppError('FORBIDDEN', 403, 'cannot delete the free plan');
 
       const [payment] = await app.db
         .select({ id: schema.payments.id })
@@ -81,6 +98,22 @@ export async function adminCreditPlansRoutes(app: FastifyInstance) {
           'CONFLICT',
           409,
           'plan has existing payments; deactivate instead of deleting',
+        );
+      }
+
+      // users.tier has a DB-level FK to credit_plans.slug (ON DELETE RESTRICT) as a
+      // backstop, but check here first so the admin gets a clear 409 instead of a
+      // raw Postgres constraint-violation error.
+      const [userOnPlan] = await app.db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.tier, plan.slug))
+        .limit(1);
+      if (userOnPlan) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          'plan has users currently on it; deactivate instead of deleting',
         );
       }
 

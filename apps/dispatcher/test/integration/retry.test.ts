@@ -43,7 +43,7 @@ describe('dispatcher retry + credit refund', () => {
   async function seedJob() {
     const [user] = await env.db
       .insert(schema.users)
-      .values({ email: `retry-${Date.now()}@test.com`, passwordHash: 'x', tier: 'FREE' })
+      .values({ email: `retry-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
       .returning();
     // Grant 5 credits — dispatcher does NOT deduct, just refunds
     await env.db.insert(schema.userCredits).values({ userId: user?.id, balance: 5 });

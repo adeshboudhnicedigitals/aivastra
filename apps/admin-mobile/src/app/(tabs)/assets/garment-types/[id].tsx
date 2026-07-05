@@ -16,7 +16,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AccordionSection } from '../../../../components/AccordionSection';
-import { AssetCard } from '../../../../components/AssetCard';
 import { confirmAction } from '../../../../components/ConfirmDialog';
 import { EmptyState } from '../../../../components/EmptyState';
 import { ImagePickerButton } from '../../../../components/ImagePickerButton';
@@ -87,7 +86,7 @@ export default function GarmentTypeDetailScreen() {
         .catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, workflows.length, loadPoseConfigs]);
 
   async function loadPoseConfigs() {
     if (!id) return;

@@ -16,13 +16,21 @@ export interface Containers {
 export async function startContainers(): Promise<Containers> {
   const dbName = `test_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+  // Postgres host port is configurable via .env (POSTGRES_PORT) — defaults to the
+  // docker-compose default of 5432, but local setups sometimes remap it (e.g. 5433)
+  // to avoid colliding with a system-wide Postgres install.
+  const pgPort = process.env.POSTGRES_PORT ?? '5432';
+  const pgUser = process.env.POSTGRES_USER ?? 'tryon';
+  const pgPassword = process.env.POSTGRES_PASSWORD ?? 'tryon_dev_pw';
+  const pgDb = process.env.POSTGRES_DB ?? 'tryon_dev';
+
   // Create fresh test database in existing Postgres
-  const adminUrl = 'postgres://tryon:tryon_dev_pw@127.0.0.1:5432/tryon_dev';
+  const adminUrl = `postgres://${pgUser}:${pgPassword}@127.0.0.1:${pgPort}/${pgDb}`;
   const adminClient = postgres(adminUrl, { max: 1 });
   await adminClient.unsafe(`CREATE DATABASE "${dbName}"`);
   await adminClient.end();
 
-  const pgUrl = `postgres://tryon:tryon_dev_pw@127.0.0.1:5432/${dbName}`;
+  const pgUrl = `postgres://${pgUser}:${pgPassword}@127.0.0.1:${pgPort}/${dbName}`;
   const client = postgres(pgUrl, { max: 1 });
   await migrate(drizzle(client), {
     migrationsFolder: './node_modules/@aivastra/db/src/migrations',
