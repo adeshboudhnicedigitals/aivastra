@@ -18,24 +18,52 @@ describe('e2e', () => {
 
   it('full flow: register → grant via admin → presign upload → create job', async () => {
     // 1. register normal user
-    const userRes = await app.inject({
+    await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
       payload: { email: 'e2e@x.com', password: 'password123' },
     });
-    expect(userRes.statusCode).toBe(201);
-    const { accessToken: userToken } = userRes.json();
+    const [userRow] = await app.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, 'e2e@x.com'));
+    if (!userRow) throw new Error('user not found');
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.id, userRow.id));
+    const userLogin = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'e2e@x.com', password: 'password123' },
+    });
+    expect(userLogin.statusCode).toBe(200);
+    const { accessToken: userToken } = userLogin.json();
     const userId = JSON.parse(atob(userToken.split('.')[1])).sub;
 
     // 2. create admin and grant credits
-    const adminRes = await app.inject({
+    await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
       payload: { email: 'e2e-admin@x.com', password: 'password123' },
     });
-    const adminId = JSON.parse(atob(adminRes.json().accessToken.split('.')[1])).sub;
+    const [adminRow] = await app.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, 'e2e-admin@x.com'));
+    if (!adminRow) throw new Error('admin user not found');
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.id, adminRow.id));
+    const adminLogin = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'e2e-admin@x.com', password: 'password123' },
+    });
+    const adminId = JSON.parse(atob(adminLogin.json().accessToken.split('.')[1])).sub;
     await app.db.insert(schema.adminUsers).values({ userId: adminId, role: 'SUPER_ADMIN' });
-    const adminToken = adminRes.json().accessToken;
+    const adminToken = adminLogin.json().accessToken;
 
     // 3. admin grants 5 credits
     const grantRes = await app.inject({

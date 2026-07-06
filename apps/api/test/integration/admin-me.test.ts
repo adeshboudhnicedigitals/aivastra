@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -16,12 +17,26 @@ describe('GET /admin/me', () => {
   });
 
   async function registerUser(email: string) {
-    const res = await app.inject({
+    await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
       payload: { email, password: 'password123' },
     });
-    const { accessToken } = res.json();
+    const [user] = await app.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, email));
+    if (!user) throw new Error('user not found');
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.id, user.id));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email, password: 'password123' },
+    });
+    const { accessToken } = login.json();
     const userId = JSON.parse(atob(accessToken.split('.')[1])).sub as string;
     return { token: accessToken, userId };
   }

@@ -16,6 +16,7 @@ interface MeResponse {
   email: string;
   displayName: string | null;
   phone: string | null;
+  companyName: string | null;
   tier: string;
   hasPassword: boolean;
 }
@@ -50,6 +51,10 @@ function Field({
   dropdown,
   disabled,
   onChange,
+  prefix,
+  inputMode,
+  maxLength,
+  error,
 }: {
   label: string;
   value?: string;
@@ -58,6 +63,10 @@ function Field({
   dropdown?: boolean;
   disabled?: boolean;
   onChange?: (v: string) => void;
+  prefix?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  maxLength?: number;
+  error?: string;
 }) {
   const [internal, setInternal] = useState(value ?? '');
   const [show, setShow] = useState(false);
@@ -69,23 +78,39 @@ function Field({
         {label}
       </label>
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        {prefix && (
+          <span
+            style={{
+              position: 'absolute',
+              left: 12,
+              color: disabled ? C.light : C.mid,
+              fontSize: 14,
+              pointerEvents: 'none',
+            }}
+          >
+            {prefix}
+          </span>
+        )}
         <input
           id={inputId}
           type={type === 'password' && show ? 'text' : type}
           value={val}
           placeholder={placeholder}
           disabled={disabled}
+          inputMode={inputMode}
+          maxLength={maxLength}
           onChange={(e) => (onChange ? onChange(e.target.value) : setInternal(e.target.value))}
           style={{
             width: '100%',
             height: 44,
             borderRadius: 8,
             background: C.field,
-            border: `1px solid ${C.border}`,
+            border: `1px solid ${error ? C.pink : C.border}`,
             fontFamily: 'inherit',
             fontSize: 14,
             color: disabled ? C.light : C.mid,
             padding: dropdown || type === 'password' ? '0 36px 0 12px' : '0 12px',
+            paddingLeft: prefix ? 36 : undefined,
             outline: 'none',
             appearance: 'none',
             cursor: disabled ? 'not-allowed' : 'text',
@@ -122,6 +147,7 @@ function Field({
           </button>
         )}
       </div>
+      {error && <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>{error}</p>}
     </div>
   );
 }
@@ -167,6 +193,10 @@ function Section({
   );
 }
 
+// India-only mobile numbers: exactly 10 digits, stored without the +91 prefix.
+const PHONE_REGEX = /^\d{10}$/;
+const sanitizePhone = (v: string) => v.replace(/\D/g, '').slice(0, 10);
+
 const fmtDate = (s: string) =>
   new Date(s).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 const fmtTime = (s: string) =>
@@ -178,6 +208,7 @@ export default function SettingsPage(): React.ReactElement {
   const [tab, setTab] = useState<Tab>('Profile Details');
   const [name, setName] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [curPwd, setCurPwd] = useState('');
@@ -210,7 +241,10 @@ export default function SettingsPage(): React.ReactElement {
 
   const email = me?.email ?? '';
   const nameVal = name ?? me?.displayName ?? '';
-  const phoneVal = phone ?? me?.phone ?? '';
+  const phoneVal = sanitizePhone(phone ?? me?.phone ?? '');
+  const companyNameVal = companyName ?? me?.companyName ?? '';
+  const phoneValid = PHONE_REGEX.test(phoneVal);
+  const profileComplete = phoneValid && Boolean(companyNameVal.trim());
 
   const recent = credits?.recent ?? [];
   const purchased = recent.filter((r) => r.delta > 0).reduce((a, r) => a + r.delta, 0);
@@ -222,7 +256,8 @@ export default function SettingsPage(): React.ReactElement {
     try {
       await api.patch('/v1/me', {
         displayName: nameVal.trim() || undefined,
-        phone: phoneVal.trim() || null,
+        phone: phoneVal || null,
+        companyName: companyNameVal.trim() || null,
       });
       void qc.invalidateQueries({ queryKey: ['me'] });
       setSaved(true);
@@ -367,15 +402,33 @@ export default function SettingsPage(): React.ReactElement {
                 <Field
                   label="Phone Number"
                   value={phoneVal}
-                  placeholder="Enter your phone number"
-                  onChange={setPhone}
+                  placeholder="10-digit mobile number"
+                  prefix="+91"
+                  inputMode="numeric"
+                  maxLength={10}
+                  onChange={(v) => setPhone(sanitizePhone(v))}
+                  error={
+                    phoneVal.length > 0 && !phoneValid
+                      ? 'Enter a valid 10-digit mobile number'
+                      : undefined
+                  }
                 />
               </Row>
               <Row>
-                <Field label="Company Name" placeholder="Enter your company name" />
+                <Field
+                  label="Company Name"
+                  value={companyNameVal}
+                  placeholder="Enter your company name"
+                  onChange={setCompanyName}
+                />
                 <div style={{ flex: 1, minWidth: 280 }} />
                 <div style={{ flex: 1, minWidth: 280 }} />
               </Row>
+              {!profileComplete && (
+                <p style={{ fontSize: 13, color: C.pink, margin: '-8px 0 0' }}>
+                  Phone number and company name are required before free credits unlock.
+                </p>
+              )}
             </Section>
             <Section title="Account Preferences">
               <Row>
@@ -484,22 +537,28 @@ export default function SettingsPage(): React.ReactElement {
             >
               <button
                 onClick={saveProfile}
-                disabled={saving}
+                disabled={saving || !profileComplete}
                 style={{
                   padding: '10px 24px',
                   borderRadius: 8,
                   border: 'none',
-                  cursor: 'pointer',
+                  cursor: saving || !profileComplete ? 'not-allowed' : 'pointer',
                   fontFamily: 'inherit',
                   fontWeight: 600,
                   fontSize: 14,
                   color: C.white,
                   background: saved ? C.mint : grad,
-                  opacity: saving ? 0.6 : 1,
+                  opacity: saving || !profileComplete ? 0.6 : 1,
                   transition: 'background .3s',
                 }}
               >
-                {saved ? '✓ Saved!' : saving ? 'Saving…' : 'Update Changes'}
+                {saved
+                  ? '✓ Saved!'
+                  : saving
+                    ? 'Saving…'
+                    : !profileComplete
+                      ? 'Fill Required Fields'
+                      : 'Update Changes'}
               </button>
             </div>
           </div>
