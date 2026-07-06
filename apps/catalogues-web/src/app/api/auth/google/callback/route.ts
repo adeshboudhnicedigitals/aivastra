@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const response = NextResponse.redirect(new URL(`${BASE_PATH}/settings`, webOrigin));
+  const response = NextResponse.redirect(new URL(`${BASE_PATH}/studio`, webOrigin));
   setAuthCookies(response, data.accessToken, setCookieHeader);
   return response;
 }
