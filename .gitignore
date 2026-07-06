@@ -44,3 +44,5 @@ assets/*
 .superpowers/*
 .opencode/*
 .codeboarding/
+
+apps/admin-mobile/
