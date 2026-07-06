@@ -126,10 +126,20 @@ jobs:
                git fetch https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git master
                git reset --hard FETCH_HEAD
 
+               echo '→ pulling base images'
+               docker compose -f infra/docker-compose.prod.yml \
+                 --env-file .env.production \
+                 pull postgres redis
+
                echo '→ building images'
                docker compose -f infra/docker-compose.prod.yml \
                  --env-file .env.production \
                  build
+
+               echo '→ recreating postgres (picks up new image)'
+               docker compose -f infra/docker-compose.prod.yml \
+                 --env-file .env.production \
+                 up -d --force-recreate postgres
 
                echo '→ applying DB migrations'
                docker compose -f infra/docker-compose.prod.yml \
