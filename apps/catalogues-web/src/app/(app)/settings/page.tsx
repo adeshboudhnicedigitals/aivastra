@@ -2,7 +2,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ChevronDown, Eye, EyeOff, LogOutIcon, MoonIcon, SunIcon } from '@/components/icons';
+import { ChevronDown, Eye, EyeOff, LogOutIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -109,8 +109,8 @@ function Field({
             fontFamily: 'inherit',
             fontSize: 14,
             color: disabled ? C.light : C.mid,
-            padding: dropdown || type === 'password' ? '0 36px 0 12px' : '0 12px',
-            paddingLeft: prefix ? 36 : undefined,
+            padding: dropdown || type === 'password' ? '0 36px 0 14px' : '0 14px',
+            ...(prefix ? { paddingLeft: 36 } : {}),
             outline: 'none',
             appearance: 'none',
             cursor: disabled ? 'not-allowed' : 'text',
@@ -211,23 +211,22 @@ export default function SettingsPage(): React.ReactElement {
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editingPassword, setEditingPassword] = useState(false);
   const [curPwd, setCurPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
   const [pwdSaving, setPwdSaving] = useState(false);
   const [pwdError, setPwdError] = useState('');
   const [pwdSaved, setPwdSaved] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
-  useEffect(() => {
-    setDarkMode(document.documentElement.classList.contains('dark'));
-  }, []);
 
-  function toggleTheme() {
-    const next = !darkMode;
-    setDarkMode(next);
-    document.documentElement.classList.toggle('dark', next);
-    localStorage.setItem('theme', next ? 'dark' : 'light');
-  }
+  // auto-dismiss toast
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const { data: me } = useQuery<MeResponse>({ queryKey: ['me'], queryFn: () => api.get('/v1/me') });
   const { data: credits } = useQuery<CreditsResponse>({
@@ -244,7 +243,7 @@ export default function SettingsPage(): React.ReactElement {
   const phoneVal = sanitizePhone(phone ?? me?.phone ?? '');
   const companyNameVal = companyName ?? me?.companyName ?? '';
   const phoneValid = PHONE_REGEX.test(phoneVal);
-  const profileComplete = phoneValid && Boolean(companyNameVal.trim());
+  const profileComplete = phoneValid;
 
   const recent = credits?.recent ?? [];
   const purchased = recent.filter((r) => r.delta > 0).reduce((a, r) => a + r.delta, 0);
@@ -261,7 +260,15 @@ export default function SettingsPage(): React.ReactElement {
       });
       void qc.invalidateQueries({ queryKey: ['me'] });
       setSaved(true);
+      setEditingProfile(false);
+      setToast({ type: 'success', message: 'Profile updated successfully' });
       setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to save profile';
+      if (msg.includes('already assigned')) {
+        setPhone(null);
+      }
+      setToast({ type: 'error', message: msg });
     } finally {
       setSaving(false);
     }
@@ -286,6 +293,7 @@ export default function SettingsPage(): React.ReactElement {
         newPassword: newPwd,
       });
       setPwdSaved(true);
+      setEditingPassword(false);
       setCurPwd('');
       setNewPwd('');
       setConfirmPwd('');
@@ -319,49 +327,26 @@ export default function SettingsPage(): React.ReactElement {
         title="Account Settings"
         subtitle="Manage your profile, billing, credits, subscriptions, and account activity."
         right={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '9px 16px',
-                borderRadius: 8,
-                border: `1px solid ${C.border2}`,
-                background: C.white,
-                fontFamily: 'inherit',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-                color: C.text,
-              }}
-            >
-              {darkMode ? <SunIcon /> : <MoonIcon />}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSignOut()}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '9px 16px',
-                borderRadius: 8,
-                border: `1px solid ${C.border2}`,
-                background: C.white,
-                fontFamily: 'inherit',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-                color: C.text,
-              }}
-            >
-              <LogOutIcon /> Log Out
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => void handleSignOut()}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '9px 16px',
+              borderRadius: 8,
+              border: `1px solid ${C.border2}`,
+              background: C.white,
+              fontFamily: 'inherit',
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              color: C.text,
+            }}
+          >
+            <LogOutIcon /> Log Out
+          </button>
         }
       />
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
@@ -371,6 +356,7 @@ export default function SettingsPage(): React.ReactElement {
             const isActive = tab === t;
             return (
               <button
+                type="button"
                 key={t}
                 onClick={() => setTab(t)}
                 style={{
@@ -395,6 +381,7 @@ export default function SettingsPage(): React.ReactElement {
 
         {tab === 'Profile Details' && (
           <div style={cardWrap}>
+            {/* ── Part 1: Personal Information + Account Preferences ── */}
             <Section title="Personal Information">
               <Row>
                 <Field label="Full Name" value={nameVal} onChange={setName} />
@@ -406,6 +393,7 @@ export default function SettingsPage(): React.ReactElement {
                   prefix="+91"
                   inputMode="numeric"
                   maxLength={10}
+                  disabled={!editingProfile}
                   onChange={(v) => setPhone(sanitizePhone(v))}
                   error={
                     phoneVal.length > 0 && !phoneValid
@@ -416,9 +404,10 @@ export default function SettingsPage(): React.ReactElement {
               </Row>
               <Row>
                 <Field
-                  label="Company Name"
+                  label="Company Name (Optional)"
                   value={companyNameVal}
                   placeholder="Enter your company name"
+                  disabled={!editingProfile}
                   onChange={setCompanyName}
                 />
                 <div style={{ flex: 1, minWidth: 280 }} />
@@ -426,7 +415,7 @@ export default function SettingsPage(): React.ReactElement {
               </Row>
               {!profileComplete && (
                 <p style={{ fontSize: 13, color: C.pink, margin: '-8px 0 0' }}>
-                  Phone number and company name are required before free credits unlock.
+                  Phone number is required before free credits unlock. Company name is optional.
                 </p>
               )}
             </Section>
@@ -437,39 +426,129 @@ export default function SettingsPage(): React.ReactElement {
                 <Field label="Default Platform" value="Amazon" dropdown disabled />
               </Row>
             </Section>
-            <Section title={hasPassword ? 'Change Password' : 'Set Password'} noBorder>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: 12,
+                padding: '16px 24px',
+                borderTop: `1px solid ${C.border}`,
+                background: C.white,
+              }}
+            >
+              {editingProfile ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingProfile(false);
+                      setName(null);
+                      setPhone(null);
+                      setCompanyName(null);
+                    }}
+                    style={{
+                      padding: '10px 24px',
+                      borderRadius: 8,
+                      border: `1px solid ${C.border2}`,
+                      background: C.white,
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      fontWeight: 600,
+                      fontSize: 14,
+                      color: C.mid,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveProfile}
+                    disabled={saving || !phoneValid}
+                    style={{
+                      padding: '10px 24px',
+                      borderRadius: 8,
+                      border: 'none',
+                      cursor: saving || !phoneValid ? 'not-allowed' : 'pointer',
+                      fontFamily: 'inherit',
+                      fontWeight: 600,
+                      fontSize: 14,
+                      color: C.white,
+                      background: saved ? C.mint : grad,
+                      opacity: saving || !phoneValid ? 0.6 : 1,
+                      transition: 'background .3s',
+                    }}
+                  >
+                    {saved
+                      ? '✓ Saved!'
+                      : saving
+                        ? 'Saving…'
+                        : !phoneValid
+                          ? 'Fill Required Fields'
+                          : 'Update Changes'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingProfile(true)}
+                  style={{
+                    padding: '10px 24px',
+                    borderRadius: 8,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontWeight: 600,
+                    fontSize: 14,
+                    color: C.white,
+                    background: grad,
+                  }}
+                >
+                  Edit Profile
+                </button>
+              )}
+            </div>
+
+            {/* ── Part 2: Change Password ── */}
+            <Section title={hasPassword ? 'Change Password' : 'Set Password'}>
               {!hasPassword && (
                 <p style={{ fontSize: 13, color: C.mid, margin: '0 0 4px' }}>
                   Your account was created with Google. Set a password to also sign in with email.
                 </p>
               )}
-              <Row>
-                {hasPassword && (
+              {editingPassword && (
+                <Row>
+                  {hasPassword && (
+                    <Field
+                      label="Current Password"
+                      placeholder="Enter current password"
+                      type="password"
+                      value={curPwd}
+                      onChange={setCurPwd}
+                    />
+                  )}
                   <Field
-                    label="Current Password"
-                    placeholder="Enter current password"
+                    label="New Password"
+                    placeholder="Enter new password (min 8 chars)"
                     type="password"
-                    value={curPwd}
-                    onChange={setCurPwd}
+                    value={newPwd}
+                    onChange={setNewPwd}
                   />
-                )}
-                <Field
-                  label="New Password"
-                  placeholder="Enter new password (min 8 chars)"
-                  type="password"
-                  value={newPwd}
-                  onChange={setNewPwd}
-                />
-                <Field
-                  label="Confirm New Password"
-                  placeholder="Re-enter new password"
-                  type="password"
-                  value={confirmPwd}
-                  onChange={setConfirmPwd}
-                />
-              </Row>
+                  <Field
+                    label="Confirm New Password"
+                    placeholder="Re-enter new password"
+                    type="password"
+                    value={confirmPwd}
+                    onChange={setConfirmPwd}
+                  />
+                </Row>
+              )}
               {pwdError && (
-                <div style={{ fontSize: 13, color: '#E53935', marginTop: -8 }}>{pwdError}</div>
+                <div
+                  style={{ fontSize: 13, color: '#E53935', marginTop: editingPassword ? -8 : 0 }}
+                >
+                  {pwdError}
+                </div>
               )}
               <div
                 style={{
@@ -477,90 +556,103 @@ export default function SettingsPage(): React.ReactElement {
                   justifyContent: 'flex-end',
                   alignItems: 'center',
                   gap: 12,
+                  marginTop: editingPassword ? 16 : 0,
                 }}
               >
-                <Tooltip
-                  tip={
-                    hasPassword && !curPwd
-                      ? 'Enter your current password'
-                      : !newPwd
-                        ? 'Enter a new password'
-                        : !confirmPwd
-                          ? 'Confirm your new password'
-                          : undefined
-                  }
-                  position="top"
-                >
+                {editingPassword ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingPassword(false);
+                        setCurPwd('');
+                        setNewPwd('');
+                        setConfirmPwd('');
+                        setPwdError('');
+                      }}
+                      style={{
+                        padding: '10px 24px',
+                        borderRadius: 8,
+                        border: `1px solid ${C.border2}`,
+                        background: C.white,
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        fontWeight: 600,
+                        fontSize: 14,
+                        color: C.mid,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <Tooltip
+                      tip={
+                        hasPassword && !curPwd
+                          ? 'Enter your current password'
+                          : !newPwd
+                            ? 'Enter a new password'
+                            : !confirmPwd
+                              ? 'Confirm your new password'
+                              : undefined
+                      }
+                      position="top"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => void changePassword()}
+                        disabled={pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd}
+                        style={{
+                          padding: '10px 24px',
+                          borderRadius: 8,
+                          border: 'none',
+                          cursor:
+                            pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd
+                              ? 'not-allowed'
+                              : 'pointer',
+                          fontFamily: 'inherit',
+                          fontWeight: 600,
+                          fontSize: 14,
+                          color: C.white,
+                          background: pwdSaved ? C.mint : grad,
+                          opacity:
+                            pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd
+                              ? 0.6
+                              : 1,
+                          transition: 'background .3s',
+                        }}
+                      >
+                        {pwdSaved
+                          ? `✓ Password ${hasPassword ? 'Updated' : 'Set'}!`
+                          : pwdSaving
+                            ? hasPassword
+                              ? 'Updating…'
+                              : 'Setting…'
+                            : hasPassword
+                              ? 'Update Password'
+                              : 'Set Password'}
+                      </button>
+                    </Tooltip>
+                  </>
+                ) : (
                   <button
-                    onClick={() => void changePassword()}
-                    disabled={pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd}
+                    type="button"
+                    onClick={() => setEditingPassword(true)}
                     style={{
                       padding: '10px 24px',
                       borderRadius: 8,
                       border: 'none',
-                      cursor:
-                        pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd
-                          ? 'not-allowed'
-                          : 'pointer',
+                      cursor: 'pointer',
                       fontFamily: 'inherit',
                       fontWeight: 600,
                       fontSize: 14,
                       color: C.white,
-                      background: pwdSaved ? C.mint : grad,
-                      opacity:
-                        pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd ? 0.6 : 1,
-                      transition: 'background .3s',
+                      background: grad,
                     }}
                   >
-                    {pwdSaved
-                      ? `✓ Password ${hasPassword ? 'Updated' : 'Set'}!`
-                      : pwdSaving
-                        ? hasPassword
-                          ? 'Updating…'
-                          : 'Setting…'
-                        : hasPassword
-                          ? 'Update Password'
-                          : 'Set Password'}
+                    {hasPassword ? 'Edit Password' : 'Set Password'}
                   </button>
-                </Tooltip>
+                )}
               </div>
             </Section>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: 12,
-                padding: '16px 24px',
-                borderTop: `1px solid ${C.border}`,
-                background: C.white,
-              }}
-            >
-              <button
-                onClick={saveProfile}
-                disabled={saving || !profileComplete}
-                style={{
-                  padding: '10px 24px',
-                  borderRadius: 8,
-                  border: 'none',
-                  cursor: saving || !profileComplete ? 'not-allowed' : 'pointer',
-                  fontFamily: 'inherit',
-                  fontWeight: 600,
-                  fontSize: 14,
-                  color: C.white,
-                  background: saved ? C.mint : grad,
-                  opacity: saving || !profileComplete ? 0.6 : 1,
-                  transition: 'background .3s',
-                }}
-              >
-                {saved
-                  ? '✓ Saved!'
-                  : saving
-                    ? 'Saving…'
-                    : !profileComplete
-                      ? 'Fill Required Fields'
-                      : 'Update Changes'}
-              </button>
-            </div>
           </div>
         )}
 
@@ -834,6 +926,30 @@ export default function SettingsPage(): React.ReactElement {
             );
           })()}
       </div>
+
+      {toast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 28,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+            background: toast.type === 'error' ? C.pink : C.mint,
+            color: '#fff',
+            padding: '10px 20px',
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 500,
+            boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+            maxWidth: 480,
+            textAlign: 'center',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {toast.message}
+        </div>
+      )}
     </>
   );
 }
