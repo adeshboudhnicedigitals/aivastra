@@ -2,7 +2,9 @@
 import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { MoonIcon, SunIcon } from './icons';
 import { C } from './tokens';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -38,6 +40,18 @@ const SIDEBAR_WIDTH = 100;
 export function Sidebar() {
   const pathname = usePathname();
   const qc = useQueryClient();
+  const [darkMode, setDarkMode] = useState(false);
+
+  useEffect(() => {
+    setDarkMode(document.documentElement.classList.contains('dark'));
+  }, []);
+
+  function toggleTheme() {
+    const next = !darkMode;
+    setDarkMode(next);
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+  }
 
   // Prefetch a route's primary data on hover/focus so the page opens from cache.
   function prefetchRoute(id: string) {
@@ -232,6 +246,61 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Theme toggle */}
+      <div
+        style={{
+          marginTop: 'auto',
+          padding: '10px',
+          display: 'flex',
+          flexDirection: 'row',
+          gap: 4,
+          justifyContent: 'center',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => toggleTheme()}
+          title="Light mode"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 8,
+            borderRadius: 8,
+            border: 'none',
+            cursor: 'pointer',
+            background: !darkMode
+              ? 'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 5%)'
+              : 'transparent',
+            color: !darkMode ? C.onDark : 'rgba(255,255,255,0.4)',
+            transition: 'background .15s, color .15s',
+          }}
+        >
+          <SunIcon />
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleTheme()}
+          title="Dark mode"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 8,
+            borderRadius: 8,
+            border: 'none',
+            cursor: 'pointer',
+            background: darkMode
+              ? 'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 5%)'
+              : 'transparent',
+            color: darkMode ? C.onDark : 'rgba(255,255,255,0.4)',
+            transition: 'background .15s, color .15s',
+          }}
+        >
+          <MoonIcon />
+        </button>
+      </div>
     </div>
   );
 }
