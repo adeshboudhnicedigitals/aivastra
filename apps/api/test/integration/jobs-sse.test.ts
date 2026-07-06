@@ -21,7 +21,7 @@ describe('jobs-sse', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'sse@x.com', password: 'password123' },
+      payload: { displayName: 'SSE User', email: 'sse@x.com', password: 'password123' },
     });
     const [user] = await app.db
       .select({ id: schema.users.id })

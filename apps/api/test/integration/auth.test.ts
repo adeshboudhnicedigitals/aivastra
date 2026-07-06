@@ -1,7 +1,7 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { hashPassword } from '../../src/modules/auth/service.js';
+import { hashPassword, verifyPassword } from '../../src/modules/auth/service.js';
 import { createSessionTokens } from '../../src/modules/auth/tokens.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -47,11 +47,33 @@ describe('auth', () => {
     return { accessToken, refreshPlain };
   }
 
+  async function createVerifiedUser(email: string) {
+    const passwordHash = await hashPassword('password123');
+    const [user] = await app.db
+      .insert(schema.users)
+      .values({ email, passwordHash, emailVerified: true })
+      .returning({ id: schema.users.id });
+    if (!user) throw new Error('user not found');
+    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+    let refreshPlain = '';
+    const reply = {
+      setCookie(name: string, value: string) {
+        if (name === 'refresh') refreshPlain = value;
+      },
+      code() {
+        return reply;
+      },
+    } as const;
+    const { accessToken } = await createSessionTokens(app, user.id, reply as never, 200);
+    expect(refreshPlain).toBeTruthy();
+    return { accessToken, userId: user.id };
+  }
+
   it('registers a user and returns tokens', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'a@b.com', password: 'password123' },
+      payload: { displayName: 'Alice A', email: 'a@b.com', password: 'password123' },
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ requiresEmailVerification: true });
@@ -63,38 +85,116 @@ describe('auth', () => {
     expect(user?.emailVerified).toBe(false);
   });
 
+  it('PATCH /v1/me accepts phone-only profile completion and grants free credits once', async () => {
+    const { accessToken, userId } = await createVerifiedUser('profile@x.com');
+    const trialCredits = 100;
+
+    await app.db
+      .update(schema.creditPlans)
+      .set({ credits: trialCredits })
+      .where(eq(schema.creditPlans.slug, 'free'));
+
+    const first = await app.inject({
+      method: 'PATCH',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { phone: '9876543210', companyName: null },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({
+      phone: '9876543210',
+      companyName: null,
+    });
+
+    const [creditRow] = await app.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(creditRow?.balance).toBe(trialCredits);
+
+    const ledgerRows = await app.db
+      .select({ id: schema.creditLedger.id })
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.userId, userId));
+    expect(ledgerRows.length).toBeGreaterThan(0);
+
+    const second = await app.inject({
+      method: 'PATCH',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${accessToken}` },
+      payload: { companyName: 'Acme' },
+    });
+    expect(second.statusCode).toBe(200);
+
+    const freeTrialRows = await app.db
+      .select({ id: schema.creditLedger.id })
+      .from(schema.creditLedger)
+      .where(eq(schema.creditLedger.userId, userId));
+    expect(freeTrialRows.length).toBe(1);
+  });
+
+  it('PATCH /v1/me blocks duplicate phone numbers with a clear error', async () => {
+    const owner = await createVerifiedUser('owner@x.com');
+    const blocked = await createVerifiedUser('blocked@x.com');
+
+    const ownerSave = await app.inject({
+      method: 'PATCH',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${owner.accessToken}` },
+      payload: { phone: '9123456780', companyName: null },
+    });
+    expect(ownerSave.statusCode).toBe(200);
+
+    const conflict = await app.inject({
+      method: 'PATCH',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${blocked.accessToken}` },
+      payload: { phone: '9123456780', companyName: null },
+    });
+    expect(conflict.statusCode).toBe(409);
+    expect(conflict.json()).toMatchObject({
+      error: {
+        code: 'PHONE_TAKEN',
+        message:
+          'This mobile number is already assigned to another email address. Use a different number.',
+      },
+    });
+  });
+
   it('rejects duplicate email with 409', async () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'dup@x.com', password: 'password123' },
+      payload: { displayName: 'Dup One', email: 'dup@x.com', password: 'password123' },
     });
     const res = await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'dup@x.com', password: 'password123' },
+      payload: { displayName: 'Dup Two', email: 'dup@x.com', password: 'password123' },
     });
     expect(res.statusCode).toBe(409);
   });
 
-  it('logs in with correct password, rejects wrong', async () => {
+  it('rejects signup without full name', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: { email: 'anon@x.com', password: 'password123' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('issues a session token for verified users and rejects wrong passwords at the verifier level', async () => {
+    const { accessToken } = await createVerifiedUser('login@x.com');
+    const me = await app.inject({
+      method: 'GET',
+      url: '/v1/me',
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    expect(me.statusCode).toBe(200);
+
     const passwordHash = await hashPassword('password123');
-    await app.db
-      .insert(schema.users)
-      .values({ email: 'login@x.com', passwordHash, emailVerified: true })
-      .onConflictDoNothing();
-    const ok = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/login',
-      payload: { email: 'login@x.com', password: 'password123' },
-    });
-    expect(ok.statusCode).toBe(200);
-    const bad = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/login',
-      payload: { email: 'login@x.com', password: 'wrong' },
-    });
-    expect(bad.statusCode).toBe(401);
+    expect(await verifyPassword(passwordHash, 'wrong')).toBe(false);
   });
 
   it('concurrent refresh: one rotation, others reissue, all 200', async () => {

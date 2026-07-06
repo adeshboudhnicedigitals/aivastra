@@ -21,7 +21,7 @@ describe('e2e', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'e2e@x.com', password: 'password123' },
+      payload: { displayName: 'E2E User', email: 'e2e@x.com', password: 'password123' },
     });
     const [userRow] = await app.db
       .select({ id: schema.users.id })
@@ -45,7 +45,7 @@ describe('e2e', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'e2e-admin@x.com', password: 'password123' },
+      payload: { displayName: 'E2E Admin', email: 'e2e-admin@x.com', password: 'password123' },
     });
     const [adminRow] = await app.db
       .select({ id: schema.users.id })

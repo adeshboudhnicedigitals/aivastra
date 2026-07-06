@@ -57,7 +57,7 @@ describe('saree jobs', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email, password: 'password123' },
+      payload: { displayName: 'Saree User', email, password: 'password123' },
     });
     // Skip the email verification round-trip — mark verified in DB and login for a real JWT.
     await app.db

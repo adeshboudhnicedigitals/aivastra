@@ -20,7 +20,7 @@ describe('admin-users', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email, password: 'password123' },
+      payload: { displayName: 'Admin Users User', email, password: 'password123' },
     });
     const [user] = await app.db
       .select({ id: schema.users.id })
@@ -54,6 +54,10 @@ describe('admin-users', () => {
 
   it('allows admin to list users', async () => {
     const { token, userId } = await registerUser('admin2@x.com');
+    await app.db
+      .update(schema.users)
+      .set({ phone: '9876543210' })
+      .where(eq(schema.users.id, userId));
     await app.db.insert(schema.adminUsers).values({ userId, role: 'SUPER_ADMIN' });
     const res = await app.inject({
       method: 'GET',
@@ -62,5 +66,7 @@ describe('admin-users', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(Array.isArray(res.json().items)).toBe(true);
+    const adminUser = res.json().items.find((item: { id: string }) => item.id === userId);
+    expect(adminUser?.phone).toBe('9876543210');
   });
 });

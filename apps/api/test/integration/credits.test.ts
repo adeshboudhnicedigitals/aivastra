@@ -20,7 +20,7 @@ describe('credits', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email, password: 'password123' },
+      payload: { displayName: 'Credits User', email, password: 'password123' },
     });
     const [user] = await app.db
       .select({ id: schema.users.id })

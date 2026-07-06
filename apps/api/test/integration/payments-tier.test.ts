@@ -28,7 +28,7 @@ describe('payments -> tier promotion', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email, password: 'password123' },
+      payload: { displayName: 'Payments Tier User', email, password: 'password123' },
     });
     const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
     await app.db
