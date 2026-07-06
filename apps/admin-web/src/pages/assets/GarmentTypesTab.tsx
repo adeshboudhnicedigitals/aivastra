@@ -66,6 +66,8 @@ export function GarmentTypesTab() {
   const [editSubcatDefaultLowerId, setEditSubcatDefaultLowerId] = useState<string>('');
   const [editSubcatDefaultShoeId, setEditSubcatDefaultShoeId] = useState<string>('');
   const [editSubcatTryonCategoryId, setEditSubcatTryonCategoryId] = useState<string>('');
+  const [editSubcatInstructionFile, setEditSubcatInstructionFile] = useState<File | null>(null);
+  const [editRemoveInstructionImage, setEditRemoveInstructionImage] = useState(false);
 
   const loadPoseConfigs = useCallback(
     async (garmentTypeId: string) => {
@@ -419,6 +421,8 @@ export function GarmentTypesTab() {
                             setEditSubcatDefaultShoeId(sub.defaultShoeCatalogId ?? '');
                             setEditSubcatTryonCategoryId(sub.tryonCategoryId ?? '');
                             setEditSubcatImageFile(null);
+                            setEditSubcatInstructionFile(null);
+                            setEditRemoveInstructionImage(false);
                           }}
                         >
                           <Icon.Edit />
@@ -690,6 +694,8 @@ export function GarmentTypesTab() {
               : () => {
                   setEditingSubcat(null);
                   setEditSubcatImageFile(null);
+                  setEditSubcatInstructionFile(null);
+                  setEditRemoveInstructionImage(false);
                   setEditSubcatLabel('');
                   setEditSubcatRequiresLowerUpload(false);
                 }
@@ -707,6 +713,8 @@ export function GarmentTypesTab() {
                 onClick={() => {
                   setEditingSubcat(null);
                   setEditSubcatImageFile(null);
+                  setEditSubcatInstructionFile(null);
+                  setEditRemoveInstructionImage(false);
                   setEditSubcatLabel('');
                   setEditSubcatRequiresLowerUpload(false);
                   setEditSubcatDefaultLowerId('');
@@ -1035,6 +1043,87 @@ export function GarmentTypesTab() {
                   )}
                 </div>
               </div>
+              <div className="field">
+                <label>Instruction image</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {editSubcatInstructionFile ? (
+                    // biome-ignore lint/performance/noImgElement: admin panel
+                    <img
+                      src={URL.createObjectURL(editSubcatInstructionFile)}
+                      alt="preview"
+                      style={{
+                        width: 64,
+                        height: 64,
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : editingSubcat.instructionImageUrl ? (
+                    // biome-ignore lint/performance/noImgElement: admin panel
+                    <img
+                      src={editingSubcat.instructionImageUrl}
+                      alt="Instruction"
+                      style={{
+                        width: 64,
+                        height: 64,
+                        objectFit: 'cover',
+                        borderRadius: 6,
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: 6,
+                        background: 'var(--subtle)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        color: 'var(--muted)',
+                        fontSize: 12,
+                      }}
+                    >
+                      No image
+                    </div>
+                  )}
+                  <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                    {editSubcatInstructionFile || editingSubcat.instructionImageUrl
+                      ? 'Replace image'
+                      : 'Upload image'}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) setEditSubcatInstructionFile(f);
+                      }}
+                    />
+                  </label>
+                  {editSubcatInstructionFile && (
+                    <button
+                      className="btn sm ghost"
+                      onClick={() => setEditSubcatInstructionFile(null)}
+                    >
+                      <Icon.Close />
+                    </button>
+                  )}
+                  {!editSubcatInstructionFile && editingSubcat.instructionImageUrl && (
+                    <button
+                      className="btn sm ghost"
+                      onClick={() => {
+                        setEditRemoveInstructionImage(true);
+                      }}
+                    >
+                      <Icon.Close />
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="modal-foot">
               <button
@@ -1042,6 +1131,8 @@ export function GarmentTypesTab() {
                 onClick={() => {
                   setEditingSubcat(null);
                   setEditSubcatImageFile(null);
+                  setEditSubcatInstructionFile(null);
+                  setEditRemoveInstructionImage(false);
                   setEditSubcatLabel('');
                   setEditSubcatRequiresLowerUpload(false);
                   setEditSubcatDefaultLowerId('');
@@ -1057,6 +1148,8 @@ export function GarmentTypesTab() {
                 disabled={
                   editSubcatSaving ||
                   (!editSubcatImageFile &&
+                    !editSubcatInstructionFile &&
+                    !editRemoveInstructionImage &&
                     editSubcatLabel.trim() === editingSubcat.label.trim() &&
                     editSubcatRequiresLowerUpload === editingSubcat.requiresLowerUpload &&
                     editSubcatDefaultLowerId === (editingSubcat.defaultLowerCatalogId ?? '') &&
@@ -1068,6 +1161,7 @@ export function GarmentTypesTab() {
                   try {
                     const patchBody: {
                       thumbnailKey?: string;
+                      instructionImageKey?: string | null;
                       label?: string;
                       requiresLowerUpload?: boolean;
                       defaultLowerCatalogId?: string | null;
@@ -1090,6 +1184,25 @@ export function GarmentTypesTab() {
                       });
                       patchBody.thumbnailKey = presign.thumbnailKey;
                     }
+                    // ─── INSTRUCTION IMAGE UPLOAD ───
+                    if (editSubcatInstructionFile) {
+                      const presign = await apiFetch<{
+                        uploadUrl: string;
+                        instructionImageKey: string;
+                      }>('/admin/assets/garment-types/instruction/presign', {
+                        method: 'POST',
+                        body: JSON.stringify({ contentType: editSubcatInstructionFile.type }),
+                      });
+                      await fetch(presign.uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': editSubcatInstructionFile.type },
+                        body: editSubcatInstructionFile,
+                      });
+                      patchBody.instructionImageKey = presign.instructionImageKey;
+                    } else if (editRemoveInstructionImage) {
+                      patchBody.instructionImageKey = null;
+                    }
+                    // ─── end instruction image upload ───
                     if (editSubcatLabel.trim() !== editingSubcat.label.trim()) {
                       patchBody.label = editSubcatLabel.trim();
                     }
@@ -1117,6 +1230,8 @@ export function GarmentTypesTab() {
                     toast({ title: `${patchBody.label ?? editingSubcat.label} updated` });
                     setEditingSubcat(null);
                     setEditSubcatImageFile(null);
+                    setEditSubcatInstructionFile(null);
+                    setEditRemoveInstructionImage(false);
                     setEditSubcatLabel('');
                     setEditSubcatRequiresLowerUpload(false);
                     setEditSubcatDefaultLowerId('');
