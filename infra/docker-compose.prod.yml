@@ -9,7 +9,7 @@ name: aivastra-prod
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: aivastra-prod-postgres
     restart: unless-stopped
     environment:
