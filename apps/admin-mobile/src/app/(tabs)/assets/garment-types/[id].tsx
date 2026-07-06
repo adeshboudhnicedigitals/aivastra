@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -78,18 +78,7 @@ export default function GarmentTypeDetailScreen() {
     setSortOrder(String(item.sortOrder));
   }, [item]);
 
-  useEffect(() => {
-    if (!id) return;
-    loadPoseConfigs();
-    if (workflows.length === 0) {
-      apiFetch<WorkflowOption[]>('/admin/workflows')
-        .then(setWorkflows)
-        .catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, workflows.length, loadPoseConfigs]);
-
-  async function loadPoseConfigs() {
+  const loadPoseConfigs = useCallback(async () => {
     if (!id) return;
     setPoseConfigsLoading(true);
     try {
@@ -102,7 +91,17 @@ export default function GarmentTypeDetailScreen() {
     } finally {
       setPoseConfigsLoading(false);
     }
-  }
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    loadPoseConfigs();
+    if (workflows.length === 0) {
+      apiFetch<WorkflowOption[]>('/admin/workflows')
+        .then(setWorkflows)
+        .catch(() => {});
+    }
+  }, [id, workflows.length, loadPoseConfigs]);
 
   function openConfigModal(config: PoseGarmentConfig) {
     setEditingConfig(config);
