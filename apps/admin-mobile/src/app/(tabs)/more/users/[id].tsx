@@ -213,13 +213,13 @@ export default function UserDetailScreen() {
               <Text numberOfLines={2} style={[styles.email, { color: colors.text }]}>
                 {user.email}
               </Text>
-            <Text style={[styles.name, { color: colors.textSecondary }]}>
-              {user.displayName || 'No display name'}
-            </Text>
-            <Text style={[styles.phone, { color: colors.text }]}>
-              {user.phone ? `Phone: +91 ${user.phone}` : 'Phone: not set'}
-            </Text>
-          </View>
+              <Text style={[styles.name, { color: colors.textSecondary }]}>
+                {user.displayName || 'No display name'}
+              </Text>
+              <Text style={[styles.phone, { color: colors.text }]}>
+                {user.phone ? `Phone: +91 ${user.phone}` : 'Phone: not set'}
+              </Text>
+            </View>
           </View>
           <View style={styles.chips}>
             <Chip
