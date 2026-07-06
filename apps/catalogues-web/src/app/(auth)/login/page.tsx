@@ -50,6 +50,7 @@ function ImagePanel() {
       }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
+      {/* biome-ignore lint/performance/noImgElement: auth background image */}
       <img
         src={`${BASE}/assets/auth-bg.png`}
         alt=""

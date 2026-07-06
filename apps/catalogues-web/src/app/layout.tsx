@@ -25,6 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Apply saved theme before first paint to avoid flash */}
         <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: theme flash prevention requires inline script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.classList.add('dark');}catch(e){}})();`,
           }}

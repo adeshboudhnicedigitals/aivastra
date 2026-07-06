@@ -23,7 +23,7 @@ type GarmentCatalogImage = {
 const CREDITS_COST = 35;
 
 function UploadZone({
-  file,
+  file: _file,
   preview,
   progress,
   label,
@@ -47,10 +47,13 @@ function UploadZone({
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
-  const accept = (f: File) => {
-    if (!f.type.startsWith('image/')) return;
-    onFile(f);
-  };
+  const accept = useCallback(
+    (f: File) => {
+      if (!f.type.startsWith('image/')) return;
+      onFile(f);
+    },
+    [onFile],
+  );
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -59,7 +62,6 @@ function UploadZone({
       const f = e.dataTransfer.files[0];
       if (f) accept(f);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [accept],
   );
 
@@ -86,6 +88,8 @@ function UploadZone({
             type="button"
             onMouseEnter={() => setShowSamples(true)}
             onMouseLeave={() => setShowSamples(false)}
+            onFocus={() => setShowSamples(true)}
+            onBlur={() => setShowSamples(false)}
             style={{
               width: 22,
               height: 22,
@@ -102,6 +106,7 @@ function UploadZone({
             <InfoIcon size={16} color={C.mid} />
           </button>
           {showSamples && (
+            // biome-ignore lint/a11y/noStaticElementInteractions: hover-sustain region for the popover triggered by the button above (which now also has onFocus/onBlur)
             <div
               onMouseEnter={() => setShowSamples(true)}
               onMouseLeave={() => setShowSamples(false)}
@@ -128,6 +133,7 @@ function UploadZone({
                 Sample
               </span>
               {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* biome-ignore lint/performance/noImgElement: sample preview image */}
               <img
                 src={sampleUrl}
                 alt=""
@@ -182,6 +188,7 @@ function UploadZone({
       >
         {preview ? (
           /* eslint-disable-next-line @next/next/no-img-element */
+          // biome-ignore lint/performance/noImgElement: upload zone preview
           <img
             src={preview}
             alt="preview"
@@ -216,6 +223,7 @@ function UploadZone({
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.text }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* biome-ignore lint/performance/noImgElement: upload icon SVG */}
               <img
                 src="/assets/image-upload.svg"
                 alt=""
@@ -326,6 +334,8 @@ function GarmentCatalogModal({
         padding: 16,
       }}
     >
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only, not itself interactive */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: stopPropagation only, not itself interactive */}
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -351,6 +361,7 @@ function GarmentCatalogModal({
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.text }}>
             <svg
+              aria-hidden="true"
               xmlns="http://www.w3.org/2000/svg"
               width="14"
               height="14"
@@ -369,6 +380,7 @@ function GarmentCatalogModal({
             </span>
           </div>
           <button
+            type="button"
             onClick={onClose}
             style={{
               background: 'none',
@@ -415,6 +427,7 @@ function GarmentCatalogModal({
                 >
                   {img.thumbnailUrl ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
+                    // biome-ignore lint/performance/noImgElement: garment thumbnail in picker
                     <img
                       src={img.thumbnailUrl}
                       alt={img.garmentTypeName}
@@ -675,6 +688,7 @@ export default function TryOnPage() {
                 >
                   {selectedGarmentJob?.thumbnailUrl ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
+                    // biome-ignore lint/performance/noImgElement: selected garment thumbnail
                     <img
                       src={selectedGarmentJob.thumbnailUrl}
                       alt={selectedGarmentJob.garmentTypeName}
@@ -699,7 +713,13 @@ export default function TryOnPage() {
                           justifyContent: 'center',
                         }}
                       >
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <svg
+                          aria-hidden="true"
+                          width="24"
+                          height="24"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
                           <path
                             d="M3 7L7 4H9.5C9.5 5.38 10.62 6.5 12 6.5C13.38 6.5 14.5 5.38 14.5 4H17L21 7L18.5 9.5L17 8V20H7V8L5.5 9.5L3 7Z"
                             stroke={C.mid}
@@ -721,6 +741,7 @@ export default function TryOnPage() {
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <svg
+                          aria-hidden="true"
                           xmlns="http://www.w3.org/2000/svg"
                           width="14"
                           height="14"
@@ -811,7 +832,7 @@ export default function TryOnPage() {
                 sampleUrl={personSampleUrl}
                 onFile={(f) => pickFile(f, setPersonFile, setPersonPreview)}
                 icon={
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none">
                     <circle cx="12" cy="8" r="3.5" stroke={C.mid} strokeWidth="1.2" />
                     <path
                       d="M5 20C5 17 8 15 12 15C16 15 19 17 19 20"
@@ -851,6 +872,7 @@ export default function TryOnPage() {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
+                {/* biome-ignore lint/performance/noImgElement: credit icon */}
                 <img
                   src="/assets/credit.png"
                   alt=""
@@ -868,6 +890,7 @@ export default function TryOnPage() {
                 </span>
               </div>
               <button
+                type="button"
                 onClick={handleGenerate}
                 disabled={!canGenerate}
                 style={{
@@ -891,8 +914,8 @@ export default function TryOnPage() {
                 >
                   {generating ? 'Generating…' : 'Generate Try-On'}
                 </span>
-                {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
                 {!generating && (
+                  // biome-ignore lint/performance/noImgElement: static SVG asset
                   <img
                     src="/assets/generate-icon.svg"
                     alt=""
@@ -957,6 +980,7 @@ export default function TryOnPage() {
                 /* Result image */
                 <div style={{ flex: 1, borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {/* biome-ignore lint/performance/noImgElement: try-on result image */}
                   <img
                     src={resultUrl}
                     alt="Try-on result"
@@ -1098,6 +1122,8 @@ export default function TryOnPage() {
               padding: 16,
             }}
           >
+            {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only, not itself interactive */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: stopPropagation only, not itself interactive */}
             <div
               onClick={(e) => e.stopPropagation()}
               style={{
@@ -1131,6 +1157,7 @@ export default function TryOnPage() {
                     )}
                   </div>
                   <button
+                    type="button"
                     onClick={() => setShowContact(false)}
                     disabled={contactSubmitting}
                     style={{
@@ -1153,6 +1180,7 @@ export default function TryOnPage() {
                 {contactDone ? (
                   <div style={{ position: 'relative', width: '100%' }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {/* biome-ignore lint/performance/noImgElement: contact us banner image */}
                     <img
                       src="/assets/contact-us-finalinfo.png"
                       alt=""
@@ -1187,6 +1215,7 @@ export default function TryOnPage() {
                         No waiting. No complicated process.
                       </span>
                       <button
+                        type="button"
                         onClick={() => setShowContact(false)}
                         style={{
                           background: 'none',
@@ -1204,6 +1233,7 @@ export default function TryOnPage() {
                       >
                         Continue Browsing
                         <svg
+                          aria-hidden="true"
                           xmlns="http://www.w3.org/2000/svg"
                           width="16"
                           height="16"
@@ -1229,10 +1259,14 @@ export default function TryOnPage() {
                     style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                      <label
+                        htmlFor="contact-name"
+                        style={{ fontSize: 12, fontWeight: 600, color: C.text }}
+                      >
                         Full Name <span style={{ color: C.pink }}>*</span>
                       </label>
                       <input
+                        id="contact-name"
                         required
                         value={contactName}
                         onChange={(e) => setContactName(e.target.value)}
@@ -1253,10 +1287,14 @@ export default function TryOnPage() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                      <label
+                        htmlFor="contact-email"
+                        style={{ fontSize: 12, fontWeight: 600, color: C.text }}
+                      >
                         Email <span style={{ color: C.pink }}>*</span>
                       </label>
                       <input
+                        id="contact-email"
                         required
                         type="email"
                         value={contactEmail}
@@ -1278,10 +1316,14 @@ export default function TryOnPage() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                      <label
+                        htmlFor="contact-phone"
+                        style={{ fontSize: 12, fontWeight: 600, color: C.text }}
+                      >
                         Phone Number <span style={{ color: C.pink }}>*</span>
                       </label>
                       <input
+                        id="contact-phone"
                         required
                         type="tel"
                         inputMode="numeric"
@@ -1309,10 +1351,14 @@ export default function TryOnPage() {
                       />
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                      <label
+                        htmlFor="contact-message"
+                        style={{ fontSize: 12, fontWeight: 600, color: C.text }}
+                      >
                         Message
                       </label>
                       <textarea
+                        id="contact-message"
                         value={contactMessage}
                         onChange={(e) => setContactMessage(e.target.value)}
                         disabled={contactSubmitting}
@@ -1398,6 +1444,7 @@ export default function TryOnPage() {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* biome-ignore lint/performance/noImgElement: speaker illustration */}
             <img src="/assets/speaker-vec.svg" alt="" width={30} height={28} />
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
@@ -1410,6 +1457,7 @@ export default function TryOnPage() {
             </div>
           </div>
           <button
+            type="button"
             onClick={() => openContact('cta-banner')}
             style={{
               height: 38,
@@ -1429,6 +1477,7 @@ export default function TryOnPage() {
           >
             Contact Us
             <svg
+              aria-hidden="true"
               xmlns="http://www.w3.org/2000/svg"
               width="16"
               height="16"

@@ -109,6 +109,7 @@ export function Sidebar() {
       >
         <Link href="/studio" style={{ display: 'flex', alignItems: 'center' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: sidebar logo */}
           <img
             src={`${BASE}/assets/logo.svg`}
             alt="Ai Vastra"
@@ -159,6 +160,7 @@ export function Sidebar() {
               )}
               <span style={{ opacity: isActive ? 1 : 0.6, display: 'flex', flexShrink: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
+                {/* biome-ignore lint/performance/noImgElement: sidebar nav icon */}
                 <img
                   src={item.icon}
                   alt=""

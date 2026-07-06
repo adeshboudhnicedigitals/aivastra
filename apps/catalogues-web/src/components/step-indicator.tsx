@@ -13,7 +13,7 @@ export function StepBar({ step }: { step: number }) {
         const done = num < step;
         const active = num === step;
         return (
-          <Fragment key={i}>
+          <Fragment key={s}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <div
                 style={{

@@ -74,7 +74,13 @@ export function PricingContent({ data }: { data: MerchantData }) {
             padding: '10px 18px',
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--c-merchant-accent)">
+          <svg
+            aria-hidden="true"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="var(--c-merchant-accent)"
+          >
             <circle
               cx="12"
               cy="12"

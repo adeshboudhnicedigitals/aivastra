@@ -219,6 +219,7 @@ export function UploadModal({
           <div className="field">
             <label>Display Image</label>
             {preview && (
+              // biome-ignore lint/performance/noImgElement: preview of uploaded image
               <img
                 src={preview}
                 alt="preview"

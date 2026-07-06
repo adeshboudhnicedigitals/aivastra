@@ -24,6 +24,7 @@ function Thumb({
   const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
   if (src) {
     return (
+      // biome-ignore lint/performance/noImgElement: thumbnail in recycle bin table
       <img
         src={src}
         alt={label}

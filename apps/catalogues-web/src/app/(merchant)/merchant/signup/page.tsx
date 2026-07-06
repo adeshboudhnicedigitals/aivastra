@@ -52,6 +52,7 @@ const errorStyle: React.CSSProperties = {
 function ChevronIcon({ open }: { open: boolean }) {
   return (
     <svg
+      aria-hidden="true"
       width="16"
       height="16"
       viewBox="0 0 16 16"
@@ -79,12 +80,14 @@ interface SelectOption {
 }
 
 function CustomSelect({
+  id,
   value,
   onChange,
   options,
   placeholder,
   hasError,
 }: {
+  id?: string;
   value: string;
   onChange: (v: string) => void;
   options: SelectOption[];
@@ -108,6 +111,7 @@ function CustomSelect({
   return (
     <div ref={ref} style={{ position: 'relative', width: '100%' }}>
       <button
+        id={id}
         type="button"
         onClick={() => setOpen((p) => !p)}
         style={{
@@ -164,7 +168,7 @@ function CustomSelect({
               }}
             >
               {value === opt.value && (
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none">
                   <path
                     d="M2 7l4 4 6-6"
                     stroke={C.pink}
@@ -191,6 +195,7 @@ function ImagePanel() {
       style={{ width: '58.2%', flexShrink: 0, position: 'relative', overflow: 'hidden' }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
+      {/* biome-ignore lint/performance/noImgElement: merchant signup auth background image */}
       <img
         src={`${BASE}/assets/auth-bg.png`}
         alt=""
@@ -333,20 +338,37 @@ export default function MerchantSignupPage() {
           >
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={labelStyle}>Company Name*</label>
-                <input style={fieldStyle} placeholder="Your company" {...register('companyName')} />
+                <label htmlFor="signup-companyName" style={labelStyle}>
+                  Company Name*
+                </label>
+                <input
+                  id="signup-companyName"
+                  style={fieldStyle}
+                  placeholder="Your company"
+                  {...register('companyName')}
+                />
                 {errors.companyName && <p style={errorStyle}>{errors.companyName.message}</p>}
               </div>
               <div>
-                <label style={labelStyle}>Your Name*</label>
-                <input style={fieldStyle} placeholder="Full name" {...register('contactName')} />
+                <label htmlFor="signup-contactName" style={labelStyle}>
+                  Your Name*
+                </label>
+                <input
+                  id="signup-contactName"
+                  style={fieldStyle}
+                  placeholder="Full name"
+                  {...register('contactName')}
+                />
                 {errors.contactName && <p style={errorStyle}>{errors.contactName.message}</p>}
               </div>
             </div>
 
             <div>
-              <label style={labelStyle}>Email Address*</label>
+              <label htmlFor="signup-email" style={labelStyle}>
+                Email Address*
+              </label>
               <input
+                id="signup-email"
                 style={fieldStyle}
                 type="email"
                 placeholder="you@company.com"
@@ -357,13 +379,23 @@ export default function MerchantSignupPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={labelStyle}>Phone Number*</label>
-                <input style={fieldStyle} placeholder="+91 99999 99999" {...register('phone')} />
+                <label htmlFor="signup-phone" style={labelStyle}>
+                  Phone Number*
+                </label>
+                <input
+                  id="signup-phone"
+                  style={fieldStyle}
+                  placeholder="+91 99999 99999"
+                  {...register('phone')}
+                />
                 {errors.phone && <p style={errorStyle}>{errors.phone.message}</p>}
               </div>
               <div>
-                <label style={labelStyle}>Website URL*</label>
+                <label htmlFor="signup-websiteUrl" style={labelStyle}>
+                  Website URL*
+                </label>
                 <input
+                  id="signup-websiteUrl"
                   style={fieldStyle}
                   placeholder="https://yourstore.com"
                   {...register('websiteUrl')}
@@ -374,12 +406,15 @@ export default function MerchantSignupPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={labelStyle}>Company Size*</label>
+                <label htmlFor="signup-companySize" style={labelStyle}>
+                  Company Size*
+                </label>
                 <Controller
                   name="companySize"
                   control={control}
                   render={({ field }) => (
                     <CustomSelect
+                      id="signup-companySize"
                       value={field.value ?? ''}
                       onChange={field.onChange}
                       options={COMPANY_SIZE_OPTIONS}
@@ -391,12 +426,15 @@ export default function MerchantSignupPage() {
                 {errors.companySize && <p style={errorStyle}>{errors.companySize.message}</p>}
               </div>
               <div>
-                <label style={labelStyle}>Purpose*</label>
+                <label htmlFor="signup-purpose" style={labelStyle}>
+                  Purpose*
+                </label>
                 <Controller
                   name="purpose"
                   control={control}
                   render={({ field }) => (
                     <CustomSelect
+                      id="signup-purpose"
                       value={field.value ?? ''}
                       onChange={field.onChange}
                       options={PURPOSE_OPTIONS}
@@ -410,8 +448,11 @@ export default function MerchantSignupPage() {
             </div>
 
             <div>
-              <label style={labelStyle}>Business Address*</label>
+              <label htmlFor="signup-businessAddress" style={labelStyle}>
+                Business Address*
+              </label>
               <input
+                id="signup-businessAddress"
                 style={fieldStyle}
                 placeholder="Full address"
                 {...register('businessAddress')}
@@ -421,8 +462,11 @@ export default function MerchantSignupPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <label style={labelStyle}>Password*</label>
+                <label htmlFor="signup-password" style={labelStyle}>
+                  Password*
+                </label>
                 <input
+                  id="signup-password"
                   style={fieldStyle}
                   type="password"
                   placeholder="Min 8 characters"
@@ -431,8 +475,11 @@ export default function MerchantSignupPage() {
                 {errors.password && <p style={errorStyle}>{errors.password.message}</p>}
               </div>
               <div>
-                <label style={labelStyle}>Confirm Password*</label>
+                <label htmlFor="signup-confirm" style={labelStyle}>
+                  Confirm Password*
+                </label>
                 <input
+                  id="signup-confirm"
                   style={fieldStyle}
                   type="password"
                   placeholder="Re-enter password"

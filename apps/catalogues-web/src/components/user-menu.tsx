@@ -64,6 +64,7 @@ export function UserMenu() {
       >
         <span style={{ display: 'flex' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: credit icon */}
           <img src={`${BASE}/assets/credit.png`} alt="" width={16} height={16} />
         </span>
         <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>{balance} Credits</span>

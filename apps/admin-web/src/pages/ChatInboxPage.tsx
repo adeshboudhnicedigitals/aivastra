@@ -10,8 +10,10 @@ function renderInline(text: string) {
   const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
   return parts.map((part, i) =>
     part.startsWith('**') && part.endsWith('**') ? (
+      // biome-ignore lint/suspicious/noArrayIndexKey: static text-parse output, never reordered
       <strong key={i}>{part.slice(2, -2)}</strong>
     ) : (
+      // biome-ignore lint/suspicious/noArrayIndexKey: static text-parse output, never reordered
       <Fragment key={i}>{part}</Fragment>
     ),
   );
@@ -28,6 +30,7 @@ function renderMessageContent(content: string) {
     blocks.push(
       <Tag key={blocks.length} style={{ margin: '4px 0', paddingLeft: '20px' }}>
         {list.items.map((item, i) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: static text-parse output, never reordered
           <li key={i}>{renderInline(item)}</li>
         ))}
       </Tag>,
@@ -39,7 +42,7 @@ function renderMessageContent(content: string) {
     const ordered = line.match(/^\s*\d+\.\s+(.*)/);
     const bulleted = line.match(/^\s*[-*]\s+(.*)/);
     if (ordered) {
-      if (!list || !list.ordered) {
+      if (!list?.ordered) {
         flushList();
         list = { ordered: true, items: [] };
       }

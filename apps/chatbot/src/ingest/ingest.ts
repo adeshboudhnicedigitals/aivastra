@@ -25,8 +25,8 @@ export async function runIngest(deps: {
         await tx.insert(schema.chatbotEmbeddings).values(
           rows.map((r, i) => ({
             qnaId: r.id,
-            content: contents[i]!,
-            embedding: vectors[i]!,
+            content: contents[i] ?? '',
+            embedding: vectors[i] ?? ([] as number[]),
           })),
         );
       }

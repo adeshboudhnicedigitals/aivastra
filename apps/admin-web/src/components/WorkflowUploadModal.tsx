@@ -846,6 +846,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                   </span>
                 </label>
                 {upperNodeIds.map((uid, idx) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: controlled selects with no per-row state; values can repeat/be empty
                   <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
                     <select
                       className="select"
