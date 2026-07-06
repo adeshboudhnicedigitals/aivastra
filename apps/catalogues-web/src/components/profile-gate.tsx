@@ -1,9 +1,9 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { usePathname, useRouter } from 'next/navigation';
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode } from 'react';
 import { api } from '@/lib/api';
+import { ProfileCompletionModal } from './profile-completion-modal';
 
 interface MeResponse {
   phone: string | null;
@@ -11,27 +11,26 @@ interface MeResponse {
 }
 
 export function ProfileGate({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const pathname = usePathname();
   const { data, isLoading } = useQuery<MeResponse>({
     queryKey: ['me'],
     queryFn: () => api.get('/v1/me'),
     retry: false,
   });
 
-  const complete =
-    Boolean(data?.phone && /^\d{10}$/.test(data.phone)) && Boolean(data?.companyName?.trim());
-  const onSettings = pathname === '/settings' || pathname.startsWith('/settings/');
+  const complete = Boolean(data?.phone && /^\d{10}$/.test(data.phone));
 
-  useEffect(() => {
-    if (!isLoading && data && !complete && !onSettings) {
-      router.replace('/settings');
-    }
-  }, [complete, data, isLoading, onSettings, router]);
-
-  if (isLoading || (data && !complete && !onSettings)) {
+  if (isLoading && !data) {
     return <div style={{ flex: 1, background: '#fff' }} />;
   }
 
-  return children;
+  return (
+    <>
+      {children}
+      <ProfileCompletionModal
+        open={Boolean(data && !complete)}
+        phone={data?.phone ?? null}
+        companyName={data?.companyName ?? null}
+      />
+    </>
+  );
 }

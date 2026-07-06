@@ -121,7 +121,7 @@ export default function RegisterPage(): React.ReactElement {
       router.push('/verify-email');
       return;
     }
-    router.push('/settings');
+    router.push('/studio');
     router.refresh();
   }
 
@@ -186,7 +186,7 @@ export default function RegisterPage(): React.ReactElement {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label htmlFor="displayName" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
-                Full Name
+                Full Name*
               </label>
               <div style={fieldWrap}>
                 <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
@@ -197,6 +197,7 @@ export default function RegisterPage(): React.ReactElement {
                   type="text"
                   placeholder="Enter your full name"
                   autoComplete="name"
+                  aria-required="true"
                   style={inputStyle}
                   {...register('displayName')}
                 />
