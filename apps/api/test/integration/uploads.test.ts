@@ -1,3 +1,5 @@
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -15,12 +17,26 @@ describe('uploads', () => {
   });
 
   async function getToken() {
-    const res = await app.inject({
+    await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
       payload: { email: 'upload@x.com', password: 'password123' },
     });
-    return res.json().accessToken;
+    const [user] = await app.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, 'upload@x.com'));
+    if (!user) throw new Error('user not found');
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.id, user.id));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'upload@x.com', password: 'password123' },
+    });
+    return login.json().accessToken as string;
   }
 
   it('POST /v1/uploads/presign returns presigned URL with 5min expiry', async () => {

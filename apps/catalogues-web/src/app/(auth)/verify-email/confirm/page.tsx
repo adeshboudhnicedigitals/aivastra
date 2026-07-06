@@ -31,7 +31,7 @@ function ConfirmInner(): React.ReactElement {
           throw new Error(body.error?.message ?? 'Verification failed');
         }
         setStatus('success');
-        setTimeout(() => router.push('/studio'), 1200);
+        setTimeout(() => router.push('/settings'), 1200);
       })
       .catch((err: Error) => {
         setErrorMsg(err.message);

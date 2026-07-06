@@ -1,3 +1,5 @@
+import { schema as dbSchema } from '@aivastra/db';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildServer } from '../../src/server';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -77,7 +79,21 @@ describe('google oauth', () => {
       payload: { email: 'otp-test@example.com', password: 'password123' },
     });
     expect(regRes.statusCode).toBe(201);
-    const { accessToken: regToken } = regRes.json() as { accessToken: string };
+    const [user] = await app.db
+      .select({ id: dbSchema.users.id })
+      .from(dbSchema.users)
+      .where(eq(dbSchema.users.email, 'otp-test@example.com'));
+    if (!user) throw new Error('user not found');
+    await app.db
+      .update(dbSchema.users)
+      .set({ emailVerified: true })
+      .where(eq(dbSchema.users.id, user.id));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'otp-test@example.com', password: 'password123' },
+    });
+    const { accessToken: regToken } = login.json() as { accessToken: string };
 
     // Decode userId from JWT sub claim
     const userId = decodeJwtPayload(regToken).sub;
@@ -182,6 +198,20 @@ describe('google oauth', () => {
       payload: { email: 'existing@example.com', password: 'password123' },
     });
     expect(regRes.statusCode).toBe(201);
+    const [user] = await app.db
+      .select({ id: dbSchema.users.id })
+      .from(dbSchema.users)
+      .where(eq(dbSchema.users.email, 'existing@example.com'));
+    if (!user) throw new Error('user not found');
+    await app.db
+      .update(dbSchema.users)
+      .set({ emailVerified: true })
+      .where(eq(dbSchema.users.id, user.id));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'existing@example.com', password: 'password123' },
+    });
 
     const state = 'link-test-state-xyz';
     const mockFetchLink = async (url: string | URL | Request): Promise<Response> => {
@@ -225,18 +255,16 @@ describe('google oauth', () => {
     expect(linkedUserId).toBeTruthy();
 
     // Verify the oauth_accounts row links to the ORIGINAL registered user (not a new user)
-    const regToken = regRes.json<{ accessToken: string }>().accessToken;
+    const regToken = login.json<{ accessToken: string }>().accessToken;
     const originalUserId = decodeJwtPayload(regToken).sub;
 
-    const { schema } = await import('@aivastra/db');
-    const { eq, and } = await import('drizzle-orm');
     const links = await app.db
-      .select({ userId: schema.oauthAccounts.userId })
-      .from(schema.oauthAccounts)
+      .select({ userId: dbSchema.oauthAccounts.userId })
+      .from(dbSchema.oauthAccounts)
       .where(
         and(
-          eq(schema.oauthAccounts.provider, 'google'),
-          eq(schema.oauthAccounts.providerId, 'google-sub-link-002'),
+          eq(dbSchema.oauthAccounts.provider, 'google'),
+          eq(dbSchema.oauthAccounts.providerId, 'google-sub-link-002'),
         ),
       );
     expect(links).toHaveLength(1);
