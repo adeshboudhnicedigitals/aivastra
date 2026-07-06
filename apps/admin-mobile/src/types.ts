@@ -39,6 +39,7 @@ export interface GarmentType {
   slug: string;
   label: string;
   thumbnailKey?: string | null;
+  instructionImageKey?: string | null;
   isActive: boolean;
   sortOrder: number;
   requiresLowerUpload: boolean;
@@ -152,6 +153,7 @@ export interface User {
   id: string;
   email: string;
   displayName: string | null;
+  phone: string | null;
   tier: string;
   isBanned: boolean;
   banReason: string | null;
