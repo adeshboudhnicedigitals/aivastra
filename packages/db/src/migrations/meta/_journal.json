@@ -596,6 +596,20 @@
       "when": 1752153600000,
       "tag": "0084_user_company_name_and_free_trial_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1752240000000,
+      "tag": "0085_phone_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1779120000000,
+      "tag": "0086_instruction_image_key",
+      "breakpoints": false
     }
   ]
 }
