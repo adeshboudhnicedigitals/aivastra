@@ -53,6 +53,7 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   slug: text('slug').notNull(),
   label: text('label').notNull(),
   thumbnailKey: text('thumbnail_key'),
+  instructionImageKey: text('instruction_image_key'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   requiresLowerUpload: boolean('requires_lower_upload').notNull().default(false),
