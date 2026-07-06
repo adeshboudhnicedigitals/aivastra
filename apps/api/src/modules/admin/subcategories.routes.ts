@@ -5,6 +5,7 @@ import {
   CreateGarmentTypeBody,
   PatchGarmentTypeBody,
   PresignGarmentTypeBody,
+  PresignGarmentTypeInstructionBody,
 } from '@aivastra/types';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -19,7 +20,14 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
 
   app.get('/admin/assets/garment-types', { preHandler: RW }, async () => {
     const rows = await app.db.select().from(schema.garmentSubcategories);
-    return { items: rows };
+    return {
+      items: rows.map((r) => ({
+        ...r,
+        instructionImageUrl: r.instructionImageKey
+          ? app.storage.publicUrl(r.instructionImageKey)
+          : null,
+      })),
+    };
   });
 
   app.post(
@@ -35,6 +43,20 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       // downscaled to JPEG client-side — sign for image/jpeg so the PUT header matches.
       const { url } = await app.storage.presignPut(thumbKey, 'image/jpeg', 5_000_000, 300);
       return { uploadUrl: url, thumbnailKey: thumbKey };
+    },
+  );
+
+  app.post(
+    '/admin/assets/garment-types/instruction/presign',
+    {
+      preHandler: RW,
+      schema: { body: PresignGarmentTypeInstructionBody },
+    },
+    async (_req) => {
+      const newId = randomUUID();
+      const instructionKey = keys.subcategoryInstruction(newId);
+      const { url } = await app.storage.presignPut(instructionKey, 'image/jpeg', 10_000_000, 300);
+      return { uploadUrl: url, instructionImageKey: instructionKey };
     },
   );
 
@@ -86,7 +108,17 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const body = req.body as { isActive?: boolean; [key: string]: unknown };
+      const body = req.body as Record<string, unknown>;
+
+      if ('instructionImageKey' in body) {
+        const [current] = await app.db
+          .select({ instructionImageKey: schema.garmentSubcategories.instructionImageKey })
+          .from(schema.garmentSubcategories)
+          .where(eq(schema.garmentSubcategories.id, id));
+        if (current?.instructionImageKey) {
+          await app.storage.deleteObject(current.instructionImageKey).catch(() => {});
+        }
+      }
 
       const [updated] = await app.db
         .update(schema.garmentSubcategories)

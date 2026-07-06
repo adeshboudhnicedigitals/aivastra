@@ -318,6 +318,21 @@ export async function authRoutes(app: FastifyInstance) {
         companyName?: string | null;
       };
       return app.db.transaction(async (tx) => {
+        if (phone) {
+          const [conflict] = await tx
+            .select({ email: schema.users.email })
+            .from(schema.users)
+            .where(and(eq(schema.users.phone, phone), sql`${schema.users.id} <> ${req.userId}`))
+            .limit(1);
+          if (conflict) {
+            throw new AppError(
+              'PHONE_TAKEN',
+              409,
+              'This mobile number is already assigned to another email address. Use a different number.',
+            );
+          }
+        }
+
         const [updated] = await tx
           .update(schema.users)
           .set({
@@ -336,9 +351,7 @@ export async function authRoutes(app: FastifyInstance) {
           });
         if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
 
-        const complete =
-          Boolean(updated.phone && /^\d{10}$/.test(updated.phone)) &&
-          Boolean(updated.companyName?.trim());
+        const complete = Boolean(updated.phone && /^\d{10}$/.test(updated.phone));
         if (!complete) return updated;
 
         const [freePlan] = await tx

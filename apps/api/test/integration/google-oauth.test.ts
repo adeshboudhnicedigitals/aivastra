@@ -76,7 +76,11 @@ describe('google oauth', () => {
     const regRes = await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'otp-test@example.com', password: 'password123' },
+      payload: {
+        displayName: 'OTP Test',
+        email: 'otp-test@example.com',
+        password: 'password123',
+      },
     });
     expect(regRes.statusCode).toBe(201);
     const [user] = await app.db
@@ -195,7 +199,11 @@ describe('google oauth', () => {
     const regRes = await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'existing@example.com', password: 'password123' },
+      payload: {
+        displayName: 'Existing User',
+        email: 'existing@example.com',
+        password: 'password123',
+      },
     });
     expect(regRes.statusCode).toBe(201);
     const [user] = await app.db
