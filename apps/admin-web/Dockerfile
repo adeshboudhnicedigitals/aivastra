@@ -3,6 +3,8 @@ RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /app
 COPY . .
 RUN pnpm install --no-frozen-lockfile
+ARG VITE_CHATBOT_URL
+ENV VITE_CHATBOT_URL=$VITE_CHATBOT_URL
 RUN NODE_ENV=production pnpm --filter @aivastra/admin build
 
 FROM nginx:alpine AS runtime
