@@ -160,6 +160,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
+        NEXT_PUBLIC_CHATBOT_URL: ${NEXT_PUBLIC_CHATBOT_URL}
     container_name: aivastra-prod-web
     restart: unless-stopped
     environment:
@@ -174,6 +175,8 @@ services:
     build:
       context: ..
       dockerfile: apps/admin-web/Dockerfile
+      args:
+        VITE_CHATBOT_URL: ${VITE_CHATBOT_URL}
     container_name: aivastra-prod-admin
     restart: unless-stopped
     ports:
