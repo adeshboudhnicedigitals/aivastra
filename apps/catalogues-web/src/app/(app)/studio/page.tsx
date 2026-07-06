@@ -1545,32 +1545,32 @@ export default function StudioPage(): React.ReactElement {
                               gap: 4,
                             }}
                           >
-                          <span
-                            style={{
-                              width: '100%',
-                              fontSize: requiresLowerUpload ? 11 : 12,
-                              fontWeight: 500,
-                              lineHeight: '100%',
-                              color: C.text,
-                              textAlign: 'center',
-                            }}
-                          >
-                            {requiresLowerUpload ? 'Top Wear' : 'Upload Top Wear'}
-                          </span>
-                          <span
-                            style={{
-                              width: '100%',
-                              fontSize: 10,
-                              fontWeight: 500,
-                              lineHeight: '140%',
-                              color: C.mid,
-                              textAlign: 'center',
-                            }}
-                          >
-                            {requiresLowerUpload
-                              ? 'JPG, PNG · Max 10MB'
-                              : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
-                          </span>
+                            <span
+                              style={{
+                                width: '100%',
+                                fontSize: requiresLowerUpload ? 11 : 12,
+                                fontWeight: 500,
+                                lineHeight: '100%',
+                                color: C.text,
+                                textAlign: 'center',
+                              }}
+                            >
+                              {requiresLowerUpload ? 'Top Wear' : 'Upload Top Wear'}
+                            </span>
+                            <span
+                              style={{
+                                width: '100%',
+                                fontSize: 10,
+                                fontWeight: 500,
+                                lineHeight: '140%',
+                                color: C.mid,
+                                textAlign: 'center',
+                              }}
+                            >
+                              {requiresLowerUpload
+                                ? 'JPG, PNG · Max 10MB'
+                                : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
+                            </span>
                           </div>
                           <div
                             style={{
@@ -1727,30 +1727,30 @@ export default function StudioPage(): React.ReactElement {
                                 gap: 4,
                               }}
                             >
-                            <span
-                              style={{
-                                width: '100%',
-                                fontSize: 11,
-                                fontWeight: 500,
-                                lineHeight: '100%',
-                                color: C.text,
-                                textAlign: 'center',
-                              }}
-                            >
-                              Bottom Wear
-                            </span>
-                            <span
-                              style={{
-                                width: '100%',
-                                fontSize: 10,
-                                fontWeight: 500,
-                                lineHeight: '140%',
-                                color: C.mid,
-                                textAlign: 'center',
-                              }}
-                            >
-                              JPG, PNG · Max 10MB
-                            </span>
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '100%',
+                                  color: C.text,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                Bottom Wear
+                              </span>
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  lineHeight: '140%',
+                                  color: C.mid,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                JPG, PNG · Max 10MB
+                              </span>
                             </div>
                             <div
                               style={{

@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { api } from '@/lib/api';
 import { ProfileCompletionModal } from './profile-completion-modal';
 

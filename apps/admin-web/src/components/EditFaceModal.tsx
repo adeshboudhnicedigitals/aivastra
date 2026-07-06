@@ -189,6 +189,7 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
                 (storagePublicUrl && face.thumbnailKey
                   ? `${storagePublicUrl}/${face.thumbnailKey}`
                   : null)) && (
+                // biome-ignore lint/performance/noImgElement: face thumbnail preview
                 <img
                   src={replacePreview ?? `${storagePublicUrl}/${face.thumbnailKey}`}
                   alt=""
@@ -252,6 +253,7 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
                 (storagePublicUrl && currentFaceSideKey
                   ? `${storagePublicUrl}/${currentFaceSideKey}`
                   : null)) && (
+                // biome-ignore lint/performance/noImgElement: face side thumbnail preview
                 <img
                   src={sidePreview ?? `${storagePublicUrl}/${currentFaceSideKey}`}
                   alt=""

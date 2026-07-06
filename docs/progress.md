@@ -1,3 +1,69 @@
+## 2026-07-06 - Web Admin Users Phone Visibility
+
+### Done
+- Switched focus from `admin-mobile` to real web admin app in `apps/admin-web`.
+- Added `phone` to shared web admin `User` type in `apps/admin-web/src/types.ts`.
+- Showed phone directly in users table row and removed the dead last action column in `apps/admin-web/src/pages/UsersPage.tsx`.
+- Showed phone in user detail header and `KV` summary in `apps/admin-web/src/pages/UsersPage.tsx`.
+- Rebuilt `apps/admin-web/dist` so running web app gets updated bundle, not stale output.
+- Restarted the local `apps/admin-web` Vite server on `http://127.0.0.1:5173/` after confirming stale bundle behavior.
+- Verified with `./node_modules/.bin/tsc -b apps/admin-web/tsconfig.json`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-06 - Admin Users Page Phone Number
+
+### Done
+- Added `phone` to admin users API list/detail payloads in `apps/api/src/modules/admin/users.routes.ts`.
+- Updated admin mobile shared `User` type to carry `phone`.
+- Removed right-side row clutter in `apps/admin-mobile/src/components/UserRow.tsx` so phone has full-width space on the list.
+- Showed phone directly under name in admin user detail screen in `apps/admin-mobile/src/app/(tabs)/more/users/[id].tsx`.
+- Added API coverage in `apps/api/test/integration/admin-users.test.ts` to assert listed admin users include `phone`.
+- Verified with `node_modules/.bin/tsc --noEmit -p apps/admin-mobile/tsconfig.json`.
+
+### Failed / Not Done
+- API integration test run could not reach local Postgres at `127.0.0.1:5432` in this sandbox (`connect EPERM`).
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-06 - Signup Full Name Required
+
+### Done
+- Made `displayName` required in shared `RegisterBody` so signup now rejects anonymous registrations before they hit the API.
+- Updated signup UI to label full name as required in `apps/catalogues-web/src/app/(auth)/register/page.tsx`.
+- Added integration coverage for missing-name signup rejection in `apps/api/test/integration/auth.test.ts`.
+- Updated all register test helpers/call sites to send `displayName` so the suite matches the new contract.
+- Verified with `pnpm --filter @aivastra/api typecheck` and `pnpm --filter @aivastra/web typecheck`.
+- Verified with `pnpm --dir apps/api exec vitest run --config vitest.integration.config.ts test/integration/auth.test.ts test/integration/google-oauth.test.ts test/integration/credits.test.ts`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-06 - Profile Modal Gate, Phone Uniqueness, Optional Company
+
+### Done
+- Replaced settings-page redirect gating with a blocking onboarding modal in `apps/catalogues-web/src/components/profile-gate.tsx` + `apps/catalogues-web/src/components/profile-completion-modal.tsx`.
+- Made company name optional in the web onboarding copy and settings form; phone number is now the only required field for free-credit unlock.
+- Changed new-user landing back to `/studio` for email register, email verification, and Google OAuth callback flows.
+- Added duplicate-phone validation in `PATCH /v1/me` so a number already assigned to another email returns `PHONE_TAKEN` with a clear 409 message.
+- Kept free-credit grant tied to profile completion and verified it with integration coverage in `apps/api/test/integration/auth.test.ts`.
+- Verified with `pnpm --filter @aivastra/api typecheck` and `pnpm --filter @aivastra/web typecheck`.
+- Verified with `pnpm --dir apps/api exec vitest run --config vitest.integration.config.ts test/integration/auth.test.ts test/integration/google-oauth.test.ts test/integration/credits.test.ts`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None. Current behavior matches request: modal gate, optional company, blocked duplicate phone, and clear error text.
+
 ## 2026-07-06 - Mandatory Profile Fields Before Free Credits
 
 ### Done
@@ -2006,7 +2072,3 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
-
-
-
-

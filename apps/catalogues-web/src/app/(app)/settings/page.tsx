@@ -161,18 +161,20 @@ function Section({
   children,
   noBorder,
   badge,
+  action,
 }: {
   title: string;
   children: React.ReactNode;
   noBorder?: boolean;
   badge?: string;
+  action?: React.ReactNode;
 }) {
   return (
     <div
       style={{ padding: '20px 24px', borderBottom: noBorder ? 'none' : `1px solid ${C.border}` }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text }}>{title}</h3>
+        <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, flex: 1 }}>{title}</h3>
         {badge && (
           <span
             style={{
@@ -187,6 +189,7 @@ function Section({
             {badge}
           </span>
         )}
+        {action}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>{children}</div>
     </div>
@@ -382,7 +385,48 @@ export default function SettingsPage(): React.ReactElement {
         {tab === 'Profile Details' && (
           <div style={cardWrap}>
             {/* ── Part 1: Personal Information + Account Preferences ── */}
-            <Section title="Personal Information">
+            <Section
+              title="Personal Information"
+              action={
+                !editingProfile ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditingProfile(true)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${C.border2}`,
+                      background: C.white,
+                      cursor: 'pointer',
+                      color: C.mid,
+                      fontFamily: 'inherit',
+                      fontSize: 13,
+                      fontWeight: 500,
+                    }}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
+                    </svg>
+                    Edit
+                  </button>
+                ) : undefined
+              }
+            >
               <Row>
                 <Field label="Full Name" value={nameVal} onChange={setName} />
                 <Field label="Email Address" value={email} disabled />
@@ -426,91 +470,112 @@ export default function SettingsPage(): React.ReactElement {
                 <Field label="Default Platform" value="Amazon" dropdown disabled />
               </Row>
             </Section>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                gap: 12,
-                padding: '16px 24px',
-                borderTop: `1px solid ${C.border}`,
-                background: C.white,
-              }}
-            >
-              {editingProfile ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingProfile(false);
-                      setName(null);
-                      setPhone(null);
-                      setCompanyName(null);
-                    }}
-                    style={{
-                      padding: '10px 24px',
-                      borderRadius: 8,
-                      border: `1px solid ${C.border2}`,
-                      background: C.white,
-                      cursor: 'pointer',
-                      fontFamily: 'inherit',
-                      fontWeight: 600,
-                      fontSize: 14,
-                      color: C.mid,
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={saveProfile}
-                    disabled={saving || !phoneValid}
-                    style={{
-                      padding: '10px 24px',
-                      borderRadius: 8,
-                      border: 'none',
-                      cursor: saving || !phoneValid ? 'not-allowed' : 'pointer',
-                      fontFamily: 'inherit',
-                      fontWeight: 600,
-                      fontSize: 14,
-                      color: C.white,
-                      background: saved ? C.mint : grad,
-                      opacity: saving || !phoneValid ? 0.6 : 1,
-                      transition: 'background .3s',
-                    }}
-                  >
-                    {saved
-                      ? '✓ Saved!'
-                      : saving
-                        ? 'Saving…'
-                        : !phoneValid
-                          ? 'Fill Required Fields'
-                          : 'Update Changes'}
-                  </button>
-                </>
-              ) : (
+            {editingProfile && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '16px 24px',
+                  borderTop: `1px solid ${C.border}`,
+                  background: C.white,
+                }}
+              >
                 <button
                   type="button"
-                  onClick={() => setEditingProfile(true)}
+                  onClick={() => {
+                    setEditingProfile(false);
+                    setName(null);
+                    setPhone(null);
+                    setCompanyName(null);
+                  }}
                   style={{
                     padding: '10px 24px',
                     borderRadius: 8,
-                    border: 'none',
+                    border: `1px solid ${C.border2}`,
+                    background: C.white,
                     cursor: 'pointer',
                     fontFamily: 'inherit',
                     fontWeight: 600,
                     fontSize: 14,
-                    color: C.white,
-                    background: grad,
+                    color: C.mid,
                   }}
                 >
-                  Edit Profile
+                  Cancel
                 </button>
-              )}
-            </div>
+                <button
+                  type="button"
+                  onClick={saveProfile}
+                  disabled={saving || !phoneValid}
+                  style={{
+                    padding: '10px 24px',
+                    borderRadius: 8,
+                    border: 'none',
+                    cursor: saving || !phoneValid ? 'not-allowed' : 'pointer',
+                    fontFamily: 'inherit',
+                    fontWeight: 600,
+                    fontSize: 14,
+                    color: C.white,
+                    background: saved ? C.mint : grad,
+                    opacity: saving || !phoneValid ? 0.6 : 1,
+                    transition: 'background .3s',
+                  }}
+                >
+                  {saved
+                    ? '✓ Saved!'
+                    : saving
+                      ? 'Saving…'
+                      : !phoneValid
+                        ? 'Fill Required Fields'
+                        : 'Update Changes'}
+                </button>
+              </div>
+            )}
 
             {/* ── Part 2: Change Password ── */}
-            <Section title={hasPassword ? 'Change Password' : 'Set Password'}>
+            <Section
+              title={hasPassword ? 'Change Password' : 'Set Password'}
+              action={
+                !editingPassword ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditingPassword(true)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '6px 12px',
+                      borderRadius: 8,
+                      border: `1px solid ${C.border2}`,
+                      background: C.white,
+                      cursor: 'pointer',
+                      color: C.mid,
+                      fontFamily: 'inherit',
+                      fontSize: 13,
+                      fontWeight: 500,
+                    }}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                      <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
+                    </svg>
+                    Edit
+                  </button>
+                ) : undefined
+              }
+            >
               {!hasPassword && (
                 <p style={{ fontSize: 13, color: C.mid, margin: '0 0 4px' }}>
                   Your account was created with Google. Set a password to also sign in with email.
@@ -550,108 +615,86 @@ export default function SettingsPage(): React.ReactElement {
                   {pwdError}
                 </div>
               )}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  alignItems: 'center',
-                  gap: 12,
-                  marginTop: editingPassword ? 16 : 0,
-                }}
-              >
-                {editingPassword ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingPassword(false);
-                        setCurPwd('');
-                        setNewPwd('');
-                        setConfirmPwd('');
-                        setPwdError('');
-                      }}
-                      style={{
-                        padding: '10px 24px',
-                        borderRadius: 8,
-                        border: `1px solid ${C.border2}`,
-                        background: C.white,
-                        cursor: 'pointer',
-                        fontFamily: 'inherit',
-                        fontWeight: 600,
-                        fontSize: 14,
-                        color: C.mid,
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <Tooltip
-                      tip={
-                        hasPassword && !curPwd
-                          ? 'Enter your current password'
-                          : !newPwd
-                            ? 'Enter a new password'
-                            : !confirmPwd
-                              ? 'Confirm your new password'
-                              : undefined
-                      }
-                      position="top"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => void changePassword()}
-                        disabled={pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd}
-                        style={{
-                          padding: '10px 24px',
-                          borderRadius: 8,
-                          border: 'none',
-                          cursor:
-                            pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd
-                              ? 'not-allowed'
-                              : 'pointer',
-                          fontFamily: 'inherit',
-                          fontWeight: 600,
-                          fontSize: 14,
-                          color: C.white,
-                          background: pwdSaved ? C.mint : grad,
-                          opacity:
-                            pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd
-                              ? 0.6
-                              : 1,
-                          transition: 'background .3s',
-                        }}
-                      >
-                        {pwdSaved
-                          ? `✓ Password ${hasPassword ? 'Updated' : 'Set'}!`
-                          : pwdSaving
-                            ? hasPassword
-                              ? 'Updating…'
-                              : 'Setting…'
-                            : hasPassword
-                              ? 'Update Password'
-                              : 'Set Password'}
-                      </button>
-                    </Tooltip>
-                  </>
-                ) : (
+              {editingPassword && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    alignItems: 'center',
+                    gap: 12,
+                    marginTop: 16,
+                  }}
+                >
                   <button
                     type="button"
-                    onClick={() => setEditingPassword(true)}
+                    onClick={() => {
+                      setEditingPassword(false);
+                      setCurPwd('');
+                      setNewPwd('');
+                      setConfirmPwd('');
+                      setPwdError('');
+                    }}
                     style={{
                       padding: '10px 24px',
                       borderRadius: 8,
-                      border: 'none',
+                      border: `1px solid ${C.border2}`,
+                      background: C.white,
                       cursor: 'pointer',
                       fontFamily: 'inherit',
                       fontWeight: 600,
                       fontSize: 14,
-                      color: C.white,
-                      background: grad,
+                      color: C.mid,
                     }}
                   >
-                    {hasPassword ? 'Edit Password' : 'Set Password'}
+                    Cancel
                   </button>
-                )}
-              </div>
+                  <Tooltip
+                    tip={
+                      hasPassword && !curPwd
+                        ? 'Enter your current password'
+                        : !newPwd
+                          ? 'Enter a new password'
+                          : !confirmPwd
+                            ? 'Confirm your new password'
+                            : undefined
+                    }
+                    position="top"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void changePassword()}
+                      disabled={pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd}
+                      style={{
+                        padding: '10px 24px',
+                        borderRadius: 8,
+                        border: 'none',
+                        cursor:
+                          pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd
+                            ? 'not-allowed'
+                            : 'pointer',
+                        fontFamily: 'inherit',
+                        fontWeight: 600,
+                        fontSize: 14,
+                        color: C.white,
+                        background: pwdSaved ? C.mint : grad,
+                        opacity:
+                          pwdSaving || (hasPassword && !curPwd) || !newPwd || !confirmPwd ? 0.6 : 1,
+                        transition: 'background .3s',
+                      }}
+                    >
+                      {pwdSaved
+                        ? `✓ Password ${hasPassword ? 'Updated' : 'Set'}!`
+                        : pwdSaving
+                          ? hasPassword
+                            ? 'Updating…'
+                            : 'Setting…'
+                          : hasPassword
+                            ? 'Update Password'
+                            : 'Set Password'}
+                    </button>
+                  </Tooltip>
+                </div>
+              )}
             </Section>
           </div>
         )}

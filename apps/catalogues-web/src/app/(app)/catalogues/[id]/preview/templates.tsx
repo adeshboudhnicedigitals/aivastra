@@ -54,6 +54,7 @@ function ProductImage({ src, ratio }: { src?: string; ratio: string }) {
       )}
       {src && (
         // eslint-disable-next-line @next/next/no-img-element
+        // biome-ignore lint/performance/noImgElement: generated catalogue preview image
         <img
           src={src}
           alt="Generated catalogue preview"
@@ -182,11 +183,13 @@ const gp = {
 };
 
 const MenuG = ({ color = '#fff' }: { color?: string }) => (
+  // biome-ignore lint/a11y/noSvgWithoutTitle: aria-hidden set via {...gp} spread above
   <svg width="20" height="20" viewBox="0 0 24 24" style={{ color }} {...gp}>
     <path d="M3 6h18M3 12h18M3 18h18" />
   </svg>
 );
 const CartG = ({ color = '#fff', size = 22 }: { color?: string; size?: number }) => (
+  // biome-ignore lint/a11y/noSvgWithoutTitle: aria-hidden set via {...gp} spread above
   <svg width={size} height={size} viewBox="0 0 24 24" style={{ color }} {...gp}>
     <circle cx="9" cy="21" r="1" />
     <circle cx="20" cy="21" r="1" />
@@ -194,12 +197,14 @@ const CartG = ({ color = '#fff', size = 22 }: { color?: string; size?: number })
   </svg>
 );
 const SearchG = ({ color = '#0f1111' }: { color?: string }) => (
+  // biome-ignore lint/a11y/noSvgWithoutTitle: aria-hidden set via {...gp} spread above
   <svg width="18" height="18" viewBox="0 0 24 24" style={{ color }} {...gp}>
     <circle cx="11" cy="11" r="8" />
     <path d="m21 21-4.34-4.34" />
   </svg>
 );
 const LockG = () => (
+  // biome-ignore lint/a11y/noSvgWithoutTitle: aria-hidden set via {...gp} spread above
   <svg width="11" height="11" viewBox="0 0 24 24" style={{ color: '#5f6368' }} {...gp}>
     <rect width="18" height="11" x="3" y="11" rx="2" />
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -742,6 +747,7 @@ export function AmazonDesktopTemplate({
               >
                 {url ? (
                   // eslint-disable-next-line @next/next/no-img-element
+                  // biome-ignore lint/performance/noImgElement: preview panel image
                   <img
                     src={url}
                     alt=""
