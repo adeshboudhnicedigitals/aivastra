@@ -121,7 +121,7 @@ export default function RegisterPage(): React.ReactElement {
       router.push('/verify-email');
       return;
     }
-    router.push('/studio');
+    router.push('/settings');
     router.refresh();
   }
 

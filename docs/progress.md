@@ -1,3 +1,22 @@
+## 2026-07-06 - Mandatory Profile Fields Before Free Credits
+
+### Done
+- Added `company_name` to `users` in `packages/db/src/schema/users.ts` and migration `packages/db/src/migrations/0084_user_company_name_and_free_trial_gate.sql`.
+- Moved free-trial credit grant out of signup and into profile completion in `apps/api/src/modules/auth/routes.ts`.
+- `PATCH /v1/me` now accepts `companyName`, stores trimmed `phone`/`companyName`, and grants free credits once when both are filled.
+- New web accounts now land on `/settings` after email verification, and Google OAuth handoff now redirects there too.
+- Added `ProfileGate` in `apps/catalogues-web/src/components/profile-gate.tsx` and wrapped the app shell so incomplete profiles get pushed to `/settings`.
+- Updated `apps/catalogues-web/src/app/(app)/settings/page.tsx` to require phone + company name before save/credit unlock.
+- Updated integration tests for the new onboarding flow and rebuilt `@aivastra/db` so API typecheck sees the new schema.
+- Verified with `pnpm exec vitest run --config vitest.integration.config.ts test/integration/auth.test.ts test/integration/google-oauth.test.ts test/integration/credits.test.ts`.
+- Verified with `pnpm --filter @aivastra/api typecheck` and `pnpm --filter @aivastra/web typecheck`.
+
+### Failed / Not Done
+- Did not change login redirect defaults for returning users; the app gate handles incomplete profiles after entry.
+
+### Open Questions / Decisions
+- If you want older users with missing phone/company to be blocked from app routes immediately, current gate already does that. If you want a softer banner instead of a hard redirect, that would be a separate UI change.
+
 ## 2026-07-03 - Watermark Opacity Tuned to 0.055
 
 ### Done
@@ -1987,7 +2006,6 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
-
 
 
 

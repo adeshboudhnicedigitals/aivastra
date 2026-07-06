@@ -589,7 +589,13 @@
       "when": 1752067200000,
       "tag": "0083_chatbot_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1752153600000,
+      "tag": "0084_user_company_name_and_free_trial_gate",
+      "breakpoints": true
     }
   ]
 }
-
