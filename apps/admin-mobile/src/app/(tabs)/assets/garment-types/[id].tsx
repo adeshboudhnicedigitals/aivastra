@@ -51,6 +51,7 @@ export default function GarmentTypeDetailScreen() {
   const [label, setLabel] = useState('');
   const [sortOrder, setSortOrder] = useState('0');
   const [replacementUri, setReplacementUri] = useState<string | null>(null);
+  const [instructionReplacementUri, setInstructionReplacementUri] = useState<string | null>(null);
   const [lowerPickerVisible, setLowerPickerVisible] = useState(false);
   const [shoePickerVisible, setShoePickerVisible] = useState(false);
   const [defaultLowerId, setDefaultLowerId] = useState<string | null>(null);
@@ -222,6 +223,31 @@ export default function GarmentTypeDetailScreen() {
     }
   }
 
+  async function uploadInstructionImage() {
+    if (!instructionReplacementUri) return;
+    try {
+      const { thumbnailKey: instructionImageKey } = await uploadSingleThumb({
+        presignEndpoint: '/admin/assets/garment-types/presign',
+        presignBody: { contentType: 'image/jpeg' },
+        fileUri: instructionReplacementUri,
+      });
+      await patchItem({ instructionImageKey }, 'Instruction image updated');
+      setInstructionReplacementUri(null);
+    } catch (cause) {
+      Alert.alert('Upload failed', cause instanceof Error ? cause.message : 'Please try again.');
+    }
+  }
+
+  function clearInstructionImage() {
+    confirmAction({
+      title: 'Remove instruction image?',
+      message: 'This will remove the instruction image for this garment type.',
+      confirmLabel: 'Remove',
+      destructive: true,
+      onConfirm: () => void patchItem({ instructionImageKey: null }, 'Instruction image removed'),
+    });
+  }
+
   function deleteItem() {
     confirmAction({
       title: 'Delete garment type?',
@@ -271,6 +297,7 @@ export default function GarmentTypeDetailScreen() {
     );
 
   const thumbnailUri = storageUrl(item.thumbnailKey);
+  const instructionImageUri = storageUrl(item.instructionImageKey);
   const activeLowerItems = (lowerItems.data ?? []).filter((x) => x.isActive);
   const activeShoeItems = (shoeItems.data ?? []).filter((x) => x.isActive);
 
@@ -295,6 +322,34 @@ export default function GarmentTypeDetailScreen() {
         />
         {replacementUri ? (
           <Button label="Upload thumbnail" onPress={() => void uploadThumbnail()} colors={colors} />
+        ) : null}
+        {instructionImageUri ? (
+          <View>
+            <Image
+              source={{ uri: instructionImageUri }}
+              style={[styles.image, { backgroundColor: colors.surfaceVariant }]}
+            />
+            <TouchableOpacity
+              onPress={() => void clearInstructionImage()}
+              style={{ marginTop: Spacing.sm }}
+            >
+              <Text style={[styles.buttonText, { color: colors.error, textAlign: 'center' }]}>
+                Remove instruction image
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        <ImagePickerButton
+          label="Replace instruction image"
+          uri={instructionReplacementUri}
+          onPick={(uri) => setInstructionReplacementUri(uri)}
+        />
+        {instructionReplacementUri ? (
+          <Button
+            label="Upload instruction image"
+            onPress={() => void uploadInstructionImage()}
+            colors={colors}
+          />
         ) : null}
         <Card colors={colors}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>Label</Text>

@@ -213,10 +213,13 @@ export default function UserDetailScreen() {
               <Text numberOfLines={2} style={[styles.email, { color: colors.text }]}>
                 {user.email}
               </Text>
-              <Text style={[styles.name, { color: colors.textSecondary }]}>
-                {user.displayName || 'No display name'}
-              </Text>
-            </View>
+            <Text style={[styles.name, { color: colors.textSecondary }]}>
+              {user.displayName || 'No display name'}
+            </Text>
+            <Text style={[styles.phone, { color: colors.text }]}>
+              {user.phone ? `Phone: +91 ${user.phone}` : 'Phone: not set'}
+            </Text>
+          </View>
           </View>
           <View style={styles.chips}>
             <Chip
@@ -446,6 +449,7 @@ const styles = StyleSheet.create({
   identity: { flex: 1 },
   email: { ...Typography.h3 },
   name: { ...Typography.body, marginTop: 2 },
+  phone: { ...Typography.bodyBold, marginTop: 4 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   chip: { paddingHorizontal: Spacing.md, paddingVertical: 5, borderRadius: Radius.full },
   chipLabel: { ...Typography.label },

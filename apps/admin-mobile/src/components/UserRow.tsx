@@ -1,13 +1,11 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { formatNumber, userInitials } from '../lib/format';
+import { userInitials } from '../lib/format';
 import { useAppTheme } from '../store/theme';
 import { Radius, Spacing, Typography } from '../styles/tokens';
 import type { User } from '../types';
 
 export function UserRow({ user, onPress }: { user: User; onPress: () => void }) {
   const { colors } = useAppTheme();
-  const tierBackground = user.tier === 'free' ? colors.surfaceVariant : colors.accentContainer;
-  const tierText = user.tier === 'free' ? colors.textSecondary : colors.onAccentContainer;
   return (
     <TouchableOpacity
       accessibilityHint="Opens user details"
@@ -31,14 +29,9 @@ export function UserRow({ user, onPress }: { user: User; onPress: () => void }) 
         <Text numberOfLines={1} style={[styles.name, { color: colors.textSecondary }]}>
           {user.displayName || 'No display name'}
         </Text>
-      </View>
-      <View style={styles.meta}>
-        <Text style={[styles.balance, { color: colors.text }]}>
-          {formatNumber(user.balance)} cr
+        <Text numberOfLines={1} style={[styles.phone, { color: colors.textSecondary }]}>
+          {user.phone ? `Phone: +91 ${user.phone}` : 'Phone: not set'} · {user.tier}
         </Text>
-        <View style={[styles.tier, { backgroundColor: tierBackground }]}>
-          <Text style={[styles.tierLabel, { color: tierText }]}>{user.tier}</Text>
-        </View>
       </View>
     </TouchableOpacity>
   );
@@ -67,8 +60,5 @@ const styles = StyleSheet.create({
   email: { ...Typography.bodyBold, flexShrink: 1 },
   banned: { ...Typography.label },
   name: { ...Typography.caption, marginTop: 2 },
-  meta: { alignItems: 'flex-end', gap: 5 },
-  balance: { ...Typography.captionBold, fontVariant: ['tabular-nums'] },
-  tier: { paddingHorizontal: Spacing.sm, paddingVertical: 3, borderRadius: Radius.full },
-  tierLabel: { ...Typography.label },
+  phone: { ...Typography.captionBold, marginTop: 2, flexShrink: 1 },
 });
