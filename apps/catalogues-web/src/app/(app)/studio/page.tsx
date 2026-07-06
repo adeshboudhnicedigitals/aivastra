@@ -1389,7 +1389,7 @@ export default function StudioPage(): React.ReactElement {
                     background: C.field,
                     borderRadius: 12,
                     border: `1px dashed ${C.border}`,
-                    padding: 0,
+                    padding: '0 10px',
                     boxSizing: 'border-box',
                   }}
                 >
@@ -1413,7 +1413,7 @@ export default function StudioPage(): React.ReactElement {
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
-                        justifyContent: requiresLowerUpload ? undefined : 'center',
+                        justifyContent: 'center',
                         gap: 12,
                         background: C.card,
                         border: `1px solid ${C.border}`,
@@ -1537,6 +1537,14 @@ export default function StudioPage(): React.ReactElement {
                         </div>
                       ) : (
                         <>
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
                           <span
                             style={{
                               width: '100%',
@@ -1563,6 +1571,7 @@ export default function StudioPage(): React.ReactElement {
                               ? 'JPG, PNG · Max 10MB'
                               : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
                           </span>
+                          </div>
                           <div
                             style={{
                               display: 'flex',
@@ -1605,6 +1614,7 @@ export default function StudioPage(): React.ReactElement {
                           display: 'flex',
                           flexDirection: 'column',
                           alignItems: 'center',
+                          justifyContent: 'center',
                           gap: 12,
                           background: C.card,
                           border: `1px solid ${C.border}`,
@@ -1709,6 +1719,14 @@ export default function StudioPage(): React.ReactElement {
                           </div>
                         ) : (
                           <>
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
                             <span
                               style={{
                                 width: '100%',
@@ -1733,6 +1751,7 @@ export default function StudioPage(): React.ReactElement {
                             >
                               JPG, PNG · Max 10MB
                             </span>
+                            </div>
                             <div
                               style={{
                                 display: 'flex',
