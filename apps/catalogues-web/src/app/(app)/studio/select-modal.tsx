@@ -35,7 +35,9 @@ export function SelectGridModal<T extends SelectableItem>({
   continueLabel,
 }: SelectGridModalProps<T>) {
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: click-outside-to-dismiss backdrop; keyboard users have the visible Close button below
     <div
+      role="presentation"
       style={{
         position: 'fixed',
         inset: 0,
@@ -47,7 +49,9 @@ export function SelectGridModal<T extends SelectableItem>({
       }}
       onClick={onClose}
     >
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: stopPropagation only, not itself interactive */}
       <div
+        role="presentation"
         style={{
           background: C.white,
           borderRadius: 12,
@@ -74,6 +78,7 @@ export function SelectGridModal<T extends SelectableItem>({
         >
           <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>{title}</h2>
           <button
+            type="button"
             onClick={onClose}
             style={{
               background: 'none',
@@ -103,10 +108,19 @@ export function SelectGridModal<T extends SelectableItem>({
                 const selected = selectedIds.includes(item.id);
                 const img = item.previewUrl || item.thumbnailUrl;
                 return (
-                  <div
+                  <button
                     key={item.id}
+                    type="button"
                     onClick={() => onSelect(item.id)}
-                    style={{ cursor: 'pointer', textAlign: 'center' }}
+                    style={{
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      font: 'inherit',
+                      color: 'inherit',
+                    }}
                   >
                     <div
                       style={{
@@ -135,6 +149,7 @@ export function SelectGridModal<T extends SelectableItem>({
                       >
                         {img ? (
                           // eslint-disable-next-line @next/next/no-img-element
+                          // biome-ignore lint/performance/noImgElement: studio select modal preview
                           <img
                             src={img}
                             alt={item.label}
@@ -184,7 +199,7 @@ export function SelectGridModal<T extends SelectableItem>({
                     <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>
                       {item.label}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>

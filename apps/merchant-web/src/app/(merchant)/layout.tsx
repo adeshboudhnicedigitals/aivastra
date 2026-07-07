@@ -11,6 +11,7 @@ import {
   MonitorSmartphone,
   Moon,
   Package,
+  PhoneCall,
   Settings,
   Sun,
   UserCircle2,
@@ -492,6 +493,23 @@ export default function MerchantLayout({ children }: { children: ReactNode }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+            <a
+              href="tel:+917729883692"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                color: 'hsl(var(--text-secondary))',
+                fontSize: 14,
+                fontWeight: 500,
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              <PhoneCall size={18} />
+              +91 77298 83692
+            </a>
             <ThemeToggle />
             <AccountMenu />
           </div>

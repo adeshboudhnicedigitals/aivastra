@@ -11,7 +11,6 @@ import {
   MinusSquareIcon,
   SearchIcon,
   ShoppingBagIcon,
-  SparkleIcon,
   SpinnerIcon,
   SquareIcon,
   UserRoundIcon,
@@ -618,13 +617,7 @@ export default function CataloguesPage(): React.ReactElement {
       <TopBar
         title="Catalogues"
         subtitle="View, manage, and download your previously generated catalogue images."
-        right={
-          <Link href="/studio" style={{ textDecoration: 'none' }}>
-            <GradBtn style={{ gap: 8 }}>
-              <SparkleIcon /> Create Catalogue
-            </GradBtn>
-          </Link>
-        }
+        right={undefined}
       />
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 28px' }}>

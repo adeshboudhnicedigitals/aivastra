@@ -251,6 +251,7 @@ export function EditBackgroundModal({
                 (storagePublicUrl && background.thumbnailKey
                   ? `${storagePublicUrl}/${background.thumbnailKey}`
                   : null)) && (
+                // biome-ignore lint/performance/noImgElement: thumbnail preview
                 <img
                   src={replacePreview ?? `${storagePublicUrl}/${background.thumbnailKey}`}
                   alt=""

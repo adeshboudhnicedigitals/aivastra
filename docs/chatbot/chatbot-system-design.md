@@ -1,7 +1,7 @@
 # Support Chatbot — System Design & HLD v2
 
-Status: **proposed** (not yet built). Read alongside `docs/virtual-tryon-system-design.md`
-for platform conventions. This doc is the source of truth for the chatbot until "as built".
+Status: **as built (v1)**, implemented per `docs/superpowers/plans/2026-07-03-support-chatbot.md`.
+Read alongside `docs/virtual-tryon-system-design.md` for platform conventions.
 
 v2 supersedes v1 (RAG-only). Scope grew to a **stateful, logged-in live-chat system** with
 a **tool-using bot** and **human-in-the-loop (HITL) takeover**.
@@ -50,9 +50,9 @@ A support chatbot for **logged-in users** that:
 | 9 | Generation | **Claude Haiku** (`claude-haiku-4-5-20251001`) | Fast, cheap, good for grounded support. |
 | 10 | Bot account access | **Full context via tools** (getCredits, getRecentJobs) | Richer answers. Tools are **userId-bound server-side** (injection-safe, §16). |
 | 11 | Real-time transport | **WebSocket** (in `apps/chatbot`) | Native two-way for live human↔user chat; typing/presence easy. |
-| 12 | Human agents | **`apps/admin`, `SUPPORT` role** (+ MODERATOR/ADMIN/SUPER_ADMIN) | Reuse existing admin auth + app. New "Chat Inbox" page. |
+| 12 | Human agents | **`apps/admin-web`, `SUPPORT` role** (+ MODERATOR/ADMIN/SUPER_ADMIN) | Reuse existing admin auth + app. New "Chat Inbox" page. |
 | 13 | Availability | **Manual duty punch-in/out** toggle in admin | Agent is "available" only when on duty; presence (live WS) shown separately. |
-| 14 | Escalation triggers | **All four** (§8.1) | User button, repeated low-confidence, intent detection, agent-initiated. |
+| 14 | Escalation triggers | **Three in v1** (§8.1) | User button, repeated low-confidence, agent-initiated. Intent detection deferred to v1.1 (needs preprocess node, §21). |
 | 15 | No agent available | **Queue + notify; email fallback** off-hours | Reuse `contact_requests` for async follow-up. |
 | 16 | Takeover semantics | **Terminates LG permanently**; agent ends → CLOSED | No hand-back. Simpler state machine. |
 | 17 | Memory | **Own `chatbot_messages` + replay** last N | One source of truth; no checkpointer dependency. |
@@ -64,7 +64,7 @@ A support chatbot for **logged-in users** that:
 
 ```
 ┌──────────────────────────── Browser ────────────────────────────┐
-│  apps/web  — chat widget (React)                                  │
+│  apps/catalogues-web  — chat widget (React)                                  │
 │     • WebSocket to apps/chatbot (via BFF-issued ticket)           │
 └───────────────┬──────────────────────────────────────────────────┘
                 │ WS (user)                       ▲ HTTP (login, history fetch)
@@ -95,7 +95,7 @@ A support chatbot for **logged-in users** that:
         │ /admin/chatbot/*  (CRUD, ingest, claim, takeover, end)
         │ WS (agent)
 ┌───────────────────┐
-│ apps/admin (SPA)   │  Chat Inbox + Q&A pages  (SUPPORT role+)
+│ apps/admin-web (SPA)   │  Chat Inbox + Q&A pages  (SUPPORT role+)
 └───────────────────┘
 ```
 
@@ -152,8 +152,9 @@ New schema `packages/db/src/schema/chatbot.ts`. pgvector via migration.
 
 ### 5.2 `chatbot_embeddings` — derived index (disposable)
 
-`id uuid pk · qna_id uuid fk→qna on delete cascade · content text · embedding vector(1536) · embedded_at`
-Index: **HNSW cosine** (`vector_cosine_ops`).
+`id uuid pk · qna_id uuid fk→qna on delete cascade · content text · content_tsv tsvector (generated) · embedding vector(1536) · embedded_at`
+Indexes: **HNSW cosine** (`vector_cosine_ops`) + **GIN** on `content_tsv` (keyword/BM25 leg
+of hybrid retrieval, §7.1).
 
 ### 5.3 `chatbot_conversations` — one row per session
 
@@ -166,6 +167,8 @@ Index: **HNSW cosine** (`vector_cosine_ops`).
 | `escalation_reason` | text null | `user_request`/`low_confidence`/`intent`/`agent_join` |
 | `last_message_at` | timestamptz | drives idle timeout + inbox sort |
 | `created_at` / `closed_at` | timestamptz | |
+
+Partial unique index: **one active conversation per user** — `(user_id) WHERE status != 'CLOSED'`.
 
 ### 5.4 `chatbot_messages` — every turn (source of truth)
 
@@ -233,7 +236,9 @@ START ─► loadContext ─► agentTurn ──(tool_calls?)──► tools ─
 - **loadContext** — last N `chatbot_messages` + embed latest user turn.
 - **agentTurn** — Claude Haiku with tools bound (ReAct-style): decides to call a tool or
   answer. Tools:
-  - `searchKnowledge(query)` → pgvector cosine top-k over `chatbot_embeddings`.
+  - `searchKnowledge(query)` → **hybrid retrieval**: pgvector cosine top-k + BM25-style
+    full-text (`tsvector` / `ts_rank`) over `chatbot_embeddings`, merged via RRF. Returns
+    similarity/rank scores so the gate can judge grounding.
   - `getCredits()` → **current user's** credit balance.
   - `getRecentJobs()` → **current user's** recent jobs + statuses.
 - **tools** — execute; loop back to agentTurn with results.
@@ -256,18 +261,29 @@ data exfiltration (§16).
 getRecentJobs only for the current user's account. If you cannot answer from these,
 escalate to a human. Never invent pricing, policy, or account data."*
 
+### 7.4 Multi-provider model selection (added post-v1)
+
+Tool-calling and generation use separately configurable models — see
+`docs/superpowers/specs/2026-07-03-chatbot-multi-provider-models-design.md`. Router model
+makes one tool-decision pass per turn (no loop-back); generation model writes the final reply
+from the tool results and applies the escalate/grounding gate. Supports Anthropic, Google AI
+Studio, and any OpenAI-compatible host (OpenRouter, NVIDIA NIM, Ollama, vLLM) via
+`CHATBOT_GEN_*` / `CHATBOT_TOOL_*` env vars — see `.env.production.example`.
+
 ---
 
 ## 8. Escalation & Handoff
 
-### 8.1 Triggers (all enabled)
+### 8.1 Triggers (v1)
 
 1. **User** clicks "Talk to a human" (always available in widget).
 2. **Repeated low-confidence** — bot hits gate fallback N times in a row.
-3. **Intent detection** — message classified refund/complaint/billing/account → route
-   regardless of confidence.
-4. **Agent-initiated** — on-duty agent watching the inbox jumps into a live BOT conversation
+3. **Agent-initiated** — on-duty agent watching the inbox jumps into a live BOT conversation
    (BOT→HUMAN directly, LG terminated).
+
+**Intent detection is deferred to v1.1** — auto-routing refund/complaint/billing needs the
+preprocess node (§21). v1 trusts the incoming question as-is; hybrid retrieval (§7.1) plus
+the triggers above cover routing.
 
 ### 8.2 Availability = on-duty AND live
 
@@ -294,14 +310,23 @@ Prevents a user stuck talking to a disconnected agent.
 - **Claim from queue** (PENDING_HUMAN→HUMAN): atomic — `SET chatbot:conv:{id}:lock agentId
   NX`. First agent wins; others see "already claimed." Sets `assigned_agent_id`, writes
   audit, terminates LG.
-- **Takeover** (BOT→HUMAN): same lock + terminate LG. Bot produces no further messages for
-  this conversation.
+- **Takeover** (BOT→HUMAN): same lock + terminate LG. Termination is two-layer: (a) api
+  publishes a `terminate` event on `chatbot:conv:{id}`; the chatbot instance running the
+  graph aborts any in-flight run (AbortController). (b) Belt-and-braces: bot output is
+  persisted only after re-checking `status = 'BOT'` inside the write transaction — a late
+  bot message can never land after takeover.
 - **End** (HUMAN→CLOSED): agent action; sets `closed_at`, releases lock, writes audit.
 
 ### 8.4 Idle
 
-- BOT/PENDING idle 30 min → CLOSED (system message, audit).
+- BOT idle 30 min → CLOSED (system message, audit).
+- PENDING_HUMAN unclaimed 30 min → **email fallback**: create a `contact_requests` row,
+  system message ("no agent free right now — we'll follow up by email"), → CLOSED (audit).
 - HUMAN never auto-closes; inbox shows idle warning, agent ends explicitly.
+- User messages sent while PENDING_HUMAN are persisted and shown to the claiming agent;
+  the bot does not reply (LG is not invoked in this state).
+- **Sweeper:** interval job inside `apps/chatbot` (every 60s) closes idle conversations and
+  prunes stale members from the presence ZSET (§9.1).
 
 ---
 
@@ -353,9 +378,9 @@ actual socket.
 
 ---
 
-## 11. Agent Workspace (`apps/admin`)
+## 11. Agent Workspace (`apps/admin-web`)
 
-New page **Chat Inbox** (`apps/admin/src/pages/ChatInboxPage.tsx`), gated to
+New page **Chat Inbox** (`apps/admin-web/src/pages/ChatInboxPage.tsx`), gated to
 `SUPPORT`+ roles.
 
 - **Duty toggle** — punch in/out (`chatbot:agent:duty`). Off duty = not counted available.
@@ -368,6 +393,10 @@ New page **Chat Inbox** (`apps/admin/src/pages/ChatInboxPage.tsx`), gated to
 
 Second page **Chatbot Q&A** (`ChatbotQnaPage.tsx`): CRUD + tags + active toggle,
 **Re-ingest** button, status strip (active vs embedded count, last ingest).
+
+**Admin parity exception:** Chat Inbox + Chatbot Q&A are **web-only in v1** — explicit
+exception to the `apps/admin-mobile` parity rule (agent live-chat needs a desktop
+workspace). Revisit for v1.1.
 
 ---
 
@@ -400,7 +429,7 @@ updates to connected user + agents.
 
 ---
 
-## 13. Web Widget (`apps/web`)
+## 13. Web Widget (`apps/catalogues-web`)
 
 - Floating bubble in `(app)` layout (logged-in). Hidden when no `access_token`.
 - Fetches/opens conversation, requests WS ticket, connects WS.
@@ -420,6 +449,9 @@ updates to connected user + agents.
 | `CHATBOT_TOP_K` / `CHATBOT_SIMILARITY_THRESHOLD` | chatbot | retrieval tuning |
 | `CHATBOT_FALLBACK_LIMIT` | chatbot | low-conf count → escalate |
 | `CHATBOT_IDLE_TIMEOUT_MIN` | chatbot | default 30 |
+| `CHATBOT_MAX_TOOL_ITERATIONS` | chatbot | ReAct loop cap per turn (default 4) |
+| `CHATBOT_MAX_TURNS` | chatbot | bot-turn cap per conversation (cost guard) |
+| `CHATBOT_PORT` | chatbot | HTTP + WS listen port |
 | `CHATBOT_SERVICE_TOKEN` | chatbot, api | internal `/ingest` auth |
 | `DATABASE_URL` / `REDIS_URL` | chatbot | shared infra |
 | `CHATBOT_WS_URL` | web | browser WS base |
@@ -433,7 +465,9 @@ updates to connected user + agents.
 - **Tool injection defense (§7.2):** tool params bound to session `userId` server-side;
   LLM cannot read another user's data. Highest-priority invariant.
 - **WS auth:** short-lived one-time ticket; no long-lived JWT in URLs. Role encoded in the
-  ticket (user vs agent) gates what a socket can do.
+  ticket (user vs agent) gates what a socket can do. Agent tickets are issued only after
+  verifying the JWT claim **AND** an `admin_users` row lookup — same double-check invariant
+  as all `/admin/*` routes.
 - **Admin gating:** every `/admin/chatbot/*` uses `requireAdmin`; SUPPORT for live-chat,
   ADMIN+ for Q&A/ingest — same invariant as all admin routes.
 - **Rate limiting:** per-user message rate on WS + HTTP (flood/cost control). Block-user is
@@ -478,13 +512,13 @@ updates to connected user + agents.
 2. **chatbot skeleton** — `apps/chatbot`: Fastify, `/health`, Drizzle/Redis wiring, env,
    service-token guard.
 3. **Ingest** — `/ingest` + pipeline (§6) + Redis lock.
-4. **Admin Q&A** — api CRUD + ingest proxy; `apps/admin` Q&A page.
+4. **Admin Q&A** — api CRUD + ingest proxy; `apps/admin-web` Q&A page.
 5. **Bot agent** — LangGraph (§7) with tools + gate; WS ticket + `/ws` streaming for
    BOT-phase chat.
 6. **Conversation state + history** — state machine, message persistence, replay, idle
    timeout.
 7. **HITL** — escalation triggers, duty toggle, queue, atomic claim/takeover/end, email
-   fallback; `apps/admin` Chat Inbox.
+   fallback; `apps/admin-web` Chat Inbox.
 8. **Web widget** — bubble, WS client, streaming, human-handoff UX.
 9. **Harden** — rate limits, metrics, audit, prompt-injection review of tools.
 
@@ -494,7 +528,7 @@ Keep the monorepo green (`pnpm typecheck` / `lint` / tests) between phases.
 
 ## 19. Deferred to v1.1
 
-Agent-to-agent transfer · canned responses/macros · chat attachments (R2 presign exists) ·
+Intent-detection auto-routing (preprocess node, §21) · agent-to-agent transfer · canned responses/macros · chat attachments (R2 presign exists) ·
 read receipts · CSAT rating + agent quality dashboard · block/ban a user · configurable
 business-hours schedule (v1 uses manual duty) · LangGraph Postgres checkpointer (if resume
 is ever needed).

@@ -258,7 +258,7 @@ export function BatchCatalogUploadModal({
               >
                 {entries.map((entry, i) => (
                   <div
-                    key={i}
+                    key={`${entry.file.name}-${entry.file.size}-${entry.file.lastModified}`}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '44px 1fr 56px 28px',
@@ -296,6 +296,7 @@ export function BatchCatalogUploadModal({
                         flexShrink: 0,
                       }}
                     >
+                      {/* biome-ignore lint/performance/noImgElement: thumbnail preview */}
                       <img
                         src={entry.preview}
                         alt=""

@@ -312,6 +312,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       {storagePublicUrl && c.thumbnailKey ? (
+                        // biome-ignore lint/performance/noImgElement: catalog thumbnail in table
                         <img
                           src={`${storagePublicUrl}/${c.thumbnailKey}`}
                           alt={c.label}
@@ -462,6 +463,7 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
                     (storagePublicUrl && editItem.thumbnailKey
                       ? `${storagePublicUrl}/${editItem.thumbnailKey}`
                       : null)) && (
+                    // biome-ignore lint/performance/noImgElement: edit catalog thumbnail preview
                     <img
                       src={editReplacePreview ?? `${storagePublicUrl}/${editItem.thumbnailKey}`}
                       alt=""

@@ -18,10 +18,13 @@ export function Tooltip({
   if (!tip) return <>{children}</>;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover-region wrapper for the tooltip; onFocus/onBlur give keyboard users the same behavior, no ARIA role fits a bare trigger container
     <div
       style={{ position: 'relative', display: 'inline-flex', ...containerStyle }}
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
+      onFocus={() => setVisible(true)}
+      onBlur={() => setVisible(false)}
     >
       {children}
       {visible && (

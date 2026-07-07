@@ -284,27 +284,9 @@ export async function authRoutes(app: FastifyInstance) {
       const passwordHash = await hashPassword(password);
       const [user] = await app.db
         .insert(schema.users)
-        .values({ email, passwordHash, displayName, tier: 'free' })
+        .values({ email, passwordHash, displayName, companyName: null, tier: 'free' })
         .returning();
       await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
-
-      const [freePlan] = await app.db
-        .select({ credits: schema.creditPlans.credits })
-        .from(schema.creditPlans)
-        .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
-      const freeCredits = freePlan?.credits ?? 0;
-      if (freeCredits > 0) {
-        await app.db
-          .update(schema.userCredits)
-          .set({
-            balance: sql`${schema.userCredits.balance} + ${freeCredits}`,
-            updatedAt: new Date(),
-          })
-          .where(eq(schema.userCredits.userId, user.id));
-        await app.db
-          .insert(schema.creditLedger)
-          .values({ userId: user.id, delta: freeCredits, reason: 'FREE_TRIAL' });
-      }
 
       // Send verification email
       const token = makeToken();
@@ -473,6 +455,7 @@ export async function authRoutes(app: FastifyInstance) {
         email: schema.users.email,
         displayName: schema.users.displayName,
         phone: schema.users.phone,
+        companyName: schema.users.companyName,
         tier: schema.users.tier,
         passwordHash: schema.users.passwordHash,
       })
@@ -490,28 +473,85 @@ export async function authRoutes(app: FastifyInstance) {
       schema: {
         body: z.object({
           displayName: z.string().min(1).max(60).optional(),
-          phone: z.string().max(20).nullable().optional(),
+          phone: z
+            .string()
+            .regex(/^\d{10}$/, 'phone must be a 10-digit number')
+            .nullable()
+            .optional(),
+          companyName: z.string().max(160).nullable().optional(),
         }),
       },
     },
     async (req) => {
-      const { displayName, phone } = req.body as { displayName?: string; phone?: string | null };
-      const [updated] = await app.db
-        .update(schema.users)
-        .set({
-          ...(displayName !== undefined ? { displayName } : {}),
-          ...(phone !== undefined ? { phone: phone ?? null } : {}),
-        })
-        .where(eq(schema.users.id, req.userId))
-        .returning({
-          id: schema.users.id,
-          email: schema.users.email,
-          displayName: schema.users.displayName,
-          phone: schema.users.phone,
-          tier: schema.users.tier,
-        });
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
-      return updated;
+      const { displayName, phone, companyName } = req.body as {
+        displayName?: string;
+        phone?: string | null;
+        companyName?: string | null;
+      };
+      return app.db.transaction(async (tx) => {
+        if (phone) {
+          const [conflict] = await tx
+            .select({ email: schema.users.email })
+            .from(schema.users)
+            .where(and(eq(schema.users.phone, phone), sql`${schema.users.id} <> ${req.userId}`))
+            .limit(1);
+          if (conflict) {
+            throw new AppError(
+              'PHONE_TAKEN',
+              409,
+              'This mobile number is already assigned to another email address. Use a different number.',
+            );
+          }
+        }
+
+        const [updated] = await tx
+          .update(schema.users)
+          .set({
+            ...(displayName !== undefined ? { displayName } : {}),
+            ...(phone !== undefined ? { phone: phone ?? null } : {}),
+            ...(companyName !== undefined ? { companyName: companyName?.trim() || null } : {}),
+          })
+          .where(eq(schema.users.id, req.userId))
+          .returning({
+            id: schema.users.id,
+            email: schema.users.email,
+            displayName: schema.users.displayName,
+            phone: schema.users.phone,
+            companyName: schema.users.companyName,
+            tier: schema.users.tier,
+          });
+        if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
+
+        const complete = Boolean(updated.phone && /^\d{10}$/.test(updated.phone));
+        if (!complete) return updated;
+
+        const [freePlan] = await tx
+          .select({ credits: schema.creditPlans.credits })
+          .from(schema.creditPlans)
+          .where(and(eq(schema.creditPlans.slug, 'free'), eq(schema.creditPlans.isActive, true)));
+        const freeCredits = freePlan?.credits ?? 0;
+        if (freeCredits <= 0) return updated;
+
+        const [inserted] = await tx
+          .insert(schema.creditLedger)
+          .values({ userId: req.userId, delta: freeCredits, reason: 'FREE_TRIAL' })
+          .onConflictDoNothing()
+          .returning({ id: schema.creditLedger.id });
+        if (inserted) {
+          await tx
+            .insert(schema.userCredits)
+            .values({ userId: req.userId, balance: freeCredits })
+            .onConflictDoUpdate({
+              target: schema.userCredits.userId,
+              set: {
+                balance: sql`${schema.userCredits.balance} + ${freeCredits}`,
+                updatedAt: new Date(),
+              },
+            });
+        }
+
+        return updated;
+      });
     },
   );
 

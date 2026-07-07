@@ -21,7 +21,11 @@ describe('credit-plans admin guards', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email: 'plans-admin@x.com', password: 'password123' },
+      payload: {
+        displayName: 'Credit Plans Admin',
+        email: 'plans-admin@x.com',
+        password: 'password123',
+      },
     });
     const [user] = await app.db
       .select()
@@ -64,7 +68,7 @@ describe('credit-plans admin guards', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { email, password: 'password123' },
+      payload: { displayName: 'Credit Plans User', email, password: 'password123' },
     });
     const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
     return user?.id;

@@ -21,14 +21,28 @@ describe('jobs-create', () => {
   });
 
   async function registerUser(email: string) {
-    const res = await app.inject({
+    await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
+      payload: { displayName: 'Jobs Create User', email, password: 'password123' },
+    });
+    const [user] = await app.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, email));
+    if (!user) throw new Error('user not found');
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.id, user.id));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
       payload: { email, password: 'password123' },
     });
     return {
-      token: res.json().accessToken,
-      userId: JSON.parse(atob(res.json().accessToken.split('.')[1])).sub,
+      token: login.json().accessToken,
+      userId: JSON.parse(atob(login.json().accessToken.split('.')[1])).sub,
     };
   }
 
