@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aivastra Kiosk — Home (real structure: activity_home_dresses_for.xml)</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  /* Faithful to activity_home_dresses_for.xml: full-bleed bg, top-left logo,
+     single-column (spanCount=1) list of "for" banner rows, session message
+     at bottom, back pill top-left. No grid, no chips, no CTA — those don't
+     exist on this screen in the real app. */
+  .home-bg { flex: 1; position: relative; padding: 0 var(--space-xl); display: flex; flex-direction: column; }
+  .logo-mark { position: absolute; top: 18px; left: 24px; display: flex; align-items: center; gap: 8px; }
+  .logo-mark .sq { width: 30px; height: 30px; background: var(--gradient-primary); }
+  .logo-mark span { font: 800 15px/1 'Poppins'; letter-spacing: -0.2px; }
+  .back-pill {
+    position: absolute; top: 20px; right: 24px;
+    width: 44px; height: 30px; background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .for-list { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 90px 0 40px; max-width: 720px; margin: 0 auto; width: 100%; }
+  .for-row {
+    position: relative; height: 108px; background: var(--color-surface-variant);
+    box-shadow: var(--shadow-card); display: flex; align-items: flex-end;
+  }
+  .for-row .label-bar {
+    height: 62px; flex: 1; background: var(--gradient-primary);
+    display: flex; align-items: center; justify-content: flex-end; padding-right: 56px;
+  }
+  .for-row.align-start .label-bar { justify-content: flex-start; padding-right: 0; padding-left: 56px; }
+  .for-row .label-bar .txt { color: #fff; font: 800 22px/1 'Poppins'; letter-spacing: 0.02em; text-transform: uppercase; }
+  .for-row .glyph {
+    position: absolute; bottom: 6px; left: 14px; width: 78px; height: 78px;
+    background: var(--color-surface); box-shadow: var(--shadow-card);
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  }
+  .for-row.align-start .glyph { left: auto; right: 14px; }
+  .for-row .glyph svg { width: 40px; height: 40px; stroke: var(--brand-purple); stroke-width: 1.6; fill: none; }
+  .session-msg { text-align: center; padding-bottom: 22px; }
+</style>
+</head>
+<body>
+<div class="kiosk-stage">
+  <div>
+    <div class="frame-label">Screen 1 / 4 — Home · matches activity_home_dresses_for.xml (1:1 structure) · 1280×800</div>
+    <div class="kiosk-frame">
+      <div class="kiosk-screen">
+
+        <div class="home-bg">
+          <div class="logo-mark"><span class="sq cut-sm"></span><span>AIVASTRA</span></div>
+          <div class="back-pill cut-sm"><svg width="16" height="16" viewBox="0 0 24 24" stroke="var(--color-on-surface)" stroke-width="2.5" fill="none"><path d="M15 18l-6-6 6-6"/></svg></div>
+
+          <div class="for-list">
+            <div class="for-row cut-lg">
+              <div class="glyph"><svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21c0-4.5 3.6-7 8-7s8 2.5 8 7"/></svg></div>
+              <div class="label-bar cut-sm"><span class="txt">Men</span></div>
+            </div>
+            <div class="for-row align-start cut-lg">
+              <div class="label-bar cut-sm"><span class="txt">Women</span></div>
+              <div class="glyph"><svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M4 21c0-4.5 3.6-7 8-7s8 2.5 8 7"/></svg></div>
+            </div>
+            <div class="for-row cut-lg">
+              <div class="glyph"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 21c0-3.8 3-6 7-6s7 2.2 7 6"/></svg></div>
+              <div class="label-bar cut-sm"><span class="txt">Boy</span></div>
+            </div>
+            <div class="for-row align-start cut-lg">
+              <div class="label-bar cut-sm"><span class="txt">Girl</span></div>
+              <div class="glyph"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5 21c0-3.8 3-6 7-6s7 2.2 7 6"/></svg></div>
+            </div>
+          </div>
+
+          <div class="session-msg text-caption">Tap a category to begin your try-on session</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -20,7 +20,7 @@ export async function buildTestApp(c: Containers, envOverrides: Partial<Env> = {
     R2_BUCKET: c.r2Bucket,
     R2_PUBLIC_URL: `${c.r2Endpoint}/${c.r2Bucket}`,
     R2_FORCE_PATH_STYLE: true,
-    CORS_ORIGIN: 'http://localhost:3000',
+    CORS_ORIGIN: ['http://localhost:3000'],
     COOKIE_SECRET: 'test-cookie-secret-0123456789abcdef-32min',
     ...envOverrides,
   } as Env);

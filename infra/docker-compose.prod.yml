@@ -2,10 +2,13 @@ name: aivastra-prod
 
 # Env file lives at repo root as .env.production (git-ignored, created manually on VPS)
 # CloudPanel NGINX reverse proxies:
-#   app.aivastra.com/       → localhost:3000  (Next.js web)
-#   app.aivastra.com/v1/    → localhost:4000  (Fastify API)
-#   app.aivastra.com/minio/ → localhost:9000  (MinIO pass-through for presigned URLs)
-#   app.aivastra.com/panel/ → localhost:3001  (Admin SPA)
+#   app.aivastra.com/         -> localhost:3000  (Next.js web)
+#   app.aivastra.com/v1/      -> localhost:4000  (Fastify API)
+#   app.aivastra.com/minio/   -> localhost:9000  (MinIO pass-through for presigned URLs)
+#   admin.aivastra.com/       -> localhost:3001  (Admin SPA)
+#   admin.aivastra.com/admin/ -> localhost:4000  (Fastify API)
+#   admin.aivastra.com/v1/    -> localhost:4000  (Fastify API)
+#   merchant.aivastra.com/    -> localhost:3002  (Merchant portal)
 
 services:
   postgres:
@@ -75,7 +78,19 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
       mc mb --ignore-existing local/${R2_BUCKET} &&
-      printf '{\"CORSRules\":[{\"AllowedOrigin\":[\"${CORS_ORIGIN}\"],\"AllowedMethod\":[\"GET\",\"PUT\",\"POST\",\"HEAD\"],\"AllowedHeader\":[\"*\"],\"ExposeHeader\":[\"ETag\"],\"MaxAgeSeconds\":3000}]}' > /tmp/cors.json &&
+      OLD_IFS=\"$$IFS\" &&
+      IFS=',' &&
+      set -- ${CORS_ORIGIN} &&
+      IFS=\"$$OLD_IFS\" &&
+      ORIGINS_JSON='' &&
+      for origin in \"$$@\"; do
+        while [ \"$${origin# }\" != \"$$origin\" ]; do origin=\"$${origin# }\"; done;
+        while [ \"$${origin% }\" != \"$$origin\" ]; do origin=\"$${origin% }\"; done;
+        [ -n \"$$origin\" ] || continue;
+        if [ -n \"$$ORIGINS_JSON\" ]; then ORIGINS_JSON=\"$$ORIGINS_JSON,\"; fi;
+        ORIGINS_JSON=\"$$ORIGINS_JSON\\\"$$origin\\\"\";
+      done &&
+      printf '{\"CORSRules\":[{\"AllowedOrigin\":[%s],\"AllowedMethod\":[\"GET\",\"PUT\",\"POST\",\"HEAD\"],\"AllowedHeader\":[\"*\"],\"ExposeHeader\":[\"ETag\"],\"MaxAgeSeconds\":3000}]}' \"$$ORIGINS_JSON\" > /tmp/cors.json &&
       mc cors set local/${R2_BUCKET} /tmp/cors.json &&
       echo 'minio bucket ready: ${R2_BUCKET}'
       "
@@ -145,6 +160,21 @@ services:
     networks:
       - aivastra-net
 
+  merchant:
+    build:
+      context: ..
+      dockerfile: apps/merchant-web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    container_name: aivastra-prod-merchant
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    ports:
+      - "127.0.0.1:3002:3000"
+    networks:
+      - aivastra-net
+
   admin:
     build:
       context: ..
@@ -192,3 +222,4 @@ volumes:
 networks:
   aivastra-net:
     driver: bridge
+

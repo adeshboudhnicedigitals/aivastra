@@ -363,13 +363,55 @@ export interface WidgetClient {
   businessAddress: string;
   widgetKey: string;
   isActive: boolean;
+  kioskEnabled: boolean;
+  maxKioskDevices: number;
+  userId?: string | null;
   allowedOrigins: string[];
   creditBalance: number;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface LinkedUserSummary {
+  id: string;
+  email: string;
+  displayName: string | null;
+  emailVerified: boolean;
+}
+
+export interface AdminKioskDevice {
+  id: string;
+  label: string;
+  status: string;
+  pairingCodeExpiresAt: string | null;
+  androidId: string | null;
+  appVersion: string | null;
+  pairedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MerchantCatalogItemSummary {
+  id: string;
+  label: string;
+  sku: string | null;
+  gender: string | null;
+  category: string | null;
+  thumbnailUrl: string | null;
+  sourceKind: 'imported' | 'uploaded';
+  isActive: boolean;
+  moderationStatus: 'approved' | 'rejected';
+  moderationNote: string | null;
+  updatedAt: string;
+}
+
 export interface WidgetClientDetail extends WidgetClient {
+  webhookUrl?: string | null;
+  webhookSecret?: string | null;
+  linkedUser: LinkedUserSummary | null;
+  suggestedUser: LinkedUserSummary | null;
+  kioskDevices: AdminKioskDevice[];
   ledger: { id: string; delta: number; reason: string; createdAt: string }[];
   recentJobs: {
     id: string;

@@ -1,4 +1,6 @@
-# Phase 3 — Kiosk Android Migration
+﻿# Phase 3 — Kiosk Android Migration
+
+> **⚠️ ABANDONED (2026-07-07) — the kiosk plan has changed.** Do not hand this to Codex and do not use it as a reference for new kiosk work. Left in place as historical record only. See `docs/multi-app-ecosystem/README.md` for current status.
 
 > Part of the [Multi-App Ecosystem Plan](../multi-app-ecosystem-plan.md) (`docs/multi-app-ecosystem-plan.md`, §8). This document is self-contained — implement from this file directly.
 
@@ -116,15 +118,94 @@ There is **no data migration** — the legacy backend's schema shares essentiall
 - [ ] `apps/api` typecheck and full test suite pass.
 
 ## Report Back
-
-_Codex: fill this in when the phase is complete._
-
+- Current phase status: Implemented, awaiting review.
 - Files created:
+  - packages/db/src/migrations/0085_kiosk_jobs.sql
+  - apps/api/src/modules/widget/create-job.ts
+  - apps/api/src/modules/kiosk/catalog.routes.ts
+  - apps/api/src/modules/kiosk/jobs.routes.ts
+  - apps/api/src/modules/kiosk/results.routes.ts
+  - apps/api/src/scripts/cleanup-kiosk-inputs.ts
+  - apps/api/test/integration/kiosk-jobs.test.ts
 - Files modified (API):
-- Files modified (Android):
+  - packages/db/src/schema/kiosk.ts
+  - packages/db/src/schema/jobs.ts
+  - packages/types/src/widget.ts
+  - apps/api/package.json
+  - apps/api/src/modules/widget/routes.ts
+  - apps/api/src/server.ts
+  - packages/db/src/migrations/meta/_journal.json
+- Files modified (Android / app workspace):
+  - apps/virtual-tryon-mobile&kiosk/gradle/libs.versions.toml
+  - apps/virtual-tryon-mobile&kiosk/app/build.gradle.kts
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/ApiUtils/APIConstant.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/ApiUtils/APICaller.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/utils/PrefsManager.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/viewmodel/category/SareeCategoryDataRepository.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/viewmodel/category/SareecategoryDataViewModel.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/activity/auth/LoginActivity.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/activity/launch/SplashScreenActivity.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/activity/camera/CapturePhotoActivity.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/activity/camera/UniversalCameraActivity.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/java/aivastra/nice/interactive/activity/vastra/ScanAndDownloadVastraResultActivity.kt
+  - apps/virtual-tryon-mobile&kiosk/app/src/main/res/layout/activity_login.xml
 - Migration filename + index used:
+  - 0085_kiosk_jobs.sql (journal index 85)
 - Confirmation dispatcher required zero changes (or: what you found and how you adapted if the routing logic had changed):
+  - Confirmed unchanged. apps/dispatcher/src/job/processor.ts still routes widget-style work by checking job.widgetClientId, so no dispatcher changes were needed.
 - Test run output:
-- Android smoke-test evidence (screenshots/recording description):
+  - 2026-07-06 final: `pnpm --filter @aivastra/api exec vitest run --config vitest.integration.config.ts test/integration/kiosk-jobs.test.ts` — **3/3 passed** (requires `$env:POSTGRES_PORT='5433'` due to local port remapping).
+  - `pnpm --filter @aivastra/api typecheck` — passes cleanly.
+  - Android `:app:compileDebugKotlin` — BUILD SUCCESSFUL.
+  - Android `:app:assembleDebug` with `-PapiBaseUrl=http://10.0.2.2:4000/` — BUILD SUCCESSFUL.
+- Android smoke-test evidence (logcat excerpts):
+  - Pairing: `I okhttp.OkHttpClient: --> POST http://10.0.2.2:4000/v1/kiosk/auth/claim ... <-- 200 OK`
+  - Catalog: `I okhttp.OkHttpClient: --> GET http://10.0.2.2:4000/v1/kiosk/catalog ... <-- 200 OK ... {"items":[{"id":"6ead424b-...","label":"Smoke Test Saree","gender":"women","category":"Sarees"}]}`
+  - Silent refresh: Force-stop → relaunch → SplashScreen → HomeDressesForActivity (verified via `dumpsys window` mFocusedApp transitions: SplashScreenActivity → HomeDressesForActivity, no LoginActivity in path).
 - Any deviation from this spec, and why:
+  - Implemented kiosk photo retention as a repo-local cleanup script (`pnpm --filter @aivastra/api cleanup:kiosk-inputs`) that deletes `kiosk-inputs/` objects older than 30 days by default, instead of applying an R2/MinIO lifecycle rule in-repo. The current repo has no checked-in bucket lifecycle management surface, and operational verification was deferred.
+  - The legacy QR-based remote-photo upload path has no Phase 3 backend equivalent in this repo. I kept the capture flow usable without inventing a new server surface.
+  - The legacy download-all QR flow also has no server-side equivalent under the new privacy model, so the gallery flow continues to use per-job `shareUrl` rather than rebuilding a public gallery endpoint.
+  - Merchant branding/profile fields expected by the legacy Android app are still absent from kiosk auth API responses in this repo, so the migrated flow falls back to the app's existing placeholder assets when those fields are blank.
 - Anything ambiguous you had to make a judgment call on:
+  - Kept results as tablet-local session state in the Android repository, matching the spec's privacy decision and avoiding any new server-side result listing endpoint.
+  - Reused the existing `UserLoginDataModel` by mapping kiosk `accessToken` into `apiKey` and leaving unavailable merchant profile fields blank, since the existing screens already tolerate empty logo/profile values via placeholders.
+  - Rebuilt `UniversalCameraActivity.kt` so first-open camera selection prefers the saved facing only when that facing is actually supported; otherwise it falls back to an available camera on the device. This keeps the existing UI/capture flow while removing the front-only-device failure mode discovered during local smoke work.
+Closeout fixes applied on 2026-07-06 after independent review:
+- Confirmed `packages/db/src/migrations/meta/_journal.json` is registered only through `0085_kiosk_jobs`; `0086_lethal_dreaming_celestial` was not present in the journal.
+- Confirmed `packages/db/src/migrations/0086_lethal_dreaming_celestial.sql` contained an unguarded `DROP TABLE "model_poses" CASCADE` and duplicated work already covered safely by earlier migrations:
+  - `0047_drop_model_poses.sql` drops `model_poses` with `IF EXISTS` and remaps `job_inputs.pose_id` to `model_pose_assets`.
+  - `0054_widget_clients.sql` adds widget-client tables and widget job columns.
+  - `0083_kiosk_auth_foundation.sql` adds `kiosk_devices` plus refresh-token kiosk/widget ownership.
+  - `0084_merchant_portal.sql` adds merchant kiosk/catalog fields and `merchant_catalog_items`.
+  - `0085_kiosk_jobs.sql` adds `jobs.kiosk_device_id` plus kiosk result like/cart tables.
+- Deleted the orphaned files:
+  - `packages/db/src/migrations/0086_lethal_dreaming_celestial.sql`
+  - `packages/db/src/migrations/meta/0086_snapshot.json`
+- Verification output:
+  - `pnpm docker:up`
+    - `Container aivastra-minio Running`
+    - `Container aivastra-postgres Running`
+    - `Container aivastra-redis Running`
+    - `Container aivastra-minio Healthy`
+    - `Container aivastra-minio-bootstrap Started`
+  - `java -classpath gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain --no-daemon --console=plain :app:compileDebugKotlin`
+    - `> Task :app:verifyUiTokens`
+    - `> Task :app:compileDebugKotlin UP-TO-DATE`
+    - `BUILD SUCCESSFUL in 12s`
+    - `21 actionable tasks: 1 executed, 20 up-to-date`
+  - `java -classpath gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain --no-daemon --console=plain :app:assembleDebug`
+    - `> Task :app:verifyUiTokens`
+    - `> Task :app:assembleDebug UP-TO-DATE`
+    - `BUILD SUCCESSFUL in 11s`
+    - `43 actionable tasks: 1 executed, 42 up-to-date`
+  - `C:\Users\syste\AppData\Local\Android\Sdk\platform-tools\adb.exe devices`
+    - `List of devices attached`
+    - `emulator-5554    device`
+- Android live smoke test status (2026-07-06 final verification):
+  - Pairing: ✅ Entered pairing code on LoginActivity (single-field UI), API returned 200 with access + refresh tokens, app navigated to HomeDressesForActivity.
+  - Catalog: ✅ `GET /v1/kiosk/catalog` returned catalog item "Smoke Test Saree" with presigned image/thumbnail URLs, displayed on home screen.
+  - Silent refresh: ✅ Force-stopped app, relaunched, app went SplashScreen → silent token refresh → Home directly (no re-pairing required).
+  - Full try-on flow: deferred — requires dispatcher + ComfyUI GPU worker to be online to process the job through the widget pipeline. API endpoints verified individually via integration test.
+  - Like/cart UX: ViewModel API calls confirmed functional (integration test covers PUT/DELETE like/cart with merchant isolation). Icon-tint/Toast visual verification deferred to manual screen check.
+

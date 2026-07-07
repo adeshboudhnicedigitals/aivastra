@@ -589,6 +589,34 @@
       "when": 1783382400000,
       "tag": "0083_kiosk_auth_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1783281190628,
+      "tag": "0084_merchant_portal",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1783283731709,
+      "tag": "0085_kiosk_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1783382400001,
+      "tag": "0086_user_device_session_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1783415994299,
+      "tag": "0087_needy_annihilus",
+      "breakpoints": true
     }
   ]
 }

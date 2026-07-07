@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
+import { createVerifiedUserToken } from '../helpers/auth';
 import { type Containers, startContainers } from '../helpers/containers';
 
 describe('admin-users', () => {
@@ -15,20 +16,8 @@ describe('admin-users', () => {
     await c?.stop();
   });
 
-  async function registerUser(email: string) {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/register',
-      payload: { email, password: 'password123' },
-    });
-    return {
-      token: res.json().accessToken,
-      userId: JSON.parse(atob(res.json().accessToken.split('.')[1])).sub,
-    };
-  }
-
   it('returns 403 for non-admin accessing admin routes', async () => {
-    const { token } = await registerUser('user@x.com');
+    const { token } = await createVerifiedUserToken(app, 'user@x.com');
     const res = await app.inject({
       method: 'GET',
       url: '/admin/users',
@@ -38,7 +27,7 @@ describe('admin-users', () => {
   });
 
   it('allows admin to list users', async () => {
-    const { token, userId } = await registerUser('admin2@x.com');
+    const { token, userId } = await createVerifiedUserToken(app, 'admin2@x.com');
     await app.db.insert(schema.adminUsers).values({ userId, role: 'SUPER_ADMIN' });
     const res = await app.inject({
       method: 'GET',

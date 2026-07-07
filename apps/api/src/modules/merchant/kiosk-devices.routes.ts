@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, desc, eq, ne } from 'drizzle-orm';
+import { and, count, desc, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -28,6 +28,34 @@ export async function merchantKioskDevicesRoutes(app: FastifyInstance) {
       const clientId = req.merchantClientId;
       if (!clientId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { label } = req.body as z.infer<typeof CreateDeviceBody>;
+
+      const [[client], [deviceCount]] = await Promise.all([
+        app.db
+          .select({
+            kioskEnabled: schema.widgetClients.kioskEnabled,
+            maxKioskDevices: schema.widgetClients.maxKioskDevices,
+          })
+          .from(schema.widgetClients)
+          .where(eq(schema.widgetClients.id, clientId))
+          .limit(1),
+        app.db
+          .select({ n: count() })
+          .from(schema.kioskDevices)
+          .where(
+            and(
+              eq(schema.kioskDevices.widgetClientId, clientId),
+              ne(schema.kioskDevices.status, 'revoked'),
+            ),
+          ),
+      ]);
+      if (!client) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      if (!client.kioskEnabled) {
+        throw new AppError('FORBIDDEN', 403, 'kiosk access is not enabled for this merchant');
+      }
+      if ((deviceCount?.n ?? 0) >= client.maxKioskDevices) {
+        throw new AppError('CONFLICT', 409, 'maximum kiosk devices reached');
+      }
+
       const { device, pairingCode } = await createKioskDevice(app, clientId, label);
       reply.code(201);
       return { device: publicDevice(device), pairingCode };

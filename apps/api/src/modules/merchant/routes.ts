@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
 import {
+  MerchantRefreshBody,
   WidgetClientLogin,
   WidgetClientProfileUpdate,
   WidgetClientSignup,
@@ -8,7 +9,30 @@ import {
 import { desc, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { hashPassword, signAccess, verifyPassword } from '../auth/service.js';
+import { rotateTokenFamily } from '../auth/routes.js';
+import {
+  hashPassword,
+  hashRefresh,
+  newRefreshToken,
+  signAccess,
+  verifyPassword,
+} from '../auth/service.js';
+import { parseDuration } from '../auth/tokens.js';
+
+async function createMerchantSessionTokens(app: FastifyInstance, widgetClientId: string) {
+  const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+  const accessToken = await signAccess(secret, widgetClientId, {}, app.env.JWT_EXPIRY, 'merchant');
+  const refresh = newRefreshToken();
+  await app.db.insert(schema.refreshTokens).values({
+    widgetClientId,
+    familyId: crypto.randomUUID(),
+    generation: 1,
+    tokenHash: refresh.hash,
+    expiresAt: new Date(Date.now() + parseDuration(app.env.REFRESH_TOKEN_EXPIRY)),
+    portal: 'merchant',
+  });
+  return { accessToken, refreshToken: refresh.plain };
+}
 
 export async function merchantRoutes(app: FastifyInstance) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);
@@ -90,27 +114,84 @@ export async function merchantRoutes(app: FastifyInstance) {
       throw new AppError('FORBIDDEN', 403, 'Account inactive');
     }
 
-    const accessToken = await signAccess(
-      secret,
-      client.id,
-      { email: client.email },
-      '7d',
-      'merchant',
-    );
+    const { accessToken, refreshToken } = await createMerchantSessionTokens(app, client.id);
 
     const isProd = app.env.NODE_ENV === 'production';
     reply.setCookie('merchant_access_token', accessToken, {
       httpOnly: true,
       sameSite: 'lax',
       path: '/v1/merchant',
-      maxAge: 7 * 24 * 60 * 60,
+      maxAge: parseDuration(app.env.JWT_EXPIRY) / 1000,
       secure: isProd,
     });
 
-    return { accessToken };
+    return { accessToken, refreshToken };
   });
 
-  app.post('/v1/merchant/logout', async (_req, reply) => {
+  app.post('/v1/merchant/refresh', { schema: { body: MerchantRefreshBody } }, async (req) => {
+    const { refreshToken } = req.body as { refreshToken: string };
+    const tokenHash = hashRefresh(refreshToken);
+    const [refreshRow] = await app.db
+      .select({
+        userId: schema.refreshTokens.userId,
+        kioskDeviceId: schema.refreshTokens.kioskDeviceId,
+        widgetClientId: schema.refreshTokens.widgetClientId,
+        portal: schema.refreshTokens.portal,
+      })
+      .from(schema.refreshTokens)
+      .where(eq(schema.refreshTokens.tokenHash, tokenHash))
+      .limit(1);
+    if (
+      !refreshRow?.widgetClientId ||
+      refreshRow.userId ||
+      refreshRow.kioskDeviceId ||
+      refreshRow.portal !== 'merchant'
+    ) {
+      throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
+    }
+
+    const result = await rotateTokenFamily(app, refreshToken, 'merchant');
+    if (result.kind === 'invalid' || result.ownerType !== 'widgetClient') {
+      throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
+    }
+
+    const [client] = await app.db
+      .select({ id: schema.widgetClients.id, isActive: schema.widgetClients.isActive })
+      .from(schema.widgetClients)
+      .where(eq(schema.widgetClients.id, result.ownerId))
+      .limit(1);
+    if (!client?.isActive) throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
+
+    return {
+      accessToken: await signAccess(secret, result.ownerId, {}, app.env.JWT_EXPIRY, 'merchant'),
+      refreshToken: result.kind === 'rotated' ? result.refreshPlain : null,
+    };
+  });
+
+  app.post('/v1/merchant/logout', async (req, reply) => {
+    const refreshToken =
+      ((req.body as { refreshToken?: string } | undefined)?.refreshToken ?? null) ||
+      (req.headers.authorization?.startsWith('Bearer ')
+        ? req.headers.authorization.slice(7)
+        : null);
+    if (refreshToken) {
+      const tokenHash = hashRefresh(refreshToken);
+      const [row] = await app.db
+        .select({
+          familyId: schema.refreshTokens.familyId,
+          widgetClientId: schema.refreshTokens.widgetClientId,
+          portal: schema.refreshTokens.portal,
+        })
+        .from(schema.refreshTokens)
+        .where(eq(schema.refreshTokens.tokenHash, tokenHash))
+        .limit(1);
+      if (row?.portal === 'merchant' && row.widgetClientId) {
+        await app.db
+          .update(schema.refreshTokens)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.refreshTokens.familyId, row.familyId));
+      }
+    }
     const isProd = app.env.NODE_ENV === 'production';
     reply.setCookie('merchant_access_token', '', {
       httpOnly: true,
@@ -135,6 +216,9 @@ export async function merchantRoutes(app: FastifyInstance) {
         websiteUrl: schema.widgetClients.websiteUrl,
         widgetKey: schema.widgetClients.widgetKey,
         isActive: schema.widgetClients.isActive,
+        kioskEnabled: schema.widgetClients.kioskEnabled,
+        maxKioskDevices: schema.widgetClients.maxKioskDevices,
+        userId: schema.widgetClients.userId,
         allowedOrigins: schema.widgetClients.allowedOrigins,
         settings: schema.widgetClients.settings,
         createdAt: schema.widgetClients.createdAt,
