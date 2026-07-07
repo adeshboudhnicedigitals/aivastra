@@ -1,4 +1,4 @@
-{
+﻿{
   "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
   "vcs": {
     "enabled": true,
@@ -15,6 +15,7 @@
       "!templates",
       "!pnpm-lock.yaml",
       "!docs/*.html",
+      "!docs/multi-app-ecosystem/design-reference",
       "!Logs-*.json",
       "!Two-page design frames"
     ]

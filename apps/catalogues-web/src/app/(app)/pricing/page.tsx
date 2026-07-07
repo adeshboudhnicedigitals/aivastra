@@ -377,84 +377,84 @@ export default function PricingPage(): React.ReactElement {
           title="Pricing & Plan"
           subtitle="Create professional fashion catalogues without photoshoots, models, or editing headaches."
           right={
-          <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
-            <button
-              type="button"
-              onClick={() => setShowCountry(!showCountry)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 8,
-                padding: 8,
-                width: 130,
-                height: 40,
-                borderRadius: 8,
-                border: `1px solid ${C.border}`,
-                background: C.white,
-                fontFamily: 'inherit',
-                fontSize: 13,
-                fontWeight: 500,
-                color: C.text,
-                cursor: 'pointer',
-                boxSizing: 'border-box',
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ display: 'flex', alignItems: 'center' }}>{FLAGS[country]}</span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>
-                  {COUNTRIES.find((c) => c.code === country)?.name}
-                </span>
-              </span>
-              <ChevronDown size={14} />
-            </button>
-            {showCountry && (
-              <div
+            <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setShowCountry(!showCountry)}
                 style={{
-                  position: 'absolute',
-                  top: 44,
-                  right: 0,
-                  width: 200,
-                  background: C.white,
-                  border: `1px solid ${C.border}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  padding: 8,
+                  width: 130,
+                  height: 40,
                   borderRadius: 8,
-                  boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-                  overflow: 'hidden',
-                  zIndex: 10,
+                  border: `1px solid ${C.border}`,
+                  background: C.white,
+                  fontFamily: 'inherit',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: C.text,
+                  cursor: 'pointer',
+                  boxSizing: 'border-box',
                 }}
               >
-                {COUNTRIES.map((c) => (
-                  <button
-                    key={c.code}
-                    type="button"
-                    onClick={() => {
-                      setCountry(c.code);
-                      setShowCountry(false);
-                    }}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      padding: '10px 12px',
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: country === c.code ? C.pink : C.mid,
-                      cursor: 'pointer',
-                      background: country === c.code ? 'rgba(245,92,122,0.06)' : 'transparent',
-                      border: 'none',
-                      width: '100%',
-                      fontFamily: 'inherit',
-                      textAlign: 'left',
-                    }}
-                  >
-                    {FLAGS[c.code]} {c.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        }
-      />
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ display: 'flex', alignItems: 'center' }}>{FLAGS[country]}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>
+                    {COUNTRIES.find((c) => c.code === country)?.name}
+                  </span>
+                </span>
+                <ChevronDown size={14} />
+              </button>
+              {showCountry && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 44,
+                    right: 0,
+                    width: 200,
+                    background: C.white,
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 8,
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                    overflow: 'hidden',
+                    zIndex: 10,
+                  }}
+                >
+                  {COUNTRIES.map((c) => (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => {
+                        setCountry(c.code);
+                        setShowCountry(false);
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '10px 12px',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: country === c.code ? C.pink : C.mid,
+                        cursor: 'pointer',
+                        background: country === c.code ? 'rgba(245,92,122,0.06)' : 'transparent',
+                        border: 'none',
+                        width: '100%',
+                        fontFamily: 'inherit',
+                        textAlign: 'left',
+                      }}
+                    >
+                      {FLAGS[c.code]} {c.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          }
+        />
       </div>
 
       {/* Current Plan Banner */}

@@ -31,7 +31,6 @@ apps/dispatcher    Redis Stream consumer — routes jobs to GPU workers
 apps/chatbot       Fastify + WS support chatbot — LangGraph bot, HITL, pgvector RAG
 apps/catalogues-web           Next.js 15 — user-facing UI (auth, studio, catalogues, pricing)
 apps/admin-web         Vite + React SPA — internal admin panel (separate from apps/catalogues-web)
-apps/admin-mobile  Expo SDK 53 React Native — admin app (Android, mirrors apps/admin-web features)
 packages/db        Drizzle schema + migrations + createDb() factory
 packages/types     Zod schemas only — single source of truth for request/response shapes
 packages/storage   StorageProvider interface + R2/MinIO impl + R2 key builders
@@ -47,7 +46,7 @@ docs/              Design doc, phase plans, progress log, open findings
 | Package | Key exports |
 |---------|-------------|
 | `@aivastra/db` | `createDb(url)`, `schema` namespace, drizzle operators (`and`, `eq`, `inArray`, `or`, `sql`) |
-| `@aivastra/types` | Pure Zod schemas — `auth.ts`, `catalog.ts`, `jobs.ts`, `admin.ts`, `widget.ts`. Also builds CJS for Metro (admin-mobile). |
+| `@aivastra/types` | Pure Zod schemas - `auth.ts`, `catalog.ts`, `jobs.ts`, `admin.ts`, `widget.ts`. |
 | `@aivastra/storage` | `StorageProvider` interface (`presignPut`, `presignGet`, `deleteObject`, `putObject`, `getObject`, `headObject`, `publicUrl`); `createR2Provider(cfg)`; `keys` key-builders |
 | `@aivastra/logger` | `createLogger(service, extra?)` — pino with redaction of passwords, tokens, secrets, auth headers, cookies, R2 keys |
 | `@aivastra/observability` | Single Prometheus registry; counters for jobs, credits, comfy duration, queue depth, worker health |
@@ -259,9 +258,9 @@ API test harness (`apps/api/test/helpers/api.ts`): `buildTestApp()` calls `app.l
 - `testcontainers` package is installed but unused (abandoned due to MinIO startup issues on Windows). Do not reintroduce it.
 - Catalog integration tests seed `catalog_types` with `slug: 'models'` — use unique slugs if tests share the same Postgres process.
 
-## Admin Parity Rule
+## Admin Mobile Paused
 
-`apps/admin-mobile` mirrors `apps/admin-web` — same admin user, same `/admin/*` API. When a change adds/modifies a feature, screen, or admin API field in `apps/admin-web`, port the equivalent to `apps/admin-mobile` (or explicitly flag it as web-only, e.g. bulk CSV export) before calling the task done. Don't port pure styling/layout tweaks — only functional/data changes.
+Admin mobile development is paused until the product is finalised. Treat `apps/admin-mobile` as out of active scope: do not update it, test it, typecheck it, parity-check it against `apps/admin-web`, or factor it into task completion criteria unless a task explicitly reactivates admin-mobile work.
 
 ## Invariants (do not break)
 

@@ -610,6 +610,41 @@
       "when": 1779120000000,
       "tag": "0086_instruction_image_key",
       "breakpoints": false
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1779121000000,
+      "tag": "0087_kiosk_auth_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1779122000000,
+      "tag": "0088_merchant_portal",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1779123000000,
+      "tag": "0089_kiosk_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1779124000000,
+      "tag": "0090_user_device_session_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1779125000000,
+      "tag": "0091_needy_annihilus",
+      "breakpoints": true
     }
   ]
 }

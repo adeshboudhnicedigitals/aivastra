@@ -32,7 +32,7 @@ async function buildGoogleApp(c: Containers) {
     R2_BUCKET: c.r2Bucket,
     R2_PUBLIC_URL: `${c.r2Endpoint}/${c.r2Bucket}`,
     R2_FORCE_PATH_STYLE: true,
-    CORS_ORIGIN: 'http://localhost:3000',
+    CORS_ORIGIN: ['http://localhost:3000'],
     COOKIE_SECRET: 'test-cookie-secret-0123456789abcdef-32min',
     GOOGLE_CLIENT_ID: 'test-google-client-id',
     GOOGLE_CLIENT_SECRET: 'test-google-client-secret',

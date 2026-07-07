@@ -8,13 +8,15 @@ import type { Redis } from 'ioredis';
 function writeSseHeaders(req: FastifyRequest, reply: FastifyReply): void {
   const corsOrigin = (req.server as FastifyInstance).env?.CORS_ORIGIN;
   const reqOrigin = req.headers.origin;
+  const allowOrigin =
+    reqOrigin && Array.isArray(corsOrigin) && corsOrigin.includes(reqOrigin) ? reqOrigin : null;
   reply.raw.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
-    ...(corsOrigin && reqOrigin === corsOrigin
-      ? { 'Access-Control-Allow-Origin': corsOrigin, 'Access-Control-Allow-Credentials': 'true' }
+    ...(allowOrigin
+      ? { 'Access-Control-Allow-Origin': allowOrigin, 'Access-Control-Allow-Credentials': 'true' }
       : {}),
   });
 }

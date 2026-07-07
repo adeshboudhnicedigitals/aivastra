@@ -6,9 +6,8 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
-import { atomicWidgetDeduct, widgetRefund } from './ledger.js';
-
-const WIDGET_JOB_COST = 10;
+import { createWidgetStyleJob, WIDGET_JOB_COST } from './create-job.js';
+import { widgetRefund } from './ledger.js';
 
 function isPrivateIp(ip: string): boolean {
   return (
@@ -198,42 +197,12 @@ export async function widgetRoutes(app: FastifyInstance) {
       const garmentR2Key = `widget-garments/${clientId}/${randomUUID()}/garment.${garmentExt}`;
       await app.storage.putObject(garmentR2Key, garmentBuffer, garmentContentType);
 
-      const jobId = randomUUID();
-      await app.db.transaction(async (tx) => {
-        // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers userId/FK cols as non-null; widget jobs legitimately have null userId and null face/bg/pose
-        await (tx.insert(schema.jobs).values as any)({
-          id: jobId,
-          userId: null,
-          widgetClientId: clientId,
-          customerPhotoKey,
-          status: 'QUEUED',
-          creditsCharged: WIDGET_JOB_COST,
-        });
-
-        // biome-ignore lint/suspicious/noExplicitAny: same — face/bg/pose are nullable in SQL but Drizzle types them non-null
-        await (tx.insert(schema.jobInputs).values as any)({
-          jobId,
-          upperGarmentKey: garmentR2Key,
-          faceId: null,
-          backgroundId: null,
-          poseId: null,
-        });
-
-        // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the widget ledger helper
-        await atomicWidgetDeduct(tx as any, clientId, WIDGET_JOB_COST, jobId);
+      const jobId = await createWidgetStyleJob(app, {
+        widgetClientId: clientId,
+        upperGarmentKey: garmentR2Key,
+        customerPhotoKey,
+        cost: WIDGET_JOB_COST,
       });
-
-      await app.redis.xadd(
-        'jobs:normal',
-        'MAXLEN',
-        '~',
-        10000,
-        '*',
-        'jobId',
-        jobId,
-        'type',
-        'WIDGET_TRYON',
-      );
 
       if (idempRedisKey) {
         await app.redis.set(idempRedisKey, jobId, 'EX', 600);
@@ -332,7 +301,7 @@ export async function widgetRoutes(app: FastifyInstance) {
       const channel = `sse:events:widget:${clientId}`;
 
       // ioredis throws an uncaught exception (crashing the process) if a connection
-      // emits 'error' with no listener attached — must register one even if a no-op.
+      // emits 'error' with no listener attached â€” must register one even if a no-op.
       sub.on('error', (err) => {
         req.log.warn({ err, channel }, 'sse redis subscriber error');
       });

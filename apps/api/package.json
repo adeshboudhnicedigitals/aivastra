@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run --exclude 'test/integration/**'",
-    "lint": "biome check src/"
+    "lint": "biome check src/",
+    "cleanup:kiosk-inputs": "tsx --env-file=../../.env src/scripts/cleanup-kiosk-inputs.ts"
   },
   "dependencies": {
     "@aivastra/db": "workspace:*",

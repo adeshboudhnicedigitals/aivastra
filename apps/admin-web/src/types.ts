@@ -132,6 +132,7 @@ export interface User {
   displayName: string | null;
   phone: string | null;
   tier: string;
+  maxActiveDevices: number;
   isBanned: boolean;
   banReason: string | null;
   isAdmin: boolean;
