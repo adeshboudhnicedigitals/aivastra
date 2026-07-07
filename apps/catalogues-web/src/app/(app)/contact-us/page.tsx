@@ -369,8 +369,10 @@ export default function ContactUsPage() {
                 <input
                   id="contact-phone"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
+                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   placeholder="9874563210"
+                  inputMode="numeric"
+                  maxLength={10}
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
