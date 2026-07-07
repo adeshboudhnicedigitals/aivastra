@@ -1,5 +1,4 @@
-import { Shirt } from 'lucide-react';
-import Link from 'next/link';
+import { PhoneCall } from 'lucide-react';
 import { SupportButton } from './SupportModal';
 import { C } from './tokens';
 import { UserMenu } from './user-menu';
@@ -9,13 +8,11 @@ export function TopBar({
   subtitle,
   right,
   lead,
-  hideTryonCta,
 }: {
   title?: string;
   subtitle?: string;
   right?: React.ReactNode;
   lead?: React.ReactNode;
-  hideTryonCta?: boolean;
 }) {
   return (
     <div
@@ -55,33 +52,23 @@ export function TopBar({
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {right}
 
-        {/* AI Virtual Try-On CTA */}
-        {!hideTryonCta && (
-          <Link
-            href="/tryon"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              width: 163,
-              height: 40,
-              padding: '0 10px',
-              borderRadius: 8,
-              background: 'linear-gradient(180deg, #7C3AED 0%, #310380 100%)',
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: 600,
-              textDecoration: 'none',
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-              boxShadow: '0 2px 8px rgba(124,58,237,0.35)',
-              boxSizing: 'border-box',
-            }}
-          >
-            <Shirt size={15} />
-            AI Virtual Try-On
-          </Link>
-        )}
+        <a
+          href="tel:+917729883692"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            color: C.text,
+            fontSize: 14,
+            fontWeight: 500,
+            textDecoration: 'none',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          <PhoneCall size={18} />
+          +91 77298 83692
+        </a>
 
         {/* Support button */}
         <SupportButton />
