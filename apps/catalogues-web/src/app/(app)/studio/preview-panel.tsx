@@ -62,6 +62,7 @@ export function PreviewPanel() {
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* biome-ignore lint/performance/noImgElement: studio placeholder image */}
             <img
               src={`${BASE}/assets/studio-right-div-placeholder.png`}
               alt=""

@@ -18,6 +18,7 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'), // nullable — Google-only users have no password
   displayName: text('display_name'),
   phone: text('phone'), // nullable — user-provided, no format enforcement
+  companyName: text('company_name'),
   // FK to credit_plans.slug added in migration 0080 (ON DELETE RESTRICT) — not
   // declared via .references() here to avoid a circular import with credits.ts.
   tier: text('tier').notNull().default('free'),

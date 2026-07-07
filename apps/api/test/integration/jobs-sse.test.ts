@@ -1,4 +1,6 @@
 import http from 'node:http';
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
@@ -16,12 +18,26 @@ describe('jobs-sse', () => {
   });
 
   async function getToken() {
-    const res = await app.inject({
+    await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
+      payload: { displayName: 'SSE User', email: 'sse@x.com', password: 'password123' },
+    });
+    const [user] = await app.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, 'sse@x.com'));
+    if (!user) throw new Error('user not found');
+    await app.db
+      .update(schema.users)
+      .set({ emailVerified: true })
+      .where(eq(schema.users.id, user.id));
+    const login = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
       payload: { email: 'sse@x.com', password: 'password123' },
     });
-    return res.json().accessToken;
+    return login.json().accessToken as string;
   }
 
   it('GET /v1/jobs/:id/events returns SSE headers', async () => {

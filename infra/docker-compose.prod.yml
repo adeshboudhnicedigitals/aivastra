@@ -9,10 +9,16 @@ name: aivastra-prod
 #   admin.aivastra.com/admin/ -> localhost:4000  (Fastify API)
 #   admin.aivastra.com/v1/    -> localhost:4000  (Fastify API)
 #   merchant.aivastra.com/    -> localhost:3002  (Merchant portal)
+#   chatbot.aivastra.com/     -> localhost:4200  (Chatbot WS/HTTP — needs a WebSocket-upgrade
+#                                                 proxy vhost, since it's a separate subdomain
+#                                                 from the CHATBOT_URL example placeholder;
+#                                                 adjust .env.production's CHATBOT_URL/
+#                                                 NEXT_PUBLIC_CHATBOT_URL/VITE_CHATBOT_URL to
+#                                                 match whatever domain you actually provision)
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: aivastra-prod-postgres
     restart: unless-stopped
     environment:
@@ -124,6 +130,25 @@ services:
     networks:
       - aivastra-net
 
+  chatbot:
+    build:
+      context: ..
+      dockerfile: apps/chatbot/Dockerfile
+    container_name: aivastra-prod-chatbot
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4200:4200"
+    # Mount .env.production as /app/.env so `node --env-file=../../.env` resolves it
+    volumes:
+      - ../.env.production:/app/.env:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aivastra-net
+
   dispatcher:
     build:
       context: ..
@@ -150,6 +175,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-}
+        NEXT_PUBLIC_CHATBOT_URL: ${NEXT_PUBLIC_CHATBOT_URL}
     container_name: aivastra-prod-web
     restart: unless-stopped
     environment:
@@ -179,6 +205,8 @@ services:
     build:
       context: ..
       dockerfile: apps/admin-web/Dockerfile
+      args:
+        VITE_CHATBOT_URL: ${VITE_CHATBOT_URL}
     container_name: aivastra-prod-admin
     restart: unless-stopped
     ports:
@@ -210,6 +238,7 @@ services:
     depends_on:
       - api
       - dispatcher
+      - chatbot
     networks:
       - aivastra-net
 

@@ -1,8 +1,11 @@
 'use client';
 import { useQueryClient } from '@tanstack/react-query';
+import { MonitorPlay, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { MoonIcon, SunIcon } from './icons';
 import { C } from './tokens';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -31,6 +34,8 @@ const NAV: { id: string; href: string; label: string; icon: string; badge?: stri
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
+  { id: 'tutorials', href: '/tutorials', label: 'Tutorials', icon: 'monitor-play' },
+  { id: 'contact', href: '/contact-us', label: 'Contact Us', icon: 'phone' },
 ];
 
 const SIDEBAR_WIDTH = 100;
@@ -38,6 +43,18 @@ const SIDEBAR_WIDTH = 100;
 export function Sidebar() {
   const pathname = usePathname();
   const qc = useQueryClient();
+  const [darkMode, setDarkMode] = useState(false);
+
+  useEffect(() => {
+    setDarkMode(document.documentElement.classList.contains('dark'));
+  }, []);
+
+  function toggleTheme() {
+    const next = !darkMode;
+    setDarkMode(next);
+    document.documentElement.classList.toggle('dark', next);
+    localStorage.setItem('theme', next ? 'dark' : 'light');
+  }
 
   // Prefetch a route's primary data on hover/focus so the page opens from cache.
   function prefetchRoute(id: string) {
@@ -95,6 +112,7 @@ export function Sidebar() {
       >
         <Link href="/studio" style={{ display: 'flex', alignItems: 'center' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: sidebar logo */}
           <img
             src={`${BASE}/assets/logo.svg`}
             alt="Ai Vastra"
@@ -144,14 +162,23 @@ export function Sidebar() {
                 </div>
               )}
               <span style={{ opacity: isActive ? 1 : 0.6, display: 'flex', flexShrink: 0 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={item.icon}
-                  alt=""
-                  width={20}
-                  height={20}
-                  style={item.id === 'saree' ? { filter: 'invert(1)' } : undefined}
-                />
+                {item.icon === 'monitor-play' ? (
+                  <MonitorPlay size={20} />
+                ) : item.icon === 'phone' ? (
+                  <Phone size={20} />
+                ) : (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {/* biome-ignore lint/performance/noImgElement: sidebar nav icon */}
+                    <img
+                      src={item.icon}
+                      alt=""
+                      width={20}
+                      height={20}
+                      style={item.id === 'saree' ? { filter: 'invert(1)' } : undefined}
+                    />
+                  </>
+                )}
               </span>
               <span
                 style={{
@@ -232,6 +259,61 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Theme toggle */}
+      <div
+        style={{
+          marginTop: 'auto',
+          padding: '10px',
+          display: 'flex',
+          flexDirection: 'row',
+          gap: 4,
+          justifyContent: 'center',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => toggleTheme()}
+          title="Light mode"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 8,
+            borderRadius: 8,
+            border: 'none',
+            cursor: 'pointer',
+            background: !darkMode
+              ? 'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 5%)'
+              : 'transparent',
+            color: !darkMode ? C.onDark : 'rgba(255,255,255,0.4)',
+            transition: 'background .15s, color .15s',
+          }}
+        >
+          <SunIcon />
+        </button>
+        <button
+          type="button"
+          onClick={() => toggleTheme()}
+          title="Dark mode"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 8,
+            borderRadius: 8,
+            border: 'none',
+            cursor: 'pointer',
+            background: darkMode
+              ? 'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 5%)'
+              : 'transparent',
+            color: darkMode ? C.onDark : 'rgba(255,255,255,0.4)',
+            transition: 'background .15s, color .15s',
+          }}
+        >
+          <MoonIcon />
+        </button>
+      </div>
     </div>
   );
 }

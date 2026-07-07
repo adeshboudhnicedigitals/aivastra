@@ -1,4 +1,6 @@
+import { ChatWidget } from '@/components/chat-widget';
 import { JobStreamProvider } from '@/components/job-stream-provider';
+import { ProfileGate } from '@/components/profile-gate';
 import { Sidebar } from '@/components/sidebar';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -7,8 +9,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         <Sidebar />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {children}
+          <ProfileGate>{children}</ProfileGate>
         </div>
+        <ChatWidget />
       </div>
     </JobStreamProvider>
   );

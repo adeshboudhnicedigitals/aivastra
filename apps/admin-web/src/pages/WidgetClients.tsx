@@ -198,7 +198,8 @@ export function WidgetClients({ onNav: _onNav, toast }: Props) {
             </button>
             {Array.from({ length: totalPages }, (_, i) => (
               <button
-                key={i}
+                // biome-ignore lint/suspicious/noArrayIndexKey: index+1 is the page number itself, inherently stable
+                key={i + 1}
                 className={page === i + 1 ? 'active' : ''}
                 onClick={() => setPage(i + 1)}
               >

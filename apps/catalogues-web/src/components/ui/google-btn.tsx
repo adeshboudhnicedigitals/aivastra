@@ -28,7 +28,7 @@ export function GoogleBtn({ label }: { label: string }) {
         transition: 'background .15s',
       }}
     >
-      <svg width="18" height="18" viewBox="0 0 48 48">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48">
         <path
           fill="#EA4335"
           d="M24 9.5c3.5 0 6.3 1.2 8.4 3.2l6.3-6.3C34.9 2.7 29.8.5 24 .5 14.8.5 7 6.1 3.3 14l7.4 5.7C12.5 13.4 17.8 9.5 24 9.5z"

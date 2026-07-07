@@ -313,6 +313,7 @@ export default function WidgetRenderPage() {
       }}
     >
       <button
+        type="button"
         onClick={close}
         style={{
           position: 'absolute',
@@ -381,6 +382,7 @@ export default function WidgetRenderPage() {
             <div style={{ width: '100%' }}>
               <p style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>Garment</p>
               {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* biome-ignore lint/performance/noImgElement: garment preview image */}
               <img
                 src={garmentImageUrl}
                 alt="Garment"
@@ -398,8 +400,17 @@ export default function WidgetRenderPage() {
             </div>
           )}
 
+          {/* biome-ignore lint/a11y/useSemanticElements: drag-and-drop zone needs div for layout */}
           <div
+            role="button"
+            tabIndex={0}
             onClick={() => !uploading && fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ' ') && !uploading) {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
             onDragOver={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -435,10 +446,13 @@ export default function WidgetRenderPage() {
             onMouseOut={(e) => {
               if (!uploading && !dragActive) e.currentTarget.style.borderColor = '#DDD';
             }}
+            onFocus={() => {}}
+            onBlur={() => {}}
           >
             {uploadPreview ? (
               <div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
+                {/* biome-ignore lint/performance/noImgElement: uploaded garment preview */}
                 <img
                   src={uploadPreview}
                   alt="Preview of uploaded garment"
@@ -450,8 +464,18 @@ export default function WidgetRenderPage() {
                     marginBottom: 8,
                   }}
                 />
-                <p
-                  style={{ fontSize: 12, color: C.pink, margin: 0, cursor: 'pointer' }}
+                <button
+                  type="button"
+                  style={{
+                    fontSize: 12,
+                    color: C.pink,
+                    margin: 0,
+                    cursor: 'pointer',
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    font: 'inherit',
+                  }}
                   onClick={(e) => {
                     e.stopPropagation();
                     setUploadFile(null);
@@ -459,7 +483,7 @@ export default function WidgetRenderPage() {
                   }}
                 >
                   Change photo
-                </p>
+                </button>
               </div>
             ) : (
               <div>
@@ -552,6 +576,7 @@ export default function WidgetRenderPage() {
           <div style={{ display: 'flex', gap: 8, width: '100%' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {garmentImageUrl && (
+              // biome-ignore lint/performance/noImgElement: garment thumbnail in bottom bar
               <img
                 src={garmentImageUrl}
                 alt="Garment"
@@ -566,6 +591,7 @@ export default function WidgetRenderPage() {
             )}
             {uploadPreview && (
               // eslint-disable-next-line @next/next/no-img-element
+              // biome-ignore lint/performance/noImgElement: upload preview thumbnail
               <img
                 src={uploadPreview}
                 alt="You"
@@ -706,6 +732,7 @@ export default function WidgetRenderPage() {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {resultUrl && (
+            // biome-ignore lint/performance/noImgElement: result image display
             <img src={resultUrl} alt="Result" style={{ width: '100%', borderRadius: 8 }} />
           )}
           <div style={{ display: 'flex', gap: 12, width: '100%' }}>

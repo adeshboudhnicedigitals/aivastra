@@ -37,6 +37,7 @@ async function tryRefreshToken(): Promise<string | null> {
     if (!res.ok) return null;
     const { accessToken } = (await res.json()) as { accessToken: string };
     const secure = location.protocol === 'https:' ? '; Secure' : '';
+    // biome-ignore lint/suspicious/noDocumentCookie: cookie is the only way to set auth token for custom SSE client
     document.cookie = `access_token=${encodeURIComponent(accessToken)}; path=/; max-age=900; SameSite=Lax${secure}`;
     return accessToken;
   } catch {

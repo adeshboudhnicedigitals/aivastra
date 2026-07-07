@@ -144,6 +144,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
             email: googleUser.email,
             passwordHash: null,
             displayName: googleUser.name ?? null,
+            companyName: null,
             emailVerified: true,
             tier: 'free',
           })

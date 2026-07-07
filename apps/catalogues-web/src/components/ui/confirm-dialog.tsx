@@ -66,6 +66,7 @@ export function ConfirmDialog({
   if (!open) return null;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: click-outside-to-dismiss backdrop; Escape key is already handled above for keyboard users
     <div
       role="presentation"
       onClick={() => {
@@ -82,6 +83,7 @@ export function ConfirmDialog({
         padding: 20,
       }}
     >
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: onClick only stops the backdrop click from bubbling, not a real click action */}
       <div
         ref={dialogRef}
         role="dialog"

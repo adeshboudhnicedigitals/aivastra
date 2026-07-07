@@ -21,7 +21,7 @@ AUTH_CHANNEL?.addEventListener('message', (e) => {
   }
 });
 
-function getToken(): string | null {
+export function getToken(): string | null {
   return _memToken;
 }
 

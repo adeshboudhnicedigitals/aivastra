@@ -84,6 +84,42 @@ export const workersHealthy = new Gauge({
   registers: [register],
 });
 
+// ── Chatbot metrics ──────────────────────────────────────────────────────────
+
+export const chatbotMessagesTotal = new Counter({
+  name: 'chatbot_messages_total',
+  help: 'Chat messages persisted, by role',
+  labelNames: ['role'] as const,
+  registers: [register],
+});
+
+export const chatbotEscalationsTotal = new Counter({
+  name: 'chatbot_escalations_total',
+  help: 'Conversations escalated to a human, by reason',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+export const chatbotFallbacksTotal = new Counter({
+  name: 'chatbot_fallbacks_total',
+  help: 'Bot low-confidence fallback replies',
+  registers: [register],
+});
+
+export const chatbotBotTurnDuration = new Histogram({
+  name: 'chatbot_bot_turn_duration_seconds',
+  help: 'Bot turn latency (retrieval + tools + generation)',
+  buckets: [0.5, 1, 2, 5, 10, 30],
+  registers: [register],
+});
+
+export const chatbotActiveSockets = new Gauge({
+  name: 'chatbot_active_sockets',
+  help: 'Open chatbot websockets',
+  labelNames: ['kind'] as const,
+  registers: [register],
+});
+
 // ── Exposition ───────────────────────────────────────────────────────────────
 
 /** Prometheus text exposition for the `/metrics` endpoint. */

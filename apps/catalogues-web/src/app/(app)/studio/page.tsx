@@ -1,14 +1,7 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  CheckIcon,
-  ImagePlusIcon,
-  LightbulbIcon,
-  SparkleIcon,
-  SpinnerIcon,
-  XIcon,
-} from '@/components/icons';
+import { CheckIcon, ImagePlusIcon, SparkleIcon, SpinnerIcon, XIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
@@ -26,6 +19,7 @@ interface GarmentType {
   slug: string;
   label: string;
   thumbnailUrl?: string | null;
+  instructionImageUrl?: string | null;
   requiresLowerUpload: boolean;
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
@@ -566,75 +560,6 @@ function SectionHead({
 }
 
 // ── Garment upload tips — hover popover ──
-function GarmentTipsButton() {
-  const [open, setOpen] = useState(false);
-  return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: hover dropdown trigger; child button is the actual interactive element
-    <div onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <button
-        type="button"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          height: 28,
-          borderRadius: 14,
-          background: C.field,
-          border: `1px solid ${C.border}`,
-          color: C.text,
-          cursor: 'pointer',
-          padding: '0 12px',
-        }}
-      >
-        <LightbulbIcon size={14} />
-        <span style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>Instruction</span>
-      </button>
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 8px)',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: 600,
-            background: C.card,
-            borderRadius: 12,
-            border: `1px solid ${C.border}`,
-            padding: 20,
-            boxSizing: 'border-box',
-            zIndex: 50,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 6,
-              width: '100%',
-              marginBottom: 16,
-            }}
-          >
-            <span style={{ display: 'flex', color: C.text }}>
-              <LightbulbIcon size={16} />
-            </span>
-            <span style={{ fontSize: 13, fontWeight: 500, lineHeight: '140%', color: C.text }}>
-              Use clean flat lay images for best AI catalogue results.
-            </span>
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-          <img
-            src={`${BASE}/assets/instructions.png`}
-            alt="Garment guidelines"
-            style={{ width: '100%', height: 160, objectFit: 'contain', borderRadius: 8 }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
 
 const pill = (active: boolean): React.CSSProperties => ({
   padding: '7px 14px',
@@ -1450,7 +1375,6 @@ export default function StudioPage(): React.ReactElement {
             <section>
               <SectionHead
                 title={requiresLowerUpload ? 'Upload Garment Images' : 'Upload Garment Image'}
-                right={<GarmentTipsButton />}
               />
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 {/* Dashed upload box — single zone or split into two */}
@@ -1461,8 +1385,7 @@ export default function StudioPage(): React.ReactElement {
                     height: 238,
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: requiresLowerUpload ? 8 : 0,
+                    gap: 12,
                     background: C.field,
                     borderRadius: 12,
                     border: `1px dashed ${C.border}`,
@@ -1470,220 +1393,27 @@ export default function StudioPage(): React.ReactElement {
                     boxSizing: 'border-box',
                   }}
                 >
-                  {/* Upper garment label */}
-                  <label
+                  {/* Upload zone wrapper — stacks vertically when two uploads */}
+                  <div
                     style={{
-                      flex: requiresLowerUpload ? 1 : 'none',
-                      width: requiresLowerUpload ? undefined : 265,
-                      minWidth: 0,
-                      height: 210,
+                      flex: 1,
                       display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: 12,
-                      background: C.card,
-                      border: `1px solid ${C.border}`,
-                      borderRadius: 8,
-                      padding: 12,
-                      cursor: 'pointer',
-                      boxSizing: 'border-box',
-                      overflow: 'hidden',
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const f = e.dataTransfer.files?.[0];
-                      if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
-                        handleGarmentUpload(f);
+                      flexDirection: requiresLowerUpload ? 'column' : 'row',
+                      gap: requiresLowerUpload ? 8 : 0,
+                      height: 210,
+                      minWidth: 0,
                     }}
                   >
-                    {garmentFile ? (
-                      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                        <img
-                          src={garmentPreviewUrl}
-                          alt={garmentFile.name}
-                          style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover',
-                            borderRadius: 6,
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setGarmentFile(null);
-                            setGarmentKey('');
-                          }}
-                          style={{
-                            position: 'absolute',
-                            top: 6,
-                            right: 6,
-                            width: 24,
-                            height: 24,
-                            borderRadius: '50%',
-                            background: 'rgba(0,0,0,0.5)',
-                            border: 'none',
-                            color: 'white',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <XIcon size={14} />
-                        </button>
-                        {isUploading && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              bottom: 8,
-                              left: 8,
-                              right: 8,
-                              background: 'rgba(255,255,255,0.95)',
-                              borderRadius: 8,
-                              padding: '6px 10px',
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                fontSize: 12,
-                                color: C.text,
-                              }}
-                            >
-                              <SpinnerIcon size={14} /> {uploadProgress}%
-                            </div>
-                            <div
-                              style={{
-                                marginTop: 4,
-                                height: 4,
-                                borderRadius: 99,
-                                background: C.border,
-                                overflow: 'hidden',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  height: '100%',
-                                  width: `${uploadProgress}%`,
-                                  background: grad,
-                                  borderRadius: 99,
-                                  transition: 'width .3s',
-                                }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                        {garmentKey && (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: 8,
-                              left: 8,
-                              background: C.mint,
-                              color: 'white',
-                              borderRadius: 6,
-                              padding: '3px 8px',
-                              fontSize: 11,
-                              fontWeight: 600,
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <CheckIcon color="#fff" size={10} /> Uploaded
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                        <img
-                          src={`${BASE}/assets/upperGarmentRef.png`}
-                          alt="Upper garment reference"
-                          style={{
-                            width: requiresLowerUpload ? 56 : 92,
-                            height: requiresLowerUpload ? 56 : 92,
-                            borderRadius: 8,
-                            objectFit: 'cover',
-                          }}
-                        />
-                        <span
-                          style={{
-                            width: '100%',
-                            fontSize: requiresLowerUpload ? 11 : 12,
-                            fontWeight: 500,
-                            lineHeight: '100%',
-                            color: C.text,
-                            textAlign: 'center',
-                          }}
-                        >
-                          {requiresLowerUpload ? 'Top Wear' : 'Upload Top Wear'}
-                        </span>
-                        <span
-                          style={{
-                            width: '100%',
-                            fontSize: 10,
-                            fontWeight: 500,
-                            lineHeight: '140%',
-                            color: C.mid,
-                            textAlign: 'center',
-                          }}
-                        >
-                          {requiresLowerUpload
-                            ? 'JPG, PNG · Max 10MB'
-                            : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
-                        </span>
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                          }}
-                        >
-                          <ImagePlusIcon size={14} />
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 500,
-                              lineHeight: '18px',
-                              color: C.text,
-                            }}
-                          >
-                            Browse
-                          </span>
-                        </div>
-                      </>
-                    )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      style={{ display: 'none' }}
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) handleGarmentUpload(f);
-                      }}
-                    />
-                  </label>
-
-                  {/* Lower garment label — only when requiresLowerUpload */}
-                  {requiresLowerUpload && (
+                    {/* Upper garment label */}
                     <label
                       style={{
                         flex: 1,
                         minWidth: 0,
-                        height: 210,
+                        height: requiresLowerUpload ? undefined : 210,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
+                        justifyContent: 'center',
                         gap: 12,
                         background: C.card,
                         border: `1px solid ${C.border}`,
@@ -1698,16 +1428,16 @@ export default function StudioPage(): React.ReactElement {
                         e.preventDefault();
                         const f = e.dataTransfer.files?.[0];
                         if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
-                          handleLowerGarmentUpload(f);
+                          handleGarmentUpload(f);
                       }}
                     >
-                      {lowerGarmentFile ? (
+                      {garmentFile ? (
                         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
                           <img
-                            src={lowerGarmentPreviewUrl}
-                            alt={lowerGarmentFile.name}
+                            src={garmentPreviewUrl}
+                            alt={garmentFile.name}
                             style={{
                               width: '100%',
                               height: '100%',
@@ -1719,8 +1449,8 @@ export default function StudioPage(): React.ReactElement {
                             type="button"
                             onClick={(e) => {
                               e.preventDefault();
-                              setLowerGarmentFile(null);
-                              setLowerGarmentKey('');
+                              setGarmentFile(null);
+                              setGarmentKey('');
                             }}
                             style={{
                               position: 'absolute',
@@ -1740,7 +1470,7 @@ export default function StudioPage(): React.ReactElement {
                           >
                             <XIcon size={14} />
                           </button>
-                          {isUploadingLower && (
+                          {isUploading && (
                             <div
                               style={{
                                 position: 'absolute',
@@ -1761,11 +1491,30 @@ export default function StudioPage(): React.ReactElement {
                                   color: C.text,
                                 }}
                               >
-                                <SpinnerIcon size={14} /> Uploading…
+                                <SpinnerIcon size={14} /> {uploadProgress}%
+                              </div>
+                              <div
+                                style={{
+                                  marginTop: 4,
+                                  height: 4,
+                                  borderRadius: 99,
+                                  background: C.border,
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    height: '100%',
+                                    width: `${uploadProgress}%`,
+                                    background: grad,
+                                    borderRadius: 99,
+                                    transition: 'width .3s',
+                                  }}
+                                />
                               </div>
                             </div>
                           )}
-                          {lowerGarmentKey && (
+                          {garmentKey && (
                             <div
                               style={{
                                 position: 'absolute',
@@ -1788,41 +1537,46 @@ export default function StudioPage(): React.ReactElement {
                         </div>
                       ) : (
                         <>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
-                          <img
-                            src={`${BASE}/assets/upperGarmentRef.png`}
-                            alt="Lower garment reference"
-                            style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover' }}
-                          />
-                          <span
+                          <div
                             style={{
-                              width: '100%',
-                              fontSize: 11,
-                              fontWeight: 500,
-                              lineHeight: '100%',
-                              color: C.text,
-                              textAlign: 'center',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              gap: 4,
                             }}
                           >
-                            Bottom Wear
-                          </span>
-                          <span
-                            style={{
-                              width: '100%',
-                              fontSize: 10,
-                              fontWeight: 500,
-                              lineHeight: '140%',
-                              color: C.mid,
-                              textAlign: 'center',
-                            }}
-                          >
-                            JPG, PNG · Max 10MB
-                          </span>
+                            <span
+                              style={{
+                                width: '100%',
+                                fontSize: requiresLowerUpload ? 11 : 12,
+                                fontWeight: 500,
+                                lineHeight: '100%',
+                                color: C.text,
+                                textAlign: 'center',
+                              }}
+                            >
+                              {requiresLowerUpload ? 'Top Wear' : 'Upload Top Wear'}
+                            </span>
+                            <span
+                              style={{
+                                width: '100%',
+                                fontSize: 10,
+                                fontWeight: 500,
+                                lineHeight: '140%',
+                                color: C.mid,
+                                textAlign: 'center',
+                              }}
+                            >
+                              {requiresLowerUpload
+                                ? 'JPG, PNG · Max 10MB'
+                                : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
+                            </span>
+                          </div>
                           <div
                             style={{
                               display: 'flex',
                               alignItems: 'center',
+                              justifyContent: 'center',
                               gap: 6,
                             }}
                           >
@@ -1841,16 +1595,224 @@ export default function StudioPage(): React.ReactElement {
                         </>
                       )}
                       <input
-                        ref={lowerFileInputRef}
+                        ref={fileInputRef}
                         type="file"
                         accept="image/jpeg,image/png,image/webp"
                         style={{ display: 'none' }}
                         onChange={(e) => {
                           const f = e.target.files?.[0];
-                          if (f) handleLowerGarmentUpload(f);
+                          if (f) handleGarmentUpload(f);
                         }}
                       />
                     </label>
+
+                    {requiresLowerUpload && (
+                      <label
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 12,
+                          background: C.card,
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                          padding: 12,
+                          cursor: 'pointer',
+                          boxSizing: 'border-box',
+                          overflow: 'hidden',
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const f = e.dataTransfer.files?.[0];
+                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                            handleLowerGarmentUpload(f);
+                        }}
+                      >
+                        {lowerGarmentFile ? (
+                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                            <img
+                              src={lowerGarmentPreviewUrl}
+                              alt={lowerGarmentFile.name}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'contain',
+                                borderRadius: 6,
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setLowerGarmentFile(null);
+                                setLowerGarmentKey('');
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                background: 'rgba(0,0,0,0.5)',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <XIcon size={14} />
+                            </button>
+                            {isUploadingLower && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  bottom: 8,
+                                  left: 8,
+                                  right: 8,
+                                  background: 'rgba(255,255,255,0.95)',
+                                  borderRadius: 8,
+                                  padding: '6px 10px',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    fontSize: 12,
+                                    color: C.text,
+                                  }}
+                                >
+                                  <SpinnerIcon size={14} /> Uploading…
+                                </div>
+                              </div>
+                            )}
+                            {lowerGarmentKey && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: 8,
+                                  left: 8,
+                                  background: C.mint,
+                                  color: 'white',
+                                  borderRadius: 6,
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <CheckIcon color="#fff" size={10} /> Uploaded
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '100%',
+                                  color: C.text,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                Bottom Wear
+                              </span>
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  lineHeight: '140%',
+                                  color: C.mid,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                JPG, PNG · Max 10MB
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <ImagePlusIcon size={14} />
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '18px',
+                                  color: C.text,
+                                }}
+                              >
+                                Browse
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        <input
+                          ref={lowerFileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleLowerGarmentUpload(f);
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  {selectedGarmentType?.instructionImageUrl && (
+                    <div
+                      style={{
+                        flex: 1,
+                        height: 210,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: 0,
+                        borderRadius: 8,
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {/* biome-ignore lint/performance/noImgElement: dynamic instruction image */}
+                      <img
+                        src={selectedGarmentType.instructionImageUrl}
+                        alt="Upload instructions"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                        }}
+                      />
+                    </div>
                   )}
                 </div>
               </div>

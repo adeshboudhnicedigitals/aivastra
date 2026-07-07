@@ -415,7 +415,7 @@ export function PoseUploadModal({ garmentTypeGenderSlug, onDone, onClose, toast 
                   </SectionHead>
                   {entries.map((entry, idx) => (
                     <div
-                      key={`${entry.file.name}-${idx}`}
+                      key={`${entry.file.name}-${entry.file.size}-${entry.file.lastModified}`}
                       style={{
                         display: 'flex',
                         alignItems: 'center',

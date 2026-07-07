@@ -239,7 +239,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
             </button>
             <h1 style={{ marginTop: 8 }}>{u.displayName ?? u.email}</h1>
             <p className="lede">
-              {u.email} &middot; {u.id}
+              {u.email} &middot; {u.phone ? `+91 ${u.phone}` : 'No phone'} &middot; {u.id}
             </p>
           </div>
           <div className="head-tools">
@@ -337,6 +337,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
               style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}
             >
               <KV k="Tier" v={u.tier} />
+              <KV k="Phone" v={u.phone ? `+91 ${u.phone}` : '—'} />
               <KV k="Device limit" v={String(u.maxActiveDevices)} />
               <KV k="Balance" v={u.balance.toLocaleString()} />
               <KV k="Total jobs" v={(u.totalJobs ?? 0).toLocaleString()} />
@@ -692,7 +693,6 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                   >
                     Status
                   </Th>
-                  <th style={{ textAlign: 'center' }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -746,6 +746,9 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                               {u.email}
                             </span>
                           )}
+                          <span className="sub" style={{ display: 'block' }}>
+                            {u.phone ? `Phone: +91 ${u.phone}` : 'Phone: not set'}
+                          </span>
                         </div>
                       </div>
                     </td>
@@ -769,17 +772,12 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                     <td>
                       <StatusBadge status={u.isBanned ? 'FAILED' : 'active'} />
                     </td>
-                    <td>
-                      <button className="btn sm ghost" onClick={(e) => e.stopPropagation()}>
-                        <Icon.MoreHorizontal />
-                      </button>
-                    </td>
                   </tr>
                 ))}
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={8}
+                      colSpan={7}
                       style={{
                         padding: 20,
                         color: 'var(--muted)',

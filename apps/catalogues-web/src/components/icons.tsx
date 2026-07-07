@@ -18,6 +18,7 @@ export const Icon = ({
   fill?: boolean;
 }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox={viewBox}
@@ -27,7 +28,7 @@ export const Icon = ({
     strokeLinecap="round"
     strokeLinejoin="round"
   >
-    {Array.isArray(d) ? d.map((p, i) => <path key={i} d={p} />) : <path d={d} />}
+    {Array.isArray(d) ? d.map((p) => <path key={p} d={p} />) : <path d={d} />}
   </svg>
 );
 
@@ -96,6 +97,7 @@ export const XIcon = ({ size = 16, color = 'currentColor' }: { size?: number; co
 );
 export const DownloadIcon = ({ size = 24 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -112,6 +114,7 @@ export const DownloadIcon = ({ size = 24 }: { size?: number }) => (
 );
 export const SearchIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -129,6 +132,7 @@ export const SearchIcon = ({ size = 16 }: { size?: number }) => (
 export const ChevronRight = () => <Icon d="M9 18l6-6-6-6" />;
 export const ChevronDown = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -172,6 +176,7 @@ export const PlusIcon = ({ size = 14 }: { size?: number }) => (
 );
 export const UserRoundIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -187,6 +192,7 @@ export const UserRoundIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const ShoppingBagIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -203,6 +209,7 @@ export const ShoppingBagIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const CalendarDaysIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -227,6 +234,7 @@ export const CalendarDaysIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const SquareIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -241,6 +249,7 @@ export const SquareIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const CheckSquareIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -256,6 +265,7 @@ export const CheckSquareIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const MinusSquareIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -271,6 +281,7 @@ export const MinusSquareIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const ImagesIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -289,6 +300,7 @@ export const ImagesIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const ImageDownIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -307,6 +319,7 @@ export const ImageDownIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const MonitorIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -324,6 +337,7 @@ export const MonitorIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const SmartphoneIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -340,6 +354,7 @@ export const SmartphoneIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const MonitorPlayIcon = ({ size = 20 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -358,6 +373,7 @@ export const MonitorPlayIcon = ({ size = 20 }: { size?: number }) => (
 );
 export const LightbulbIcon = ({ size = 14 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -375,6 +391,7 @@ export const LightbulbIcon = ({ size = 14 }: { size?: number }) => (
 );
 export const ImagePlusIcon = ({ size = 16 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -394,6 +411,7 @@ export const ImagePlusIcon = ({ size = 16 }: { size?: number }) => (
 );
 export const SparklesIcon = ({ size = 18 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -468,6 +486,7 @@ export const TrashIcon = () => (
 );
 export const SpinnerIcon = ({ size = 20 }: { size?: number }) => (
   <svg
+    aria-hidden="true"
     width={size}
     height={size}
     viewBox="0 0 24 24"
@@ -483,6 +502,7 @@ export const SpinnerIcon = ({ size = 20 }: { size?: number }) => (
 );
 export const GridIcon = () => (
   <svg
+    aria-hidden="true"
     width="14"
     height="14"
     viewBox="0 0 24 24"
@@ -497,7 +517,7 @@ export const GridIcon = () => (
   </svg>
 );
 export const FlagIN = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+  <svg aria-hidden="true" width={size} height={size} viewBox="0 0 16 16" fill="none">
     <rect x="2" y="3" width="12" height="3" fill="#FF9933" rx="0.5" />
     <rect x="2" y="6" width="12" height="3" fill="#FFFFFF" rx="0.5" />
     <rect x="2" y="9" width="12" height="3" fill="#138808" rx="0.5" />
@@ -505,7 +525,7 @@ export const FlagIN = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 export const FlagUS = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+  <svg aria-hidden="true" width={size} height={size} viewBox="0 0 16 16" fill="none">
     <rect x="2" y="3" width="12" height="1.25" fill="#B22234" rx="0.25" />
     <rect x="2" y="4.25" width="12" height="1.25" fill="#FFFFFF" rx="0.25" />
     <rect x="2" y="5.5" width="12" height="1.25" fill="#B22234" rx="0.25" />
@@ -522,7 +542,7 @@ export const FlagUS = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 export const FlagGB = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+  <svg aria-hidden="true" width={size} height={size} viewBox="0 0 16 16" fill="none">
     <rect x="2" y="2" width="12" height="12" fill="#012169" rx="1" />
     <path d="M2 2h12v12H2z" fill="none" />
     <path
@@ -541,6 +561,7 @@ export const InfoIcon = ({
   color?: string;
 }) => (
   <svg
+    aria-hidden="true"
     xmlns="http://www.w3.org/2000/svg"
     width={size}
     height={size}
@@ -558,7 +579,7 @@ export const InfoIcon = ({
 );
 
 export const FlagAE = ({ size = 16 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="none">
+  <svg aria-hidden="true" width={size} height={size} viewBox="0 0 16 16" fill="none">
     <rect x="2" y="3" width="3" height="10" fill="#FF0000" rx="0.5" />
     <rect x="5" y="3" width="9" height="3.33" fill="#00732F" rx="0.5" />
     <rect x="5" y="6.33" width="9" height="3.33" fill="#FFFFFF" rx="0.5" />

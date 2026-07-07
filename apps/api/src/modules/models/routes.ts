@@ -19,6 +19,7 @@ export async function modelsRoutes(app: FastifyInstance) {
           label: schema.garmentSubcategories.label,
           sortOrder: schema.garmentSubcategories.sortOrder,
           thumbnailKey: schema.garmentSubcategories.thumbnailKey,
+          instructionImageKey: schema.garmentSubcategories.instructionImageKey,
           requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
           defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
           defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
@@ -34,6 +35,9 @@ export async function modelsRoutes(app: FastifyInstance) {
         items: items.map((i) => ({
           ...i,
           thumbnailUrl: i.thumbnailKey ? app.storage.publicUrl(i.thumbnailKey) : null,
+          instructionImageUrl: i.instructionImageKey
+            ? app.storage.publicUrl(i.instructionImageKey)
+            : null,
         })),
       };
     },

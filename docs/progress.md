@@ -65,7 +65,7 @@
 - Whether the closeout's "21 passed" result was run against a stale/pre-existing DB that never re-ran migrations from scratch, or whether `0087` was introduced after the closeout ran, is unresolved — not investigated further since the fix (guard or delete the migration) is the same either way.
 - The `0087` fix is being folded into the same Codex handoff that already covers the `0086` fix from the Phase 2/3 audit, rather than issuing a separate handoff.
 
-
+## 2026-07-07 - Account Device Limit Login
 
 ### Done
 - Added user-level `max_active_devices` with admin API/UI controls so admins can manually set each account's shared mobile/kiosk device limit.
@@ -201,6 +201,16 @@
 - **Native Browser Dialog Replacement**: Replaced native `window.confirm` and `window.alert` dialogs across `CatalogContent.tsx`, `KioskDevicesContent.tsx`, and `ApiKeysContent.tsx` with production SaaS `Modal` confirmation dialogs and inline error state banners.
 - **Modal Hover Cleanup**: Removed imperative JS `setCloseHover` and `onMouseOver`/`onMouseOut` event listeners from `src/components/ui/modal.tsx`, replacing them with standard `.btn-icon` CSS hover transitions.
 - **Verification**: `pnpm --filter @aivastra/merchant build` (28 routes) and `pnpm biome check apps/merchant-web --diagnostic-level=error` (72 files) both pass with **zero errors**.
+## 2026-07-06 - Web Admin Users Phone Visibility
+
+### Done
+- Switched focus from `admin-mobile` to real web admin app in `apps/admin-web`.
+- Added `phone` to shared web admin `User` type in `apps/admin-web/src/types.ts`.
+- Showed phone directly in users table row and removed the dead last action column in `apps/admin-web/src/pages/UsersPage.tsx`.
+- Showed phone in user detail header and `KV` summary in `apps/admin-web/src/pages/UsersPage.tsx`.
+- Rebuilt `apps/admin-web/dist` so running web app gets updated bundle, not stale output.
+- Restarted the local `apps/admin-web` Vite server on `http://127.0.0.1:5173/` after confirming stale bundle behavior.
+- Verified with `./node_modules/.bin/tsc -b apps/admin-web/tsconfig.json`.
 
 ### Failed / Not Done
 - None.
@@ -366,6 +376,73 @@ Open Questions / Decisions:
 - Found and fixed a real ordering bug in `server.ts`'s error handler: the new generic-4xx branch was placed *before* the validation-error branch, which would have changed schema-validation failures from `code: 'VALIDATION'` to `code: 'HTTP_ERROR'` repo-wide. Reordered so validation keeps precedence; only framework-level 4xx (e.g. rate-limit's 429) falls through to the new branch.
 - Confirmed the 5 failing integration test files (`auth`, `catalog`, `credits`, `jobs-create`, `uploads`) are pre-existing rot unrelated to this phase — `registerAndLogin` fails before any Phase 0 code path runs, and the pre-push gate only runs `test:unit`, so these were already red at `origin/master`.
 - Full DoD re-verified after fixes: repo-wide `biome check --diagnostic-level=error` clean, `pnpm typecheck` all 10 projects pass, kiosk integration test (3/3) and full API unit suite (55/55) pass.
+## 2026-07-06 - Admin Users Page Phone Number
+
+### Done
+- Added `phone` to admin users API list/detail payloads in `apps/api/src/modules/admin/users.routes.ts`.
+- Updated admin mobile shared `User` type to carry `phone`.
+- Removed right-side row clutter in `apps/admin-mobile/src/components/UserRow.tsx` so phone has full-width space on the list.
+- Showed phone directly under name in admin user detail screen in `apps/admin-mobile/src/app/(tabs)/more/users/[id].tsx`.
+- Added API coverage in `apps/api/test/integration/admin-users.test.ts` to assert listed admin users include `phone`.
+- Verified with `node_modules/.bin/tsc --noEmit -p apps/admin-mobile/tsconfig.json`.
+
+### Failed / Not Done
+- API integration test run could not reach local Postgres at `127.0.0.1:5432` in this sandbox (`connect EPERM`).
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-06 - Signup Full Name Required
+
+### Done
+- Made `displayName` required in shared `RegisterBody` so signup now rejects anonymous registrations before they hit the API.
+- Updated signup UI to label full name as required in `apps/catalogues-web/src/app/(auth)/register/page.tsx`.
+- Added integration coverage for missing-name signup rejection in `apps/api/test/integration/auth.test.ts`.
+- Updated all register test helpers/call sites to send `displayName` so the suite matches the new contract.
+- Verified with `pnpm --filter @aivastra/api typecheck` and `pnpm --filter @aivastra/web typecheck`.
+- Verified with `pnpm --dir apps/api exec vitest run --config vitest.integration.config.ts test/integration/auth.test.ts test/integration/google-oauth.test.ts test/integration/credits.test.ts`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-06 - Profile Modal Gate, Phone Uniqueness, Optional Company
+
+### Done
+- Replaced settings-page redirect gating with a blocking onboarding modal in `apps/catalogues-web/src/components/profile-gate.tsx` + `apps/catalogues-web/src/components/profile-completion-modal.tsx`.
+- Made company name optional in the web onboarding copy and settings form; phone number is now the only required field for free-credit unlock.
+- Changed new-user landing back to `/studio` for email register, email verification, and Google OAuth callback flows.
+- Added duplicate-phone validation in `PATCH /v1/me` so a number already assigned to another email returns `PHONE_TAKEN` with a clear 409 message.
+- Kept free-credit grant tied to profile completion and verified it with integration coverage in `apps/api/test/integration/auth.test.ts`.
+- Verified with `pnpm --filter @aivastra/api typecheck` and `pnpm --filter @aivastra/web typecheck`.
+- Verified with `pnpm --dir apps/api exec vitest run --config vitest.integration.config.ts test/integration/auth.test.ts test/integration/google-oauth.test.ts test/integration/credits.test.ts`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None. Current behavior matches request: modal gate, optional company, blocked duplicate phone, and clear error text.
+
+## 2026-07-06 - Mandatory Profile Fields Before Free Credits
+
+### Done
+- Added `company_name` to `users` in `packages/db/src/schema/users.ts` and migration `packages/db/src/migrations/0084_user_company_name_and_free_trial_gate.sql`.
+- Moved free-trial credit grant out of signup and into profile completion in `apps/api/src/modules/auth/routes.ts`.
+- `PATCH /v1/me` now accepts `companyName`, stores trimmed `phone`/`companyName`, and grants free credits once when both are filled.
+- New web accounts now land on `/settings` after email verification, and Google OAuth handoff now redirects there too.
+- Added `ProfileGate` in `apps/catalogues-web/src/components/profile-gate.tsx` and wrapped the app shell so incomplete profiles get pushed to `/settings`.
+- Updated `apps/catalogues-web/src/app/(app)/settings/page.tsx` to require phone + company name before save/credit unlock.
+- Updated integration tests for the new onboarding flow and rebuilt `@aivastra/db` so API typecheck sees the new schema.
+- Verified with `pnpm exec vitest run --config vitest.integration.config.ts test/integration/auth.test.ts test/integration/google-oauth.test.ts test/integration/credits.test.ts`.
+- Verified with `pnpm --filter @aivastra/api typecheck` and `pnpm --filter @aivastra/web typecheck`.
+
+### Failed / Not Done
+- Did not change login redirect defaults for returning users; the app gate handles incomplete profiles after entry.
+
+### Open Questions / Decisions
+- If you want older users with missing phone/company to be blocked from app routes immediately, current gate already does that. If you want a softer banner instead of a hard redirect, that would be a separate UI change.
 
 ## 2026-07-03 - Watermark Opacity Tuned to 0.055
 
@@ -578,6 +655,114 @@ spec and 2 follow-ups; all fixed and verified with new tests run against live Po
 ### Open Questions / Decisions
 - The job creation paths still keep a defensive `?? 'normal'` queue fallback even though tiers now normalize to credit plan slugs. That fallback is harmless, but if you want the code to hard-fail on data drift instead, that would be a separate tightening change.
 # Project Progress
+
+## 2026-07-03 — Chatbot Multi-Provider Model Selection
+
+Implemented per `docs/superpowers/plans/2026-07-03-chatbot-multi-provider-models.md` (3 tasks),
+via `superpowers:subagent-driven-development`.
+
+### Done
+- New `apps/chatbot/src/agent/models.ts` — provider-agnostic `makeModel()` factory
+  (`anthropic` / `google` / `openai-compatible`), env-var config resolution with per-field
+  fallback (`genModelConfig`/`toolModelConfig`).
+- `runBotTurn()` split into a router (tool-calling) model and a generation model — router
+  makes one tool-decision pass (no loop), generation model synthesizes the final reply and
+  applies the existing escalate/grounding gate. `createReactAgent` no longer used.
+- Pinned `@langchain/openai@0.3.17` and `@langchain/google-genai@0.2.18` (not `^` ranges) —
+  their latest majors require `@langchain/core@^1.x`, incompatible with this repo's
+  `@langchain/core@0.3.80` (pinned via `@langchain/langgraph`/`@langchain/anthropic`).
+- Fixed a pre-existing duplication in `apps/chatbot/src/index.ts` where `deps` was
+  constructed twice (once for the server, once for the sweeper) — now built once.
+- Post-review fix: hand-off test (`bot.test.ts`) didn't prove the tool result actually
+  reached `genModel`'s input, only that the final text passed through — added a spy wrapper
+  on `genModel.invoke` to assert on the received message content.
+- Final whole-branch review caught a **critical bug before merge**: the generation model
+  (never bound to tools) was being handed the router's tool-call `AIMessage` plus
+  `ToolMessage` results as structured `tool_use`/`tool_result` blocks. Anthropic rejects any
+  request containing those blocks unless `tools` is also passed on that same call
+  ("Requests which include tool_use or tool_result blocks must define tools") — this would
+  have 400'd on every tool-using turn against the default anthropic config. Fixed by
+  flattening tool output into a plain-text `SystemMessage` instead (also sidesteps
+  cross-provider tool-call id format mismatches when tool/gen models differ). Also softened
+  `GEN_SYSTEM_PROMPT` so greetings/small talk with no tool results don't escalate to a human.
+  Added a regression-guard test asserting the gen model never receives a `tool`-typed
+  message or non-empty `tool_calls`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Admin-configurable (DB-backed, no-redeploy) model switching is explicitly deferred —
+  decide later per user.
+- `CHATBOT_MAX_TOOL_ITERATIONS` is now an orphaned env var (its only consumer, the
+  `recursionLimit` on the old `createReactAgent` call, was removed). Left declared in
+  `env.ts` for backward compatibility; not wired to anything.
+
+## 2026-07-03 — Support Chatbot v1 (as built)
+
+Implemented per `docs/superpowers/plans/2026-07-03-support-chatbot.md` (all 15 tasks),
+following `docs/chatbot/chatbot-system-design.md` v2.
+
+### Done
+- New `apps/chatbot` service: Fastify + `@fastify/websocket`, pgvector + tsvector hybrid
+  retrieval (RRF-merged), LangGraph ReAct bot (`claude-haiku-4-5-20251001`) with
+  userId-bound `getCredits`/`getRecentJobs`/`searchKnowledge` tools (no identity args —
+  §7.2 invariant), one-time WS ticket auth, Redis pub/sub fanout, presence ZSET,
+  claim/takeover/end state machine with abort-safe bot termination, email fallback to
+  `contact_requests` (both "no agent available" and "PENDING_HUMAN timeout" paths), 60s
+  sweeper (idle close, agent-drop re-queue, presence prune). 8 test files, 23 tests.
+- `apps/api`: `/admin/chatbot/*` — Q&A CRUD, ingest proxy, inbox list, atomic
+  claim/takeover/end (Redis `NX` lock), duty toggle. 7 integration tests
+  (`test/integration/admin-chatbot*.test.ts` — run via `vitest.integration.config.ts`,
+  **not** the default `pnpm test`, see Open Questions).
+- `apps/admin-web`: Chatbot Q&A page (CRUD + re-ingest) and Chat Inbox (duty, queue,
+  claim/takeover, live conversation pane) — web-only in v1, explicit admin-mobile parity
+  exception per the design doc.
+- `apps/catalogues-web`: floating chat widget, WS streaming, human-handoff UX.
+- `packages/db`: migration `0078_chatbot.sql` — `pgvector/pgvector:pg16` image swap,
+  5 new tables + HNSW/GIN indexes + partial unique index (one active conversation/user).
+  Applied and verified against the running dev DB.
+- Prometheus metrics (`chatbot_messages_total`, `_escalations_total`, `_fallbacks_total`,
+  `_bot_turn_duration_seconds`, `_active_sockets`), per-user WS rate limit (10 msg/30s).
+- Self-corrected mid-build (own commits): OpenAI embed response validation, grounded-check
+  scoping bug in hybrid search.
+
+### Fixed in post-execution review (2026-07-03)
+- **Duty toggle 415 (Unsupported Media Type):** `ChatInboxPage.tsx` passed an explicit
+  `content-type` header alongside `apiFetch`'s auto-injected `Content-Type` — the two
+  differently-cased keys survived into the `fetch()` `Headers` object and got
+  comma-joined (`"application/json, application/json"`), which Fastify's content-type
+  parser rejected. Fix: dropped the redundant header (every other admin-web page already
+  relies on `apiFetch`'s auto-injection; this was the one page that duplicated it).
+- **Chat widget could never authenticate:** the original plan spec read `access_token`
+  from `document.cookie`, but that cookie was deliberately removed in SEC-H2 (2026-06-30) —
+  the token now lives only in `apps/catalogues-web/src/lib/api.ts`'s in-memory `_memToken`.
+  Someone caught this during/after execution and switched the widget to the exported
+  `getToken()`; verified correct against the actual auth implementation.
+- Doc follow-through gaps closed: system-design doc now marked "as built (v1)" (was still
+  "proposed"); `apps/chatbot` added to CLAUDE.md's monorepo table + commands table; fixed
+  a stale CLAUDE.md line that claimed `api.ts` reads the token from `document.cookie`
+  (pre-existing inaccuracy — root cause of the widget bug above).
+
+### Failed / Not Done
+- None — all 15 planned tasks landed and pass.
+
+### Open Questions / Decisions
+- **Widget cold-load race:** `ChatWidget.connect()` reads `getToken()` directly instead of
+  going through `api.ts`'s `request()` wrapper, so it doesn't benefit from that wrapper's
+  own 401→refresh self-healing. If a user reloads the page and opens the chat bubble
+  before any other authenticated call has hydrated `_memToken`, `connect()` returns
+  silently with no UI feedback. Low likelihood (most pages fire an authenticated call
+  before this is reachable) but not proven impossible. Left as-is pending a decision on
+  whether the widget should proactively call refresh itself.
+- **`apps/api` `test` script doesn't run integration tests by default:** `vitest.config.ts`
+  excludes `test/integration/**`; the actual runner is `vitest.integration.config.ts`, not
+  wired into `package.json`'s `test`/`test:unit` scripts or the `make test-api` target.
+  This is a pre-existing gap (predates this build — the config's own comments reference
+  unrelated pre-existing failing tests), not something this chatbot work introduced, but
+  it means CLAUDE.md's description of `pnpm --filter @aivastra/api test` as the "Full API
+  integration suite" is currently inaccurate. Flagging for a separate fix; the two new
+  `admin-chatbot*.test.ts` files were verified manually against the integration config.
 
 ## 2026-06-30 — Security Audit: H1/H2/H3/C2 Fixed
 

@@ -261,7 +261,7 @@ export function BackgroundUploadModal({
               >
                 {entries.map((entry, i) => (
                   <div
-                    key={i}
+                    key={`${entry.file.name}-${entry.file.size}-${entry.file.lastModified}`}
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '44px 1fr 56px 28px',
