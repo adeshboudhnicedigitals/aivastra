@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 
 export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
-    const store = req.shopifyStore!;
+    const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
 
     const [credits] = await app.db
       .select({ balance: schema.widgetClientCredits.balance })
