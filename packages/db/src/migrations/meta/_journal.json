@@ -617,6 +617,13 @@
       "when": 1752249600000,
       "tag": "0087_saree_workflow_template_id",
       "breakpoints": false
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1783454921659,
+      "tag": "0088_shopify_tables",
+      "breakpoints": true
     }
   ]
 }
