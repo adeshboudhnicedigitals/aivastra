@@ -24,6 +24,7 @@ export const AdminSareeSettings = z.object({
   sampleSareeImageThumbKey: z.string().nullable(),
   sampleSareeImageUrl: z.string().url().nullable(),
   sampleSareeImageThumbUrl: z.string().url().nullable(),
+  workflowTemplateId: z.string().uuid().nullable(),
   isConfigured: z.boolean(),
 });
 
@@ -32,6 +33,7 @@ export const AdminSareeSettingsPatch = z.object({
   modelImageThumbKey: z.string().nullable().optional(),
   sampleSareeImageKey: z.string().nullable().optional(),
   sampleSareeImageThumbKey: z.string().nullable().optional(),
+  workflowTemplateId: z.string().uuid().nullable().optional(),
 });
 
 export const AdminSareeSettingsPresignBody = z.object({

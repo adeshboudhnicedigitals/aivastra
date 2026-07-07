@@ -171,6 +171,7 @@ export async function adminSareeRoutes(app: FastifyInstance) {
       sampleSareeImageThumbKey,
       sampleSareeImageUrl,
       sampleSareeImageThumbUrl,
+      workflowTemplateId: row?.workflowTemplateId ?? null,
       isConfigured: !!modelImageKey,
     };
   });
