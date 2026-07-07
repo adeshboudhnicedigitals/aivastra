@@ -34,7 +34,7 @@ export async function transitionJob(
   opts: TransitionOptions = {},
   log: Logger,
 ): Promise<void> {
-  const now = new Date();
+  const now = new Date().toISOString();
   const patch: Record<string, unknown> = { status };
   if (opts.workerId !== undefined) patch.workerId = opts.workerId;
   if (opts.errorCode !== undefined) patch.errorCode = opts.errorCode;
