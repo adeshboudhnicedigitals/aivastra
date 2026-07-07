@@ -372,10 +372,11 @@ export default function PricingPage(): React.ReactElement {
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: C.bg }}>
       {/* Topbar with country selector */}
-      <TopBar
-        title="Pricing & Plan"
-        subtitle="Create professional fashion catalogues without photoshoots, models, or editing headaches."
-        right={
+      <div style={{ position: 'sticky', top: 0, zIndex: 10 }}>
+        <TopBar
+          title="Pricing & Plan"
+          subtitle="Create professional fashion catalogues without photoshoots, models, or editing headaches."
+          right={
           <div ref={countryRef} style={{ position: 'relative', flexShrink: 0 }}>
             <button
               type="button"
@@ -454,6 +455,7 @@ export default function PricingPage(): React.ReactElement {
           </div>
         }
       />
+      </div>
 
       {/* Current Plan Banner */}
       {(() => {
