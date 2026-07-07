@@ -16,6 +16,12 @@ export interface R2Config {
   publicUrl: string;
   forcePathStyle: boolean;
   region?: string;
+  /** Endpoint used for presigned URL signing (SigV4 Host header).
+   *  When behind a reverse proxy, the internal endpoint's host differs from
+   *  what MinIO receives as the Host header. Set this to the public-facing
+   *  domain (without /minio prefix) so the signed Host matches the header
+   *  forwarded by Nginx. Falls back to `endpoint` when omitted. */
+  signEndpoint?: string;
   /** Public-facing base URL for presigned PUT/GET URLs sent to the browser.
    *  e.g. "https://rankplex.cloud/minio"
    *  When set, the internal endpoint origin in the generated URL is replaced
@@ -29,20 +35,30 @@ export function createR2Provider(cfg: R2Config): StorageProvider {
     region: cfg.region ?? 'auto',
     credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
     forcePathStyle: cfg.forcePathStyle,
-    // Disable automatic checksum so presigned PUTs work from browser/curl without extra headers
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
+  // Separate client for presigning when behind a reverse proxy:
+  // signs the Host header with the public domain so it matches what Nginx forwards.
+  const signS3 = cfg.signEndpoint
+    ? new S3Client({
+        endpoint: cfg.signEndpoint,
+        region: cfg.region ?? 'auto',
+        credentials: { accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey },
+        forcePathStyle: cfg.forcePathStyle,
+        requestChecksumCalculation: 'WHEN_REQUIRED',
+        responseChecksumValidation: 'WHEN_REQUIRED',
+      })
+    : s3;
   const sign = async (
     cmd: PutObjectCommand | GetObjectCommand,
     expiresIn: number,
   ): Promise<PresignResult> => {
-    let url = await getSignedUrl(s3, cmd, { expiresIn });
-    // Rewrite internal endpoint to public URL so browsers can reach it over HTTPS
+    let url = await getSignedUrl(signS3, cmd, { expiresIn });
     if (cfg.presignBaseUrl) {
-      const internalOrigin = new URL(cfg.endpoint).origin; // e.g. "http://minio:9000"
-      const publicBase = cfg.presignBaseUrl.replace(/\/$/, ''); // e.g. "https://rankplex.cloud/minio"
-      url = url.replace(internalOrigin, publicBase);
+      const signOrigin = new URL(cfg.signEndpoint ?? cfg.endpoint).origin;
+      const publicBase = cfg.presignBaseUrl.replace(/\/$/, '');
+      url = url.replace(signOrigin, publicBase);
     }
     return { url, expiresIn };
   };

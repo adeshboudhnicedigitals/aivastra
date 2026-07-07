@@ -15,6 +15,10 @@ const Env = z.object({
   R2_BUCKET: z.string(),
   R2_PUBLIC_URL: z.string().url(),
   R2_FORCE_PATH_STYLE: z.coerce.boolean().default(true),
+  /** Endpoint used for presigned URL signing (SigV4 Host header). Set to the public
+   *  domain when MinIO is behind a reverse proxy so the signed Host matches the
+   *  header forwarded by Nginx. Falls back to R2_ENDPOINT when omitted. */
+  R2_SIGN_ENDPOINT: z.string().url().optional(),
   /** Public-facing base URL for browser-side presigned uploads, e.g. https://rankplex.cloud/minio */
   R2_PUBLIC_PRESIGN_BASE: z.string().url().optional(),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
