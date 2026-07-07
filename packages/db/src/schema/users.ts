@@ -23,6 +23,7 @@ export const users = pgTable('users', {
   tier: text('tier').notNull().default('free'),
   emailVerified: boolean('email_verified').notNull().default(false),
   isBanned: boolean('is_banned').notNull().default(false),
+  maxActiveDevices: integer('max_active_devices').notNull().default(1),
   banReason: text('ban_reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -47,6 +48,8 @@ export const refreshTokens = pgTable(
     usedAt: timestamp('used_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     portal: text('portal').notNull().default('web'), // 'web' | 'admin' | 'mobile' | 'kiosk'
+    deviceId: text('device_id'),
+    deviceName: text('device_name'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   () => [

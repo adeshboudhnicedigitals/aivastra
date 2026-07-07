@@ -15,14 +15,17 @@ Only Phase 0 → Phase 2 → Phase 3 is a hard chain. Phase 1 is independent (pa
 
 | Phase | File | Status | Depends on |
 |---|---|---|---|
-| 0 — Auth Foundation | [`phase-0-auth-foundation.md`](phase-0-auth-foundation.md) | Implemented, awaiting review | — |
-| 1 — Admin Subdomain | [`phase-1-admin-subdomain.md`](phase-1-admin-subdomain.md) | Not started | — (parallel with 0/2) |
-| 2 — Merchant Portal | [`phase-2-merchant-portal.md`](phase-2-merchant-portal.md) | Not started | Phase 0 |
-| 3 — Kiosk Migration | [`phase-3-kiosk-migration.md`](phase-3-kiosk-migration.md) | Not started | Phase 0, Phase 2 |
-| 4 — Process Note | [`phase-4-process-note.md`](phase-4-process-note.md) | Not started | — (any time) |
-| 5 — Shopify/Wix Plugins | [`phase-5-ecommerce-plugins.md`](phase-5-ecommerce-plugins.md) | Not started | Phase 2 |
+| 0 - Auth Foundation | [`phase-0-auth-foundation.md`](phase-0-auth-foundation.md) | Done | - |
+| 1 - Admin Subdomain | [`phase-1-admin-subdomain.md`](phase-1-admin-subdomain.md) | Done | - (parallel with 0/2) |
+| 2 - Merchant Portal | [`phase-2-merchant-portal.md`](phase-2-merchant-portal.md) | Done | Phase 0 |
+| 3 - Kiosk Migration | [`phase-3-kiosk-migration.md`](phase-3-kiosk-migration.md) | Abandoned - plan changed | Phase 0, Phase 2 |
+| 3b - Kiosk UI Redesign | [`phase-3b-ui-redesign.md`](phase-3b-ui-redesign.md) | Abandoned - plan changed | Phase 3 |
+| 4 - Process Note | [`phase-4-process-note.md`](phase-4-process-note.md) | Not started | - (any time) |
+| 5 - Shopify/Wix Plugins | [`phase-5-ecommerce-plugins.md`](phase-5-ecommerce-plugins.md) | Not started | Phase 2 |
 
-Update the Status column as phases move through: `Not started` → `In progress` → `Implemented, awaiting review` → `Reviewed — changes requested` → `Done`.
+Current note: Phase 0, Phase 1, and Phase 2 are all closed `Done` as of 2026-07-07 (see `docs/progress.md`). Phase 3 (Kiosk Migration) and Phase 3b (Kiosk UI Redesign) are **abandoned as of 2026-07-07** — the plan for the kiosk app has changed; their spec files are left in place as historical record only and should not be handed to Codex or used as a reference for new kiosk work. A replacement plan/phase doc will be added separately when the new direction is written up. Phase 4 (one-line doc change) and Phase 5 (Shopify/Wix plugins) remain unstarted and are unaffected by this change.
+
+Update the Status column as phases move through: `Not started` -> `In progress` -> `Implemented, awaiting review` -> `Reviewed - changes requested` -> `Done`.
 
 ## Handover prompt (paste into Codex, swap the phase filename)
 
@@ -39,3 +42,5 @@ Update the Status column as phases move through: `Not started` → `In progress`
 > 4. **Tests need live infra:** run `pnpm docker:up` first. Every test listed in the DoD, plus the repo-wide typecheck, must actually pass — paste real command output in Report Back; never claim untested success.
 > 5. **On contradiction** between the spec and the actual code (a referenced function/pattern has changed, a stated fact no longer holds): stop that thread, document what you found in Report Back, and continue only with the unaffected parts.
 > 6. **When done:** fill in the phase file's Report Back section completely (files created/modified/deleted, migration index used, test output, deviations, judgment calls), set this phase's row in `docs/multi-app-ecosystem/README.md` to `Implemented, awaiting review`, and commit your work locally in logical commits. **Do not push.**
+
+

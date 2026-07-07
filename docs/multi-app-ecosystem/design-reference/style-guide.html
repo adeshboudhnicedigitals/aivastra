@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Aivastra Kiosk — Design Token Reference</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { background: var(--color-background); }
+  .page { max-width: 1280px; margin: 0 auto; padding: var(--space-2xl) var(--space-xl) 100px; }
+  .page-header { margin-bottom: var(--space-2xl); }
+  .page-header .kicker { color: var(--brand-purple); }
+  section { margin-bottom: var(--space-2xl); }
+  section > .text-title { margin-bottom: var(--space-md); padding-bottom: var(--space-sm); border-bottom: 1px solid var(--color-border); }
+
+  .swatch-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: var(--space-md); }
+  .swatch { }
+  .swatch .chip-color { height: 84px; margin-bottom: 8px; box-shadow: var(--shadow-card); }
+  .swatch .name { font: 600 12px/1.3 'Poppins'; }
+  .swatch .hex { font: 400 11px/1.3 'Poppins'; color: var(--color-on-surface-variant); }
+
+  .type-row { display: flex; align-items: baseline; gap: var(--space-lg); padding: var(--space-md) 0; border-bottom: 1px dashed var(--color-border); }
+  .type-row .meta { flex: 0 0 220px; }
+  .type-row .meta .tag { font: 600 12px/1 'Poppins'; color: var(--brand-purple); }
+  .type-row .meta .spec { font: 400 11px/1.4 'Poppins'; color: var(--color-on-surface-variant); }
+
+  .shape-row { display: flex; gap: var(--space-xl); }
+  .shape-demo { flex: 1; text-align: center; }
+  .shape-demo .box { height: 160px; background: var(--gradient-primary-soft); border: 1.5px solid var(--brand-purple); margin-bottom: 10px; }
+
+  .comp-grid { display: flex; gap: var(--space-2xl); flex-wrap: wrap; align-items: flex-start; }
+  .comp-block { display: flex; flex-direction: column; gap: 12px; }
+  .comp-block .label { font: 600 12px/1 'Poppins'; color: var(--color-on-surface-variant); text-transform: uppercase; letter-spacing: .05em; }
+
+  .card-demo { width: 220px; }
+  .card-demo .thumb { height: 130px; background: var(--color-surface-variant); margin-bottom: 8px; box-shadow: var(--shadow-card); }
+  .card-demo.selected .thumb { outline: 3px solid var(--brand-purple); outline-offset: -3px; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="page-header">
+    <div class="text-label kicker" style="margin-bottom:8px;">DESIGN REFERENCE · v1</div>
+    <div class="text-display">Aivastra Kiosk — "Faceted Boutique"</div>
+    <div class="text-body" style="color:var(--color-on-surface-variant); max-width:720px; margin-top:8px;">
+      A visual pin-down of the tokens specified in <code>docs/multi-app-ecosystem/phase-3b-ui-redesign.md</code> §1.
+      Direction: refined retail-luxury on a neutral surface, with the brand gradient reserved for CTAs and selection
+      states, and the app's existing diagonal cut-corner shape treated as a deliberate recurring signature — not
+      flattened into generic rounded rectangles.
+    </div>
+  </div>
+
+  <section>
+    <div class="text-title">Color — Tier 1 (brand primitives)</div>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip-color" style="background:#9e41e2;"></div><div class="name">brand_purple</div><div class="hex">#9e41e2</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#ca3669;"></div><div class="name">brand_pink</div><div class="hex">#ca3669</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#f5881e;"></div><div class="name">brand_gradient_start</div><div class="hex">#f5881e</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#cc30dc;"></div><div class="name">brand_gradient_mid</div><div class="hex">#cc30dc</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#a803e5;"></div><div class="name">brand_gradient_end</div><div class="hex">#a803e5</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#11cc17;"></div><div class="name">brand_success</div><div class="hex">#11cc17</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="text-title">Color — Tier 2 (semantic roles)</div>
+    <div class="swatch-grid">
+      <div class="swatch"><div class="chip-color" style="background:#FFFFFF;border:1px solid var(--color-border);"></div><div class="name">color_surface</div><div class="hex">#FFFFFF</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#F3EDF7;"></div><div class="name">color_surface_variant</div><div class="hex">#F3EDF7</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#1B1420;"></div><div class="name">color_on_surface</div><div class="hex">#1B1420</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#6E6470;"></div><div class="name">color_on_surface_variant</div><div class="hex">#6E6470</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#EBEBEB;"></div><div class="name">color_border</div><div class="hex">#EBEBEB</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#D64550;"></div><div class="name">color_error (new)</div><div class="hex">#D64550</div></div>
+      <div class="swatch"><div class="chip-color" style="background:#FCEAF7;"></div><div class="name">color_background_brand</div><div class="hex">#FCEAF7 · hero/splash only</div></div>
+      <div class="swatch"><div class="chip-color" style="background:var(--gradient-primary);"></div><div class="name">gradient_primary</div><div class="hex">CTAs / selection only</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="text-title">Typography — Poppins</div>
+    <div class="type-row"><div class="meta"><div class="tag">Display</div><div class="spec">ExtraBold · 32/40</div></div><div class="text-display">Who's trying on today?</div></div>
+    <div class="type-row"><div class="meta"><div class="tag">Headline</div><div class="spec">Bold · 24/32</div></div><div class="text-headline">Zari Silk Saree — Festive Rose</div></div>
+    <div class="type-row"><div class="meta"><div class="tag">Title</div><div class="spec">Bold · 20/28</div></div><div class="text-title" style="border:none;padding:0;margin:0;">Choose your outfit</div></div>
+    <div class="type-row"><div class="meta"><div class="tag">Body</div><div class="spec">Regular · 16/24</div></div><div class="text-body">Scan the code below on your phone to save this look or share it instantly.</div></div>
+    <div class="type-row"><div class="meta"><div class="tag">Label</div><div class="spec">Medium · 14/20</div></div><div class="text-label">STEP 1 OF 4</div></div>
+    <div class="type-row"><div class="meta"><div class="tag">Caption</div><div class="spec">Regular · 12/16</div></div><div class="text-caption">SKU AV-2291 · Women · Festive</div></div>
+  </section>
+
+  <section>
+    <div class="text-title">Shape language — two treatments, both intentional</div>
+    <div class="shape-row">
+      <div class="shape-demo">
+        <div class="box cut-lg"></div>
+        <div class="text-label">Cut corner — 20px (brand signature)</div>
+        <div class="text-caption">Hero cards, primary CTAs, image frames, badges</div>
+      </div>
+      <div class="shape-demo">
+        <div class="box rounded-lg"></div>
+        <div class="text-label">Rounded — 16px (structural default)</div>
+        <div class="text-caption">List rows, inputs, secondary containers</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="text-title">Components</div>
+    <div class="comp-grid">
+      <div class="comp-block">
+        <div class="label">Button — Primary</div>
+        <button class="btn btn-primary cut-sm">Continue</button>
+        <button class="btn btn-primary cut-sm" style="filter:brightness(0.97);">Pressed</button>
+        <button class="btn btn-primary cut-sm btn-disabled">Disabled</button>
+      </div>
+      <div class="comp-block">
+        <div class="label">Button — Secondary</div>
+        <button class="btn btn-secondary cut-sm">Try Another Look</button>
+        <button class="btn btn-secondary cut-sm" style="background:var(--color-surface-variant);">Pressed</button>
+        <button class="btn btn-secondary cut-sm btn-disabled">Disabled</button>
+      </div>
+      <div class="comp-block">
+        <div class="label">Icon button — like</div>
+        <div style="display:flex; gap:12px;">
+          <div class="icon-btn rounded-lg"><svg viewBox="0 0 24 24"><path d="M12.1 21s-7.6-4.6-10-9.3C.6 8.1 2.4 4.5 6 4.5c2 0 3.6 1 4.8 2.6C12 5.5 13.6 4.5 15.6 4.5c3.6 0 5.4 3.6 3.9 7.2-2.4 4.7-10 9.3-10 9.3z"/></svg></div>
+          <div class="icon-btn active rounded-lg"><svg viewBox="0 0 24 24"><path d="M12.1 21s-7.6-4.6-10-9.3C.6 8.1 2.4 4.5 6 4.5c2 0 3.6 1 4.8 2.6C12 5.5 13.6 4.5 15.6 4.5c3.6 0 5.4 3.6 3.9 7.2-2.4 4.7-10 9.3-10 9.3z"/></svg></div>
+        </div>
+        <div class="text-caption">Default (outline) → Active (gradient fill + 0.28s pop)</div>
+      </div>
+      <div class="comp-block">
+        <div class="card-demo">
+          <div class="label" style="margin-bottom:8px;">Card — default / selected</div>
+          <div class="thumb cut-sm"></div>
+          <div class="text-label">Anarkali Gown</div>
+        </div>
+      </div>
+      <div class="comp-block">
+        <div class="card-demo selected">
+          <div class="label" style="margin-bottom:8px; visibility:hidden;">spacer</div>
+          <div class="thumb cut-sm"></div>
+          <div class="text-label">Zari Silk Saree · selected</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="text-title">Kiosk ergonomics — not phone density</div>
+    <div class="text-body" style="color:var(--color-on-surface-variant); max-width:760px;">
+      Primary tap targets in this reference are 56–64px (icon buttons, primary CTA height), not the 44–48px phone
+      floor — sized for a stand-back, imprecise tap at arm's length. Body text holds at 16px minimum against
+      photographic backgrounds using a scrim, not a lighter/smaller treatment, to stay legible under bright,
+      variable store lighting.
+    </div>
+  </section>
+</div>
+</body>
+</html>

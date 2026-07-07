@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,15 +25,52 @@ import { useAuthStore } from '../../../../store/auth';
 import { useAppTheme } from '../../../../store/theme';
 import { useToastStore } from '../../../../store/toast';
 import { Radius, Spacing, Typography } from '../../../../styles/tokens';
-import type { WidgetClientDetail as WidgetClientDetailType } from '../../../../types';
+import type {
+  AdminKioskDevice,
+  MerchantCatalogItemSummary,
+  WidgetClientDetail as WidgetClientDetailType,
+} from '../../../../types';
 
 function InfoRow({ label, value }: { label: string; value: string | null }) {
   const { colors } = useAppTheme();
   return (
     <View style={styles.infoRow}>
       <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>{label}</Text>
-      <Text style={[styles.infoValue, { color: colors.text }]}>{value ?? '—'}</Text>
+      <Text style={[styles.infoValue, { color: colors.text }]}>{value ?? '-'}</Text>
     </View>
+  );
+}
+
+function SectionButton({
+  label,
+  icon,
+  onPress,
+  disabled,
+  tone = 'accent',
+}: {
+  label: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  onPress: () => void;
+  disabled?: boolean;
+  tone?: 'accent' | 'danger' | 'surface';
+}) {
+  const { colors } = useAppTheme();
+  const palette =
+    tone === 'danger'
+      ? { bg: colors.errorContainer, fg: colors.error }
+      : tone === 'surface'
+        ? { bg: colors.surfaceVariant, fg: colors.textSecondary }
+        : { bg: colors.accent, fg: colors.onAccent };
+
+  return (
+    <TouchableOpacity
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.actionButton, { backgroundColor: palette.bg }, disabled && { opacity: 0.55 }]}
+    >
+      <MaterialCommunityIcons color={palette.fg} name={icon} size={18} />
+      <Text style={[styles.actionLabel, { color: palette.fg }]}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -56,9 +93,75 @@ export default function WidgetClientDetailScreen() {
   const [editCompanyName, setEditCompanyName] = useState('');
   const [editAllowedOrigins, setEditAllowedOrigins] = useState('');
 
+  const [kioskEnabled, setKioskEnabled] = useState(false);
+  const [maxKioskDevices, setMaxKioskDevices] = useState('5');
+  const [deviceLabel, setDeviceLabel] = useState('');
+  const [deviceBusyId, setDeviceBusyId] = useState<string | null>(null);
+
+  const [catalogItems, setCatalogItems] = useState<MerchantCatalogItemSummary[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogSavingId, setCatalogSavingId] = useState<string | null>(null);
+  const [catalogDrafts, setCatalogDrafts] = useState<
+    Record<
+      string,
+      {
+        isActive: boolean;
+        moderationStatus: 'approved' | 'rejected';
+        moderationNote: string;
+      }
+    >
+  >({});
+
   async function copyToClipboard(text: string) {
     await Clipboard.setStringAsync(text);
     useToastStore.getState().show('Widget key copied', 'success');
+  }
+
+  useEffect(() => {
+    if (!client) return;
+    setEditCompanyName(client.companyName);
+    setEditAllowedOrigins(client.allowedOrigins?.join('\n') ?? '');
+    setKioskEnabled(client.kioskEnabled);
+    setMaxKioskDevices(String(client.maxKioskDevices));
+  }, [client]);
+
+  async function loadCatalog() {
+    if (!id) return;
+    setCatalogLoading(true);
+    try {
+      const data = await apiFetch<{ items: MerchantCatalogItemSummary[] }>(
+        `/admin/merchant-catalog?widgetClientId=${id}`,
+      );
+      const items = data.items ?? [];
+      setCatalogItems(items);
+      setCatalogDrafts(
+        Object.fromEntries(
+          items.map((item) => [
+            item.id,
+            {
+              isActive: item.isActive,
+              moderationStatus: item.moderationStatus,
+              moderationNote: item.moderationNote ?? '',
+            },
+          ]),
+        ),
+      );
+    } catch (cause) {
+      Alert.alert(
+        'Catalog load failed',
+        cause instanceof Error ? cause.message : 'Please try again.',
+      );
+    } finally {
+      setCatalogLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadCatalog();
+  }, [id]);
+
+  function showPairingCode(code: string) {
+    Alert.alert('Pairing code', `${code}\n\nThis code is shown only once.`);
   }
 
   function enterEditMode() {
@@ -74,7 +177,7 @@ export default function WidgetClientDetailScreen() {
     try {
       const origins = editAllowedOrigins
         .split('\n')
-        .map((o) => o.trim())
+        .map((value) => value.trim())
         .filter(Boolean);
       await apiFetch(`/v1/admin/widget-clients/${id}`, {
         method: 'PATCH',
@@ -86,6 +189,27 @@ export default function WidgetClientDetailScreen() {
       await refresh();
       setEditMode(false);
       useToastStore.getState().show('Client updated', 'success');
+    } catch (cause) {
+      Alert.alert('Update failed', cause instanceof Error ? cause.message : 'Please try again.');
+    } finally {
+      setActioning(false);
+    }
+  }
+
+  async function saveKioskSettings() {
+    const limit = parseInt(maxKioskDevices, 10);
+    if (!limit || limit < 1) {
+      Alert.alert('Validation', 'Max kiosk devices must be at least 1.');
+      return;
+    }
+    setActioning(true);
+    try {
+      await apiFetch(`/v1/admin/widget-clients/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ kioskEnabled, maxKioskDevices: limit }),
+      });
+      await refresh();
+      useToastStore.getState().show('Kiosk settings updated', 'success');
     } catch (cause) {
       Alert.alert('Update failed', cause instanceof Error ? cause.message : 'Please try again.');
     } finally {
@@ -122,7 +246,10 @@ export default function WidgetClientDetailScreen() {
     try {
       const result = await apiFetch<{ newBalance: number }>(
         `/v1/admin/widget-clients/${id}/credits`,
-        { method: 'POST', body: JSON.stringify({ amount, reason: creditReason }) },
+        {
+          method: 'POST',
+          body: JSON.stringify({ amount, reason: creditReason }),
+        },
       );
       await refresh();
       setCreditAmount('');
@@ -134,6 +261,124 @@ export default function WidgetClientDetailScreen() {
       Alert.alert('Failed', cause instanceof Error ? cause.message : 'Please try again.');
     } finally {
       setActioning(false);
+    }
+  }
+
+  async function setLinkedUser(userId: string | null) {
+    setActioning(true);
+    try {
+      await apiFetch(`/v1/admin/widget-clients/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ userId }),
+      });
+      await refresh();
+      useToastStore.getState().show(userId ? 'User linked' : 'User link removed', 'success');
+    } catch (cause) {
+      Alert.alert('Failed', cause instanceof Error ? cause.message : 'Please try again.');
+    } finally {
+      setActioning(false);
+    }
+  }
+
+  async function createDevice() {
+    if (!deviceLabel.trim()) return;
+    setActioning(true);
+    try {
+      const result = await apiFetch<{ device: AdminKioskDevice; pairingCode: string }>(
+        `/v1/admin/widget-clients/${id}/kiosk-devices`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ label: deviceLabel.trim() }),
+        },
+      );
+      await refresh();
+      setDeviceLabel('');
+      showPairingCode(result.pairingCode);
+      useToastStore.getState().show('Kiosk device created', 'success');
+    } catch (cause) {
+      Alert.alert('Failed', cause instanceof Error ? cause.message : 'Please try again.');
+    } finally {
+      setActioning(false);
+    }
+  }
+
+  async function regeneratePairingCode(deviceId: string) {
+    setDeviceBusyId(deviceId);
+    try {
+      const result = await apiFetch<{ device: AdminKioskDevice; pairingCode: string }>(
+        `/v1/admin/widget-clients/${id}/kiosk-devices/${deviceId}/pairing-code`,
+        { method: 'POST' },
+      );
+      await refresh();
+      showPairingCode(result.pairingCode);
+      useToastStore.getState().show('Pairing code generated', 'success');
+    } catch (cause) {
+      Alert.alert('Failed', cause instanceof Error ? cause.message : 'Please try again.');
+    } finally {
+      setDeviceBusyId(null);
+    }
+  }
+
+  async function revokeDevice(deviceId: string) {
+    setDeviceBusyId(deviceId);
+    try {
+      await apiFetch(`/v1/admin/widget-clients/${id}/kiosk-devices/${deviceId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'revoked' }),
+      });
+      await refresh();
+      useToastStore.getState().show('Kiosk device revoked', 'success');
+    } catch (cause) {
+      Alert.alert('Failed', cause instanceof Error ? cause.message : 'Please try again.');
+    } finally {
+      setDeviceBusyId(null);
+    }
+  }
+
+  function updateCatalogDraft(
+    itemId: string,
+    patch: Partial<{
+      isActive: boolean;
+      moderationStatus: 'approved' | 'rejected';
+      moderationNote: string;
+    }>,
+  ) {
+    setCatalogDrafts((prev) => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], ...patch },
+    }));
+  }
+
+  async function saveCatalogItem(itemId: string) {
+    const draft = catalogDrafts[itemId];
+    if (!draft) return;
+    setCatalogSavingId(itemId);
+    try {
+      const updated = await apiFetch<MerchantCatalogItemSummary>(
+        `/admin/merchant-catalog/${itemId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({
+            isActive: draft.isActive,
+            moderationStatus: draft.moderationStatus,
+            moderationNote: draft.moderationNote.trim() || null,
+          }),
+        },
+      );
+      setCatalogItems((prev) => prev.map((item) => (item.id === itemId ? updated : item)));
+      setCatalogDrafts((prev) => ({
+        ...prev,
+        [itemId]: {
+          isActive: updated.isActive,
+          moderationStatus: updated.moderationStatus,
+          moderationNote: updated.moderationNote ?? '',
+        },
+      }));
+      useToastStore.getState().show('Catalog item updated', 'success');
+    } catch (cause) {
+      Alert.alert('Failed', cause instanceof Error ? cause.message : 'Please try again.');
+    } finally {
+      setCatalogSavingId(null);
     }
   }
 
@@ -276,10 +521,12 @@ export default function WidgetClientDetailScreen() {
         </TouchableOpacity>
       )}
 
-      {superAdmin && (
+      {superAdmin ? (
         <AccordionSection initiallyExpanded title="Status">
-          <TouchableOpacity
+          <SectionButton
             disabled={actioning}
+            icon={client.isActive ? 'block-helper' : 'check-circle'}
+            label={actioning ? 'Working...' : client.isActive ? 'Deactivate' : 'Activate'}
             onPress={() => {
               confirmAction({
                 title: client.isActive ? 'Deactivate client?' : 'Activate client?',
@@ -291,31 +538,165 @@ export default function WidgetClientDetailScreen() {
                 onConfirm: () => void toggleActive(),
               });
             }}
-            style={[
-              styles.actionButton,
-              {
-                backgroundColor: client.isActive ? colors.errorContainer : colors.successContainer,
-              },
-            ]}
-          >
-            <MaterialCommunityIcons
-              color={client.isActive ? colors.error : colors.success}
-              name={client.isActive ? 'block-helper' : 'check-circle'}
-              size={20}
-            />
-            <Text
+            tone={client.isActive ? 'danger' : 'accent'}
+          />
+        </AccordionSection>
+      ) : null}
+
+      <AccordionSection initiallyExpanded title="Kiosk Access">
+        <View style={{ gap: Spacing.sm }}>
+          <View style={styles.infoRow}>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Enabled</Text>
+            <TouchableOpacity
+              onPress={() => setKioskEnabled((value) => !value)}
               style={[
-                styles.actionLabel,
-                { color: client.isActive ? colors.error : colors.success },
+                styles.togglePill,
+                { backgroundColor: kioskEnabled ? colors.accent : colors.surfaceVariant },
               ]}
             >
-              {actioning ? 'Working…' : client.isActive ? 'Deactivate' : 'Activate'}
-            </Text>
-          </TouchableOpacity>
-        </AccordionSection>
-      )}
+              <Text
+                style={[
+                  styles.toggleLabel,
+                  { color: kioskEnabled ? colors.onAccent : colors.textSecondary },
+                ]}
+              >
+                {kioskEnabled ? 'On' : 'Off'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Max kiosk devices</Text>
+          <TextInput
+            keyboardType="numeric"
+            onChangeText={setMaxKioskDevices}
+            placeholder="5"
+            placeholderTextColor={colors.textMuted}
+            style={[
+              styles.input,
+              {
+                color: colors.text,
+                backgroundColor: colors.surfaceVariant,
+                borderColor: colors.border,
+              },
+            ]}
+            value={maxKioskDevices}
+          />
+          <SectionButton
+            disabled={actioning}
+            icon="content-save"
+            label={actioning ? 'Saving...' : 'Save kiosk settings'}
+            onPress={() => void saveKioskSettings()}
+          />
+        </View>
+      </AccordionSection>
 
-      {superAdmin && (
+      <AccordionSection initiallyExpanded title="Linked User">
+        {client.linkedUser ? (
+          <View style={{ gap: Spacing.sm }}>
+            <Text style={[styles.infoValue, { color: colors.text, textAlign: 'left' }]}>
+              {client.linkedUser.displayName || client.linkedUser.email}
+            </Text>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+              {client.linkedUser.email}{' '}
+              {client.linkedUser.emailVerified ? '(verified)' : '(unverified)'}
+            </Text>
+            <SectionButton
+              disabled={actioning}
+              icon="link-off"
+              label="Remove Link"
+              onPress={() => void setLinkedUser(null)}
+              tone="surface"
+            />
+          </View>
+        ) : client.suggestedUser ? (
+          <View style={{ gap: Spacing.sm }}>
+            <Text style={[styles.infoValue, { color: colors.text, textAlign: 'left' }]}>
+              Suggested verified match
+            </Text>
+            <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+              {client.suggestedUser.displayName || client.suggestedUser.email} (
+              {client.suggestedUser.email})
+            </Text>
+            <SectionButton
+              disabled={actioning}
+              icon="link-variant"
+              label="Confirm link"
+              onPress={() => void setLinkedUser(client.suggestedUser!.id)}
+            />
+          </View>
+        ) : (
+          <Text style={[styles.infoValue, { color: colors.textMuted, textAlign: 'left' }]}>
+            No linked or suggested studio user.
+          </Text>
+        )}
+      </AccordionSection>
+
+      <AccordionSection initiallyExpanded title="Kiosk Devices">
+        <View style={{ gap: Spacing.sm }}>
+          <TextInput
+            onChangeText={setDeviceLabel}
+            placeholder="Front counter tablet"
+            placeholderTextColor={colors.textMuted}
+            style={[
+              styles.input,
+              {
+                color: colors.text,
+                backgroundColor: colors.surfaceVariant,
+                borderColor: colors.border,
+              },
+            ]}
+            value={deviceLabel}
+          />
+          <SectionButton
+            disabled={actioning || !deviceLabel.trim()}
+            icon="tablet-dashboard"
+            label={actioning ? 'Creating...' : 'Create kiosk device'}
+            onPress={() => void createDevice()}
+          />
+
+          {client.kioskDevices.length === 0 ? (
+            <Text style={[styles.infoValue, { color: colors.textMuted, textAlign: 'left' }]}>
+              No kiosk devices created yet.
+            </Text>
+          ) : (
+            client.kioskDevices.map((device) => (
+              <View
+                key={device.id}
+                style={[
+                  styles.deviceCard,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                ]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.infoValue, { color: colors.text, textAlign: 'left' }]}>
+                    {device.label}
+                  </Text>
+                  <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+                    {device.status} | paired{' '}
+                    {device.pairedAt ? formatDate(device.pairedAt) : 'not yet'}
+                  </Text>
+                </View>
+                <View style={{ gap: Spacing.xs }}>
+                  <SectionButton
+                    disabled={deviceBusyId === device.id || device.status === 'active'}
+                    icon="qrcode"
+                    label={deviceBusyId === device.id ? 'Working...' : 'Pairing Code'}
+                    onPress={() => void regeneratePairingCode(device.id)}
+                  />
+                  <SectionButton
+                    disabled={deviceBusyId === device.id || device.status === 'revoked'}
+                    icon="close-octagon"
+                    label="Revoke"
+                    onPress={() => void revokeDevice(device.id)}
+                    tone="danger"
+                  />
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      </AccordionSection>
+
+      {superAdmin ? (
         <AccordionSection initiallyExpanded title="Add Credits">
           <View style={{ gap: Spacing.sm }}>
             <View
@@ -349,59 +730,173 @@ export default function WidgetClientDetailScreen() {
                 value={creditReason}
               />
             </View>
-            <TouchableOpacity
+            <SectionButton
               disabled={actioning || !creditAmount || !creditReason.trim()}
+              icon="plus-circle"
+              label={actioning ? 'Adding...' : 'Add Credits'}
               onPress={() => void addCredits()}
-              style={[
-                styles.actionButton,
-                { backgroundColor: colors.accent },
-                (actioning || !creditAmount || !creditReason.trim()) && { opacity: 0.5 },
-              ]}
-            >
-              {actioning ? (
-                <ActivityIndicator color={colors.onAccent} size="small" />
-              ) : (
-                <MaterialCommunityIcons color={colors.onAccent} name="plus-circle" size={20} />
-              )}
-              <Text style={[styles.actionLabel, { color: colors.onAccent }]}>
-                {actioning ? 'Adding…' : 'Add Credits'}
-              </Text>
-            </TouchableOpacity>
+            />
           </View>
         </AccordionSection>
-      )}
+      ) : null}
 
-      {client.ledger && client.ledger.length > 0 && (
+      {client.ledger?.length > 0 ? (
         <AccordionSection
           initiallyExpanded={false}
           title={`Credit Ledger (${client.ledger.length})`}
         >
-          {client.ledger.map((l: WidgetClientDetailType['ledger'][0], i: number) => (
+          {client.ledger.map((entry, index) => (
             <View
-              key={l.id}
+              key={entry.id}
               style={[
                 styles.ledgerRow,
-                i < client.ledger.length - 1 && {
+                index < client.ledger.length - 1 && {
                   borderBottomWidth: 1,
                   borderBottomColor: colors.border,
                 },
               ]}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[styles.infoValue, { color: colors.text }]}>{l.reason}</Text>
+                <Text style={[styles.infoValue, { color: colors.text }]}>{entry.reason}</Text>
                 <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
-                  {formatDate(l.createdAt)}
+                  {formatDate(entry.createdAt)}
                 </Text>
               </View>
               <Text
-                style={[styles.ledgerDelta, { color: l.delta > 0 ? colors.success : colors.error }]}
+                style={[
+                  styles.ledgerDelta,
+                  { color: entry.delta > 0 ? colors.success : colors.error },
+                ]}
               >
-                {l.delta > 0 ? `+${l.delta}` : l.delta}
+                {entry.delta > 0 ? `+${entry.delta}` : entry.delta}
               </Text>
             </View>
           ))}
         </AccordionSection>
-      )}
+      ) : null}
+
+      <AccordionSection initiallyExpanded title={`Private Catalog (${catalogItems.length})`}>
+        {catalogLoading ? (
+          <ActivityIndicator color={colors.accent} />
+        ) : catalogItems.length === 0 ? (
+          <Text style={[styles.infoValue, { color: colors.textMuted, textAlign: 'left' }]}>
+            No private catalog items for this merchant yet.
+          </Text>
+        ) : (
+          <View style={{ gap: Spacing.sm }}>
+            {catalogItems.map((item) => {
+              const draft = catalogDrafts[item.id];
+              return (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.catalogCard,
+                    { backgroundColor: colors.surface, borderColor: colors.border },
+                  ]}
+                >
+                  <Text style={[styles.infoValue, { color: colors.text, textAlign: 'left' }]}>
+                    {item.label}
+                  </Text>
+                  <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+                    {item.sourceKind === 'imported' ? 'Imported from studio' : 'Direct upload'}
+                    {item.category ? ` | ${item.category}` : ''}
+                    {item.gender ? ` | ${item.gender}` : ''}
+                  </Text>
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>Visible</Text>
+                    <TouchableOpacity
+                      onPress={() =>
+                        updateCatalogDraft(item.id, {
+                          isActive: !(draft?.isActive ?? item.isActive),
+                        })
+                      }
+                      style={[
+                        styles.togglePill,
+                        {
+                          backgroundColor:
+                            (draft?.isActive ?? item.isActive)
+                              ? colors.accent
+                              : colors.surfaceVariant,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.toggleLabel,
+                          {
+                            color:
+                              (draft?.isActive ?? item.isActive)
+                                ? colors.onAccent
+                                : colors.textSecondary,
+                          },
+                        ]}
+                      >
+                        {(draft?.isActive ?? item.isActive) ? 'On' : 'Off'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
+                    Moderation Status
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: Spacing.sm }}>
+                    {(['approved', 'rejected'] as const).map((status) => (
+                      <TouchableOpacity
+                        key={status}
+                        onPress={() => updateCatalogDraft(item.id, { moderationStatus: status })}
+                        style={[
+                          styles.statusChip,
+                          {
+                            backgroundColor:
+                              (draft?.moderationStatus ?? item.moderationStatus) === status
+                                ? colors.accent
+                                : colors.surfaceVariant,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.statusChipLabel,
+                            {
+                              color:
+                                (draft?.moderationStatus ?? item.moderationStatus) === status
+                                  ? colors.onAccent
+                                  : colors.textSecondary,
+                            },
+                          ]}
+                        >
+                          {status}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <TextInput
+                    multiline
+                    onChangeText={(value) => updateCatalogDraft(item.id, { moderationNote: value })}
+                    placeholder="Moderation note"
+                    placeholderTextColor={colors.textMuted}
+                    style={[
+                      styles.input,
+                      styles.multilineInput,
+                      {
+                        color: colors.text,
+                        backgroundColor: colors.surfaceVariant,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                    value={draft?.moderationNote ?? item.moderationNote ?? ''}
+                  />
+                  <SectionButton
+                    disabled={catalogSavingId === item.id}
+                    icon="content-save"
+                    label={catalogSavingId === item.id ? 'Saving...' : 'Save Catalog Item'}
+                    onPress={() => void saveCatalogItem(item.id)}
+                  />
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </AccordionSection>
 
       <AccordionSection
         initiallyExpanded
@@ -410,21 +905,21 @@ export default function WidgetClientDetailScreen() {
         {!client.recentJobs || client.recentJobs.length === 0 ? (
           <Text style={[styles.infoValue, { color: colors.textMuted }]}>No jobs yet.</Text>
         ) : (
-          client.recentJobs.map((j: WidgetClientDetailType['recentJobs'][0], i: number) => (
+          client.recentJobs.map((job, index) => (
             <View
-              key={j.id}
+              key={job.id}
               style={[
                 styles.jobRow,
-                i < client.recentJobs.length - 1 && {
+                index < client.recentJobs.length - 1 && {
                   borderBottomWidth: 1,
                   borderBottomColor: colors.border,
                 },
               ]}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[styles.infoValue, { color: colors.text }]}>{j.status}</Text>
+                <Text style={[styles.infoValue, { color: colors.text }]}>{job.status}</Text>
                 <Text style={[styles.infoLabel, { color: colors.textSecondary }]}>
-                  {formatDate(j.createdAt)} · {j.creditsCharged} credits
+                  {formatDate(job.createdAt)} | {job.creditsCharged} credits
                 </Text>
               </View>
             </View>
@@ -455,6 +950,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: Spacing.xs,
     gap: Spacing.sm,
+    alignItems: 'center',
   },
   infoLabel: { ...Typography.caption, flexShrink: 0 },
   infoValue: { ...Typography.body, flex: 1, textAlign: 'right' },
@@ -520,4 +1016,30 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   retryLabel: { ...Typography.bodyBold },
+  togglePill: {
+    minWidth: 58,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: Radius.full,
+    alignItems: 'center',
+  },
+  toggleLabel: { ...Typography.caption, fontWeight: '700' },
+  deviceCard: {
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  catalogCard: {
+    borderWidth: 1,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  statusChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: Radius.full,
+  },
+  statusChipLabel: { ...Typography.caption, fontWeight: '700' },
 });

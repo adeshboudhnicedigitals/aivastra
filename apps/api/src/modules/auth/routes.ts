@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { LoginBody, RegisterBody } from '@aivastra/types';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -14,6 +14,29 @@ import {
   verifyPassword,
 } from './service.js';
 import { createSessionTokens, parseDuration } from './tokens.js';
+
+const DeviceLoginBody = LoginBody.extend({
+  deviceId: z.string().min(1).max(200),
+  deviceName: z.string().max(120).optional(),
+  platform: z.enum(['mobile', 'kiosk']).default('mobile'),
+});
+
+const ForceDeviceLoginBody = z.object({
+  forceLogoutToken: z.string().min(1),
+  deviceId: z.string().min(1).max(200),
+  deviceName: z.string().max(120).optional(),
+  platform: z.enum(['mobile', 'kiosk']).default('mobile'),
+});
+
+const DeviceRefreshBody = z.object({
+  refreshToken: z.string().min(1),
+  platform: z.enum(['mobile', 'kiosk']).default('mobile'),
+});
+
+const DeviceLogoutBody = z.object({ refreshToken: z.string().min(1) });
+
+const DEVICE_SESSION_PORTALS = ['mobile', 'kiosk'] as const;
+const FORCE_LOGOUT_TTL_SECONDS = 5 * 60;
 
 type RefreshOwnerType = 'user' | 'kioskDevice' | 'widgetClient';
 
@@ -116,6 +139,8 @@ export async function rotateTokenFamily(
       tokenHash: r.hash,
       expiresAt,
       portal,
+      deviceId: row.deviceId,
+      deviceName: row.deviceName,
     });
 
     return {
@@ -130,6 +155,121 @@ function makeToken(): string {
   return randomBytes(32).toString('hex');
 }
 
+function publicDeviceSession(row: {
+  familyId: string;
+  portal: string;
+  deviceId: string | null;
+  deviceName: string | null;
+  createdAt: Date;
+  expiresAt: Date;
+}) {
+  return {
+    id: row.familyId,
+    platform: row.portal,
+    deviceId: row.deviceId,
+    deviceName: row.deviceName,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+  };
+}
+
+async function createForceLogoutToken(
+  app: FastifyInstance,
+  input: { userId: string; deviceId: string; deviceName?: string; platform: 'mobile' | 'kiosk' },
+) {
+  const token = makeToken();
+  await app.redis.set(
+    `auth:force-device-login:${token}`,
+    JSON.stringify(input),
+    'EX',
+    FORCE_LOGOUT_TTL_SECONDS,
+  );
+  return token;
+}
+
+async function issueDeviceSession(
+  app: FastifyInstance,
+  input: { userId: string; deviceId: string; deviceName?: string; platform: 'mobile' | 'kiosk' },
+) {
+  const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+  const accessToken = await signAccess(
+    secret,
+    input.userId,
+    { kind: 'access' },
+    app.env.JWT_EXPIRY,
+  );
+  const r = newRefreshToken();
+  const expiresAt = new Date(Date.now() + parseDuration(app.env.REFRESH_TOKEN_EXPIRY));
+  await app.db.insert(schema.refreshTokens).values({
+    userId: input.userId,
+    familyId: randomUUID(),
+    generation: 1,
+    tokenHash: r.hash,
+    expiresAt,
+    portal: input.platform,
+    deviceId: input.deviceId,
+    deviceName: input.deviceName ?? null,
+  });
+  return { accessToken, refreshToken: r.plain };
+}
+
+async function authenticateDeviceUser(
+  app: FastifyInstance,
+  dummyHash: string,
+  email: string,
+  password: string,
+) {
+  const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+  if (!user || user.isBanned) {
+    await verifyPassword(dummyHash, password);
+    throw new AppError('INVALID', 401, 'invalid credentials');
+  }
+  if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
+  if (!(await verifyPassword(user.passwordHash, password))) {
+    throw new AppError('INVALID', 401, 'invalid credentials');
+  }
+  if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+  return user;
+}
+
+async function activeDeviceSessions(app: FastifyInstance, userId: string) {
+  const now = new Date();
+  return app.db
+    .select({
+      familyId: schema.refreshTokens.familyId,
+      portal: schema.refreshTokens.portal,
+      deviceId: schema.refreshTokens.deviceId,
+      deviceName: schema.refreshTokens.deviceName,
+      createdAt: schema.refreshTokens.createdAt,
+      expiresAt: schema.refreshTokens.expiresAt,
+    })
+    .from(schema.refreshTokens)
+    .where(
+      and(
+        eq(schema.refreshTokens.userId, userId),
+        inArray(schema.refreshTokens.portal, [...DEVICE_SESSION_PORTALS]),
+        isNull(schema.refreshTokens.usedAt),
+        isNull(schema.refreshTokens.revokedAt),
+        gt(schema.refreshTokens.expiresAt, now),
+      ),
+    );
+}
+
+function deviceLoginUserPayload(user: {
+  id: string;
+  email: string;
+  displayName: string | null;
+  tier: string;
+  maxActiveDevices: number;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    tier: user.tier,
+    maxActiveDevices: user.maxActiveDevices,
+  };
+}
 export async function authRoutes(app: FastifyInstance) {
   // Pre-computed hash used on the not-found login path to prevent timing-based user enumeration
   const dummyHash = await hashPassword('__timing_dummy__');
@@ -396,6 +536,170 @@ export async function authRoutes(app: FastifyInstance) {
 
   // ── Mobile auth (body-based tokens, no cookies) ──────────────────────────
 
+  app.post(
+    '/v1/auth/device-login',
+    {
+      schema: { body: DeviceLoginBody },
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (req, reply) => {
+      const { email, password, deviceId, deviceName, platform } = req.body as z.infer<
+        typeof DeviceLoginBody
+      >;
+      const user = await authenticateDeviceUser(app, dummyHash, email, password);
+      const sessions = await activeDeviceSessions(app, user.id);
+      const otherSessions = sessions.filter((session) => session.deviceId !== deviceId);
+
+      if (otherSessions.length >= user.maxActiveDevices) {
+        const forceLogoutToken = await createForceLogoutToken(app, {
+          userId: user.id,
+          deviceId,
+          deviceName,
+          platform,
+        });
+        return reply.code(409).send({
+          error: {
+            code: 'DEVICE_LIMIT_REACHED',
+            message: 'This account is already active on another device.',
+            forceLogoutToken,
+            maxActiveDevices: user.maxActiveDevices,
+            activeDevices: otherSessions.map(publicDeviceSession),
+          },
+        });
+      }
+
+      await app.db
+        .update(schema.refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(
+          and(
+            eq(schema.refreshTokens.userId, user.id),
+            inArray(schema.refreshTokens.portal, [...DEVICE_SESSION_PORTALS]),
+            eq(schema.refreshTokens.deviceId, deviceId),
+            isNull(schema.refreshTokens.revokedAt),
+          ),
+        );
+
+      const tokens = await issueDeviceSession(app, {
+        userId: user.id,
+        deviceId,
+        deviceName,
+        platform,
+      });
+      return { ...tokens, user: deviceLoginUserPayload(user) };
+    },
+  );
+
+  app.post(
+    '/v1/auth/device-login/force',
+    {
+      schema: { body: ForceDeviceLoginBody },
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const { forceLogoutToken, deviceId, deviceName, platform } = req.body as z.infer<
+        typeof ForceDeviceLoginBody
+      >;
+      const raw = await app.redis.getdel(`auth:force-device-login:${forceLogoutToken}`);
+      if (!raw) throw new AppError('INVALID_OR_EXPIRED_TOKEN', 400, 'force logout token expired');
+      const claim = JSON.parse(raw) as {
+        userId: string;
+        deviceId: string;
+        deviceName?: string;
+        platform: 'mobile' | 'kiosk';
+      };
+      if (claim.deviceId !== deviceId || claim.platform !== platform) {
+        throw new AppError('INVALID_OR_EXPIRED_TOKEN', 400, 'force logout token invalid');
+      }
+
+      const [user] = await app.db
+        .select({
+          id: schema.users.id,
+          email: schema.users.email,
+          displayName: schema.users.displayName,
+          tier: schema.users.tier,
+          maxActiveDevices: schema.users.maxActiveDevices,
+          isBanned: schema.users.isBanned,
+          emailVerified: schema.users.emailVerified,
+        })
+        .from(schema.users)
+        .where(eq(schema.users.id, claim.userId));
+      if (!user || user.isBanned || !user.emailVerified) {
+        throw new AppError('INVALID_OR_EXPIRED_TOKEN', 400, 'force logout token invalid');
+      }
+
+      await app.db
+        .update(schema.refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(
+          and(
+            eq(schema.refreshTokens.userId, user.id),
+            inArray(schema.refreshTokens.portal, [...DEVICE_SESSION_PORTALS]),
+            isNull(schema.refreshTokens.revokedAt),
+          ),
+        );
+
+      const tokens = await issueDeviceSession(app, {
+        userId: user.id,
+        deviceId,
+        deviceName: deviceName ?? claim.deviceName,
+        platform,
+      });
+      return { ...tokens, user: deviceLoginUserPayload(user) };
+    },
+  );
+
+  app.post(
+    '/v1/auth/device-refresh',
+    {
+      schema: { body: DeviceRefreshBody },
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const { refreshToken, platform } = req.body as z.infer<typeof DeviceRefreshBody>;
+      const result = await rotateTokenFamily(app, refreshToken, platform);
+      if (result.kind === 'invalid' || result.ownerType !== 'user') {
+        throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
+      }
+      const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+      return {
+        accessToken: await signAccess(
+          secret,
+          result.ownerId,
+          { kind: 'access' },
+          app.env.JWT_EXPIRY,
+        ),
+        refreshToken: result.kind === 'rotated' ? result.refreshPlain : null,
+      };
+    },
+  );
+
+  app.post(
+    '/v1/auth/device-logout',
+    {
+      schema: { body: DeviceLogoutBody },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (req) => {
+      const { refreshToken } = req.body as z.infer<typeof DeviceLogoutBody>;
+      const tokenHash = hashRefresh(refreshToken);
+      const [row] = await app.db
+        .select({ familyId: schema.refreshTokens.familyId, portal: schema.refreshTokens.portal })
+        .from(schema.refreshTokens)
+        .where(eq(schema.refreshTokens.tokenHash, tokenHash))
+        .limit(1);
+      if (
+        row &&
+        DEVICE_SESSION_PORTALS.includes(row.portal as (typeof DEVICE_SESSION_PORTALS)[number])
+      ) {
+        await app.db
+          .update(schema.refreshTokens)
+          .set({ revokedAt: new Date() })
+          .where(eq(schema.refreshTokens.familyId, row.familyId));
+      }
+      return { ok: true };
+    },
+  );
   app.post(
     '/v1/auth/login-mobile',
     {

@@ -22,6 +22,7 @@ import { adminCreditPlansRoutes } from './modules/admin/creditPlans.routes.js';
 import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
+import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
@@ -36,6 +37,10 @@ import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { kioskAuthRoutes } from './modules/kiosk/auth.routes.js';
+import { kioskCatalogRoutes } from './modules/kiosk/catalog.routes.js';
+import { kioskJobsRoutes } from './modules/kiosk/jobs.routes.js';
+import { kioskResultsRoutes } from './modules/kiosk/results.routes.js';
+import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
 import { merchantRoutes } from './modules/merchant/routes.js';
@@ -104,7 +109,7 @@ export async function buildServer(env: Env) {
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
-    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) — must come AFTER the
+    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) â€” must come AFTER the
     // validation branch, which also carries statusCode 400 but has its own contract.
     const statusCode = (err as { statusCode?: unknown }).statusCode;
     if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
@@ -128,7 +133,11 @@ export async function buildServer(env: Env) {
   await app.register(uploadsRoutes);
   await app.register(jobsRoutes);
   await app.register(kioskAuthRoutes);
+  await app.register(kioskCatalogRoutes);
+  await app.register(kioskJobsRoutes);
+  await app.register(kioskResultsRoutes);
   await app.register(merchantRoutes);
+  await app.register(merchantCatalogRoutes);
   await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantPaymentsRoutes);
   await app.register(widgetRoutes);
@@ -139,6 +148,7 @@ export async function buildServer(env: Env) {
   await app.register(adminCreditPlansRoutes);
   await app.register(adminCatalogRoutes);
   await app.register(adminJobsRoutes);
+  await app.register(adminMerchantCatalogRoutes);
   await app.register(adminWorkersRoutes);
   await app.register(adminConfigRoutes);
   await app.register(adminMeRoutes);

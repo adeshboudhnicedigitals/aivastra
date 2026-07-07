@@ -1,11 +1,11 @@
 import { schema } from '@aivastra/db';
-import { WidgetClientSignup } from '@aivastra/types';
+import { AdminWidgetClientUpdateBody, WidgetClientSignup } from '@aivastra/types';
 import { and, count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { hashPassword } from '../auth/service.js';
-import { createKioskDevice } from '../kiosk/provisioning.js';
+import { createKioskDevice, generatePairingCode, hashPairingCode } from '../kiosk/provisioning.js';
 import { widgetAdminGrant } from '../widget/ledger.js';
 import { requireAdmin } from './guard.js';
 
@@ -113,6 +113,8 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
           businessAddress: schema.widgetClients.businessAddress,
           widgetKey: schema.widgetClients.widgetKey,
           isActive: schema.widgetClients.isActive,
+          kioskEnabled: schema.widgetClients.kioskEnabled,
+          maxKioskDevices: schema.widgetClients.maxKioskDevices,
           allowedOrigins: schema.widgetClients.allowedOrigins,
           createdAt: schema.widgetClients.createdAt,
           updatedAt: schema.widgetClients.updatedAt,
@@ -212,6 +214,9 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
           businessAddress: schema.widgetClients.businessAddress,
           widgetKey: schema.widgetClients.widgetKey,
           isActive: schema.widgetClients.isActive,
+          kioskEnabled: schema.widgetClients.kioskEnabled,
+          maxKioskDevices: schema.widgetClients.maxKioskDevices,
+          userId: schema.widgetClients.userId,
           allowedOrigins: schema.widgetClients.allowedOrigins,
           webhookUrl: schema.widgetClients.webhookUrl,
           webhookSecret: schema.widgetClients.webhookSecret,
@@ -249,27 +254,66 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
         .orderBy(desc(schema.jobs.createdAt))
         .limit(20);
 
-      return { ...client, ledger, recentJobs };
+      const [linkedUser] = client.userId
+        ? await app.db
+            .select({
+              id: schema.users.id,
+              email: schema.users.email,
+              displayName: schema.users.displayName,
+              emailVerified: schema.users.emailVerified,
+            })
+            .from(schema.users)
+            .where(eq(schema.users.id, client.userId))
+            .limit(1)
+        : [];
+
+      const [suggestedUser] = !client.userId
+        ? await app.db
+            .select({
+              id: schema.users.id,
+              email: schema.users.email,
+              displayName: schema.users.displayName,
+              emailVerified: schema.users.emailVerified,
+            })
+            .from(schema.users)
+            .where(and(eq(schema.users.email, client.email), eq(schema.users.emailVerified, true)))
+            .limit(1)
+        : [];
+
+      const kioskDevices = await app.db
+        .select()
+        .from(schema.kioskDevices)
+        .where(eq(schema.kioskDevices.widgetClientId, id))
+        .orderBy(desc(schema.kioskDevices.createdAt));
+
+      return {
+        ...client,
+        ledger,
+        recentJobs,
+        linkedUser: linkedUser ?? null,
+        suggestedUser: suggestedUser ?? null,
+        kioskDevices: kioskDevices.map(publicKioskDevice),
+      };
     },
   );
 
   app.patch(
     '/v1/admin/widget-clients/:id',
-    { preHandler: requireAdmin(['SUPER_ADMIN']) },
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN']),
+      schema: { body: AdminWidgetClientUpdateBody },
+    },
     async (req) => {
       const { id } = req.params as { id: string };
-      const body = req.body as {
-        isActive?: boolean;
-        companyName?: string;
-        allowedOrigins?: string[];
-        webhookUrl?: string | null;
-        webhookSecret?: string | null;
-      };
+      const body = req.body as z.infer<typeof AdminWidgetClientUpdateBody>;
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.isActive !== undefined) updates.isActive = body.isActive;
       if (body.companyName !== undefined) updates.companyName = body.companyName;
       if (body.allowedOrigins !== undefined) updates.allowedOrigins = body.allowedOrigins;
+      if (body.kioskEnabled !== undefined) updates.kioskEnabled = body.kioskEnabled;
+      if (body.maxKioskDevices !== undefined) updates.maxKioskDevices = body.maxKioskDevices;
+      if (body.userId !== undefined) updates.userId = body.userId;
       if (body.webhookUrl !== undefined) {
         if (body.webhookUrl) assertWebhookUrlShape(body.webhookUrl);
         updates.webhookUrl = body.webhookUrl || null;
@@ -362,6 +406,32 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
         .returning();
       if (!updated) throw new AppError('NOT_FOUND', 404, 'kiosk device not found');
       return publicKioskDevice(updated);
+    },
+  );
+
+  app.post(
+    '/v1/admin/widget-clients/:id/kiosk-devices/:deviceId/pairing-code',
+    { preHandler: requireAdmin(['SUPER_ADMIN']) },
+    async (req) => {
+      const { id, deviceId } = req.params as { id: string; deviceId: string };
+      const pairingCode = generatePairingCode();
+      const now = new Date();
+      const [updated] = await app.db
+        .update(schema.kioskDevices)
+        .set({
+          status: 'pending',
+          pairingCodeHash: hashPairingCode(pairingCode),
+          pairingCodeExpiresAt: new Date(now.getTime() + 15 * 60 * 1000),
+          revokedAt: null,
+          pairedAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(eq(schema.kioskDevices.id, deviceId), eq(schema.kioskDevices.widgetClientId, id)),
+        )
+        .returning();
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'kiosk device not found');
+      return { device: publicKioskDevice(updated), pairingCode };
     },
   );
 }
