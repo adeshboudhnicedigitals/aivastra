@@ -1,4 +1,17 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import { jobs } from './jobs.js';
+import { users } from './users.js';
 
 export interface WidgetSettings {
   widgetName?: string;
@@ -27,9 +40,12 @@ export const widgetClients = pgTable('widget_clients', {
   passwordHash: text('password_hash').notNull(),
   widgetKey: uuid('widget_key').notNull().unique().defaultRandom(),
   isActive: boolean('is_active').notNull().default(false),
+  kioskEnabled: boolean('kiosk_enabled').notNull().default(false),
+  maxKioskDevices: integer('max_kiosk_devices').notNull().default(5),
   allowedOrigins: text('allowed_origins').array().notNull().default([]),
   webhookUrl: text('webhook_url'),
   webhookSecret: text('webhook_secret'),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
   settings: jsonb('settings').$type<WidgetSettings>().notNull().default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -72,3 +88,32 @@ export const widgetCreditLedger = pgTable('widget_credit_ledger', {
   adminId: uuid('admin_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const merchantCatalogItems = pgTable(
+  'merchant_catalog_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    widgetClientId: uuid('widget_client_id')
+      .notNull()
+      .references(() => widgetClients.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    sku: text('sku'),
+    gender: text('gender'),
+    category: text('category'),
+    r2Key: text('r2_key').notNull(),
+    thumbnailKey: text('thumbnail_key').notNull(),
+    sourceJobId: uuid('source_job_id').references(() => jobs.id, { onDelete: 'set null' }),
+    isActive: boolean('is_active').notNull().default(true),
+    moderationStatus: text('moderation_status').notNull().default('approved'),
+    moderationNote: text('moderation_note'),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('merchant_catalog_items_widget_client_idx').on(t.widgetClientId, t.isActive),
+    uniqueIndex('merchant_catalog_items_widget_client_source_job_unique')
+      .on(t.widgetClientId, t.sourceJobId)
+      .where(sql`${t.sourceJobId} is not null`),
+  ],
+);

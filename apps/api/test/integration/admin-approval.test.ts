@@ -1,11 +1,9 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { SignJWT } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
+import { createVerifiedUserToken } from '../helpers/auth';
 import { type Containers, startContainers } from '../helpers/containers';
-
-const secret = new TextEncoder().encode('test-jwt-secret-1234567890');
 
 describe('admin-approval', () => {
   let c: Containers;
@@ -19,29 +17,8 @@ describe('admin-approval', () => {
     await c?.stop();
   });
 
-  async function makeToken(userId: string) {
-    return new SignJWT({ kind: 'access' })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(userId)
-      .setIssuedAt()
-      .setExpirationTime('15m')
-      .sign(secret);
-  }
-
   async function registerAndVerify(email: string) {
-    await app.inject({
-      method: 'POST',
-      url: '/v1/auth/register',
-      payload: { email, password: 'password123', displayName: 'Test' },
-    });
-    const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
-    const userId = user.id;
-    await app.db
-      .update(schema.users)
-      .set({ emailVerified: true })
-      .where(eq(schema.users.id, userId));
-    const token = await makeToken(userId);
-    return { token, userId };
+    return createVerifiedUserToken(app, email);
   }
 
   it('regular user can request admin', async () => {
@@ -244,7 +221,7 @@ describe('admin-approval', () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it('ADMIN cannot access workflows', async () => {
+  it('ADMIN can read workflows', async () => {
     const { token, userId } = await registerAndVerify('admin-nowf@test.com');
     await app.db.insert(schema.adminUsers).values({ userId, role: 'ADMIN', status: 'active' });
     const res = await app.inject({
@@ -252,7 +229,8 @@ describe('admin-approval', () => {
       url: '/admin/workflows',
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json())).toBe(true);
   });
 
   it('non-admin cannot approve/reject requests', async () => {

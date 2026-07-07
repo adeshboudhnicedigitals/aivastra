@@ -13,6 +13,7 @@ export const BulkGrantBody = z.object({
 export const DeductCreditsBody = GrantCreditsBody;
 export const UpdateUserBody = z.object({
   tier: z.string().min(1).max(64).optional(),
+  maxActiveDevices: z.number().int().min(1).max(50).optional(),
   isBanned: z.boolean().optional(),
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),

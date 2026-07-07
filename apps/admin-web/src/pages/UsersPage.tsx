@@ -39,6 +39,8 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
   const [tierOptions, setTierOptions] = useState<string[]>([]);
   const [selectedTier, setSelectedTier] = useState('');
   const [tierSaving, setTierSaving] = useState(false);
+  const [selectedMaxDevices, setSelectedMaxDevices] = useState('1');
+  const [deviceLimitSaving, setDeviceLimitSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -93,11 +95,13 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
   const openDetail = async (u: User) => {
     setDetail(u);
     setSelectedTier(u.tier);
+    setSelectedMaxDevices(String(u.maxActiveDevices ?? 1));
     setDetailLoading(true);
     try {
       const full = await apiFetch<User>(`/admin/users/${u.id}`);
       setDetail(full);
       setSelectedTier(full.tier);
+      setSelectedMaxDevices(String(full.maxActiveDevices ?? 1));
     } catch {
       toast({ kind: 'error', title: 'Failed to load user detail' });
     } finally {
@@ -146,6 +150,35 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
     }
   };
 
+  const handleDeviceLimitSave = async () => {
+    if (!detail) return;
+    const maxActiveDevices = parseInt(selectedMaxDevices, 10);
+    if (Number.isNaN(maxActiveDevices) || maxActiveDevices < 1 || maxActiveDevices > 50) {
+      toast({ kind: 'error', title: 'Device limit must be between 1 and 50' });
+      return;
+    }
+    if (maxActiveDevices === detail.maxActiveDevices) return;
+    setDeviceLimitSaving(true);
+    try {
+      await apiFetch(`/admin/users/${detail.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ maxActiveDevices }),
+      });
+      setDetail((prev) => (prev ? { ...prev, maxActiveDevices } : null));
+      setUsers((prev) =>
+        prev.map((user) => (user.id === detail.id ? { ...user, maxActiveDevices } : user)),
+      );
+      toast({ title: 'Device limit updated' });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update device limit',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setDeviceLimitSaving(false);
+    }
+  };
   const handleGrant = async () => {
     if (!grantUserId || !grantAmount) return;
     const amt = parseInt(grantAmount, 10);
@@ -305,6 +338,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
             >
               <KV k="Tier" v={u.tier} />
               <KV k="Phone" v={u.phone ? `+91 ${u.phone}` : '—'} />
+              <KV k="Device limit" v={String(u.maxActiveDevices)} />
               <KV k="Balance" v={u.balance.toLocaleString()} />
               <KV k="Total jobs" v={(u.totalJobs ?? 0).toLocaleString()} />
               <KV k="Last job" v={u.lastJobAt ? new Date(u.lastJobAt).toLocaleString() : '—'} />
@@ -352,6 +386,43 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
               </div>
             </div>
 
+            <div className="card" style={{ marginBottom: 20 }}>
+              <div className="card-head">
+                <h3>Device sessions</h3>
+              </div>
+              <div
+                className="card-body"
+                style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}
+              >
+                <div className="field" style={{ minWidth: 200 }}>
+                  <label>Max active devices</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={selectedMaxDevices}
+                    disabled={deviceLimitSaving || detailLoading}
+                    onChange={(e) => setSelectedMaxDevices(e.target.value)}
+                  />
+                </div>
+                <button
+                  className="btn primary"
+                  disabled={
+                    deviceLimitSaving ||
+                    detailLoading ||
+                    !selectedMaxDevices ||
+                    parseInt(selectedMaxDevices, 10) === u.maxActiveDevices
+                  }
+                  onClick={handleDeviceLimitSave}
+                >
+                  {deviceLimitSaving ? 'Saving...' : 'Save Device Limit'}
+                </button>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Kiosk and mobile sessions share this account limit.
+                </span>
+              </div>
+            </div>
             <div className="card">
               <div className="card-head">
                 <h3>Recent jobs</h3>
@@ -578,6 +649,15 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                     Tier
                   </Th>
                   <Th
+                    k="maxActiveDevices"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    style={{ textAlign: 'center' }}
+                  >
+                    Devices
+                  </Th>
+                  <Th
                     k="balance"
                     sortKey={sortKey}
                     sortDir={sortDir}
@@ -676,6 +756,9 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                       <span className="badge dot">{u.tier}</span>
                     </td>
                     <td>
+                      <span className="mono">{u.maxActiveDevices}</span>
+                    </td>
+                    <td>
                       <span className="mono">{u.balance.toLocaleString()}</span>
                     </td>
                     <td>
@@ -694,7 +777,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       style={{
                         padding: 20,
                         color: 'var(--muted)',

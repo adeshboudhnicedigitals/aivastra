@@ -11,8 +11,6 @@ const PUBLIC_PATHS = [
   '/verify-email',
   '/forgot-password',
   '/reset-password',
-  '/merchant/signup',
-  '/merchant/login',
   '/widget',
 ];
 
@@ -27,19 +25,11 @@ export async function middleware(request: NextRequest) {
       : pathname;
 
   if (path.startsWith('/api/auth')) return NextResponse.next();
-  if (path.startsWith('/api/merchant')) return NextResponse.next();
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
   if (isPublic) return NextResponse.next();
   if (path === '/') return NextResponse.next();
 
   const token = request.cookies.get('access_token')?.value;
-
-  if (path.startsWith('/merchant/')) {
-    const merchantToken = request.cookies.get('merchant_access_token')?.value;
-    if (merchantToken) return NextResponse.next();
-    const loginUrl = new URL(`${BASE_PATH}/merchant/login`, request.url);
-    return NextResponse.redirect(loginUrl);
-  }
 
   if (token) return NextResponse.next();
 
