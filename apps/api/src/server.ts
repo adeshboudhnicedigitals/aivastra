@@ -42,6 +42,7 @@ import { merchantRoutes } from './modules/merchant/routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
+import { shopifyMeRoutes } from './modules/shopify/me.routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
 import { widgetRoutes } from './modules/widget/routes.js';
@@ -50,6 +51,7 @@ import { dbPlugin } from './plugins/db.js';
 import { metricsPlugin } from './plugins/metrics.js';
 import { redisPlugin } from './plugins/redis.js';
 import { sentryPlugin } from './plugins/sentry.js';
+import { shopifyAuthPlugin } from './plugins/shopify-auth.js';
 import { storagePlugin } from './plugins/storage.js';
 import { widgetAuthPlugin } from './plugins/widget-auth.js';
 
@@ -89,6 +91,7 @@ export async function buildServer(env: Env) {
   await app.register(storagePlugin);
   await app.register(authPlugin);
   await app.register(widgetAuthPlugin);
+  await app.register(shopifyAuthPlugin);
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {
@@ -118,6 +121,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantRoutes);
   await app.register(merchantPaymentsRoutes);
   await app.register(widgetRoutes);
+  await app.register(shopifyMeRoutes);
   await app.register(modelsRoutes);
   await app.register(adminAuthRoutes);
   await app.register(adminUsersRoutes);
