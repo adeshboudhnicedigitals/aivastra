@@ -1,8 +1,19 @@
 import type { FastifyInstance } from 'fastify';
 import { shopifyAuthRoutes } from './auth.routes.js';
 import { shopifyMeRoutes } from './me.routes.js';
+import { registerWebhooksDecorator, shopifyWebhookRoutes } from './webhook.routes.js';
 
 export async function shopifyRoutes(app: FastifyInstance) {
+  // Must register before shopifyAuthRoutes: the callback handler in auth.routes.ts
+  // calls `app.shopifyRegisterWebhooks?.()`. registerWebhooksDecorator is wrapped in
+  // fp(), so it decorates this shared context (no new child context), meaning the
+  // decoration exists before shopifyAuthRoutes' own child context is created below
+  // and is inherited by it.
+  await app.register(registerWebhooksDecorator);
   await app.register(shopifyAuthRoutes);
   await app.register(shopifyMeRoutes);
+  // Plain (non-fp) function: gets its own encapsulated child context, so the
+  // raw-body JSON content-type parser registered inside stays scoped to these
+  // webhook routes only and never leaks to sibling routes or the rest of the app.
+  await app.register(shopifyWebhookRoutes);
 }
