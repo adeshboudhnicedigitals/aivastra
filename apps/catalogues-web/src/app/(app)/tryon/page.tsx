@@ -610,7 +610,7 @@ export default function TryOnPage() {
   return (
     <>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <TopBar title="AI Virtual Try-On (Beta)" subtitle="" hideTryonCta />
+        <TopBar title="AI Virtual Try-On (Beta)" subtitle="" />
 
         <div
           style={{
