@@ -1,5 +1,6 @@
 'use client';
 import { useQueryClient } from '@tanstack/react-query';
+import { MonitorPlay, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -33,6 +34,8 @@ const NAV: { id: string; href: string; label: string; icon: string; badge?: stri
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
+  { id: 'tutorials', href: '/tutorials', label: 'Tutorials', icon: 'monitor-play' },
+  { id: 'contact', href: '/contact-us', label: 'Contact Us', icon: 'phone' },
 ];
 
 const SIDEBAR_WIDTH = 100;
@@ -159,15 +162,23 @@ export function Sidebar() {
                 </div>
               )}
               <span style={{ opacity: isActive ? 1 : 0.6, display: 'flex', flexShrink: 0 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {/* biome-ignore lint/performance/noImgElement: sidebar nav icon */}
-                <img
-                  src={item.icon}
-                  alt=""
-                  width={20}
-                  height={20}
-                  style={item.id === 'saree' ? { filter: 'invert(1)' } : undefined}
-                />
+                {item.icon === 'monitor-play' ? (
+                  <MonitorPlay size={20} />
+                ) : item.icon === 'phone' ? (
+                  <Phone size={20} />
+                ) : (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {/* biome-ignore lint/performance/noImgElement: sidebar nav icon */}
+                    <img
+                      src={item.icon}
+                      alt=""
+                      width={20}
+                      height={20}
+                      style={item.id === 'saree' ? { filter: 'invert(1)' } : undefined}
+                    />
+                  </>
+                )}
               </span>
               <span
                 style={{
