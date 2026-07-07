@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { Redis } from 'ioredis';
 
 function safeEq(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
@@ -63,4 +64,14 @@ export function verifySessionToken(
     throw new Error('iss/dest host mismatch');
   const shopDomain = shopHostFromDomain(claims.dest);
   return { dest: claims.dest, shopDomain };
+}
+
+export interface SyncTask {
+  storeId: string;
+  mode: 'full' | 'product';
+  shopifyProductId?: number;
+}
+
+export async function enqueueSync(redis: Redis, task: SyncTask): Promise<void> {
+  await redis.xadd('shopify:sync', '*', 'task', JSON.stringify(task));
 }
