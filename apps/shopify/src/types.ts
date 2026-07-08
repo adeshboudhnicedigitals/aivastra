@@ -16,11 +16,15 @@ export interface ShopifyStoreSettings {
   position?: string;
   customCss?: string;
   workflowTemplateId?: string;
+  themeBlockConfirmed?: boolean;
 }
 
-// Real response shape of GET /v1/shopify/me (apps/api/src/modules/shopify/me.routes.ts):
-// { store: { shopDomain, settings }, credits, plan }
-// Corrected from an earlier flat guess ({ shopDomain, planId, balance }) after reading the route handler.
+export interface ShopifyStats {
+  totalTryOns: number;
+  syncedProductCount: number;
+  enabledProductCount: number;
+}
+
 export interface ShopifyMe {
   store: {
     shopDomain: string;
@@ -28,6 +32,11 @@ export interface ShopifyMe {
   };
   credits: number;
   plan: ShopifyPlan | null;
+  stats: ShopifyStats;
+}
+
+export interface ShopifyOnboardingConfirmResponse {
+  settings: ShopifyStoreSettings;
 }
 
 export interface ShopifyProductListItem {
