@@ -1,3 +1,37 @@
+## 2026-07-08 - Shopify Embedded Admin (billing, product enable, image picker)
+
+### Done
+Built the embedded Polaris admin app for the Shopify plugin via subagent-driven development (8 tasks + a final whole-branch review), following brainstorming -> spec -> plan. This gives merchants control over three things that had no UI before: subscription plan selection, per-product try-on enablement, and which Shopify image is used as the garment input.
+
+**Backend** (Tasks 1-5, full TDD):
+- `shopify_product_garments` gains `enabled` (boolean, default `false` -- opt-in per product, never opt-out) and `title` (cached at sync time).
+- `GET /v1/shopify/products` -- paginated list (page/pageSize convention matching `admin/users.routes.ts`).
+- `GET /v1/shopify/products/:id/images` -- live proxy to Shopify's current image list for a product (no caching, by design).
+- `PATCH /v1/shopify/products/:id` -- enable/disable toggle (enabling requires `status==='active'`; disabling always allowed) and garment-image swap (cross-checked against the product's live Shopify image list before download; hardened fetch matching `products.sync.ts`'s existing SSRF guard; write-then-swap into a new R2 key).
+- `POST /v1/widget/jobs`'s Shopify branch now also gates on `enabled` (separate from the existing `status==='active'` check) -- a synced-but-disabled product returns a distinct 202 with no resync trigger.
+
+**Frontend** (Tasks 6-8, no automated test harness -- matches `apps/admin-web`'s own precedent): new `apps/shopify/` -- Vite + React 18 (workspace-forced to React 19) + Polaris SPA, authenticating via Shopify App Bridge's `shopify.idToken()` loaded via CDN script tag (deliberately not the `@shopify/app-bridge-react` npm package, avoiding its React 19 peer-dependency mismatch). Dashboard, Billing (plan list + select, redirects the top-level window for Shopify's confirmation screen), and Products (list + enable toggle + image-picker modal) screens.
+
+**Real bugs found and fixed along the way:**
+- **Major, unplanned infra detour (Task 1):** `packages/db/src/migrations/meta/` was missing 84 of 89 snapshot json files (pre-existing repo-wide gap, not caused by this plan). `drizzle-kit generate` had no accurate baseline and, when forced to reconstruct one, produced a migration that would have dropped 4 real, live columns on an unrelated table (`model_pose_assets`). Caught before being applied via direct psql verification at every step (the harness's auto-mode safety classifier correctly blocked two attempts at unattended/unsafe automation of this reconstruction -- the user drove the interactive `drizzle-kit generate` prompts themselves both times). Two reconstruction attempts were themselves flawed and corrected in turn (a stale `dist/` build falsely baked in not-yet-real columns; the literal generated DDL broke the test harness's fresh-DB migration replay) before landing on the final fix: a backfill migration whose SQL body is a genuine no-op (`SELECT 1;`), paired with an accurate snapshot so `drizzle-kit generate` has a correct baseline going forward.
+- **Task 4 review**: the `fetchLiveProductImages` helper (shared by the images-proxy and patch endpoints) dropped a field-stripping step, leaking Shopify's full raw image objects instead of just `{id, src}`. Fixed and re-verified.
+- **Final whole-branch review**: a real cross-task defect the per-task reviews structurally couldn't catch -- `upsertGarment`'s `onConflictDoUpdate` still included `r2Key`, so any routine product edit (webhook-triggered re-sync) silently reverted a merchant's chosen garment image back to Shopify's default, quietly defeating the whole point of the image-picker feature. Fixed by excluding `r2Key` from the conflict-update (verified: a never-overridden row's `r2Key` already equals the deterministic sync path from its initial insert, so this is a true no-op for the common case while correctly preserving an override). Also fixed a missing `ORDER BY` on the paginated products list (Postgres gives no row-order guarantee without one).
+
+Full API suite: 101/101 passing, typecheck clean throughout. Frontend: `pnpm --filter @aivastra/shopify-admin build` passes.
+
+### Failed / Not Done
+- Live manual verification of the embedded admin against the real Shopify dev store (theme/App Bridge session, click-through of enable/disable + image picker + billing flow) -- needs the human + browser, not done this session.
+- The new `apps/shopify/` app's App URL is not yet registered in the Partners dashboard -- not reachable inside the Shopify admin until that's done.
+
+### Open Questions / Decisions
+- Not fixed, flagged as follow-ups by the final review: ORDER BY relies on `shopifyProductId` being a total order per store (holds today under the existing unique constraint + sentinel-variant-only writes; would need an `id` tiebreaker if per-variant rows are ever introduced); no regression test locks in the "re-sync after an override" fix end-to-end; orphaned R2 objects accumulate on every image swap (old key never deleted); `ProductsPage` hardcodes `pageSize=100` with no pagination UI.
+- `allowedOrigins` duplicate-entry edge case and billing `trial_days`/tier configuration -- still open/deferred from earlier sessions, unrelated to this plan, not touched.
+
+### Commits
+`42a0d9c`, `cc8103d` (migration-history backfill infra fix) -- `be42909`, `59347c6` (Task 1: enabled/title columns) -- `5feb07f` (Task 2: products list) -- `78aca6c` (Task 3: images proxy) -- `94499ac`, `a0ed060` (Task 4: enable + image swap) -- `c1b7b5f` (Task 5: widget job gate) -- `6118268` (Task 6: scaffold) -- `1ac5909` (Task 7: billing) -- `d85abb4` (Task 8: products screen) -- `cb305fa` (final-review fixes)
+
+---
+
 ## 2026-07-08 - Shopify Storefront Try-On Widget + Live-Test Hotfixes + Final Branch Review
 
 ### Done
