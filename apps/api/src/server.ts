@@ -7,7 +7,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import * as Sentry from '@sentry/node';
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   serializerCompiler,
@@ -74,13 +74,18 @@ export async function buildServer(env: Env) {
     },
   });
   await app.register(cors, {
-    origin: async (origin) => {
+    origin: async (origin: string | undefined) => {
       if (!origin) return false;
       if (origin === env.CORS_ORIGIN) return true;
       const [row] = await app.db
         .select({ id: schema.widgetClients.id })
         .from(schema.widgetClients)
-        .where(sql`${origin} = ANY(${schema.widgetClients.allowedOrigins})`)
+        .where(
+          and(
+            eq(schema.widgetClients.isActive, true),
+            sql`${origin} = ANY(${schema.widgetClients.allowedOrigins})`,
+          ),
+        )
         .limit(1);
       return !!row;
     },

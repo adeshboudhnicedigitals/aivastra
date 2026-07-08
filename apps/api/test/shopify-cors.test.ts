@@ -25,6 +25,19 @@ beforeAll(async () => {
     isActive: true,
     allowedOrigins: ['https://allowed.example.com'],
   });
+  await app.db.insert(schema.widgetClients).values({
+    companyName: 'Inactive Co',
+    contactName: 'Test',
+    email: `inactive-test-${randomUUID()}@example.com`,
+    phone: '1',
+    websiteUrl: 'https://inactive.example.com',
+    companySize: 'unknown',
+    purpose: 'test',
+    businessAddress: 'n/a',
+    passwordHash: '',
+    isActive: false,
+    allowedOrigins: ['https://inactive.example.com'],
+  });
 });
 afterAll(async () => {
   await app?.close();
@@ -55,6 +68,15 @@ describe('dynamic CORS', () => {
       method: 'GET',
       url: '/health',
       headers: { origin: 'https://not-registered.example.com' },
+    });
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+
+  it('does not allow an origin from an inactive widget client', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'https://inactive.example.com' },
     });
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
