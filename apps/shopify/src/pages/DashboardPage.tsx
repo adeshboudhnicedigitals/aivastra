@@ -1,5 +1,6 @@
 import { Banner, Card, Layout, Page, SkeletonBodyText, Text } from '@shopify/polaris';
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import type { ShopifyMe } from '../types';
 
@@ -33,6 +34,7 @@ export default function DashboardPage() {
                   {me?.store.shopDomain}
                 </Text>
                 <Text as="p">Credit balance: {me?.credits ?? 0}</Text>
+                <Link to="/billing">Manage billing</Link>
               </>
             )}
           </Card>
