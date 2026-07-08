@@ -40,9 +40,13 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
       const shopDomain = req.headers['x-shopify-shop-domain'] as string | undefined;
       const payload = JSON.parse(raw.toString() || '{}') as { id?: number };
 
-      // Respond fast; real work is deferred to the sync queue / direct row updates.
-      reply.code(200).send({ ok: true });
-
+      // Post-processing here is fast local work (a 1-2 row Postgres UPDATE or a
+      // Redis XADD), never a slow outbound call — so we await it before
+      // responding instead of deferring it to a fire-and-forget continuation.
+      // That avoids both a race (tests/observers reading DB state right after
+      // the 200) and a reliability gap (crash between send() and the
+      // continuation finishing would silently drop the post-processing, and
+      // Shopify won't retry since it already got a 200).
       try {
         const [store] = shopDomain
           ? await app.db
@@ -96,6 +100,11 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
       } catch (err) {
         req.log.error({ err, topic }, 'webhook post-processing failed');
       }
+
+      // Shopify shouldn't get a 4xx/5xx for a webhook it delivered correctly
+      // just because our internal post-processing had a hiccup — the catch
+      // above already logs the error and swallows it, so we always reach here.
+      reply.code(200).send({ ok: true });
     });
   }
 }
