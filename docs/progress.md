@@ -2,7 +2,7 @@
 
 ### Done
 Backend vertical slice for the Shopify plugin, landed across 12 tasks on `feat/shopify-tryon-backend`:
-- **DB schema**: `shopify_stores`, `shopify_product_garments`, `shopify_plans`, `shopify_subscriptions` (and supporting columns/indexes) in `packages/db/src/schema/`, with migrations.
+- **DB schema**: `shopify_stores`, `shopify_product_garments`, `shopify_plans` (plus `widget_clients.client_type` and supporting columns/indexes) in `packages/db/src/schema/`, with migrations.
 - **Crypto + HMAC/session-token service** (`apps/api/src/modules/shopify/service.ts`): AES-256-GCM token encryption at rest, webhook HMAC verification, session-token style helpers.
 - **Admin plan CRUD**: `/admin/shopify-plans` (create/list/patch/delete/activeOnly filter).
 - **Auth plugin + OAuth install/callback**: `apps/api/src/modules/shopify/auth.routes.ts` — `upsertShopifyStore`, install redirect, OAuth callback, webhook auto-registration (`shopifyRegisterWebhooks`, wrapped in `fp()` so the decoration is visible across encapsulated plugin contexts).

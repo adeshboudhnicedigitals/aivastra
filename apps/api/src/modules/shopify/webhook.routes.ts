@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
@@ -82,7 +82,12 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
               await app.db
                 .update(schema.shopifyProductGarments)
                 .set({ status: 'deleted' })
-                .where(eq(schema.shopifyProductGarments.shopifyProductId, payload.id));
+                .where(
+                  and(
+                    eq(schema.shopifyProductGarments.storeId, store.id),
+                    eq(schema.shopifyProductGarments.shopifyProductId, payload.id),
+                  ),
+                );
             }
             break;
           case 'customers_redact':
