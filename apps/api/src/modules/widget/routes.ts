@@ -204,6 +204,14 @@ export async function widgetRoutes(app: FastifyInstance) {
             .send({ message: "We're preparing this product for try-on. Check back in a moment." });
         }
 
+        if (!garment.enabled) {
+          // synced and active, but the merchant hasn't turned try-on on for this product —
+          // not a freshness problem, so no resync trigger here (would be pointless work).
+          return reply
+            .code(202)
+            .send({ message: 'This product is not available for try-on right now.' });
+        }
+
         resolvedGarmentKey = garment.r2Key;
         jobCost = app.env.SHOPIFY_JOB_COST;
         jobParams = {

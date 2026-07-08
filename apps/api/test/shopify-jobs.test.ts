@@ -40,6 +40,7 @@ beforeAll(async () => {
     shopifyVariantId: null,
     r2Key: `shopify-garments/${storeId}/88/garment.jpg`,
     status: 'active',
+    enabled: true,
   });
   const [wc] = await app.db
     .select()
@@ -100,5 +101,32 @@ describe('shopify widget job', () => {
       },
     });
     expect(res.statusCode).toBe(202);
+  });
+
+  it('returns 202 without resyncing when the product is active but not enabled', async () => {
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId,
+      shopifyProductId: 99,
+      shopifyVariantId: null,
+      r2Key: `shopify-garments/${storeId}/99/garment.jpg`,
+      status: 'active',
+      enabled: false,
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/widget/jobs',
+      headers: {
+        'x-widget-key': widgetKey,
+        'content-type': 'application/json',
+        origin: 'https://j.myshopify.com',
+      },
+      payload: {
+        shopifyProductId: 99,
+        customerPhotoKey: `widget-inputs/${widgetClientId}/photo.jpg`,
+      },
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json().message).not.toMatch(/preparing/i);
   });
 });
