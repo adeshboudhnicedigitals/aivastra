@@ -1,4 +1,43 @@
-## 2026-07-06 - Web Admin Users Phone Visibility
+## 2026-07-08 - Shopify Try-On Backend Slice (12-task vertical) + Full-Suite Verification
+
+### Done
+Backend vertical slice for the Shopify plugin, landed across 12 tasks on `feat/shopify-tryon-backend`:
+- **DB schema**: `shopify_stores`, `shopify_product_garments`, `shopify_plans`, `shopify_subscriptions` (and supporting columns/indexes) in `packages/db/src/schema/`, with migrations.
+- **Crypto + HMAC/session-token service** (`apps/api/src/modules/shopify/service.ts`): AES-256-GCM token encryption at rest, webhook HMAC verification, session-token style helpers.
+- **Admin plan CRUD**: `/admin/shopify-plans` (create/list/patch/delete/activeOnly filter).
+- **Auth plugin + OAuth install/callback**: `apps/api/src/modules/shopify/auth.routes.ts` — `upsertShopifyStore`, install redirect, OAuth callback, webhook auto-registration (`shopifyRegisterWebhooks`, wrapped in `fp()` so the decoration is visible across encapsulated plugin contexts).
+- **Webhooks + GDPR topics**: `apps/api/src/modules/shopify/webhook.routes.ts` — raw-body HMAC verification (scoped content-type parser, doesn't leak to sibling JSON routes), `app_uninstalled`, `app_subscriptions_update`, `products_update`, `products_delete`, `customers_data_request`, `customers_redact`, `shop_redact`.
+- **Product sync**: `apps/api/src/modules/shopify/products.sync.ts` — download + R2 upload, SSRF-guarded fetch.
+- **Widget-job extension**: `POST /v1/widget/jobs` now accepts `shopifyProductId`, resolves the garment from R2, tags `params.kind`; non-Shopify jobs persist `params` as `NULL` (not `{}`).
+- **Dispatcher branch**: `processShopifyJob` in `apps/dispatcher/src/job/processor.ts` + `shopify:sync` Redis-stream consumer for product-sync jobs.
+- **Billing**: Shopify plan selection + charge activation (`apps/api/src/modules/shopify/billing.routes.ts`), made credit-grant additive and replay-safe, and store-row-locked to prevent concurrent double-credit on repeated activation callbacks.
+
+**Full-suite verification (this entry's own task, Task 12):**
+- `pnpm --filter @aivastra/api test`: **78/78 passing**, all 11 shopify-*.test.ts files green. `test/integration/**` (containing `jobs-create.test.ts`, `catalog.test.ts`, `e2e.test.ts` — the three pre-existing failures documented in `apps/api/vitest.config.ts`) stays excluded from this run per that config, so none of those three were even hit.
+- Along the way, this task's initial run surfaced a genuine new regression: `test/shopify-webhooks.test.ts` > "processes app/uninstalled" intermittently failed under full-suite load (reproduced twice in full-suite runs, never in 3 isolated single-file runs) because `webhook.routes.ts` sent `reply.code(200).send(...)` before its DB side effects (`shopifyStores.uninstalledAt`, `widgetClients.isActive`) were awaited — a real race with a production reliability gap (crash between send and continuation would silently drop the uninstall-deactivation, and Shopify wouldn't retry since it already got a 200). Fixed in `2607ed6` ("fix(api): shopify webhooks must complete DB writes before responding 200") by moving `reply.send()` to after the try/catch. Re-verified independently: 78/78 passing across two full-suite reruns post-fix.
+- `pnpm --filter @aivastra/api typecheck`, `pnpm --filter @aivastra/dispatcher build`, `pnpm --filter @aivastra/db typecheck`, `pnpm --filter @aivastra/types build`: all PASS.
+- `pnpm biome check apps/api apps/dispatcher packages/db packages/types --diagnostic-level=error`: PASS (184 files, 0 errors).
+- Added `SHOPIFY_*` vars to `.env.production.example`.
+
+### Failed / Not Done
+- Full workspace-wide `pnpm typecheck` (root) is not used as this task's gate: `apps/catalogues-web`'s `pricing/page.tsx` can hit `TS6053: File '.../.next/types/...' not found` when that app's `.next/types` build artifacts haven't been generated yet (only produced by `next build`/`next dev`, not by `tsc --noEmit` alone). This is environment/build-order state, not a real type error in any code this plan touches — `apps/catalogues-web` is the still-unfinished Phase 3 frontend (per `CLAUDE.md`) and this Shopify backend slice never touches it. Note: re-running `pnpm typecheck` at the workspace root in this session actually passed cleanly both times (the `.next/types` directory already existed at check time), consistent with this being a transient, generation-order artifact rather than a deterministic failure — scoped per-package typecheck/build (listed above) is what this task actually gates on.
+
+### Open Questions / Decisions
+- **Deferred to follow-on plans** (per the Task 12 brief, out of scope for this backend slice):
+  - `apps/shopify/` — Polaris embedded admin (Dashboard, Product Mapping, Appearance, Billing) consuming `/v1/shopify/me|products|analytics|settings`.
+  - `apps/shopify-extension/` — Shopify CLI theme app extension (`tryon-block.liquid`, `tryon-widget.js`).
+  - `apps/admin-web` + `apps/admin-mobile` internal admin views for Shopify plans + store data (Admin Parity Rule applies once this lands).
+  - ComfyUI workflow template for Shopify try-on (`workflow_templates` row) + the customer-photo face-detectability 400 path — needs the real workflow JSON, own task.
+  - Overage/top-up usage charges (`POST /usage_charges`) — add once base billing ships.
+  - `GET /v1/shopify/analytics`, `PATCH /settings`, `DELETE`/`POST /products/:id` admin endpoints — thin, land with the embedded-admin plan.
+- **Test-coverage / CI gaps found during this verification session** (real, currently-true facts about repo state, not fixed here):
+  - `apps/dispatcher`'s `test/integration/` suite (happy-path, recovery, retry, watermark-*) is entirely orphaned from any `package.json` script or CI job — nothing currently runs it.
+  - `happy-path.test.ts`, `recovery.test.ts`, and `retry.test.ts` in that same orphaned suite independently fail due to `catalog_items.type` NOT NULL schema drift — confirmed pre-existing (via `git stash` against a clean checkout in an earlier task on this branch), unrelated to the Shopify work.
+  - No test exists for the non-Shopify garment-URL success path in `POST /v1/widget/jobs` (`apps/api/src/modules/widget/routes.ts`) — a pre-existing gap, found while extending that route for Shopify jobs.
+
+### Commit
+`2607ed6` — fix(api): shopify webhooks must complete DB writes before responding 200
+
 
 ### Done
 - Switched focus from `admin-mobile` to real web admin app in `apps/admin-web`.
