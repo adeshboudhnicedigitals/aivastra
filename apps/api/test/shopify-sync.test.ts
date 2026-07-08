@@ -79,4 +79,108 @@ describe('syncProduct', () => {
     expect(row.status).toBe('failed');
     expect(row.failedReason).toBeTruthy();
   });
+
+  it('requests redirect: "error" and a live AbortSignal, so a CDN redirect to an off-allowlist host is never followed', async () => {
+    let capturedInit: RequestInit | undefined;
+    const fakeFetch = (async (_url: string, init?: RequestInit) => {
+      capturedInit = init;
+      return {
+        ok: true,
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+        headers: new Map([['content-type', 'image/jpeg']]),
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await syncProduct(
+      app,
+      storeId,
+      { id: 44, image: { src: 'https://cdn.shopify.com/redirect-check.jpg' } },
+      fakeFetch,
+    );
+    expect(capturedInit?.redirect).toBe('error');
+    expect(capturedInit?.signal).toBeInstanceOf(AbortSignal);
+
+    // Simulate what real fetch does when redirect: 'error' hits a 3xx: it throws instead
+    // of following it, which must land in the existing failed-status path.
+    const redirectingFetch = (async () => {
+      throw new TypeError('unexpected redirect');
+    }) as unknown as typeof fetch;
+    await syncProduct(
+      app,
+      storeId,
+      { id: 45, image: { src: 'https://cdn.shopify.com/redirects-elsewhere.jpg' } },
+      redirectingFetch,
+    );
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 45),
+        ),
+      );
+    expect(row.status).toBe('failed');
+    expect(row.failedReason).toContain('redirect');
+  });
+
+  it('marks failed when the content-length header exceeds the 10MB cap, without downloading the body', async () => {
+    let arrayBufferCalled = false;
+    const fakeFetch = (async () =>
+      ({
+        ok: true,
+        arrayBuffer: async () => {
+          arrayBufferCalled = true;
+          return new Uint8Array([1, 2, 3]).buffer;
+        },
+        headers: new Map([
+          ['content-type', 'image/jpeg'],
+          ['content-length', String(11 * 1024 * 1024)],
+        ]),
+      }) as unknown as Response) as typeof fetch;
+    await syncProduct(
+      app,
+      storeId,
+      { id: 46, image: { src: 'https://cdn.shopify.com/big.jpg' } },
+      fakeFetch,
+    );
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 46),
+        ),
+      );
+    expect(row.status).toBe('failed');
+    expect(row.failedReason).toContain('10MB');
+    expect(arrayBufferCalled).toBe(false);
+  });
+
+  it('marks failed when the actual downloaded body exceeds the 10MB cap (no content-length header)', async () => {
+    const oversized = new Uint8Array(11 * 1024 * 1024);
+    const fakeFetch = (async () =>
+      ({
+        ok: true,
+        arrayBuffer: async () => oversized.buffer,
+        headers: new Map([['content-type', 'image/jpeg']]),
+      }) as unknown as Response) as typeof fetch;
+    await syncProduct(
+      app,
+      storeId,
+      { id: 47, image: { src: 'https://cdn.shopify.com/big-no-header.jpg' } },
+      fakeFetch,
+    );
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 47),
+        ),
+      );
+    expect(row.status).toBe('failed');
+    expect(row.failedReason).toContain('10MB');
+  });
 });
