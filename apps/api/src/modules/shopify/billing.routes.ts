@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
-import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
+import { SHOPIFY_API_VERSION } from './service.js';
 
 /**
  * Activates a Shopify recurring charge for a store: links the store to the chosen
@@ -107,18 +107,49 @@ export async function shopifyBillingRoutes(app: FastifyInstance) {
     return { confirmationUrl: charge.confirmation_url };
   });
 
+  // Shopify does NOT sign this redirect with an HMAC (confirmed against live
+  // Shopify: recurring_application_charge return_url callbacks carry no hmac
+  // param, unlike OAuth install/webhooks). Trusting the query string alone
+  // would let anyone hit this URL with an arbitrary shop/charge_id/planId and
+  // mint free credits. Instead, verify server-to-server: look up the store's
+  // own access token, fetch the specific charge FROM SHOPIFY, and only
+  // activate if it's genuinely 'active' and its price matches the plan being
+  // activated (guards against a tampered planId paired with a real charge for
+  // a cheaper plan).
   app.get('/v1/shopify/billing/callback', async (req, reply) => {
     const q = req.query as Record<string, string>;
-    if (!verifyQueryHmac(q, app.env.SHOPIFY_API_SECRET ?? '')) {
-      throw new AppError('FORBIDDEN', 403, 'bad hmac');
-    }
     const [store] = await app.db
       .select()
       .from(schema.shopifyStores)
       .where(eq(schema.shopifyStores.shopDomain, q.shop))
       .limit(1);
     if (!store) throw new AppError('NOT_FOUND', 404, 'store not found');
-    await activateCharge(app, store.id, q.planId, Number(q.charge_id));
+
+    const [plan] = await app.db
+      .select()
+      .from(schema.shopifyPlans)
+      .where(eq(schema.shopifyPlans.id, q.planId))
+      .limit(1);
+    if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
+
+    const token = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
+    const chargeId = Number(q.charge_id);
+    const chargeRes = await fetch(
+      `https://${q.shop}/admin/api/${SHOPIFY_API_VERSION}/recurring_application_charges/${chargeId}.json`,
+      { headers: { 'X-Shopify-Access-Token': token } },
+    );
+    if (!chargeRes.ok) throw new AppError('FORBIDDEN', 403, 'charge not found for this store');
+    const { recurring_application_charge: charge } = (await chargeRes.json()) as {
+      recurring_application_charge: { status: string; price: string; name: string };
+    };
+    if (charge.status !== 'active') {
+      throw new AppError('FORBIDDEN', 403, `charge not active (status: ${charge.status})`);
+    }
+    if (charge.price !== (plan.priceCents / 100).toFixed(2) || charge.name !== plan.name) {
+      throw new AppError('FORBIDDEN', 403, 'charge does not match plan');
+    }
+
+    await activateCharge(app, store.id, q.planId, chargeId);
     return reply.redirect(`${app.env.SHOPIFY_APP_URL}/embedded?shop=${q.shop}&billing=active`);
   });
 }
