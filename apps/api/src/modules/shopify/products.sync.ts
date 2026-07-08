@@ -19,6 +19,8 @@ interface FetchLikeResponse {
 type FetchLike = (url: string, init?: RequestInit) => Promise<FetchLikeResponse>;
 
 const ALLOWED_HOSTS = /(^|\.)(myshopify\.com|shopify\.com|cdn\.shopify\.com)$/;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const FETCH_TIMEOUT_MS = 10_000;
 
 // Shopify product-level garment rows (no specific variant) are stored with this
 // sentinel instead of NULL. Postgres UNIQUE constraints treat every NULL as distinct
@@ -76,9 +78,27 @@ export async function syncProduct(
   }
   try {
     assertShopifyCdn(src);
-    const res = await fetchFn(src);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    let res: FetchLikeResponse;
+    try {
+      // redirect: 'error' stops assertShopifyCdn's host allowlist from being bypassed by
+      // a redirect (e.g. 302 from an allowed host to an arbitrary/internal host) — fetch
+      // throws instead of following it, which the outer catch below already handles.
+      res = await fetchFn(src, { redirect: 'error', signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!res.ok) throw new Error(`download HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
+    const contentLength = res.headers.get('content-length');
+    if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_BYTES) {
+      throw new Error('product image exceeds 10MB');
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    if (arrayBuffer.byteLength > MAX_IMAGE_BYTES) {
+      throw new Error('product image exceeds 10MB');
+    }
+    const buf = Buffer.from(arrayBuffer);
     const ct = res.headers.get('content-type') ?? 'image/jpeg';
     await app.storage.putObject(r2Key, buf, ct);
     await upsertGarment(app, storeId, product.id, r2Key, 'active');

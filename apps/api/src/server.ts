@@ -73,10 +73,24 @@ export async function buildServer(env: Env) {
       },
     },
   });
+  // In-process TTL cache in front of the widgetClients allowed-origins lookup below.
+  // Without it, every cross-origin request whose Origin isn't env.CORS_ORIGIN (every
+  // storefront/widget request, every preflight, any attacker-supplied Origin) triggers
+  // a full Postgres query. 30s staleness is an accepted tradeoff (see CLAUDE.md task notes);
+  // this is not a cache-invalidation-on-write system.
+  const originCache = new Map<string, { allowed: boolean; expiresAt: number }>();
+  const ORIGIN_CACHE_TTL_MS = 30_000;
+  const ORIGIN_CACHE_MAX_ENTRIES = 10_000;
+
   await app.register(cors, {
     origin: async (origin: string | undefined) => {
       if (!origin) return false;
       if (origin === env.CORS_ORIGIN) return true;
+
+      const now = Date.now();
+      const cached = originCache.get(origin);
+      if (cached && cached.expiresAt > now) return cached.allowed;
+
       const [row] = await app.db
         .select({ id: schema.widgetClients.id })
         .from(schema.widgetClients)
@@ -87,7 +101,12 @@ export async function buildServer(env: Env) {
           ),
         )
         .limit(1);
-      return !!row;
+      const allowed = !!row;
+      // Cap unbounded growth from a flood of distinct attacker-supplied Origins; a full
+      // clear is simple and fine since worst case is a handful of extra DB hits.
+      if (originCache.size >= ORIGIN_CACHE_MAX_ENTRIES) originCache.clear();
+      originCache.set(origin, { allowed, expiresAt: now + ORIGIN_CACHE_TTL_MS });
+      return allowed;
     },
     credentials: true,
   });
