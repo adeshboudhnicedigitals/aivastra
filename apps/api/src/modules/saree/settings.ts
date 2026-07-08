@@ -9,6 +9,7 @@ export interface SareeSettingsRow {
   modelImageThumbKey: string | null;
   sampleSareeImageKey: string | null;
   sampleSareeImageThumbKey: string | null;
+  workflowTemplateId: string | null;
 }
 
 export async function getSareeSettings(db: DB): Promise<SareeSettingsRow | null> {
@@ -18,6 +19,7 @@ export async function getSareeSettings(db: DB): Promise<SareeSettingsRow | null>
       modelImageThumbKey: schema.sareeSettings.modelImageThumbKey,
       sampleSareeImageKey: schema.sareeSettings.sampleSareeImageKey,
       sampleSareeImageThumbKey: schema.sareeSettings.sampleSareeImageThumbKey,
+      workflowTemplateId: schema.sareeSettings.workflowTemplateId,
     })
     .from(schema.sareeSettings)
     .where(eq(schema.sareeSettings.id, SETTINGS_ID));
@@ -31,6 +33,7 @@ export async function upsertSareeSettings(
     modelImageThumbKey?: string | null;
     sampleSareeImageKey?: string | null;
     sampleSareeImageThumbKey?: string | null;
+    workflowTemplateId?: string | null;
   },
 ): Promise<void> {
   await db

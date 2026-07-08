@@ -38,7 +38,12 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
     const orphaned = await db
       .select(SELECT_COLS)
       .from(schema.jobs)
-      .where(and(eq(schema.jobs.status, 'QUEUED'), lte(schema.jobs.createdAt, queuedThreshold)))
+      .where(
+        and(
+          eq(schema.jobs.status, 'QUEUED'),
+          lte(schema.jobs.createdAt, sql`${queuedThreshold.toISOString()}`),
+        ),
+      )
       .limit(50);
 
     // Pass 2 — jobs stuck mid-flight after a dispatcher crash. The processor's
@@ -50,7 +55,10 @@ export async function runSweeper(db: DB, pub: Redis, log: Logger): Promise<void>
       .where(
         and(
           inArray(schema.jobs.status, IN_FLIGHT_STATES),
-          lte(sql`coalesce(${schema.jobs.startedAt}, ${schema.jobs.createdAt})`, inFlightThreshold),
+          lte(
+            sql`coalesce(${schema.jobs.startedAt}, ${schema.jobs.createdAt})`,
+            sql`${inFlightThreshold.toISOString()}`,
+          ),
         ),
       )
       .limit(50);

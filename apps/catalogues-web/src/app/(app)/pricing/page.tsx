@@ -4,16 +4,11 @@ import {
   ArrowRight,
   BarChart2,
   Building2,
-  Cpu,
-  Headphones,
   Image,
   ImagePlus,
   Info,
-  RefreshCw,
   Rocket,
-  ShieldCheck,
   Shirt,
-  TrendingUp,
 } from 'lucide-react';
 
 import { useRouter } from 'next/navigation';
@@ -745,26 +740,25 @@ export default function PricingPage(): React.ReactElement {
       {/* Pricing cards */}
       <div style={{ background: C.bg }}>
         {activeTab === 'tryon' && (
-          <div style={{ padding: '0 24px 48px', maxWidth: 1080, margin: '0 auto' }}>
+          <div style={{ padding: '0 10px 48px', maxWidth: 1320, margin: '0 auto' }}>
             {/* Two option cards */}
             <div
               style={{
                 display: 'flex',
                 gap: 20,
                 alignItems: 'stretch',
-                flexWrap: 'wrap',
                 justifyContent: 'center',
               }}
             >
               {/* Option 2 — Only Try-On */}
               <div
                 style={{
-                  width: 330,
+                  width: 410,
                   flex: '0 0 auto',
                   background: C.card,
                   border: `2px solid color-mix(in srgb, ${C.mid} 30%, transparent)`,
                   borderRadius: 20,
-                  padding: 32,
+                  padding: 24,
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 20,
@@ -905,7 +899,7 @@ export default function PricingPage(): React.ReactElement {
                       <ImagePlus size={14} color={C.text} />
                     </span>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
                         ₹15 per Image
                       </div>
                       <div style={{ fontSize: 10, color: C.mid, marginTop: 1 }}>
@@ -948,12 +942,12 @@ export default function PricingPage(): React.ReactElement {
               {/* Option 1 — Virtual Try-On + Catalogue */}
               <div
                 style={{
-                  width: 330,
+                  width: 410,
                   flex: '0 0 auto',
                   background: C.card,
                   border: `2px solid color-mix(in srgb, ${C.pink} 40%, transparent)`,
                   borderRadius: 20,
-                  padding: 32,
+                  padding: 24,
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 20,
@@ -1152,7 +1146,7 @@ export default function PricingPage(): React.ReactElement {
                             {a.icon}
                           </span>
                           <div>
-                            <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>
+                            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
                               {a.val}
                             </div>
                             <div style={{ fontSize: 10, color: C.mid }}>{a.label}</div>
@@ -1196,12 +1190,12 @@ export default function PricingPage(): React.ReactElement {
               {/* Option 3 — copy of Option 2 */}
               <div
                 style={{
-                  width: 330,
+                  width: 410,
                   flex: '0 0 auto',
                   background: C.card,
                   border: `2px solid color-mix(in srgb, ${C.mid} 30%, transparent)`,
                   borderRadius: 20,
-                  padding: 32,
+                  padding: 24,
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 20,
@@ -1342,7 +1336,7 @@ export default function PricingPage(): React.ReactElement {
                       <ImagePlus size={14} color={C.text} />
                     </span>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
                         ₹15 per Image
                       </div>
                       <div style={{ fontSize: 10, color: C.mid, marginTop: 1 }}>
@@ -1381,40 +1375,6 @@ export default function PricingPage(): React.ReactElement {
                   Contact Sales <ArrowRight size={14} />
                 </button>
               </div>
-            </div>
-
-            {/* Shared features footer */}
-            <div
-              style={{
-                marginTop: 32,
-                borderTop: `1px solid ${C.border}`,
-                padding: '16px 0',
-                display: 'flex',
-                flexWrap: 'wrap',
-                justifyContent: 'center',
-                gap: '4px 24px',
-              }}
-            >
-              {(
-                [
-                  {
-                    icon: <ShieldCheck size={15} color={C.mid} />,
-                    label: 'Enterprise Grade Security',
-                  },
-                  { icon: <Cpu size={15} color={C.mid} />, label: 'High Performance GPU Servers' },
-                  { icon: <Headphones size={15} color={C.mid} />, label: 'Priority Support' },
-                  {
-                    icon: <TrendingUp size={15} color={C.mid} />,
-                    label: 'Scalable for Your Growth',
-                  },
-                  { icon: <RefreshCw size={15} color={C.mid} />, label: 'Regular Feature Updates' },
-                ] as const
-              ).map((f) => (
-                <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {f.icon}
-                  <span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>{f.label}</span>
-                </div>
-              ))}
             </div>
           </div>
         )}

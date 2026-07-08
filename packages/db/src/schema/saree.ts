@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { workflowTemplates } from './models.js';
 
 // Single-row global settings for the saree try-on feature.
 // Mirrors tryon_settings — only one row ever exists, upsert with fixed id
@@ -10,5 +11,8 @@ export const sareeSettings = pgTable('saree_settings', {
   modelImageThumbKey: text('model_image_thumb_key'),
   sampleSareeImageKey: text('sample_saree_image_key'),
   sampleSareeImageThumbKey: text('sample_saree_image_thumb_key'),
+  workflowTemplateId: uuid('workflow_template_id').references(() => workflowTemplates.id, {
+    onDelete: 'set null',
+  }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
