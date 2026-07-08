@@ -63,7 +63,15 @@ async function upsertGarment(
         schema.shopifyProductGarments.shopifyProductId,
         schema.shopifyProductGarments.shopifyVariantId,
       ],
-      set: { r2Key, title, status, failedReason: failedReason ?? null, syncedAt: sql`now()` },
+      // r2Key intentionally excluded: a merchant's chosen garment image (set via
+      // PATCH /v1/shopify/products/:id, stored at a distinct garment-<uuid>.jpg key)
+      // must survive routine product re-syncs (products/update webhook fires on any
+      // edit -- price, description, tags, ...). syncProduct always downloads to the
+      // same deterministic `garment.jpg` path regardless of any override, so a
+      // never-overridden row's r2Key already equals that path from its initial
+      // insert -- excluding it from the update changes nothing for that case, while
+      // correctly preserving an override.
+      set: { title, status, failedReason: failedReason ?? null, syncedAt: sql`now()` },
     });
 }
 

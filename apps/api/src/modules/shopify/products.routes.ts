@@ -63,6 +63,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         })
         .from(schema.shopifyProductGarments)
         .where(eq(schema.shopifyProductGarments.storeId, store.id))
+        .orderBy(schema.shopifyProductGarments.shopifyProductId)
         .limit(pageSize)
         .offset((page - 1) * pageSize);
 
