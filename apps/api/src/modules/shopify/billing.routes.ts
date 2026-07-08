@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
@@ -7,15 +7,15 @@ import { verifyQueryHmac } from './service.js';
 
 /**
  * Activates a Shopify recurring charge for a store: links the store to the chosen
- * plan/charge and resets (NOT tops up) the widget credit balance to
- * `plan.includedTryons * SHOPIFY_JOB_COST`.
+ * plan/charge and adds `plan.includedTryons * SHOPIFY_JOB_COST` to the widget credit
+ * balance (additive top-up, not an overwrite).
  *
- * NOTE (flagged for reviewer, see task-11 self-review): this is an overwrite, not an
- * additive top-up. If a store re-activates the same plan (double-fire callback) this
- * is harmless (same seed both times), but if a merchant switches plans mid-cycle after
- * spending some credits, or the callback fires twice with usage in between, this
- * discards the existing balance rather than adding to it. Implemented per the brief's
- * explicit pseudocode; not silently changed to additive.
+ * Idempotency: `billingPlanId` is set to the last activated `chargeId`. If this call is
+ * a replay of an already-processed charge (Shopify retry, double-clicked return URL),
+ * the store's `billingPlanId` (read fresh inside the transaction) will already match
+ * `chargeId` — in that case this is a no-op: no credit seed, no ledger row. The check is
+ * done inside the same transaction as the update to avoid a race between two
+ * near-simultaneous calls for the same charge.
  */
 export async function activateCharge(
   app: FastifyInstance,
@@ -24,6 +24,16 @@ export async function activateCharge(
   chargeId: number,
 ) {
   await app.db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ billingPlanId: schema.shopifyStores.billingPlanId })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, storeId))
+      .limit(1);
+    if (!existing) throw new AppError('NOT_FOUND', 404, 'store not found');
+    if (existing.billingPlanId === chargeId) {
+      // Replay of an already-activated charge — skip credit seed and ledger insert.
+      return;
+    }
     const [plan] = await tx
       .select()
       .from(schema.shopifyPlans)
@@ -38,7 +48,10 @@ export async function activateCharge(
     const seed = plan.includedTryons * app.env.SHOPIFY_JOB_COST;
     await tx
       .update(schema.widgetClientCredits)
-      .set({ balance: seed, updatedAt: new Date() })
+      .set({
+        balance: sql`${schema.widgetClientCredits.balance} + ${seed}`,
+        updatedAt: new Date(),
+      })
       .where(eq(schema.widgetClientCredits.widgetClientId, store.widgetClientId));
     await tx.insert(schema.widgetCreditLedger).values({
       widgetClientId: store.widgetClientId,
