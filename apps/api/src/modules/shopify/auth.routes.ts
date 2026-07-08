@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
-import { verifyQueryHmac } from './service.js';
+import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
 
 export interface ShopDetails {
   shopifyShopId: number;
@@ -137,7 +137,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     };
 
     // Fetch shop details
-    const shopRes = await fetch(`https://${q.shop}/admin/api/2024-01/shop.json`, {
+    const shopRes = await fetch(`https://${q.shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`, {
       headers: { 'X-Shopify-Access-Token': access_token },
     });
     if (!shopRes.ok) throw new AppError('SHOPIFY', 502, 'shop fetch failed');

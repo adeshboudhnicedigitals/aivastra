@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
-import { verifyQueryHmac } from './service.js';
+import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
 
 /**
  * Activates a Shopify recurring charge for a store: links the store to the chosen
@@ -85,7 +85,7 @@ export async function shopifyBillingRoutes(app: FastifyInstance) {
     const token = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
     const returnUrl = `${app.env.SHOPIFY_APP_URL}/v1/shopify/billing/callback?planId=${planId}&shop=${store.shopDomain}`;
     const res = await fetch(
-      `https://${store.shopDomain}/admin/api/2024-01/recurring_application_charges.json`,
+      `https://${store.shopDomain}/admin/api/${SHOPIFY_API_VERSION}/recurring_application_charges.json`,
       {
         method: 'POST',
         headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },

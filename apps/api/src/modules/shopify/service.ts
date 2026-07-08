@@ -1,6 +1,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
 
+// Shopify Admin API version used by every outbound call in this module.
+// Shopify retires versions ~1 year after release — bump this centrally,
+// not per-callsite, so it never goes stale in only some places.
+export const SHOPIFY_API_VERSION = '2026-07';
+
 function safeEq(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
