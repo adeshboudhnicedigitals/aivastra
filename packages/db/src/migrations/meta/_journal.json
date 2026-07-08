@@ -631,6 +631,13 @@
       "when": 1783514059883,
       "tag": "0089_backfill_migration_history",
       "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1783514405883,
+      "tag": "0090_shopify_product_garments_enabled_title",
+      "breakpoints": true
     }
   ]
 }

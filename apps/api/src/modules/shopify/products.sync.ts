@@ -5,6 +5,7 @@ import { SHOPIFY_API_VERSION } from './service.js';
 
 interface ShopifyProduct {
   id: number;
+  title: string;
   image?: { src?: string } | null;
 }
 
@@ -41,6 +42,7 @@ async function upsertGarment(
   storeId: string,
   productId: number,
   r2Key: string,
+  title: string,
   status: string,
   failedReason?: string,
 ) {
@@ -51,6 +53,7 @@ async function upsertGarment(
       shopifyProductId: productId,
       shopifyVariantId: NO_VARIANT_SENTINEL,
       r2Key,
+      title,
       status,
       failedReason,
     })
@@ -60,7 +63,7 @@ async function upsertGarment(
         schema.shopifyProductGarments.shopifyProductId,
         schema.shopifyProductGarments.shopifyVariantId,
       ],
-      set: { r2Key, status, failedReason: failedReason ?? null, syncedAt: sql`now()` },
+      set: { r2Key, title, status, failedReason: failedReason ?? null, syncedAt: sql`now()` },
     });
 }
 
@@ -73,7 +76,15 @@ export async function syncProduct(
   const r2Key = `shopify-garments/${storeId}/${product.id}/garment.jpg`;
   const src = product.image?.src;
   if (!src) {
-    await upsertGarment(app, storeId, product.id, r2Key, 'failed', 'no product image');
+    await upsertGarment(
+      app,
+      storeId,
+      product.id,
+      r2Key,
+      product.title,
+      'failed',
+      'no product image',
+    );
     return;
   }
   try {
@@ -101,10 +112,18 @@ export async function syncProduct(
     const buf = Buffer.from(arrayBuffer);
     const ct = res.headers.get('content-type') ?? 'image/jpeg';
     await app.storage.putObject(r2Key, buf, ct);
-    await upsertGarment(app, storeId, product.id, r2Key, 'active');
+    await upsertGarment(app, storeId, product.id, r2Key, product.title, 'active');
   } catch (err) {
     app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
-    await upsertGarment(app, storeId, product.id, r2Key, 'failed', (err as Error).message);
+    await upsertGarment(
+      app,
+      storeId,
+      product.id,
+      r2Key,
+      product.title,
+      'failed',
+      (err as Error).message,
+    );
   }
 }
 
