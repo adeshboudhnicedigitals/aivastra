@@ -320,7 +320,10 @@ export async function widgetRoutes(app: FastifyInstance) {
       throw new AppError('NOT_FOUND', 404, 'Job not found');
     }
 
-    return reply.send(job);
+    return reply.send({
+      ...job,
+      resultUrl: job.resultKey ? app.storage.publicUrl(job.resultKey) : null,
+    });
   });
 
   app.delete('/v1/widget/jobs/:id', { preHandler: app.requireWidgetClient }, async (req, reply) => {
