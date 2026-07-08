@@ -94,3 +94,38 @@ describe('GET /v1/shopify/products', () => {
     expect(body.total).toBe(2);
   });
 });
+
+describe('GET /v1/shopify/products/:id/images', () => {
+  it('returns the live image list from Shopify for that product', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      expect(url).toContain('/products/1/images.json');
+      return {
+        ok: true,
+        json: async () => ({
+          images: [
+            { id: 111, src: 'https://cdn.shopify.com/s/files/1/one.jpg' },
+            { id: 222, src: 'https://cdn.shopify.com/s/files/1/two.jpg' },
+          ],
+        }),
+      } as Response;
+    }) as typeof fetch;
+
+    try {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/shopify/products/1/images',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        images: [
+          { id: 111, src: 'https://cdn.shopify.com/s/files/1/one.jpg' },
+          { id: 222, src: 'https://cdn.shopify.com/s/files/1/two.jpg' },
+        ],
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});

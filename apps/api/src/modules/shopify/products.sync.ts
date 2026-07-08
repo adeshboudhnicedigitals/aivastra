@@ -31,7 +31,7 @@ const FETCH_TIMEOUT_MS = 10_000;
 // Real Shopify variant IDs are large positive bigints, so 0 can never collide with one.
 const NO_VARIANT_SENTINEL = 0;
 
-function assertShopifyCdn(url: string): void {
+export function assertShopifyCdn(url: string): void {
   const u = new URL(url);
   if (u.protocol !== 'https:') throw new Error('image url must be https');
   if (!ALLOWED_HOSTS.test(u.hostname)) throw new Error(`image host not allowed: ${u.hostname}`);
