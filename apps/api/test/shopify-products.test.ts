@@ -1,4 +1,5 @@
 import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -124,6 +125,104 @@ describe('GET /v1/shopify/products/:id/images', () => {
           { id: 222, src: 'https://cdn.shopify.com/s/files/1/two.jpg' },
         ],
       });
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
+describe('PATCH /v1/shopify/products/:id', () => {
+  it('rejects enabling a product that is not active', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/shopify/products/2',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: { enabled: true },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('enables an active product', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/shopify/products/1',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: { enabled: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().enabled).toBe(true);
+  });
+
+  it('disables a product regardless of status', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/shopify/products/2',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: { enabled: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().enabled).toBe(false);
+  });
+
+  it("rejects a garmentImageUrl not in the product's real Shopify image list", async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async () =>
+      ({
+        ok: true,
+        json: async () => ({
+          images: [{ id: 1, src: 'https://cdn.shopify.com/s/files/1/real.jpg' }],
+        }),
+      }) as Response) as typeof fetch;
+
+    try {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/shopify/products/1',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        payload: { garmentImageUrl: 'https://cdn.shopify.com/s/files/1/fake.jpg' },
+      });
+      expect(res.statusCode).toBe(400);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it("swaps the garment image to a real one from the product's image list", async () => {
+    const originalFetch = global.fetch;
+    let downloadedFrom: string | undefined;
+    global.fetch = (async (url: string) => {
+      if (url.includes('/images.json')) {
+        return {
+          ok: true,
+          json: async () => ({
+            images: [{ id: 1, src: 'https://cdn.shopify.com/s/files/1/new.jpg' }],
+          }),
+        } as Response;
+      }
+      downloadedFrom = url;
+      return {
+        ok: true,
+        redirected: false,
+        arrayBuffer: async () => new ArrayBuffer(4),
+        headers: { get: () => 'image/jpeg' },
+      } as unknown as Response;
+    }) as typeof fetch;
+
+    try {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/shopify/products/1',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        payload: { garmentImageUrl: 'https://cdn.shopify.com/s/files/1/new.jpg' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(downloadedFrom).toBe('https://cdn.shopify.com/s/files/1/new.jpg');
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(eq(schema.shopifyProductGarments.shopifyProductId, 1));
+      expect(row.r2Key).not.toBe(`shopify-garments/${storeId}/1/garment.jpg`);
+      expect(row.r2Key).toContain(`shopify-garments/${storeId}/1/garment-`);
     } finally {
       global.fetch = originalFetch;
     }
