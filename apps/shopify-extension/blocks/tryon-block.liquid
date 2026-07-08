@@ -1,0 +1,71 @@
+{% comment %}
+  Renders a "Try It On" button + upload modal for the current product.
+  Silently renders nothing if the store's widget_key metafield is missing
+  (install incomplete, or metafield write failed) — a missing/broken
+  button is safer on a live storefront than one that always errors.
+{% endcomment %}
+
+{%- assign widget_key = shop.metafields.aivastra.widget_key -%}
+{%- if widget_key != blank -%}
+  <div
+    class="aivastra-tryon"
+    data-widget-key="{{ widget_key }}"
+    data-product-id="{{ product.id }}"
+    data-api-base="{{ block.settings.api_base | default: 'https://api.aivastra.com' }}"
+  >
+    <button type="button" class="aivastra-tryon__button">
+      {{ 'tryon.button_label' | t }}
+    </button>
+
+    <div class="aivastra-tryon__modal" hidden>
+      <div class="aivastra-tryon__modal-content">
+        <button type="button" class="aivastra-tryon__close" aria-label="Close">&times;</button>
+
+        <div class="aivastra-tryon__step aivastra-tryon__step--upload">
+          <p>{{ 'tryon.upload_prompt' | t }}</p>
+          <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
+        </div>
+
+        <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
+          <p>{{ 'tryon.generating' | t }}</p>
+        </div>
+
+        <div class="aivastra-tryon__step aivastra-tryon__step--pending" hidden>
+          <p>{{ 'tryon.pending' | t }}</p>
+        </div>
+
+        <div class="aivastra-tryon__step aivastra-tryon__step--result" hidden>
+          <img class="aivastra-tryon__result-image" alt="{{ 'tryon.result_alt' | t }}" />
+          <button type="button" class="aivastra-tryon__retry">
+            {{ 'tryon.try_another' | t }}
+          </button>
+        </div>
+
+        <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
+          <p>{{ 'tryon.error' | t }}</p>
+          <button type="button" class="aivastra-tryon__retry">
+            {{ 'tryon.try_again' | t }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{ 'tryon-widget.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'tryon-widget.js' | asset_url }}" defer></script>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Try It On",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "api_base",
+      "label": "API base URL",
+      "default": "https://api.aivastra.com"
+    }
+  ]
+}
+{% endschema %}
