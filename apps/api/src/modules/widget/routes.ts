@@ -170,7 +170,7 @@ export async function widgetRoutes(app: FastifyInstance) {
       }
 
       let resolvedGarmentKey: string | null = null;
-      let jobParams: Record<string, unknown> = {};
+      let jobParams: Record<string, unknown> | null = null;
       let jobCost = WIDGET_JOB_COST;
 
       if (shopifyProductId) {
