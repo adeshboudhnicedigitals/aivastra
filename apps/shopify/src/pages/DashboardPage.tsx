@@ -35,6 +35,7 @@ export default function DashboardPage() {
                 </Text>
                 <Text as="p">Credit balance: {me?.credits ?? 0}</Text>
                 <Link to="/billing">Manage billing</Link>
+                <Link to="/products">Manage products</Link>
               </>
             )}
           </Card>
