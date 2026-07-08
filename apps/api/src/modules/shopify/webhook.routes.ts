@@ -124,21 +124,33 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
 export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
   app.decorate('shopifyRegisterWebhooks', async (shop: string, token: string) => {
     const base = `${app.env.SHOPIFY_APP_URL}/v1/shopify/webhooks`;
+    // GDPR/compliance topics (customers/data_request, customers/redact, shop/redact)
+    // are NOT registered here — Shopify's webhooks.json API rejects them with a 404
+    // ("Could not find the webhook topic"), confirmed live. Those three are
+    // configured once, app-wide, in Partners → app → Configuration →
+    // "Compliance webhooks" (or shopify.app.toml's webhooks.privacy_compliance
+    // for CLI-managed apps) — they apply automatically to every install, no
+    // per-shop registration call exists for them.
     const map: Record<string, string> = {
       'app/uninstalled': `${base}/app_uninstalled`,
       'app_subscriptions/update': `${base}/app_subscriptions_update`,
       'products/update': `${base}/products_update`,
       'products/delete': `${base}/products_delete`,
-      'customers/data_request': `${base}/customers_data_request`,
-      'customers/redact': `${base}/customers_redact`,
-      'shop/redact': `${base}/shop_redact`,
     };
     for (const [topic, address] of Object.entries(map)) {
-      await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`, {
-        method: 'POST',
-        headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webhook: { topic, address, format: 'json' } }),
-      }).catch((err) => app.log.error({ err, topic }, 'webhook registration failed'));
+      try {
+        const res = await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`, {
+          method: 'POST',
+          headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ webhook: { topic, address, format: 'json' } }),
+        });
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          app.log.error({ topic, status: res.status, body }, 'webhook registration failed');
+        }
+      } catch (err) {
+        app.log.error({ err, topic }, 'webhook registration failed');
+      }
     }
   });
 });
