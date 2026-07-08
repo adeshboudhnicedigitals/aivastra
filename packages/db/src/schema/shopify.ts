@@ -17,6 +17,7 @@ export interface ShopifyStoreSettings {
   position?: string;
   customCss?: string;
   workflowTemplateId?: string;
+  themeBlockConfirmed?: boolean;
 }
 
 export const shopifyPlans = pgTable('shopify_plans', {
