@@ -3,6 +3,7 @@ import { Icon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
+import type { WorkflowOption } from '../types';
 
 // Local types — these mirror the @aivastra/types saree schemas but are inlined
 // here to avoid a runtime dependency on the types package from the admin SPA.
@@ -32,6 +33,7 @@ interface AdminSareeSettings {
   sampleSareeImageThumbKey: string | null;
   sampleSareeImageUrl: string | null;
   sampleSareeImageThumbUrl: string | null;
+  workflowTemplateId: string | null;
   isConfigured: boolean;
 }
 
@@ -92,6 +94,9 @@ export default function SareePage({ toast, onNav }: Props) {
   const [uploadingSample, setUploadingSample] = useState(false);
   const sampleInputRef = useRef<HTMLInputElement>(null);
 
+  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
+  const [savingWorkflowId, setSavingWorkflowId] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoadingWorkflow(true);
     try {
@@ -106,6 +111,9 @@ export default function SareePage({ toast, onNav }: Props) {
       else setSettings(null);
       if (ws.status === 'fulfilled') setWorkers(ws.value);
       else setWorkers([]);
+      void apiFetch<WorkflowOption[]>('/admin/workflows')
+        .then((wfs) => setWorkflows(wfs.filter((w) => w.workflowType === 'tryon')))
+        .catch(() => {});
     } finally {
       setLoadingWorkflow(false);
     }
@@ -279,6 +287,28 @@ export default function SareePage({ toast, onNav }: Props) {
     }
   };
 
+  const handleWorkflowChange = async (workflowTemplateId: string) => {
+    setSavingWorkflowId(true);
+    try {
+      await apiFetch('/admin/saree-settings', {
+        method: 'PATCH',
+        body: JSON.stringify({ workflowTemplateId: workflowTemplateId || null }),
+      });
+      setSettings((prev) =>
+        prev ? { ...prev, workflowTemplateId: workflowTemplateId || null } : null,
+      );
+      toast({ title: workflowTemplateId ? 'Tryon workflow saved' : 'Tryon workflow cleared' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save workflow',
+        body: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setSavingWorkflowId(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div
@@ -358,7 +388,41 @@ export default function SareePage({ toast, onNav }: Props) {
         style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>2. Model Image</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>2. Tryon Workflow Mapping</span>
+        </div>
+        <p style={{ margin: 0, fontSize: 11, color: 'var(--muted)' }}>
+          Select which tryon workflow to use for saree catalogue generation. This maps the saree
+          garment type to a specific tryon workflow template, just like garment types in Assets.
+        </p>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <select
+            className="select"
+            style={{ maxWidth: 400 }}
+            value={settings?.workflowTemplateId ?? ''}
+            disabled={savingWorkflowId}
+            onChange={(e) => {
+              const id = e.target.value;
+              void handleWorkflowChange(id);
+            }}
+          >
+            <option value="">— none —</option>
+            {workflows.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label}
+                {!w.isActive ? ' (inactive)' : ''}
+              </option>
+            ))}
+          </select>
+          {savingWorkflowId && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Saving…</span>}
+        </div>
+      </div>
+
+      <div
+        className="card"
+        style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>3. Model Image</span>
         </div>
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
           <div
@@ -448,7 +512,7 @@ export default function SareePage({ toast, onNav }: Props) {
         style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>3. Sample Saree Image</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>4. Sample Saree Image</span>
         </div>
         <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
           <div
@@ -538,7 +602,7 @@ export default function SareePage({ toast, onNav }: Props) {
         style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>4. Worker Selection</span>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>5. Worker Selection</span>
           <button className="btn ghost sm" onClick={() => onNav('workers')}>
             Edit workers →
           </button>

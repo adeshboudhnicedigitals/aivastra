@@ -545,7 +545,7 @@ export default function SareePage() {
             }}
           >
             <span style={{ fontSize: 18, fontWeight: 600, color: C.text }}>
-              Your Saree Try-On Preview
+              Your Saree Catalogues Preview
             </span>
             {resultUrl && (
               <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>

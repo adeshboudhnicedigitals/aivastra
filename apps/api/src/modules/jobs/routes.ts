@@ -165,54 +165,76 @@ export async function jobsRoutes(app: FastifyInstance) {
   });
 
   // GET /v1/tryon/garment-images — caller's own completed catalog images eligible
-  // for reuse as a simple-tryon garment: must carry a garmentTypeId whose garment
-  // type has a tryonCategoryId mapped by admin, and that category + its workflow
-  // template must still be active (admin kill-switch parity with job creation —
-  // see createSimpleTryonJob). Inner joins do the eligibility filtering.
-  // poseId IS NOT NULL restricts this to Studio-flow jobs (createJob always sets
-  // poseId; simple-tryon jobs from createSimpleTryonJob never do) — excludes
-  // tryon-generated images from chaining into further tryon jobs.
+  // for reuse as a simple-tryon garment: Studio-flow jobs with an active tryon category
+  // chain, plus saree catalogue jobs whose saree_settings has an active tryon workflow
+  // mapped (see createSimpleTryonJob). Inner joins do the eligibility filtering.
+  // poseId IS NOT NULL restricts the Studio path to jobs created via createJob (which
+  // always sets poseId; simple-tryon jobs never do) — excludes tryon-generated images
+  // from chaining into further tryon jobs.
   app.get('/v1/tryon/garment-images', { preHandler: app.requireUser }, async (req) => {
-    const rows = await app.db
-      .select({
-        jobId: schema.jobs.id,
-        thumbnailKey: schema.jobOutputs.thumbnailKey,
-        garmentTypeName: schema.garmentSubcategories.label,
-        tryonCategoryName: schema.tryonCategories.name,
-      })
-      .from(schema.jobs)
-      .innerJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-      .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-      .innerJoin(
-        schema.garmentSubcategories,
-        eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
-      )
-      .innerJoin(
-        schema.tryonCategories,
-        and(
-          eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
-          eq(schema.tryonCategories.isActive, true),
+    const [studioRows, sareeRows] = await Promise.all([
+      app.db
+        .select({
+          jobId: schema.jobs.id,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+          garmentTypeName: schema.garmentSubcategories.label,
+          tryonCategoryName: schema.tryonCategories.name,
+          createdAt: schema.jobs.createdAt,
+        })
+        .from(schema.jobs)
+        .innerJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .innerJoin(
+          schema.garmentSubcategories,
+          eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+        )
+        .innerJoin(
+          schema.tryonCategories,
+          and(
+            eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
+            eq(schema.tryonCategories.isActive, true),
+          ),
+        )
+        .innerJoin(
+          schema.workflowTemplates,
+          and(
+            eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
+            eq(schema.workflowTemplates.isActive, true),
+          ),
+        )
+        .where(
+          and(
+            eq(schema.jobs.userId, req.userId),
+            eq(schema.jobs.status, 'COMPLETED'),
+            isNotNull(schema.jobInputs.poseId),
+          ),
         ),
-      )
-      .innerJoin(
-        schema.workflowTemplates,
-        and(
-          eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
-          eq(schema.workflowTemplates.isActive, true),
+      app.db
+        .select({
+          jobId: schema.jobs.id,
+          thumbnailKey: schema.jobOutputs.thumbnailKey,
+          garmentTypeName: sql<string>`'Saree'`.as('garment_type_name'),
+          tryonCategoryName: sql<string>`'Saree Catalogue'`.as('tryon_category_name'),
+          createdAt: schema.jobs.createdAt,
+        })
+        .from(schema.jobs)
+        .innerJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.userId, req.userId),
+            eq(schema.jobs.status, 'COMPLETED'),
+            sql`${schema.jobInputs.params}->>'kind' = 'saree'`,
+          ),
         ),
-      )
-      .where(
-        and(
-          eq(schema.jobs.userId, req.userId),
-          eq(schema.jobs.status, 'COMPLETED'),
-          isNotNull(schema.jobInputs.poseId),
-        ),
-      )
-      .orderBy(desc(schema.jobs.createdAt))
-      .limit(50);
+    ]);
+
+    const merged = [...studioRows, ...sareeRows]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 50);
 
     return Promise.all(
-      rows.map(async (r) => {
+      merged.map(async (r) => {
         const thumbKey = r.thumbnailKey ?? keys.output(r.jobId);
         let thumbnailUrl: string | null = null;
         try {

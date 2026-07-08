@@ -10,12 +10,13 @@ import {
   resolutionFromDims,
   SIMPLE_TRYON_COST,
 } from '@aivastra/types';
-import { aliasedTable, and, eq, inArray, isNull } from 'drizzle-orm';
+import { aliasedTable, and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getResolutionCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
+import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
 
 /** Max accepted garment upload size — mirrors the presign zod cap. */
@@ -345,14 +346,15 @@ export async function createSimpleTryonJob(
 
   await assertOwnsUploadKey(app, userId, personKey);
 
-  // Resolve the source image's garment type → tryon category → workflow template.
-  // Left-joins because a job with no garmentTypeId or an unmapped garment type
-  // must fail with a clear VALIDATION error, not silently 404.
+  // Resolve the source image's workflow template. For Studio jobs this goes
+  // through the garment type → tryon category chain; for saree catalogue jobs
+  // it reads from saree_settings.workflowTemplateId.
   const [source] = await app.db
     .select({
       jobUserId: schema.jobs.userId,
       jobStatus: schema.jobs.status,
       garmentTypeId: schema.jobInputs.garmentTypeId,
+      kind: sql<string>`${schema.jobInputs.params}->>'kind'`.as('kind'),
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
       tryonCategoryIsActive: schema.tryonCategories.isActive,
       workflowTemplateIsActive: schema.workflowTemplates.isActive,
@@ -380,20 +382,41 @@ export async function createSimpleTryonJob(
   if (source.jobStatus !== 'COMPLETED') {
     throw new AppError('VALIDATION', 400, 'source image is not a completed job');
   }
-  // Kill-switch parity: a tryon category (or its workflow template) that an admin
-  // deactivated after garment types were mapped to it must not resolve — same
-  // VALIDATION error as "no tryon category configured" since it's the same
-  // "not usable" outcome from the caller's perspective.
-  if (
-    !source.workflowTemplateId ||
-    !source.tryonCategoryIsActive ||
-    !source.workflowTemplateIsActive
-  ) {
-    throw new AppError('VALIDATION', 400, 'garment type has no tryon category configured');
+
+  let workflowTemplateId: string;
+
+  if (source.kind === 'saree') {
+    const sareeSettings = await getSareeSettings(app.db);
+    if (!sareeSettings?.workflowTemplateId) {
+      throw new AppError('VALIDATION', 400, 'saree tryon workflow not configured by admin');
+    }
+    const [wf] = await app.db
+      .select({ isActive: schema.workflowTemplates.isActive })
+      .from(schema.workflowTemplates)
+      .where(
+        and(
+          eq(schema.workflowTemplates.id, sareeSettings.workflowTemplateId),
+          eq(schema.workflowTemplates.isActive, true),
+        ),
+      );
+    if (!wf) {
+      throw new AppError('VALIDATION', 400, 'saree tryon workflow is not active');
+    }
+    workflowTemplateId = sareeSettings.workflowTemplateId;
+  } else {
+    // Kill-switch parity: a tryon category (or its workflow template) that an admin
+    // deactivated after garment types were mapped to it must not resolve.
+    if (
+      !source.workflowTemplateId ||
+      !source.tryonCategoryIsActive ||
+      !source.workflowTemplateIsActive
+    ) {
+      throw new AppError('VALIDATION', 400, 'garment type has no tryon category configured');
+    }
+    workflowTemplateId = source.workflowTemplateId;
   }
 
   const garmentKey = keys.output(sourceJobId);
-  const workflowTemplateId = source.workflowTemplateId;
 
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
