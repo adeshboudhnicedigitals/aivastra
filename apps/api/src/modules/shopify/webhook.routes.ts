@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import fp from 'fastify-plugin';
 import { AppError } from '../../lib/errors.js';
-import { enqueueSync, verifyWebhookHmac } from './service.js';
+import { enqueueSync, SHOPIFY_API_VERSION, verifyWebhookHmac } from './service.js';
 
 // NOTE: `shopifyRegisterWebhooks` on FastifyInstance is declared once in
 // `auth.routes.ts` (`declare module 'fastify' { interface FastifyInstance { ... } }`).
@@ -134,7 +134,7 @@ export const registerWebhooksDecorator = fp(async (app: FastifyInstance) => {
       'shop/redact': `${base}/shop_redact`,
     };
     for (const [topic, address] of Object.entries(map)) {
-      await fetch(`https://${shop}/admin/api/2024-01/webhooks.json`, {
+      await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`, {
         method: 'POST',
         headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' },
         body: JSON.stringify({ webhook: { topic, address, format: 'json' } }),

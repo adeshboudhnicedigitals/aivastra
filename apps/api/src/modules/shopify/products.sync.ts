@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { SHOPIFY_API_VERSION } from './service.js';
 
 interface ShopifyProduct {
   id: number;
@@ -103,7 +104,7 @@ export async function syncOneTask(
 
   if (task.mode === 'product' && task.shopifyProductId) {
     const res = await fetch(
-      `https://${shop}/admin/api/2024-01/products/${task.shopifyProductId}.json`,
+      `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/products/${task.shopifyProductId}.json`,
       {
         headers: { 'X-Shopify-Access-Token': token },
       },
@@ -116,7 +117,8 @@ export async function syncOneTask(
   }
 
   // full sync: paginate (250/page). Respect ~2 req/s.
-  let url: string | null = `https://${shop}/admin/api/2024-01/products.json?limit=250`;
+  let url: string | null =
+    `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250`;
   while (url) {
     const res: Response = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
     if (!res.ok) break;
