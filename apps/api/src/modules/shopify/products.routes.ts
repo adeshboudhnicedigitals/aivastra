@@ -2,6 +2,10 @@ import { schema } from '@aivastra/db';
 import { count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { decryptToken } from '../../lib/crypto.js';
+import { AppError } from '../../lib/errors.js';
+import { assertShopifyCdn } from './products.sync.js';
+import { SHOPIFY_API_VERSION } from './service.js';
 
 const ProductsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -43,6 +47,28 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       }));
 
       return { page, pageSize, total, items };
+    },
+  );
+
+  app.get(
+    '/v1/shopify/products/:id/images',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const { id } = req.params as { id: string };
+      const token = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
+
+      const res = await fetch(
+        `https://${store.shopDomain}/admin/api/${SHOPIFY_API_VERSION}/products/${id}/images.json`,
+        { headers: { 'X-Shopify-Access-Token': token } },
+      );
+      if (!res.ok) {
+        throw new AppError('SHOPIFY', 502, 'failed to fetch product images');
+      }
+      const { images } = (await res.json()) as { images: { id: number; src: string }[] };
+      for (const img of images) assertShopifyCdn(img.src);
+
+      return { images: images.map((img) => ({ id: img.id, src: img.src })) };
     },
   );
 }
