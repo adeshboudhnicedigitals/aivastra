@@ -61,7 +61,9 @@ export const shopifyProductGarments = pgTable(
     shopifyProductId: bigint('shopify_product_id', { mode: 'number' }).notNull(),
     shopifyVariantId: bigint('shopify_variant_id', { mode: 'number' }),
     r2Key: text('r2_key').notNull(),
+    title: text('title'),
     status: text('status').notNull().default('processing'), // active|processing|failed|deleted
+    enabled: boolean('enabled').notNull().default(false),
     failedReason: text('failed_reason'),
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
   },

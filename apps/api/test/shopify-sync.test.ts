@@ -44,7 +44,7 @@ describe('syncProduct', () => {
     await syncProduct(
       app,
       storeId,
-      { id: 42, image: { src: 'https://cdn.shopify.com/x.jpg' } },
+      { id: 42, title: 'Test Product', image: { src: 'https://cdn.shopify.com/x.jpg' } },
       fakeFetch,
     );
     const [row] = await app.db
@@ -57,6 +57,7 @@ describe('syncProduct', () => {
         ),
       );
     expect(row.status).toBe('active');
+    expect(row.title).toBe('Test Product');
     expect(row.r2Key).toBe(`shopify-garments/${storeId}/42/garment.jpg`);
     const head = await app.storage.headObject(row.r2Key);
     expect(head.contentLength).toBe(3);
@@ -66,7 +67,7 @@ describe('syncProduct', () => {
     const fakeFetch = (async () => {
       throw new Error('should not be called');
     }) as typeof fetch;
-    await syncProduct(app, storeId, { id: 43, image: null }, fakeFetch);
+    await syncProduct(app, storeId, { id: 43, title: 'No Image Product', image: null }, fakeFetch);
     const [row] = await app.db
       .select()
       .from(schema.shopifyProductGarments)
@@ -93,7 +94,11 @@ describe('syncProduct', () => {
     await syncProduct(
       app,
       storeId,
-      { id: 44, image: { src: 'https://cdn.shopify.com/redirect-check.jpg' } },
+      {
+        id: 44,
+        title: 'Redirect Check Product',
+        image: { src: 'https://cdn.shopify.com/redirect-check.jpg' },
+      },
       fakeFetch,
     );
     expect(capturedInit?.redirect).toBe('error');
@@ -107,7 +112,11 @@ describe('syncProduct', () => {
     await syncProduct(
       app,
       storeId,
-      { id: 45, image: { src: 'https://cdn.shopify.com/redirects-elsewhere.jpg' } },
+      {
+        id: 45,
+        title: 'Redirects Elsewhere Product',
+        image: { src: 'https://cdn.shopify.com/redirects-elsewhere.jpg' },
+      },
       redirectingFetch,
     );
     const [row] = await app.db
@@ -140,7 +149,7 @@ describe('syncProduct', () => {
     await syncProduct(
       app,
       storeId,
-      { id: 46, image: { src: 'https://cdn.shopify.com/big.jpg' } },
+      { id: 46, title: 'Big Product', image: { src: 'https://cdn.shopify.com/big.jpg' } },
       fakeFetch,
     );
     const [row] = await app.db
@@ -168,7 +177,11 @@ describe('syncProduct', () => {
     await syncProduct(
       app,
       storeId,
-      { id: 47, image: { src: 'https://cdn.shopify.com/big-no-header.jpg' } },
+      {
+        id: 47,
+        title: 'Big No Header Product',
+        image: { src: 'https://cdn.shopify.com/big-no-header.jpg' },
+      },
       fakeFetch,
     );
     const [row] = await app.db
