@@ -82,11 +82,21 @@ export function startComfyMock(): Promise<ComfyMock> {
       }
 
       if (req.method === 'POST' && url.pathname === '/upload/image') {
-        // Drain the multipart body; contents aren't inspected by the mock.
-        req.on('data', () => {});
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk) => chunks.push(chunk));
         req.on('end', () => {
+          // Echo the incoming multipart field's original filename (e.g.
+          // "shopify_customer_<jobId>.jpg") back into the assigned name so
+          // tests can trace the returned name to its source upload instead of
+          // getting an arbitrary counter-only string. `uploadSeq` is still
+          // appended to preserve collision-avoidance for callers that upload
+          // multiple files with the same prefix/name in one job.
+          const body = Buffer.concat(chunks).toString('utf8');
+          const match = body.match(/filename="([^"]*)"/);
+          const originalName = match?.[1] ?? 'unknown';
+          const stem = originalName.replace(/\.[^./]+$/, '') || 'unknown';
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ name: `uploaded-${Date.now()}-${uploadSeq++}.jpg` }));
+          res.end(JSON.stringify({ name: `uploaded-${stem}-${uploadSeq++}.jpg` }));
         });
         return;
       }

@@ -158,15 +158,19 @@ describe('dispatcher shopify job routing', () => {
     expect(output?.resultKey).toBe(`outputs/${jobId}/result.png`);
 
     // Assert on the patched workflow JSON actually submitted to ComfyUI — not on
-    // network I/O. Person node got the customer-photo upload, garment node got
-    // the garment upload, and the two are distinct uploads.
+    // network I/O. The comfy-mock's /upload/image echoes the incoming upload's
+    // original filename (see comfy-mock.ts), which processShopifyJob names as
+    // `shopify_customer_<jobId>.<ext>` / `shopify_garment_<jobId>.<ext>` — so the
+    // returned name is traceable back to its source file. This would FAIL if
+    // processShopifyJob swapped the person/garment node assignment.
     const sent = comfy.lastPrompt();
     expect(sent).not.toBeNull();
     const personImage = sent?.prompt[PERSON_NODE_ID]?.inputs?.image;
     const garmentImage = sent?.prompt[GARMENT_NODE_ID]?.inputs?.image;
-    expect(personImage).toMatch(/^uploaded-/);
-    expect(garmentImage).toMatch(/^uploaded-/);
-    expect(personImage).not.toBe(garmentImage);
+    expect(personImage).toEqual(expect.stringContaining('shopify_customer'));
+    expect(garmentImage).toEqual(expect.stringContaining('shopify_garment'));
+    expect(personImage).not.toEqual(expect.stringContaining('shopify_garment'));
+    expect(garmentImage).not.toEqual(expect.stringContaining('shopify_customer'));
 
     // Widget-specific completion side-effect: outbound webhook stream entry.
     const webhookEntries = await redis.xrange('webhooks:outbound', '-', '+');
