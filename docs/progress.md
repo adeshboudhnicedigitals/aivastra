@@ -1,3 +1,42 @@
+## 2026-07-08 - Shopify Storefront Try-On Widget + Live-Test Hotfixes + Final Branch Review
+
+### Done
+Live end-to-end tested the Shopify backend slice against 2 real Shopify Partners dev stores (first-time setup: Partners app creation, ngrok tunnel, legacy install flow toggle), fixing real bugs found along the way, then built and shipped the storefront-facing widget via subagent-driven development (4 tasks + a final whole-branch review):
+
+**Live-testing hotfixes (found + fixed during real OAuth install/billing runs, not part of either formal plan):**
+- Centralized `SHOPIFY_API_VERSION = '2026-07'` (`apps/api/src/modules/shopify/service.ts`) — was hardcoded `2024-01` (10 quarters stale) across 5 call sites, causing `502 shop fetch failed`.
+- Added `expiring: 1` to the OAuth token-exchange body (`auth.routes.ts`) — Shopify now rejects non-expiring offline tokens outright.
+- Removed the 3 GDPR webhook topics (`customers/data_request`, `customers/redact`, `shop/redact`) from the auto-register loop (`webhook.routes.ts`) — Shopify's `webhooks.json` API 404s on them; they're configured once, app-wide, via Partners → Compliance webhooks. Also fixed the loop silently swallowing non-2xx registration failures (`.catch()`-only → explicit `res.ok` check + log).
+- Rewrote `GET /v1/shopify/billing/callback` (`billing.routes.ts`) — Shopify's `recurring_application_charge` return_url carries **no HMAC**, so the original naive query-string trust was a free-credit-minting exploit. Fixed with server-to-server verification: fetch the charge via the store's own access token, require `status === 'active'` and price/name match the plan.
+- Note: no formal token-refresh/rotation logic exists yet even though tokens now expire in ~1hr (`expiring: 1`) — flagged as a real, unscheduled follow-up.
+
+**Storefront try-on widget** (plan: `docs/superpowers/plans/2026-07-08-shopify-storefront-tryon.md`, spec: `docs/superpowers/specs/2026-07-08-shopify-storefront-tryon-design.md`), all 4 tasks reviewed clean:
+- Task 1 — Dynamic CORS: `apps/api/src/server.ts`'s `origin` option is now an async function trusting `env.CORS_ORIGIN` or any origin in some `widgetClients.allowedOrigins` (`isActive` filtered — fixed a review-found gap where a deactivated merchant stayed CORS-trusted).
+- Task 2 — `resultUrl` added to `GET /v1/widget/jobs/:id` (`widget/routes.ts`), computed from `resultKey` via `storage.publicUrl()`.
+- Task 3 — `writeWidgetKeyMetafield()` (new `shopify/metafields.ts`) writes each store's `widgetClients.widgetKey` to the `aivastra.widget_key` shop metafield right after OAuth install, tolerant of failure (never blocks install).
+- Task 4 — `apps/shopify-extension/` theme app extension: Liquid block (`tryon-block.liquid`) reading the metafield + `product.id`, vanilla JS modal (upload → presign → PUT → create job → poll → result), CSS, locale strings. Request/response shapes verified twice (implementer + independent reviewer) against the real widget API routes — no corrections needed.
+  - **Not yet done**: Shopify CLI scaffold (`shopify app generate extension`)/`shopify app deploy`/live manual verification against the real dev store — all need interactive CLI login + a browser, deferred to a session with the user directly.
+
+**Final whole-branch review** (ae17c96..86b22da, 30 commits, opus): verdict "Ready to merge — With fixes." 2 Important findings, both fixed + re-reviewed clean (commit `81ed3a2`):
+- Dynamic CORS origin check had no caching (DB hit on every cross-origin request) → added a 30s in-process TTL cache (positive + negative results, capped at 10k entries).
+- Product-sync image fetch's CDN allowlist (`assertShopifyCdn`) was defeated by redirects (fetch follows 3xx by default) and had no timeout/size cap → added `redirect: 'error'`, a 10s `AbortController` timeout, and a 10MB cap (content-length + byteLength checks), matching the existing widget-route precedent.
+
+Full test suite: 92/92 passing (14 files), typecheck clean throughout.
+
+### Failed / Not Done
+- Theme extension CLI scaffold, deploy, and live-store manual verification (Task 4 Steps 1/6/7) — needs the user + browser, not done this session.
+- No refresh-token storage/rotation logic — tokens now expire ~1hr (`expiring: 1` fix), nothing renews them yet.
+
+### Open Questions / Decisions
+- `allowedOrigins` duplicate-entry edge case (`upsertShopifyStore`, when `primaryDomain === myshopifyDomain`) — asked twice, never answered by the user; still open, not fixed.
+- Billing plan `trial_days`/tier configuration — explicitly deferred by the user ("we will check the tier later").
+- Final review's Minor findings, not fixed (follow-ups, see `.superpowers/sdd/progress.md` for full detail): `products.sync.ts` full-resync fallback on a malformed `products/update` webhook missing a product id; CORS trust widened app-wide via merchant-editable `allowedOrigins` (currently safe — `sameSite: 'lax'` cookies + header-based auth — but not scoped to widget routes only); billing idempotency keyed on last `chargeId` only, not a full processed-charges set; `shopify:sync` consumer not wired into graceful shutdown; `SHOPIFY_*` env vars are `optional()` but unguarded in redirect URLs (would interpolate literal `"undefined"`).
+
+### Commits
+`18e0a77`, `af5d229`, `e979711`, `fe2159d` (live-testing hotfixes) — `49c0f39`, `0330252` (spec + plan docs) — `2183f65`, `95df801`, `374bb6c`, `a9598b0`, `86b22da` (4 storefront tasks) — `81ed3a2` (final-review fixes)
+
+---
+
 ## 2026-07-08 - Shopify Try-On Backend Slice (12-task vertical) + Full-Suite Verification
 
 ### Done
