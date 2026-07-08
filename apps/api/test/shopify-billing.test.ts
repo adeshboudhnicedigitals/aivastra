@@ -86,4 +86,41 @@ describe('billing activation', () => {
       .where(eq(schema.widgetClientCredits.widgetClientId, widgetClientId));
     expect(afterNewCharge.balance).toBe(1500); // 1000 + (50 * 10), additive not overwrite
   });
+
+  it('is concurrency-safe: two near-simultaneous calls for the same chargeId credit only once', async () => {
+    // Regression test for the row-lock fix. Without `.for('update')` on the initial
+    // SELECT inside the transaction, two concurrent calls can both read the store row
+    // before either commits, both see a non-matching billingPlanId, and both apply the
+    // additive credit seed — double-crediting the merchant. The row lock forces the
+    // second transaction to block until the first commits, at which point it re-reads
+    // the already-updated billingPlanId and takes the no-op replay path.
+    const store = await upsertShopifyStore(
+      app,
+      {
+        shopifyShopId: 34,
+        shopDomain: 'c.myshopify.com',
+        myshopifyDomain: 'c.myshopify.com',
+        name: 'C',
+        email: 'c@c.com',
+      },
+      'tok',
+      'read_products',
+    );
+    const [plan] = await app.db
+      .insert(schema.shopifyPlans)
+      .values({ name: 'Concurrent', priceCents: 999, includedTryons: 20, overageCents: 16 })
+      .returning();
+    const chargeId = 77777;
+
+    await Promise.all([
+      activateCharge(app, store.id, plan.id, chargeId),
+      activateCharge(app, store.id, plan.id, chargeId),
+    ]);
+
+    const [credits] = await app.db
+      .select()
+      .from(schema.widgetClientCredits)
+      .where(eq(schema.widgetClientCredits.widgetClientId, store.widgetClientId));
+    expect(credits.balance).toBe(200); // 20 * 10, credited exactly once, not 400
+  });
 });

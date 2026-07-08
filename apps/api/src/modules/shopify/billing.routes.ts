@@ -28,7 +28,8 @@ export async function activateCharge(
       .select({ billingPlanId: schema.shopifyStores.billingPlanId })
       .from(schema.shopifyStores)
       .where(eq(schema.shopifyStores.id, storeId))
-      .limit(1);
+      .limit(1)
+      .for('update');
     if (!existing) throw new AppError('NOT_FOUND', 404, 'store not found');
     if (existing.billingPlanId === chargeId) {
       // Replay of an already-activated charge — skip credit seed and ledger insert.
