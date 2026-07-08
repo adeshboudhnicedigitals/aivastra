@@ -128,6 +128,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
         client_id: app.env.SHOPIFY_API_KEY,
         client_secret: app.env.SHOPIFY_API_SECRET,
         code: q.code,
+        expiring: 1, // Shopify rejects non-expiring offline tokens as of API 2026-07
       }),
     });
     if (!tokenRes.ok) throw new AppError('SHOPIFY', 502, 'token exchange failed');
