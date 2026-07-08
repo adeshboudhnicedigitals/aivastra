@@ -1,0 +1,187 @@
+import { schema } from '@aivastra/db';
+import { createLogger } from '@aivastra/logger';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { eq } from 'drizzle-orm';
+import { Redis } from 'ioredis';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { processJob } from '../../src/job/processor.js';
+import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
+import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+
+const WORKER_ID = 'test-worker-shopify';
+const PERSON_NODE_ID = '20';
+const GARMENT_NODE_ID = '21';
+// The comfy-mock's /history handler hardcodes output images under node '10' —
+// match that here so fetchHistory's resultNodeId filter actually finds them.
+const OUTPUT_NODE_ID = '10';
+
+describe('dispatcher shopify job routing', () => {
+  let env: TestEnv;
+  let redis: Redis;
+  let pub: Redis;
+  let comfy: ComfyMock;
+
+  beforeAll(async () => {
+    env = await setupTestEnv();
+    redis = new Redis('redis://127.0.0.1:6379');
+    pub = new Redis('redis://127.0.0.1:6379');
+    comfy = await startComfyMock();
+
+    // Only accepts 'shopify' job type — proves processShopifyJob's
+    // selectWorker(redis, 'shopify') call (not 'catalogue'/'saree'/'tryon') is
+    // what actually claims this worker.
+    await registerWorkers(redis, [
+      { id: WORKER_ID, url: comfy.url, apiKey: 'test-key', allowedJobTypes: ['shopify'] },
+    ]);
+    await redis.setex(`worker:health:${WORKER_ID}`, 30, '1');
+  }, 60_000);
+
+  afterAll(async () => {
+    await deregisterWorker(redis, WORKER_ID);
+    await comfy.close();
+    redis.disconnect();
+    pub.disconnect();
+    await env.cleanup();
+  });
+
+  beforeEach(async () => {
+    comfy.setOptions({});
+    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+  });
+
+  async function seedShopifyJob() {
+    const [client] = await env.db
+      .insert(schema.widgetClients)
+      .values({
+        companyName: 'Acme',
+        contactName: 'A',
+        email: `shopify-${Date.now()}@test.com`,
+        phone: '1234567890',
+        websiteUrl: 'https://acme.example',
+        companySize: '1-10',
+        purpose: 'test',
+        businessAddress: 'x',
+        passwordHash: 'x',
+        clientType: 'shopify',
+        isActive: true,
+      })
+      .returning();
+    await env.db
+      .insert(schema.widgetClientCredits)
+      .values({ widgetClientId: client?.id, balance: 5 });
+
+    const [template] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `shopify-tpl-${Date.now()}`,
+        label: 'Shopify test template',
+        jsonContent: {
+          [PERSON_NODE_ID]: { inputs: { image: '' } },
+          [GARMENT_NODE_ID]: { inputs: { image: '' } },
+          [OUTPUT_NODE_ID]: { class_type: 'SaveImage', inputs: {} },
+        },
+        faceNodeId: 'x',
+        poseNodeId: 'x',
+        bgNodeId: 'x',
+        upperNodeIds: ['x'],
+        facePhasePromptNode: 'x',
+        garmentPhasePromptNode: 'x',
+        workflowType: 'tryon',
+        tryonPersonNodeId: PERSON_NODE_ID,
+        tryonGarmentNodeId: GARMENT_NODE_ID,
+        tryonOutputNodeId: OUTPUT_NODE_ID,
+      })
+      .returning();
+
+    // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers userId as non-null; widget/shopify jobs legitimately have null userId (mirrors apps/api/src/modules/widget/routes.ts)
+    const [job] = await (env.db.insert(schema.jobs).values as any)({
+      widgetClientId: client?.id,
+      customerPhotoKey: `widget-inputs/${client?.id}/photo.jpg`,
+      status: 'QUEUED',
+      creditsCharged: 2,
+    }).returning();
+
+    // biome-ignore lint/suspicious/noExplicitAny: face/bg/pose are nullable in SQL but Drizzle types them non-null (mirrors apps/api/src/modules/widget/routes.ts)
+    await (env.db.insert(schema.jobInputs).values as any)({
+      jobId: job?.id,
+      upperGarmentKey: `shopify-garments/${client?.id}/garment.jpg`,
+      faceId: null,
+      backgroundId: null,
+      poseId: null,
+      params: { kind: 'shopify', workflowTemplateId: template?.id },
+    });
+
+    for (const key of [
+      `widget-inputs/${client?.id}/photo.jpg`,
+      `shopify-garments/${client?.id}/garment.jpg`,
+    ]) {
+      await env.s3.send(
+        new PutObjectCommand({
+          Bucket: env.r2Bucket,
+          Key: key,
+          Body: Buffer.from('stub'),
+          ContentType: 'image/jpeg',
+        }),
+      );
+    }
+
+    return {
+      jobId: job?.id as string,
+      clientId: client?.id as string,
+      templateId: template?.id as string,
+    };
+  }
+
+  it('routes to processShopifyJob: claims a "shopify" worker and patches the person/garment nodes', async () => {
+    const { jobId, clientId } = await seedShopifyJob();
+    const log = createLogger('test');
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      '', // widget/shopify jobs have no userId
+      'jobs:normal',
+      `${Date.now()}-0`, // must be a syntactically valid Redis stream ID for XACK to accept it
+    );
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('COMPLETED');
+    // workerId is only set via the GENERATING transition inside processShopifyJob —
+    // proves selectWorker(redis, 'shopify') actually claimed WORKER_ID.
+    expect(job?.workerId).toBe(WORKER_ID);
+
+    const [output] = await env.db
+      .select()
+      .from(schema.jobOutputs)
+      .where(eq(schema.jobOutputs.jobId, jobId));
+    expect(output?.resultKey).toBe(`outputs/${jobId}/result.png`);
+
+    // Assert on the patched workflow JSON actually submitted to ComfyUI — not on
+    // network I/O. Person node got the customer-photo upload, garment node got
+    // the garment upload, and the two are distinct uploads.
+    const sent = comfy.lastPrompt();
+    expect(sent).not.toBeNull();
+    const personImage = sent?.prompt[PERSON_NODE_ID]?.inputs?.image;
+    const garmentImage = sent?.prompt[GARMENT_NODE_ID]?.inputs?.image;
+    expect(personImage).toMatch(/^uploaded-/);
+    expect(garmentImage).toMatch(/^uploaded-/);
+    expect(personImage).not.toBe(garmentImage);
+
+    // Widget-specific completion side-effect: outbound webhook stream entry.
+    const webhookEntries = await redis.xrange('webhooks:outbound', '-', '+');
+    const shopifyEntry = webhookEntries.find(([, fields]) => {
+      const idx = fields.indexOf('jobId');
+      return idx !== -1 && fields[idx + 1] === jobId;
+    });
+    expect(shopifyEntry).toBeDefined();
+    const fields = shopifyEntry?.[1] ?? [];
+    const widgetClientIdIdx = fields.indexOf('widgetClientId');
+    expect(fields[widgetClientIdIdx + 1]).toBe(clientId);
+    const statusIdx = fields.indexOf('status');
+    expect(fields[statusIdx + 1]).toBe('COMPLETED');
+
+    const worker = await (await import('../../src/worker/registry.js')).getWorkers(redis);
+    expect(worker.get(WORKER_ID)?.status).toBe('IDLE');
+  });
+});
