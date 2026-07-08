@@ -83,9 +83,10 @@ export const WidgetSettingsUpdate = z.object({
 export type WidgetSettingsUpdate = z.infer<typeof WidgetSettingsUpdate>;
 
 export const WidgetJobRequest = z.object({
-  garmentImageUrl: z.string().url(),
+  garmentImageUrl: z.string().url().optional(),
   customerPhotoKey: z.string(),
   aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).default('2:3'),
+  shopifyProductId: z.number().int().positive().optional(),
 });
 export type WidgetJobRequest = z.infer<typeof WidgetJobRequest>;
 

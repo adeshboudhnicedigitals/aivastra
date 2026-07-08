@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { promises as dns } from 'node:dns';
 import { schema } from '@aivastra/db';
 import { WidgetJobRequest, WidgetPresignRequest } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
@@ -143,10 +143,11 @@ export async function widgetRoutes(app: FastifyInstance) {
         if (cached) return reply.send({ jobId: cached });
       }
 
-      const { garmentImageUrl, customerPhotoKey } = req.body as {
-        garmentImageUrl: string;
+      const { garmentImageUrl, customerPhotoKey, shopifyProductId } = req.body as {
+        garmentImageUrl?: string;
         customerPhotoKey: string;
         aspectRatio?: string;
+        shopifyProductId?: number;
       };
 
       if (!customerPhotoKey.startsWith(`widget-inputs/${clientId}/`)) {
@@ -168,35 +169,87 @@ export async function widgetRoutes(app: FastifyInstance) {
         throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 5MB limit');
       }
 
-      await assertSafeExternalUrl(garmentImageUrl);
+      let resolvedGarmentKey: string | null = null;
+      let jobParams: Record<string, unknown> = {};
+      let jobCost = WIDGET_JOB_COST;
 
-      let garmentBuffer: Buffer;
-      let garmentContentType: string;
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15_000);
-        const res = await fetch(garmentImageUrl, { signal: controller.signal });
-        clearTimeout(timeout);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const ct = res.headers.get('content-type') ?? 'image/jpeg';
-        const cl = res.headers.get('content-length');
-        if (cl && parseInt(cl, 10) > 10 * 1024 * 1024) {
-          throw new Error('Garment image exceeds 10MB');
+      if (shopifyProductId) {
+        const [store] = await app.db
+          .select()
+          .from(schema.shopifyStores)
+          .where(eq(schema.shopifyStores.widgetClientId, clientId))
+          .limit(1);
+        if (!store || store.uninstalledAt) {
+          throw new AppError('FORBIDDEN', 403, 'store not active');
         }
-        const arrayBuffer = await res.arrayBuffer();
-        if (arrayBuffer.byteLength > 10 * 1024 * 1024) {
-          throw new Error('Garment image exceeds 10MB');
+
+        const [garment] = await app.db
+          .select()
+          .from(schema.shopifyProductGarments)
+          .where(
+            and(
+              eq(schema.shopifyProductGarments.storeId, store.id),
+              eq(schema.shopifyProductGarments.shopifyProductId, shopifyProductId),
+              eq(schema.shopifyProductGarments.status, 'active'),
+            ),
+          )
+          .limit(1);
+
+        if (!garment) {
+          // trigger async sync, tell the storefront to retry
+          const { enqueueSync } = await import('../shopify/service.js');
+          await enqueueSync(app.redis, { storeId: store.id, mode: 'product', shopifyProductId });
+          return reply
+            .code(202)
+            .send({ message: "We're preparing this product for try-on. Check back in a moment." });
         }
-        garmentBuffer = Buffer.from(arrayBuffer);
-        garmentContentType = ct;
-      } catch (err: unknown) {
-        req.log.warn({ err, garmentImageUrl }, 'garment image download failed');
-        throw new AppError('BAD_REQUEST', 400, 'Failed to download garment image');
+
+        resolvedGarmentKey = garment.r2Key;
+        jobCost = app.env.SHOPIFY_JOB_COST;
+        jobParams = {
+          kind: 'shopify',
+          shopifyProductId,
+          workflowTemplateId: store.settings?.workflowTemplateId,
+        };
       }
 
-      const garmentExt = garmentContentType.split('/')[1] ?? 'jpg';
-      const garmentR2Key = `widget-garments/${clientId}/${randomUUID()}/garment.${garmentExt}`;
-      await app.storage.putObject(garmentR2Key, garmentBuffer, garmentContentType);
+      let garmentR2Key: string;
+      if (resolvedGarmentKey) {
+        garmentR2Key = resolvedGarmentKey;
+      } else {
+        if (!garmentImageUrl) {
+          throw new AppError('VALIDATION', 400, 'garmentImageUrl is required');
+        }
+        await assertSafeExternalUrl(garmentImageUrl);
+
+        let garmentBuffer: Buffer;
+        let garmentContentType: string;
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 15_000);
+          const res = await fetch(garmentImageUrl, { signal: controller.signal });
+          clearTimeout(timeout);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const ct = res.headers.get('content-type') ?? 'image/jpeg';
+          const cl = res.headers.get('content-length');
+          if (cl && parseInt(cl, 10) > 10 * 1024 * 1024) {
+            throw new Error('Garment image exceeds 10MB');
+          }
+          const arrayBuffer = await res.arrayBuffer();
+          if (arrayBuffer.byteLength > 10 * 1024 * 1024) {
+            throw new Error('Garment image exceeds 10MB');
+          }
+          garmentBuffer = Buffer.from(arrayBuffer);
+          garmentContentType = ct;
+        } catch (err: unknown) {
+          req.log.warn({ err, garmentImageUrl }, 'garment image download failed');
+          throw new AppError('BAD_REQUEST', 400, 'Failed to download garment image');
+        }
+
+        const garmentExt = garmentContentType.split('/')[1] ?? 'jpg';
+        garmentR2Key = `widget-garments/${clientId}/${randomUUID()}/garment.${garmentExt}`;
+        await app.storage.putObject(garmentR2Key, garmentBuffer, garmentContentType);
+      }
 
       const jobId = randomUUID();
       await app.db.transaction(async (tx) => {
@@ -207,7 +260,7 @@ export async function widgetRoutes(app: FastifyInstance) {
           widgetClientId: clientId,
           customerPhotoKey,
           status: 'QUEUED',
-          creditsCharged: WIDGET_JOB_COST,
+          creditsCharged: jobCost,
         });
 
         // biome-ignore lint/suspicious/noExplicitAny: same — face/bg/pose are nullable in SQL but Drizzle types them non-null
@@ -217,10 +270,11 @@ export async function widgetRoutes(app: FastifyInstance) {
           faceId: null,
           backgroundId: null,
           poseId: null,
+          params: jobParams,
         });
 
         // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the widget ledger helper
-        await atomicWidgetDeduct(tx as any, clientId, WIDGET_JOB_COST, jobId);
+        await atomicWidgetDeduct(tx as any, clientId, jobCost, jobId);
       });
 
       await app.redis.xadd(
