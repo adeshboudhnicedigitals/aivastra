@@ -37,7 +37,7 @@ async function fetchLiveProductImages(
   }
   const { images } = (await res.json()) as { images: { id: number; src: string }[] };
   for (const img of images) assertShopifyCdn(img.src);
-  return images;
+  return images.map((img) => ({ id: img.id, src: img.src }));
 }
 
 export async function shopifyProductsRoutes(app: FastifyInstance) {
