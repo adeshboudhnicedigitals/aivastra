@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
+import { writeWidgetKeyMetafield } from './metafields.js';
 import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
 
 export interface ShopDetails {
@@ -169,6 +170,12 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     };
 
     const store = await upsertShopifyStore(app, details, access_token, scope);
+    const [wc] = await app.db
+      .select({ widgetKey: schema.widgetClients.widgetKey })
+      .from(schema.widgetClients)
+      .where(eq(schema.widgetClients.id, store.widgetClientId))
+      .limit(1);
+    if (wc) await writeWidgetKeyMetafield(q.shop, access_token, wc.widgetKey, req.log);
     // Webhook registration is Task 7; call registerWebhooks(app, q.shop, access_token) here once it exists.
     await app.shopifyRegisterWebhooks?.(q.shop, access_token);
 
