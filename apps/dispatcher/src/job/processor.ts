@@ -972,24 +972,19 @@ async function processWidgetJob(
   }
   const customerPhotoKey = job.customerPhotoKey;
 
-  // Load workflow template from DB (any active widget-type template)
-  const [templateRow] = await db
-    .select({
-      jsonContent: schema.workflowTemplates.jsonContent,
-      widgetGarmentNodeId: schema.workflowTemplates.widgetGarmentNodeId,
-      widgetCustomerPhotoNodeId: schema.workflowTemplates.widgetCustomerPhotoNodeId,
-      widgetOutputNodeId: schema.workflowTemplates.widgetOutputNodeId,
-    })
-    .from(schema.workflowTemplates)
-    .where(
-      and(
-        eq(schema.workflowTemplates.workflowType, 'widget'),
-        eq(schema.workflowTemplates.isActive, true),
-      ),
-    )
-    .limit(1);
-  if (!templateRow) {
-    jobLog.error('no active widget workflow template found in workflow_templates table');
+  // Resolve the per-job tryon workflow template — kiosk resolves this at job-creation
+  // time via garment type -> tryon_categories -> workflow_templates, the SAME mechanism
+  // the studio Try-On feature uses (see createSimpleTryonJob). Not "any active widget
+  // template" — the widget workflow category was retired in favor of tryon workflows.
+  const rawParams =
+    typeof inputs.params === 'string'
+      ? (JSON.parse(inputs.params) as Record<string, unknown>)
+      : ((inputs.params ?? {}) as Record<string, unknown>);
+  const workflowTemplateId = rawParams.workflowTemplateId as string | undefined;
+  if (!workflowTemplateId) {
+    jobLog.error(
+      'kiosk job has no workflowTemplateId — garment type has no tryon category configured',
+    );
     await markWidgetFailed(
       cfg,
       jobId,
@@ -1004,9 +999,59 @@ async function processWidgetJob(
     return;
   }
 
-  const garmentNodeId = templateRow.widgetGarmentNodeId ?? '31';
-  const customerPhotoNodeId = templateRow.widgetCustomerPhotoNodeId ?? '139';
-  const outputNodeId = templateRow.widgetOutputNodeId ?? '134';
+  const [templateRow] = await db
+    .select({
+      jsonContent: schema.workflowTemplates.jsonContent,
+      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
+      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
+    })
+    .from(schema.workflowTemplates)
+    .where(
+      and(
+        eq(schema.workflowTemplates.id, workflowTemplateId),
+        eq(schema.workflowTemplates.isActive, true),
+      ),
+    )
+    .limit(1);
+  if (!templateRow) {
+    jobLog.error({ workflowTemplateId }, 'resolved tryon workflow template not found or inactive');
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'WIDGET_TEMPLATE_MISSING',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const garmentNodeId = templateRow.tryonGarmentNodeId;
+  const customerPhotoNodeId = templateRow.tryonPersonNodeId;
+  const outputNodeId = templateRow.tryonOutputNodeId;
+
+  if (!garmentNodeId || !customerPhotoNodeId || !outputNodeId) {
+    jobLog.error(
+      { workflowTemplateId },
+      'resolved tryon workflow template is missing node ID mappings',
+    );
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'TRYON_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
 
   await transitionJob(db, pub, jobId, '', 'PREPROCESSING', {}, jobLog);
 

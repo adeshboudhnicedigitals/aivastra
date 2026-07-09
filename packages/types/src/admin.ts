@@ -157,7 +157,7 @@ export const CreateWorkflowBody = z
       ),
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'widget', 'tryon']).default('regular'),
+    workflowType: z.enum(['regular', 'tryon']).default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
@@ -175,10 +175,6 @@ export const CreateWorkflowBody = z
     resultNodeId: z.string().min(1).optional(),
     facePhasePromptNode: z.string().min(1).optional(),
     garmentPhasePromptNode: z.string().min(1).optional(),
-    // Widget workflow fields (required when workflowType = 'widget')
-    widgetGarmentNodeId: z.string().min(1).optional(),
-    widgetCustomerPhotoNodeId: z.string().min(1).optional(),
-    widgetOutputNodeId: z.string().min(1).optional(),
     // Tryon workflow fields (required when workflowType = 'tryon')
     tryonPersonNodeId: z.string().min(1).optional(),
     tryonGarmentNodeId: z.string().min(1).optional(),
@@ -195,9 +191,7 @@ export const CreateWorkflowBody = z
             'facePhasePromptNode',
             'garmentPhasePromptNode',
           ] as const)
-        : val.workflowType === 'widget'
-          ? (['widgetGarmentNodeId', 'widgetCustomerPhotoNodeId', 'widgetOutputNodeId'] as const)
-          : (['facePhasePromptNode', 'garmentPhasePromptNode'] as const);
+        : (['facePhasePromptNode', 'garmentPhasePromptNode'] as const);
     for (const field of required) {
       if (!val[field]) {
         ctx.addIssue({
@@ -211,7 +205,7 @@ export const CreateWorkflowBody = z
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'widget', 'tryon']).optional(),
+  workflowType: z.enum(['regular', 'tryon']).optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -239,10 +233,6 @@ export const UpdateWorkflowBody = z.object({
   resultNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
-  // Widget workflow node IDs
-  widgetGarmentNodeId: z.string().min(1).nullable().optional(),
-  widgetCustomerPhotoNodeId: z.string().min(1).nullable().optional(),
-  widgetOutputNodeId: z.string().min(1).nullable().optional(),
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),

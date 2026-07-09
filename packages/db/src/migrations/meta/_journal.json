@@ -680,6 +680,13 @@
       "when": 1783600000000,
       "tag": "0096_merchant_catalog_subcategories",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1783600919136,
+      "tag": "0097_drop_widget_workflow_type",
+      "breakpoints": true
     }
   ]
 }

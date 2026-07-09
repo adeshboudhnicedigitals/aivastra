@@ -112,9 +112,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       outputSizeNodeIds: r.outputSizeNodeIds,
       outputMaxPx: r.outputMaxPx,
       resultNodeId: r.resultNodeId,
-      widgetGarmentNodeId: r.widgetGarmentNodeId,
-      widgetCustomerPhotoNodeId: r.widgetCustomerPhotoNodeId,
-      widgetOutputNodeId: r.widgetOutputNodeId,
       tryonPersonNodeId: r.tryonPersonNodeId,
       tryonGarmentNodeId: r.tryonGarmentNodeId,
       tryonOutputNodeId: r.tryonOutputNodeId,
@@ -177,9 +174,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         resultNodeId?: string;
         facePhasePromptNode?: string;
         garmentPhasePromptNode?: string;
-        widgetGarmentNodeId?: string;
-        widgetCustomerPhotoNodeId?: string;
-        widgetOutputNodeId?: string;
         tryonPersonNodeId?: string;
         tryonGarmentNodeId?: string;
         tryonOutputNodeId?: string;
@@ -194,44 +188,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       }
 
       const workflowType = body.workflowType ?? 'regular';
-
-      if (workflowType === 'widget') {
-        const [row] = await app.db
-          .insert(schema.workflowTemplates)
-          .values({
-            slug: body.slug,
-            label: body.label,
-            jsonContent: body.jsonContent,
-            workflowType: 'widget',
-            faceNodeId: '',
-            poseNodeId: '',
-            bgNodeId: '',
-            upperNodeIds: [],
-            facePhasePromptNode: '',
-            garmentPhasePromptNode: '',
-            defaultFacePhasePrompt: '',
-            defaultGarmentPhasePrompt: '',
-            widgetGarmentNodeId: body.widgetGarmentNodeId ?? null,
-            widgetCustomerPhotoNodeId: body.widgetCustomerPhotoNodeId ?? null,
-            widgetOutputNodeId: body.widgetOutputNodeId ?? null,
-          })
-          .returning();
-
-        return {
-          id: row?.id,
-          slug: row?.slug,
-          label: row?.label,
-          workflowType: row?.workflowType,
-          isActive: row?.isActive,
-          poseCount: 0,
-          defaultFacePhasePrompt: '',
-          defaultGarmentPhasePrompt: '',
-          widgetGarmentNodeId: row?.widgetGarmentNodeId,
-          widgetCustomerPhotoNodeId: row?.widgetCustomerPhotoNodeId,
-          widgetOutputNodeId: row?.widgetOutputNodeId,
-          createdAt: row?.createdAt,
-        };
-      }
 
       if (workflowType === 'tryon') {
         // Auto-detect node IDs from JSON when not explicitly provided
@@ -463,9 +419,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         resultNodeId?: string | null;
         facePhasePromptNode?: string;
         garmentPhasePromptNode?: string;
-        widgetGarmentNodeId?: string | null;
-        widgetCustomerPhotoNodeId?: string | null;
-        widgetOutputNodeId?: string | null;
         tryonPersonNodeId?: string | null;
         tryonGarmentNodeId?: string | null;
         tryonOutputNodeId?: string | null;
@@ -560,12 +513,6 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         updateValues.facePhasePromptNode = body.facePhasePromptNode;
       if (body.garmentPhasePromptNode !== undefined)
         updateValues.garmentPhasePromptNode = body.garmentPhasePromptNode;
-      if ('widgetGarmentNodeId' in body)
-        updateValues.widgetGarmentNodeId = body.widgetGarmentNodeId ?? null;
-      if ('widgetCustomerPhotoNodeId' in body)
-        updateValues.widgetCustomerPhotoNodeId = body.widgetCustomerPhotoNodeId ?? null;
-      if ('widgetOutputNodeId' in body)
-        updateValues.widgetOutputNodeId = body.widgetOutputNodeId ?? null;
       if ('tryonPersonNodeId' in body)
         updateValues.tryonPersonNodeId = body.tryonPersonNodeId ?? null;
       if ('tryonGarmentNodeId' in body)

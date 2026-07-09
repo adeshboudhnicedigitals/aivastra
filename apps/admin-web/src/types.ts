@@ -56,7 +56,7 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'widget' | 'tryon';
+  workflowType: 'regular' | 'tryon';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
@@ -64,9 +64,6 @@ export interface WorkflowOption {
   lowerNodeId: string | null;
   shoeNodeId: string | null;
   sizeNodeIds: string[];
-  widgetGarmentNodeId: string | null;
-  widgetCustomerPhotoNodeId: string | null;
-  widgetOutputNodeId: string | null;
   tryonPersonNodeId: string | null;
   tryonGarmentNodeId: string | null;
   tryonOutputNodeId: string | null;

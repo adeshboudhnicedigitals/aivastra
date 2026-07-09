@@ -106,11 +106,9 @@ export const workflowTemplates = pgTable('workflow_templates', {
   defaultFacePhasePrompt: text('default_face_phase_prompt').notNull().default(''),
   defaultGarmentPhasePrompt: text('default_garment_phase_prompt').notNull().default(''),
 
-  // Widget workflow node IDs — only set when workflowType = 'widget'
-  workflowType: text('workflow_type').notNull().default('regular'), // 'regular' | 'widget' | 'tryon'
-  widgetGarmentNodeId: text('widget_garment_node_id'),
-  widgetCustomerPhotoNodeId: text('widget_customer_photo_node_id'),
-  widgetOutputNodeId: text('widget_output_node_id'),
+  // 'regular' = catalogue-creation (pose-based) workflows; 'tryon' = person + garment
+  // try-on workflows, used by both the studio Try-On feature and kiosk.
+  workflowType: text('workflow_type').notNull().default('regular'), // 'regular' | 'tryon'
 
   // Tryon workflow node IDs — only set when workflowType = 'tryon'
   tryonPersonNodeId: text('tryon_person_node_id'),
