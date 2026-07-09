@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".activity.vastra.VastraSubCategoryActivity">
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:id="@+id/image_captured_photo"/>
+
+
+    <include layout="@layout/ll_toolbar" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentEnd="true"
+        android:layout_centerVertical="true"
+        android:layout_marginRight="@dimen/_7sdp"
+        android:background="@drawable/app_background_corner_dialog"
+        android:backgroundTint="@color/white_90"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingLeft="@dimen/_10sdp"
+            android:paddingRight="@dimen/_10sdp"
+            android:paddingTop="@dimen/_3sdp"
+            android:paddingBottom="@dimen/_3sdp"
+            android:visibility="gone"
+            android:id="@+id/ll_vastra_subcategory_list"
+            android:orientation="vertical">
+
+            <ImageView
+                android:id="@+id/btnUp"
+                android:layout_width="@dimen/_30sdp"
+                android:layout_height="@dimen/_30sdp"
+                android:src="@drawable/ic_arrow_up"
+                app:tint="@color/parrot_green" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                android:orientation="vertical"
+                android:id="@+id/recycler_vastra_subcategory"/>
+
+            <ImageView
+                android:id="@+id/btnDown"
+                android:layout_width="@dimen/_30sdp"
+                android:layout_height="@dimen/_30sdp"
+                android:src="@drawable/ic_arrow_down"
+                app:tint="@color/parrot_green" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+
+    <ImageView
+        android:layout_width="@dimen/_40sdp"
+        android:layout_height="@dimen/_40sdp"
+        android:src="@drawable/ic_back"
+        android:id="@+id/icon_back"
+        android:layout_marginTop="@dimen/_30sdp"
+        android:padding="@dimen/_10sdp"
+        app:tint="@color/white" />
+
+</RelativeLayout>

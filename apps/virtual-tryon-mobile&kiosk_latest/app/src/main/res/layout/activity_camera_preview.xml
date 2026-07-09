@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:fitsSystemWindows="true"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".activity.camera.CameraPreviewActivity">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitCenter" />
+
+    <!-- GPU Filter Layer (filtered output shown here) -->
+    <jp.co.cyberagent.android.gpuimage.GPUImageView
+        android:id="@+id/gpuImageView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/button_capture"
+        android:layout_width="@dimen/_70sdp"
+        android:layout_height="@dimen/_70sdp"
+        android:padding="@dimen/_15sdp"
+        android:background="@drawable/bg_circle_gradiant"
+        android:src="@drawable/ic_camera"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="@dimen/_20sdp"
+        android:layout_centerHorizontal="true" />
+
+    <ImageView
+        android:layout_width="@dimen/_40sdp"
+        android:layout_height="@dimen/_40sdp"
+        android:src="@drawable/icon_flip_camera"
+        android:padding="@dimen/_7sdp"
+        android:backgroundTint="@color/black_50"
+        android:background="@drawable/bg_circle_gradiant"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentEnd="true"
+        android:layout_marginBottom="@dimen/_30sdp"
+        android:layout_marginRight="@dimen/_10sdp"
+        android:id="@+id/btn_flip_camera"/>
+
+    <View
+        android:id="@+id/focusRing"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:background="@drawable/focus_ring"
+        android:visibility="gone"
+        android:layout_gravity="center"/>
+
+    <include layout="@layout/ll_toolbar"
+        android:id="@+id/ll_toolbar"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAlignment="center"
+        android:gravity="center"
+        android:visibility="gone"
+        android:shadowDx="4"
+        android:shadowDy="4"
+        android:shadowRadius="8"
+        android:shadowColor="@color/gradiant2"
+        android:textColor="@color/white"
+        android:textSize="@dimen/_25sdp"
+        android:layout_margin="@dimen/_20sdp"
+        android:fontFamily="@font/popins_extrabold"
+        android:layout_centerInParent="true"
+        android:id="@+id/txt_filter_name"/>
+
+    <TextView
+        android:id="@+id/captur_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:textAlignment="center"
+        android:text="@string/smile_your_virtual_try_on_begins_now"
+        android:shadowDx="4"
+        android:shadowDy="4"
+        android:shadowRadius="8"
+        android:shadowColor="@color/gradiant2"
+        android:textColor="@color/white"
+        android:layout_above="@+id/countdownText"
+        android:layout_centerInParent="true"
+        android:paddingLeft="@dimen/_15sdp"
+        android:paddingRight="@dimen/_15sdp"
+        android:fontFamily="@font/popins_medium"
+        android:layout_gravity="center"
+        android:visibility="gone"/>
+
+    <TextView
+        android:id="@+id/countdownText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="50sp"
+        android:layout_marginTop="@dimen/_10sdp"
+        android:shadowDx="4"
+        android:shadowDy="4"
+        android:shadowRadius="8"
+        android:shadowColor="@color/gradiant2"
+        android:textColor="@color/white"
+        android:fontFamily="@font/popins_bold"
+        android:layout_centerInParent="true"
+        android:layout_gravity="center"
+        android:visibility="gone"/>
+
+
+    <include layout="@layout/ll_swipe_animation"
+        android:id="@+id/swipe_animation"/>
+
+</RelativeLayout>
