@@ -24,12 +24,12 @@ import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
 import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.routes.js';
+import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
 import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
-import { adminWidgetClientsRoutes } from './modules/admin/widget-clients.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
@@ -50,14 +50,13 @@ import { paymentsRoutes } from './modules/payments/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
-import { widgetRoutes } from './modules/widget/routes.js';
 import { authPlugin } from './plugins/auth.js';
 import { dbPlugin } from './plugins/db.js';
 import { metricsPlugin } from './plugins/metrics.js';
+import { portalAuthPlugin } from './plugins/portal-auth.js';
 import { redisPlugin } from './plugins/redis.js';
 import { sentryPlugin } from './plugins/sentry.js';
 import { storagePlugin } from './plugins/storage.js';
-import { widgetAuthPlugin } from './plugins/widget-auth.js';
 
 export async function buildServer(env: Env) {
   const app = Fastify({ loggerInstance: createLogger('api') }).withTypeProvider<ZodTypeProvider>();
@@ -94,7 +93,7 @@ export async function buildServer(env: Env) {
   await app.register(dbPlugin);
   await app.register(storagePlugin);
   await app.register(authPlugin);
-  await app.register(widgetAuthPlugin);
+  await app.register(portalAuthPlugin);
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {
@@ -141,7 +140,6 @@ export async function buildServer(env: Env) {
   await app.register(merchantCatalogRoutes);
   await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantPaymentsRoutes);
-  await app.register(widgetRoutes);
   await app.register(modelsRoutes);
   await app.register(adminAuthRoutes);
   await app.register(adminUsersRoutes);
@@ -160,7 +158,7 @@ export async function buildServer(env: Env) {
   await app.register(adminTryonRoutes);
   await app.register(adminSareeRoutes);
   await app.register(adminContactRoutes);
-  await app.register(adminWidgetClientsRoutes);
+  await app.register(adminMerchantsRoutes);
   await app.register(resultsRoutes);
   await app.register(supportRoutes);
   await app.register(paymentsRoutes);

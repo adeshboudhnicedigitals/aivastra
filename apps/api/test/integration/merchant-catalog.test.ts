@@ -13,27 +13,31 @@ const secret = new TextEncoder().encode(JWT_SECRET);
 async function createMerchant(
   app: TestApp,
   email: string,
-  overrides: Partial<typeof schema.widgetClients.$inferInsert> = {},
+  overrides: Partial<typeof schema.merchants.$inferInsert> = {},
 ) {
+  const [merchantUser] = await app.db
+    .insert(schema.users)
+    .values({ email, passwordHash: 'unused' })
+    .returning();
+
   const [merchant] = await app.db
-    .insert(schema.widgetClients)
+    .insert(schema.merchants)
     .values({
       companyName: 'Merchant Co',
       contactName: 'Merchant Owner',
-      email,
       phone: '9999999999',
       websiteUrl: 'https://example.com',
       companySize: '1-10',
       purpose: 'merchant tests',
       businessAddress: 'Test Street',
-      passwordHash: 'unused',
       isActive: true,
+      userId: merchantUser.id,
       ...overrides,
     })
     .returning();
 
-  await app.db.insert(schema.widgetClientCredits).values({
-    widgetClientId: merchant.id,
+  await app.db.insert(schema.merchantCredits).values({
+    merchantId: merchant.id,
     balance: 0,
   });
 
@@ -54,8 +58,8 @@ async function createUser(app: TestApp, email: string) {
   return user;
 }
 
-async function merchantAuthHeader(merchantId: string) {
-  const token = await signAccess(secret, merchantId, {}, '15m', 'merchant');
+async function merchantAuthHeader(userId: string) {
+  const token = await signAccess(secret, userId, { kind: 'access' }, '15m');
   return { authorization: `Bearer ${token}` };
 }
 
@@ -131,8 +135,8 @@ describe('merchant catalog', () => {
   it('presigns, uploads, creates, lists, and isolates merchant-private items', async () => {
     const merchantA = await createMerchant(app, 'merchant-a@example.com');
     const merchantB = await createMerchant(app, 'merchant-b@example.com');
-    const authA = await merchantAuthHeader(merchantA.id);
-    const authB = await merchantAuthHeader(merchantB.id);
+    const authA = await merchantAuthHeader(merchantA.userId);
+    const authB = await merchantAuthHeader(merchantB.userId);
 
     const assetId = randomUUID();
     const imageBody = Buffer.from('merchant-image-a');
@@ -190,12 +194,12 @@ describe('merchant catalog', () => {
     expect(created.statusCode).toBe(201);
     const item = created.json() as {
       id: string;
-      widgetClientId: string;
+      merchantId: string;
       r2Key: string;
       thumbnailKey: string;
       sourceKind: 'uploaded' | 'imported';
     };
-    expect(item.widgetClientId).toBe(merchantA.id);
+    expect(item.merchantId).toBe(merchantA.id);
     expect(item.sourceKind).toBe('uploaded');
 
     const listed = await app.inject({ method: 'GET', url: '/v1/merchant/catalog', headers: authA });
@@ -232,11 +236,7 @@ describe('merchant catalog', () => {
     const linkedMerchant = await createMerchant(app, 'linked-merchant@example.com', {
       userId: linkedUser.id,
     });
-    const unlinkedMerchant = await createMerchant(app, 'unlinked-merchant@example.com', {
-      userId: null,
-    });
-    const authLinked = await merchantAuthHeader(linkedMerchant.id);
-    const authUnlinked = await merchantAuthHeader(unlinkedMerchant.id);
+    const authLinked = await merchantAuthHeader(linkedMerchant.userId);
 
     const garmentBody = Buffer.from('source-garment');
     const resultBody = Buffer.from('source-result');
@@ -311,14 +311,6 @@ describe('merchant catalog', () => {
       payload: { jobId: linkedStudioJob.job.id },
     });
     expect(duplicateImport.statusCode).toBe(409);
-
-    const unlinkedImport = await app.inject({
-      method: 'POST',
-      url: '/v1/merchant/catalog/import',
-      headers: authUnlinked,
-      payload: { jobId: linkedStudioJob.job.id },
-    });
-    expect(unlinkedImport.statusCode).toBe(403);
 
     const otherUserImport = await app.inject({
       method: 'POST',

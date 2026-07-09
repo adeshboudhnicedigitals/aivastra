@@ -19,14 +19,14 @@ export function hashPairingCode(code: string): string {
 
 export async function createKioskDevice(
   app: FastifyInstance,
-  widgetClientId: string,
+  merchantId: string,
   label: string,
 ): Promise<{ device: typeof schema.kioskDevices.$inferSelect; pairingCode: string }> {
   const pairingCode = generatePairingCode();
   const [device] = await app.db
     .insert(schema.kioskDevices)
     .values({
-      widgetClientId,
+      merchantId,
       label,
       status: 'pending',
       pairingCodeHash: hashPairingCode(pairingCode),

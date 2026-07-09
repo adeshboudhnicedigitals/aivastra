@@ -11,28 +11,32 @@ const secret = new TextEncoder().encode(JWT_SECRET);
 async function createMerchant(
   app: TestApp,
   email: string,
-  overrides: Partial<typeof schema.widgetClients.$inferInsert> = {},
+  overrides: Partial<typeof schema.merchants.$inferInsert> = {},
 ) {
+  const [merchantUser] = await app.db
+    .insert(schema.users)
+    .values({ email, passwordHash: 'unused' })
+    .returning();
+
   const [merchant] = await app.db
-    .insert(schema.widgetClients)
+    .insert(schema.merchants)
     .values({
       companyName: 'Merchant Co',
       contactName: 'Merchant Owner',
-      email,
       phone: '9999999999',
       websiteUrl: 'https://example.com',
       companySize: '1-10',
       purpose: 'merchant tests',
       businessAddress: 'Test Street',
-      passwordHash: 'unused',
       isActive: true,
       kioskEnabled: false,
+      userId: merchantUser.id,
       ...overrides,
     })
     .returning();
 
-  await app.db.insert(schema.widgetClientCredits).values({
-    widgetClientId: merchant.id,
+  await app.db.insert(schema.merchantCredits).values({
+    merchantId: merchant.id,
     balance: 0,
   });
 
@@ -72,7 +76,7 @@ describe('merchant kiosk device admin controls', () => {
       kioskEnabled: false,
       maxKioskDevices: 1,
     });
-    const merchantToken = await signAccess(secret, merchant.id, {}, '15m', 'merchant');
+    const merchantToken = await signAccess(secret, merchant.userId, { kind: 'access' }, '15m');
 
     const merchantCreate = await app.inject({
       method: 'POST',
@@ -87,18 +91,18 @@ describe('merchant kiosk device admin controls', () => {
 
     const adminCreate = await app.inject({
       method: 'POST',
-      url: `/v1/admin/widget-clients/${merchant.id}/kiosk-devices`,
+      url: `/v1/admin/merchants/${merchant.id}/kiosk-devices`,
       headers: { authorization: `Bearer ${adminToken}` },
       payload: { label: 'Admin Tablet' },
     });
     expect(adminCreate.statusCode).toBe(201);
     const created = adminCreate.json() as {
       pairingCode: string;
-      device: { id: string; status: string; widgetClientId: string };
+      device: { id: string; status: string; merchantId: string };
     };
     expect(created.pairingCode).toMatch(/^[A-Z2-7]{10}$/);
     expect(created.device.status).toBe('pending');
-    expect(created.device.widgetClientId).toBe(merchant.id);
+    expect(created.device.merchantId).toBe(merchant.id);
 
     const claim = await app.inject({
       method: 'POST',

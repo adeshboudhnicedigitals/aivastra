@@ -1,15 +1,15 @@
 import { schema } from '@aivastra/db';
-import { AdminWidgetClientUpdateBody, WidgetClientSignup } from '@aivastra/types';
+import { AdminMerchantUpdateBody, MerchantSignup } from '@aivastra/types';
 import { and, count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { hashPassword } from '../auth/service.js';
 import { createKioskDevice, generatePairingCode, hashPairingCode } from '../kiosk/provisioning.js';
-import { widgetAdminGrant } from '../widget/ledger.js';
+import { merchantAdminGrant } from '../merchant/ledger.js';
+import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
 import { requireAdmin } from './guard.js';
 
-const AdminCreateClient = WidgetClientSignup.extend({
+const AdminCreateClient = MerchantSignup.extend({
   initialCredits: z.number().int().min(0).optional(),
 });
 
@@ -69,9 +69,9 @@ function assertWebhookUrlShape(urlStr: string): void {
   }
 }
 
-export async function adminWidgetClientsRoutes(app: FastifyInstance) {
+export async function adminMerchantsRoutes(app: FastifyInstance) {
   app.get(
-    '/v1/admin/widget-clients',
+    '/v1/admin/merchants',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
     async (req) => {
       const {
@@ -89,45 +89,45 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
 
       const where = search
         ? orOp(
-            ilike(schema.widgetClients.email, `%${search}%`),
-            ilike(schema.widgetClients.companyName, `%${search}%`),
+            ilike(schema.users.email, `%${search}%`),
+            ilike(schema.merchants.companyName, `%${search}%`),
           )
         : undefined;
 
       const [totalRow] = await app.db
         .select({ n: count() })
-        .from(schema.widgetClients)
+        .from(schema.merchants)
+        .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
         // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
         .where(where as any);
 
       const clients = await app.db
         .select({
-          id: schema.widgetClients.id,
-          companyName: schema.widgetClients.companyName,
-          contactName: schema.widgetClients.contactName,
-          email: schema.widgetClients.email,
-          phone: schema.widgetClients.phone,
-          websiteUrl: schema.widgetClients.websiteUrl,
-          companySize: schema.widgetClients.companySize,
-          purpose: schema.widgetClients.purpose,
-          businessAddress: schema.widgetClients.businessAddress,
-          widgetKey: schema.widgetClients.widgetKey,
-          isActive: schema.widgetClients.isActive,
-          kioskEnabled: schema.widgetClients.kioskEnabled,
-          maxKioskDevices: schema.widgetClients.maxKioskDevices,
-          allowedOrigins: schema.widgetClients.allowedOrigins,
-          createdAt: schema.widgetClients.createdAt,
-          updatedAt: schema.widgetClients.updatedAt,
-          creditBalance: schema.widgetClientCredits.balance,
+          id: schema.merchants.id,
+          companyName: schema.merchants.companyName,
+          contactName: schema.merchants.contactName,
+          email: schema.users.email,
+          phone: schema.merchants.phone,
+          websiteUrl: schema.merchants.websiteUrl,
+          companySize: schema.merchants.companySize,
+          purpose: schema.merchants.purpose,
+          businessAddress: schema.merchants.businessAddress,
+          isActive: schema.merchants.isActive,
+          kioskEnabled: schema.merchants.kioskEnabled,
+          maxKioskDevices: schema.merchants.maxKioskDevices,
+          createdAt: schema.merchants.createdAt,
+          updatedAt: schema.merchants.updatedAt,
+          creditBalance: schema.merchantCredits.balance,
         })
-        .from(schema.widgetClients)
+        .from(schema.merchants)
+        .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
         .leftJoin(
-          schema.widgetClientCredits,
-          eq(schema.widgetClients.id, schema.widgetClientCredits.widgetClientId),
+          schema.merchantCredits,
+          eq(schema.merchants.id, schema.merchantCredits.merchantId),
         )
         // biome-ignore lint/suspicious/noExplicitAny: drizzle where-clause union type
         .where(where as any)
-        .orderBy(desc(schema.widgetClients.createdAt))
+        .orderBy(desc(schema.merchants.createdAt))
         .limit(l)
         .offset(offset);
 
@@ -141,7 +141,7 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    '/v1/admin/widget-clients',
+    '/v1/admin/merchants',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminCreateClient },
@@ -149,96 +149,105 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const body = req.body as z.infer<typeof AdminCreateClient>;
 
-      const existing = await app.db
-        .select()
-        .from(schema.widgetClients)
-        .where(eq(schema.widgetClients.email, body.email))
-        .limit(1);
-      if (existing.length) {
-        throw new AppError('CONFLICT', 409, 'Email already registered');
-      }
-
-      const passwordHash = await hashPassword(body.password);
-
-      const [client] = await app.db
-        .insert(schema.widgetClients)
-        .values({
-          companyName: body.companyName,
-          contactName: body.contactName,
+      const client = await app.db.transaction(async (tx) => {
+        const { user } = await findOrCreateUserForMerchant(tx, {
           email: body.email,
+          password: body.password,
+          displayName: body.contactName,
           phone: body.phone,
-          websiteUrl: body.websiteUrl,
-          companySize: body.companySize,
-          purpose: body.purpose,
-          businessAddress: body.businessAddress,
-          passwordHash,
-        })
-        .returning();
+        });
 
-      await app.db.insert(schema.widgetClientCredits).values({
-        widgetClientId: client?.id,
-        balance: 0,
+        const [alreadyMerchant] = await tx
+          .select({ id: schema.merchants.id })
+          .from(schema.merchants)
+          .where(eq(schema.merchants.userId, user.id))
+          .limit(1);
+        if (alreadyMerchant) {
+          throw new AppError('CONFLICT', 409, 'This account is already registered as a merchant');
+        }
+
+        const [created] = await tx
+          .insert(schema.merchants)
+          .values({
+            companyName: body.companyName,
+            contactName: body.contactName,
+            phone: body.phone,
+            websiteUrl: body.websiteUrl,
+            companySize: body.companySize,
+            purpose: body.purpose,
+            businessAddress: body.businessAddress,
+            userId: user.id,
+          })
+          .returning();
+
+        await tx.insert(schema.merchantCredits).values({
+          merchantId: created.id,
+          balance: 0,
+        });
+
+        return created;
       });
 
       if (body.initialCredits && body.initialCredits > 0) {
-        await widgetAdminGrant(
+        await merchantAdminGrant(
           // biome-ignore lint/suspicious/noExplicitAny: DB type narrowing
           app.db as any,
-          client?.id,
+          client.id,
           body.initialCredits,
           'Initial grant',
           req.userId,
         );
       }
 
-      return reply.code(201).send({ id: client?.id, widgetKey: client?.widgetKey });
+      return reply.code(201).send({ id: client.id });
     },
   );
 
   app.get(
-    '/v1/admin/widget-clients/:id',
+    '/v1/admin/merchants/:id',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
     async (req) => {
       const { id } = req.params as { id: string };
 
       const [client] = await app.db
         .select({
-          id: schema.widgetClients.id,
-          companyName: schema.widgetClients.companyName,
-          contactName: schema.widgetClients.contactName,
-          email: schema.widgetClients.email,
-          phone: schema.widgetClients.phone,
-          websiteUrl: schema.widgetClients.websiteUrl,
-          companySize: schema.widgetClients.companySize,
-          purpose: schema.widgetClients.purpose,
-          businessAddress: schema.widgetClients.businessAddress,
-          widgetKey: schema.widgetClients.widgetKey,
-          isActive: schema.widgetClients.isActive,
-          kioskEnabled: schema.widgetClients.kioskEnabled,
-          maxKioskDevices: schema.widgetClients.maxKioskDevices,
-          userId: schema.widgetClients.userId,
-          allowedOrigins: schema.widgetClients.allowedOrigins,
-          webhookUrl: schema.widgetClients.webhookUrl,
-          webhookSecret: schema.widgetClients.webhookSecret,
-          createdAt: schema.widgetClients.createdAt,
-          updatedAt: schema.widgetClients.updatedAt,
-          creditBalance: schema.widgetClientCredits.balance,
+          id: schema.merchants.id,
+          companyName: schema.merchants.companyName,
+          contactName: schema.merchants.contactName,
+          email: schema.users.email,
+          phone: schema.merchants.phone,
+          websiteUrl: schema.merchants.websiteUrl,
+          companySize: schema.merchants.companySize,
+          purpose: schema.merchants.purpose,
+          businessAddress: schema.merchants.businessAddress,
+          isActive: schema.merchants.isActive,
+          kioskEnabled: schema.merchants.kioskEnabled,
+          maxKioskDevices: schema.merchants.maxKioskDevices,
+          userId: schema.merchants.userId,
+          webhookUrl: schema.merchants.webhookUrl,
+          webhookSecret: schema.merchants.webhookSecret,
+          createdAt: schema.merchants.createdAt,
+          updatedAt: schema.merchants.updatedAt,
+          creditBalance: schema.merchantCredits.balance,
+          emailVerified: schema.users.emailVerified,
+          displayName: schema.users.displayName,
         })
-        .from(schema.widgetClients)
+        .from(schema.merchants)
+        .innerJoin(schema.users, eq(schema.merchants.userId, schema.users.id))
         .leftJoin(
-          schema.widgetClientCredits,
-          eq(schema.widgetClients.id, schema.widgetClientCredits.widgetClientId),
+          schema.merchantCredits,
+          eq(schema.merchants.id, schema.merchantCredits.merchantId),
         )
-        .where(eq(schema.widgetClients.id, id))
+        .where(eq(schema.merchants.id, id))
         .limit(1);
 
-      if (!client) throw new AppError('NOT_FOUND', 404, 'Widget client not found');
+      if (!client) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
 
       const ledger = await app.db
         .select()
-        .from(schema.widgetCreditLedger)
-        .where(eq(schema.widgetCreditLedger.widgetClientId, id))
-        .orderBy(desc(schema.widgetCreditLedger.createdAt))
+        .from(schema.merchantCreditLedger)
+        .where(eq(schema.merchantCreditLedger.merchantId, id))
+        .orderBy(desc(schema.merchantCreditLedger.createdAt))
         .limit(20);
 
       const recentJobs = await app.db
@@ -250,70 +259,49 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
           completedAt: schema.jobs.completedAt,
         })
         .from(schema.jobs)
-        .where(eq(schema.jobs.widgetClientId, id))
+        .where(eq(schema.jobs.merchantId, id))
         .orderBy(desc(schema.jobs.createdAt))
         .limit(20);
 
-      const [linkedUser] = client.userId
-        ? await app.db
-            .select({
-              id: schema.users.id,
-              email: schema.users.email,
-              displayName: schema.users.displayName,
-              emailVerified: schema.users.emailVerified,
-            })
-            .from(schema.users)
-            .where(eq(schema.users.id, client.userId))
-            .limit(1)
-        : [];
-
-      const [suggestedUser] = !client.userId
-        ? await app.db
-            .select({
-              id: schema.users.id,
-              email: schema.users.email,
-              displayName: schema.users.displayName,
-              emailVerified: schema.users.emailVerified,
-            })
-            .from(schema.users)
-            .where(and(eq(schema.users.email, client.email), eq(schema.users.emailVerified, true)))
-            .limit(1)
-        : [];
+      // Every merchant is a user with a merchants profile attached — always resolvable.
+      const linkedUser = {
+        id: client.userId,
+        email: client.email,
+        displayName: client.displayName,
+        emailVerified: client.emailVerified,
+      };
 
       const kioskDevices = await app.db
         .select()
         .from(schema.kioskDevices)
-        .where(eq(schema.kioskDevices.widgetClientId, id))
+        .where(eq(schema.kioskDevices.merchantId, id))
         .orderBy(desc(schema.kioskDevices.createdAt));
 
       return {
         ...client,
         ledger,
         recentJobs,
-        linkedUser: linkedUser ?? null,
-        suggestedUser: suggestedUser ?? null,
+        linkedUser,
         kioskDevices: kioskDevices.map(publicKioskDevice),
       };
     },
   );
 
   app.patch(
-    '/v1/admin/widget-clients/:id',
+    '/v1/admin/merchants/:id',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
-      schema: { body: AdminWidgetClientUpdateBody },
+      schema: { body: AdminMerchantUpdateBody },
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const body = req.body as z.infer<typeof AdminWidgetClientUpdateBody>;
+      const body = req.body as z.infer<typeof AdminMerchantUpdateBody>;
 
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.isActive !== undefined) updates.isActive = body.isActive;
       if (body.companyName !== undefined) updates.companyName = body.companyName;
-      if (body.allowedOrigins !== undefined) updates.allowedOrigins = body.allowedOrigins;
       if (body.kioskEnabled !== undefined) updates.kioskEnabled = body.kioskEnabled;
       if (body.maxKioskDevices !== undefined) updates.maxKioskDevices = body.maxKioskDevices;
-      if (body.userId !== undefined) updates.userId = body.userId;
       if (body.webhookUrl !== undefined) {
         if (body.webhookUrl) assertWebhookUrlShape(body.webhookUrl);
         updates.webhookUrl = body.webhookUrl || null;
@@ -323,18 +311,18 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
       }
 
       const [updated] = await app.db
-        .update(schema.widgetClients)
+        .update(schema.merchants)
         .set(updates)
-        .where(eq(schema.widgetClients.id, id))
+        .where(eq(schema.merchants.id, id))
         .returning();
 
-      if (!updated) throw new AppError('NOT_FOUND', 404, 'Widget client not found');
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
       return updated;
     },
   );
 
   app.post(
-    '/v1/admin/widget-clients/:id/credits',
+    '/v1/admin/merchants/:id/credits',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminCreditBody },
@@ -343,7 +331,7 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { amount, reason } = req.body as z.infer<typeof AdminCreditBody>;
 
-      await widgetAdminGrant(
+      await merchantAdminGrant(
         // biome-ignore lint/suspicious/noExplicitAny: DB type narrowing
         app.db as any,
         id,
@@ -353,16 +341,16 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
       );
 
       const [credits] = await app.db
-        .select({ balance: schema.widgetClientCredits.balance })
-        .from(schema.widgetClientCredits)
-        .where(eq(schema.widgetClientCredits.widgetClientId, id))
+        .select({ balance: schema.merchantCredits.balance })
+        .from(schema.merchantCredits)
+        .where(eq(schema.merchantCredits.merchantId, id))
         .limit(1);
 
       return { newBalance: credits?.balance ?? amount };
     },
   );
   app.post(
-    '/v1/admin/widget-clients/:id/kiosk-devices',
+    '/v1/admin/merchants/:id/kiosk-devices',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminKioskDeviceBody },
@@ -371,11 +359,11 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const { label } = req.body as z.infer<typeof AdminKioskDeviceBody>;
       const [client] = await app.db
-        .select({ id: schema.widgetClients.id })
-        .from(schema.widgetClients)
-        .where(eq(schema.widgetClients.id, id))
+        .select({ id: schema.merchants.id })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, id))
         .limit(1);
-      if (!client) throw new AppError('NOT_FOUND', 404, 'Widget client not found');
+      if (!client) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
 
       const { device, pairingCode } = await createKioskDevice(app, id, label);
       reply.code(201);
@@ -384,7 +372,7 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
   );
 
   app.patch(
-    '/v1/admin/widget-clients/:id/kiosk-devices/:deviceId',
+    '/v1/admin/merchants/:id/kiosk-devices/:deviceId',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminPatchKioskDeviceBody },
@@ -400,9 +388,7 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
           ...(body.status === 'revoked' ? { status: 'revoked', revokedAt: now } : {}),
           updatedAt: now,
         })
-        .where(
-          and(eq(schema.kioskDevices.id, deviceId), eq(schema.kioskDevices.widgetClientId, id)),
-        )
+        .where(and(eq(schema.kioskDevices.id, deviceId), eq(schema.kioskDevices.merchantId, id)))
         .returning();
       if (!updated) throw new AppError('NOT_FOUND', 404, 'kiosk device not found');
       return publicKioskDevice(updated);
@@ -410,7 +396,7 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    '/v1/admin/widget-clients/:id/kiosk-devices/:deviceId/pairing-code',
+    '/v1/admin/merchants/:id/kiosk-devices/:deviceId/pairing-code',
     { preHandler: requireAdmin(['SUPER_ADMIN']) },
     async (req) => {
       const { id, deviceId } = req.params as { id: string; deviceId: string };
@@ -426,9 +412,7 @@ export async function adminWidgetClientsRoutes(app: FastifyInstance) {
           pairedAt: null,
           updatedAt: now,
         })
-        .where(
-          and(eq(schema.kioskDevices.id, deviceId), eq(schema.kioskDevices.widgetClientId, id)),
-        )
+        .where(and(eq(schema.kioskDevices.id, deviceId), eq(schema.kioskDevices.merchantId, id)))
         .returning();
       if (!updated) throw new AppError('NOT_FOUND', 404, 'kiosk device not found');
       return { device: publicKioskDevice(updated), pairingCode };

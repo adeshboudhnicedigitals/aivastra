@@ -2,17 +2,20 @@ import { schema } from '@aivastra/db';
 import { SystemConfigBody } from '@aivastra/types';
 import { and, count, countDistinct, eq, gte, lt, lte, sql, sum } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { DEFAULT_RESOLUTION_CONFIG } from '../../lib/resolution-config.js';
+import { DEFAULT_MAX_OUTPUT_PX, DEFAULT_RESOLUTION_CONFIG } from '../../lib/resolution-config.js';
 import { requireAdmin } from './guard.js';
 
 const KEY = 'config:system';
 
 export async function adminConfigRoutes(app: FastifyInstance) {
-  // Public — used by the web pricing page (no auth required)
+  // Public — used by the web pricing page and studio custom-resolution input (no auth required)
   app.get('/v1/config/resolutions', async () => {
     const raw = await app.redis.get(KEY);
     const cfg = raw ? JSON.parse(raw) : {};
-    return { resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG };
+    return {
+      resolutions: cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG,
+      maxOutputPx: cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX,
+    };
   });
 
   app.get(
@@ -22,6 +25,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       const raw = await app.redis.get(KEY);
       const cfg = raw ? JSON.parse(raw) : {};
       cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
+      cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
       return cfg;
     },
   );

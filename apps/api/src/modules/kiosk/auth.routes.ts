@@ -106,7 +106,7 @@ export async function kioskAuthRoutes(app: FastifyInstance) {
         .select({
           userId: schema.refreshTokens.userId,
           kioskDeviceId: schema.refreshTokens.kioskDeviceId,
-          widgetClientId: schema.refreshTokens.widgetClientId,
+          merchantId: schema.refreshTokens.merchantId,
           portal: schema.refreshTokens.portal,
         })
         .from(schema.refreshTokens)
@@ -115,7 +115,7 @@ export async function kioskAuthRoutes(app: FastifyInstance) {
       if (
         !refreshRow?.kioskDeviceId ||
         refreshRow.userId ||
-        refreshRow.widgetClientId ||
+        refreshRow.merchantId ||
         refreshRow.portal !== 'kiosk'
       ) {
         throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');

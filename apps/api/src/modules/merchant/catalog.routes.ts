@@ -39,16 +39,16 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
 
 async function assertMerchantUploadKey(
   app: FastifyInstance,
-  widgetClientId: string,
+  merchantId: string,
   key: string,
   label: string,
 ) {
-  if (!key.startsWith(`merchant-catalog/${widgetClientId}/`)) {
+  if (!key.startsWith(`merchant-catalog/${merchantId}/`)) {
     throw new AppError('FORBIDDEN', 403, `${label} key does not belong to this merchant`);
   }
 
   const owner = await app.redis.get(`upload:owner:${key}`);
-  if (owner !== widgetClientId) {
+  if (owner !== merchantId) {
     throw new AppError('FORBIDDEN', 403, `${label} upload session expired or not owned`);
   }
 
@@ -77,8 +77,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     '/v1/merchant/catalog/presign',
     { preHandler: app.requireMerchant, schema: { body: MerchantCatalogPresignBody } },
     async (req) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const {
         assetId = randomUUID(),
@@ -88,27 +88,27 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       } = req.body as z.infer<typeof MerchantCatalogPresignBody>;
       const key =
         kind === 'thumbnail'
-          ? keys.merchantCatalogItemThumb(widgetClientId, assetId)
-          : keys.merchantCatalogItem(widgetClientId, assetId);
+          ? keys.merchantCatalogItemThumb(merchantId, assetId)
+          : keys.merchantCatalogItem(merchantId, assetId);
 
       const { url, expiresIn } = await app.storage.presignPut(key, contentType, contentLength, 600);
-      await app.redis.set(`upload:owner:${key}`, widgetClientId, 'EX', 600);
+      await app.redis.set(`upload:owner:${key}`, merchantId, 'EX', 600);
 
       return { assetId, uploadUrl: url, r2Key: key, expiresIn };
     },
   );
 
   app.get('/v1/merchant/catalog', { preHandler: app.requireMerchant }, async (req) => {
-    const widgetClientId = req.merchantClientId;
-    if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+    const merchantId = req.merchantClientId;
+    if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
     const search = ((req.query as { search?: string }).search ?? '').trim();
     const where = search
       ? and(
-          eq(schema.merchantCatalogItems.widgetClientId, widgetClientId),
+          eq(schema.merchantCatalogItems.merchantId, merchantId),
           ilike(schema.merchantCatalogItems.label, `%${search}%`),
         )
-      : eq(schema.merchantCatalogItems.widgetClientId, widgetClientId);
+      : eq(schema.merchantCatalogItems.merchantId, merchantId);
 
     const items = await app.db
       .select()
@@ -123,19 +123,19 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     '/v1/merchant/catalog',
     { preHandler: app.requireMerchant, schema: { body: MerchantCatalogCreateBody } },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const body = req.body as z.infer<typeof MerchantCatalogCreateBody>;
       await Promise.all([
-        assertMerchantUploadKey(app, widgetClientId, body.r2Key, 'image'),
-        assertMerchantUploadKey(app, widgetClientId, body.thumbnailKey, 'thumbnail'),
+        assertMerchantUploadKey(app, merchantId, body.r2Key, 'image'),
+        assertMerchantUploadKey(app, merchantId, body.thumbnailKey, 'thumbnail'),
       ]);
 
       const [item] = await app.db
         .insert(schema.merchantCatalogItems)
         .values({
-          widgetClientId,
+          merchantId,
           label: body.label,
           sku: body.sku?.trim() || null,
           gender: body.gender ?? null,
@@ -160,8 +160,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const { id } = req.params as { id: string };
       const body = req.body as z.infer<typeof MerchantCatalogUpdateBody>;
@@ -179,7 +179,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .where(
           and(
             eq(schema.merchantCatalogItems.id, id),
-            eq(schema.merchantCatalogItems.widgetClientId, widgetClientId),
+            eq(schema.merchantCatalogItems.merchantId, merchantId),
           ),
         )
         .returning();
@@ -196,8 +196,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const { id } = req.params as { id: string };
       const [deleted] = await app.db
@@ -205,7 +205,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .where(
           and(
             eq(schema.merchantCatalogItems.id, id),
-            eq(schema.merchantCatalogItems.widgetClientId, widgetClientId),
+            eq(schema.merchantCatalogItems.merchantId, merchantId),
           ),
         )
         .returning();
@@ -223,15 +223,15 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
   );
 
   app.get('/v1/merchant/catalogues', { preHandler: app.requireMerchant }, async (req) => {
-    const widgetClientId = req.merchantClientId;
-    if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+    const merchantId = req.merchantClientId;
+    if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
     const [client] = await app.db
-      .select({ userId: schema.widgetClients.userId })
-      .from(schema.widgetClients)
-      .where(eq(schema.widgetClients.id, widgetClientId))
+      .select({ userId: schema.merchants.userId })
+      .from(schema.merchants)
+      .where(eq(schema.merchants.id, merchantId))
       .limit(1);
-    if (!client?.userId) return { catalogues: [] };
+    if (!client) return { catalogues: [] };
 
     const rows = await app.db
       .select({
@@ -252,7 +252,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       .from(schema.merchantCatalogItems)
       .where(
         and(
-          eq(schema.merchantCatalogItems.widgetClientId, widgetClientId),
+          eq(schema.merchantCatalogItems.merchantId, merchantId),
           inArray(
             schema.merchantCatalogItems.sourceJobId,
             rows.map((row) => row.jobId),
@@ -315,18 +315,16 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     '/v1/merchant/catalog/import',
     { preHandler: app.requireMerchant, schema: { body: MerchantCatalogImportBody } },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const { jobId } = req.body as z.infer<typeof MerchantCatalogImportBody>;
       const [client] = await app.db
-        .select({ userId: schema.widgetClients.userId })
-        .from(schema.widgetClients)
-        .where(eq(schema.widgetClients.id, widgetClientId))
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
         .limit(1);
-      if (!client?.userId) {
-        throw new AppError('FORBIDDEN', 403, 'merchant is not linked to a studio user');
-      }
+      if (!client) throw new AppError('NOT_FOUND', 404, 'merchant not found');
 
       const [job] = await app.db
         .select({
@@ -363,8 +361,8 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       });
 
       const assetId = randomUUID();
-      const imageKey = keys.merchantCatalogItem(widgetClientId, assetId);
-      const thumbKey = keys.merchantCatalogItemThumb(widgetClientId, assetId);
+      const imageKey = keys.merchantCatalogItem(merchantId, assetId);
+      const thumbKey = keys.merchantCatalogItemThumb(merchantId, assetId);
       await Promise.all([
         app.storage.putObject(imageKey, imageBody, imageHead.contentType ?? 'image/jpeg'),
         app.storage.putObject(thumbKey, thumbBody, thumbHead.contentType ?? 'image/jpeg'),
@@ -375,7 +373,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           .insert(schema.merchantCatalogItems)
           .values({
             id: assetId,
-            widgetClientId,
+            merchantId,
             label: catalogueLabel(job.catalogueId, job.id),
             r2Key: imageKey,
             thumbnailKey: thumbKey,

@@ -4,14 +4,14 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 
-async function assertOwnedJob(app: FastifyInstance, widgetClientId: string, jobId: string) {
+async function assertOwnedJob(app: FastifyInstance, merchantId: string, jobId: string) {
   const [job] = await app.db
-    .select({ id: schema.jobs.id, widgetClientId: schema.jobs.widgetClientId })
+    .select({ id: schema.jobs.id, merchantId: schema.jobs.merchantId })
     .from(schema.jobs)
     .where(eq(schema.jobs.id, jobId))
     .limit(1);
 
-  if (!job || job.widgetClientId !== widgetClientId) {
+  if (!job || job.merchantId !== merchantId) {
     throw new AppError('NOT_FOUND', 404, 'job not found');
   }
 }
@@ -24,15 +24,15 @@ export async function kioskResultsRoutes(app: FastifyInstance) {
     '/v1/kiosk/results/:jobId/like',
     { preHandler: app.requireKioskDevice, schema: { params: paramsSchema, body: noBodySchema } },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
+      const merchantId = req.merchantClientId;
       const kioskDeviceId = req.kioskDeviceId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { jobId } = req.params as { jobId: string };
-      await assertOwnedJob(app, widgetClientId, jobId);
+      await assertOwnedJob(app, merchantId, jobId);
 
       await app.db
         .insert(schema.kioskResultLikes)
-        .values({ jobId, widgetClientId, kioskDeviceId: kioskDeviceId ?? null })
+        .values({ jobId, merchantId, kioskDeviceId: kioskDeviceId ?? null })
         .onConflictDoNothing();
 
       reply.code(204);
@@ -44,17 +44,17 @@ export async function kioskResultsRoutes(app: FastifyInstance) {
     '/v1/kiosk/results/:jobId/like',
     { preHandler: app.requireKioskDevice, schema: { params: paramsSchema, body: noBodySchema } },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { jobId } = req.params as { jobId: string };
-      await assertOwnedJob(app, widgetClientId, jobId);
+      await assertOwnedJob(app, merchantId, jobId);
 
       await app.db
         .delete(schema.kioskResultLikes)
         .where(
           and(
             eq(schema.kioskResultLikes.jobId, jobId),
-            eq(schema.kioskResultLikes.widgetClientId, widgetClientId),
+            eq(schema.kioskResultLikes.merchantId, merchantId),
           ),
         );
 
@@ -67,15 +67,15 @@ export async function kioskResultsRoutes(app: FastifyInstance) {
     '/v1/kiosk/results/:jobId/cart',
     { preHandler: app.requireKioskDevice, schema: { params: paramsSchema, body: noBodySchema } },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
+      const merchantId = req.merchantClientId;
       const kioskDeviceId = req.kioskDeviceId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { jobId } = req.params as { jobId: string };
-      await assertOwnedJob(app, widgetClientId, jobId);
+      await assertOwnedJob(app, merchantId, jobId);
 
       await app.db
         .insert(schema.kioskResultCartItems)
-        .values({ jobId, widgetClientId, kioskDeviceId: kioskDeviceId ?? null })
+        .values({ jobId, merchantId, kioskDeviceId: kioskDeviceId ?? null })
         .onConflictDoNothing();
 
       reply.code(204);
@@ -87,17 +87,17 @@ export async function kioskResultsRoutes(app: FastifyInstance) {
     '/v1/kiosk/results/:jobId/cart',
     { preHandler: app.requireKioskDevice, schema: { params: paramsSchema, body: noBodySchema } },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { jobId } = req.params as { jobId: string };
-      await assertOwnedJob(app, widgetClientId, jobId);
+      await assertOwnedJob(app, merchantId, jobId);
 
       await app.db
         .delete(schema.kioskResultCartItems)
         .where(
           and(
             eq(schema.kioskResultCartItems.jobId, jobId),
-            eq(schema.kioskResultCartItems.widgetClientId, widgetClientId),
+            eq(schema.kioskResultCartItems.merchantId, merchantId),
           ),
         );
 
