@@ -33,7 +33,7 @@
 -- reconstructing 40+ tables' worth of already-real history), this file's
 -- SQL body is reduced to a genuine no-op. Its only real job is existing at
 -- all: giving `pnpm db:generate` a *snapshot* (see the paired
--- meta/0089_snapshot.json) that accurately reflects the current schema, so
+-- meta/0090_snapshot.json) that accurately reflects the current schema, so
 -- future migrations diff against reality instead of the stale 0045
 -- baseline. Verified directly via psql before this file was finalized: a
 -- from-scratch database (full migration history 0000-0088, then this file)

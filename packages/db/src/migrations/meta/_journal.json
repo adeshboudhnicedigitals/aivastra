@@ -621,29 +621,36 @@
     {
       "idx": 88,
       "version": "7",
-      "when": 1783454921659,
-      "tag": "0088_shopify_tables",
-      "breakpoints": true
+      "when": 1783555200000,
+      "tag": "0088_pose_garment_configs_is_active",
+      "breakpoints": false
     },
     {
       "idx": 89,
       "version": "7",
-      "when": 1783514059883,
-      "tag": "0089_backfill_migration_history",
+      "when": 1783454921659,
+      "tag": "0089_shopify_tables",
       "breakpoints": true
     },
     {
       "idx": 90,
       "version": "7",
-      "when": 1783514405883,
-      "tag": "0090_shopify_product_garments_enabled_title",
+      "when": 1783514059883,
+      "tag": "0090_backfill_migration_history",
       "breakpoints": true
     },
     {
       "idx": 91,
       "version": "7",
+      "when": 1783514405883,
+      "tag": "0091_shopify_product_garments_enabled_title",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
       "when": 1783585257654,
-      "tag": "0091_slimy_tana_nile",
+      "tag": "0092_slimy_tana_nile",
       "breakpoints": true
     }
   ]

@@ -1,6 +1,6 @@
 {
-  "id": "73831dd6-f4ab-48c6-8875-8d378bc38e8e",
-  "prevId": "1338bac0-34ea-4839-96b0-3b0585d94d7f",
+  "id": "d2aa7449-3324-4e41-933a-85cf1218d2f4",
+  "prevId": "cbdd9471-2a57-4810-900f-10aa3a7f2baf",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2526,6 +2526,180 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.shopify_funnel_rules": {
+      "name": "shopify_funnel_rules",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "store_id": {
+          "name": "store_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "funnel_template_id": {
+          "name": "funnel_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'manual'"
+        },
+        "conditions": {
+          "name": "conditions",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "priority": {
+          "name": "priority",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "shopify_funnel_rules_store_id_shopify_stores_id_fk": {
+          "name": "shopify_funnel_rules_store_id_shopify_stores_id_fk",
+          "tableFrom": "shopify_funnel_rules",
+          "tableTo": "shopify_stores",
+          "columnsFrom": ["store_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "shopify_funnel_rules_funnel_template_id_shopify_funnel_templates_id_fk": {
+          "name": "shopify_funnel_rules_funnel_template_id_shopify_funnel_templates_id_fk",
+          "tableFrom": "shopify_funnel_rules",
+          "tableTo": "shopify_funnel_templates",
+          "columnsFrom": ["funnel_template_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "shopify_funnel_rules_store_id_funnel_template_id_unique": {
+          "name": "shopify_funnel_rules_store_id_funnel_template_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["store_id", "funnel_template_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.shopify_funnel_templates": {
+      "name": "shopify_funnel_templates",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "slug": {
+          "name": "slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "workflow_template_id": {
+          "name": "workflow_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "shopify_funnel_templates_workflow_template_id_workflow_templates_id_fk": {
+          "name": "shopify_funnel_templates_workflow_template_id_workflow_templates_id_fk",
+          "tableFrom": "shopify_funnel_templates",
+          "tableTo": "workflow_templates",
+          "columnsFrom": ["workflow_template_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "shopify_funnel_templates_slug_unique": {
+          "name": "shopify_funnel_templates_slug_unique",
+          "nullsNotDistinct": false,
+          "columns": ["slug"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.shopify_plans": {
       "name": "shopify_plans",
       "schema": "",
@@ -2633,6 +2807,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -2640,8 +2820,45 @@
           "notNull": true,
           "default": "'processing'"
         },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "failed_reason": {
           "name": "failed_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "funnel_template_id": {
+          "name": "funnel_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "funnel_assignment_source": {
+          "name": "funnel_assignment_source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "product_type": {
+          "name": "product_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tags": {
+          "name": "tags",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "vendor": {
+          "name": "vendor",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -2663,6 +2880,15 @@
           "columnsFrom": ["store_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "shopify_product_garments_funnel_template_id_shopify_funnel_templates_id_fk": {
+          "name": "shopify_product_garments_funnel_template_id_shopify_funnel_templates_id_fk",
+          "tableFrom": "shopify_product_garments",
+          "tableTo": "shopify_funnel_templates",
+          "columnsFrom": ["funnel_template_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
