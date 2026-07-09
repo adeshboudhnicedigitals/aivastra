@@ -133,6 +133,150 @@ describe('dispatcher shopify job routing', () => {
     };
   }
 
+  async function seedShopifyJobViaFunnel(opts: { withFunnel: boolean }) {
+    const [client] = await env.db
+      .insert(schema.widgetClients)
+      .values({
+        companyName: 'Funnel Acme',
+        contactName: 'A',
+        email: `shopify-funnel-${Date.now()}@test.com`,
+        phone: '1234567890',
+        websiteUrl: 'https://acme.example',
+        companySize: '1-10',
+        purpose: 'test',
+        businessAddress: 'x',
+        passwordHash: 'x',
+        clientType: 'shopify',
+        isActive: true,
+      })
+      .returning();
+    await env.db
+      .insert(schema.widgetClientCredits)
+      .values({ widgetClientId: client?.id, balance: 5 });
+
+    const [store] = await env.db
+      .insert(schema.shopifyStores)
+      .values({
+        widgetClientId: client?.id as string,
+        shopDomain: `funnel-test-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'iv:tag:enc',
+        scope: 'read_products',
+      })
+      .returning();
+
+    let funnelTemplateIdToAssign: string | undefined;
+    if (opts.withFunnel) {
+      const [funnelWorkflow] = await env.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `funnel-wf-${Date.now()}`,
+          label: 'Funnel WF',
+          jsonContent: {
+            [PERSON_NODE_ID]: { inputs: { image: '' } },
+            [GARMENT_NODE_ID]: { inputs: { image: '' } },
+            [OUTPUT_NODE_ID]: { class_type: 'SaveImage', inputs: {} },
+          },
+          faceNodeId: 'x',
+          poseNodeId: 'x',
+          bgNodeId: 'x',
+          upperNodeIds: ['x'],
+          facePhasePromptNode: 'x',
+          garmentPhasePromptNode: 'x',
+          workflowType: 'tryon',
+          tryonPersonNodeId: PERSON_NODE_ID,
+          tryonGarmentNodeId: GARMENT_NODE_ID,
+          tryonOutputNodeId: OUTPUT_NODE_ID,
+        })
+        .returning();
+      const [funnelTemplate] = await env.db
+        .insert(schema.shopifyFunnelTemplates)
+        .values({
+          slug: `funnel-tpl-${Date.now()}`,
+          label: 'Funnel Template',
+          workflowTemplateId: funnelWorkflow.id,
+        })
+        .returning();
+      funnelTemplateIdToAssign = funnelTemplate.id;
+    }
+
+    const garmentKey = `shopify-garments/${store?.id}/garment.jpg`;
+    await env.db.insert(schema.shopifyProductGarments).values({
+      storeId: store?.id as string,
+      shopifyProductId: 1,
+      shopifyVariantId: 0,
+      r2Key: garmentKey,
+      status: 'active',
+      enabled: true,
+      funnelTemplateId: funnelTemplateIdToAssign ? funnelTemplateIdToAssign : null,
+      funnelAssignmentSource: funnelTemplateIdToAssign ? 'manual' : null,
+    });
+
+    // biome-ignore lint/suspicious/noExplicitAny: mirrors seedShopifyJob's own userId cast above
+    const [job] = await (env.db.insert(schema.jobs).values as any)({
+      widgetClientId: client?.id,
+      customerPhotoKey: `widget-inputs/${client?.id}/photo.jpg`,
+      status: 'QUEUED',
+      creditsCharged: 2,
+    }).returning();
+
+    // biome-ignore lint/suspicious/noExplicitAny: mirrors seedShopifyJob's own face/bg/pose cast above
+    await (env.db.insert(schema.jobInputs).values as any)({
+      jobId: job?.id,
+      upperGarmentKey: garmentKey,
+      faceId: null,
+      backgroundId: null,
+      poseId: null,
+      params: { kind: 'shopify' },
+    });
+
+    for (const key of [`widget-inputs/${client?.id}/photo.jpg`, garmentKey]) {
+      await env.s3.send(
+        new PutObjectCommand({
+          Bucket: env.r2Bucket,
+          Key: key,
+          Body: Buffer.from('stub'),
+          ContentType: 'image/jpeg',
+        }),
+      );
+    }
+
+    return { jobId: job?.id as string };
+  }
+
+  it("resolves the workflow via the product's funnel template", async () => {
+    const { jobId } = await seedShopifyJobViaFunnel({ withFunnel: true });
+    const log = createLogger('test');
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      '',
+      'jobs:normal',
+      `${Date.now()}-0`,
+    );
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('COMPLETED');
+  });
+
+  it('fails with NO_WORKFLOW_CONFIGURED when neither a funnel nor a store default is set', async () => {
+    const { jobId } = await seedShopifyJobViaFunnel({ withFunnel: false });
+    const log = createLogger('test');
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      '',
+      'jobs:normal',
+      `${Date.now()}-0`,
+    );
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('FAILED');
+    expect(job?.errorCode).toBe('NO_WORKFLOW_CONFIGURED');
+  });
+
   it('routes to processShopifyJob: claims a "shopify" worker and patches the person/garment nodes', async () => {
     const { jobId, clientId } = await seedShopifyJob();
     const log = createLogger('test');
