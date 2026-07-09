@@ -9,6 +9,7 @@ import {
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { workflowTemplates } from './models.js';
 import { widgetClients } from './widget.js';
 
 export interface ShopifyStoreSettings {
@@ -18,6 +19,12 @@ export interface ShopifyStoreSettings {
   customCss?: string;
   workflowTemplateId?: string;
   themeBlockConfirmed?: boolean;
+}
+
+export interface FunnelRuleCondition {
+  field: 'product_type' | 'tags' | 'vendor';
+  operator: 'equals' | 'contains';
+  value: string;
 }
 
 export const shopifyPlans = pgTable('shopify_plans', {
@@ -52,6 +59,40 @@ export const shopifyStores = pgTable('shopify_stores', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const shopifyFunnelTemplates = pgTable('shopify_funnel_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: text('slug').notNull().unique(),
+  label: text('label').notNull(),
+  workflowTemplateId: uuid('workflow_template_id')
+    .notNull()
+    .references(() => workflowTemplates.id),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const shopifyFunnelRules = pgTable(
+  'shopify_funnel_rules',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+    funnelTemplateId: uuid('funnel_template_id')
+      .notNull()
+      .references(() => shopifyFunnelTemplates.id, { onDelete: 'cascade' }),
+    mode: text('mode').notNull().default('manual'),
+    conditions: jsonb('conditions').$type<FunnelRuleCondition[]>().notNull().default([]),
+    priority: integer('priority').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: unique().on(t.storeId, t.funnelTemplateId),
+  }),
+);
+
 export const shopifyProductGarments = pgTable(
   'shopify_product_garments',
   {
@@ -66,6 +107,11 @@ export const shopifyProductGarments = pgTable(
     status: text('status').notNull().default('processing'), // active|processing|failed|deleted
     enabled: boolean('enabled').notNull().default(false),
     failedReason: text('failed_reason'),
+    funnelTemplateId: uuid('funnel_template_id').references(() => shopifyFunnelTemplates.id),
+    funnelAssignmentSource: text('funnel_assignment_source'),
+    productType: text('product_type'),
+    tags: text('tags').array(),
+    vendor: text('vendor'),
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
