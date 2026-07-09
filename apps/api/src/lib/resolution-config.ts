@@ -1,4 +1,4 @@
-import { RESOLUTION_COSTS, type Resolution } from '@aivastra/types';
+import { RESOLUTION_COSTS, type Resolution, SIMPLE_TRYON_COST } from '@aivastra/types';
 import type { FastifyInstance } from 'fastify';
 
 const CONFIG_KEY = 'config:system';
@@ -13,6 +13,10 @@ export const DEFAULT_RESOLUTION_CONFIG: Record<
 };
 
 export const DEFAULT_MAX_OUTPUT_PX = 2048;
+
+export const DEFAULT_TRYON_CONFIG: { creditCost: number } = {
+  creditCost: SIMPLE_TRYON_COST,
+};
 
 /**
  * Reads the admin-configured credit cost for a resolution from the same
@@ -49,5 +53,22 @@ export async function getMaxOutputPx(app: FastifyInstance): Promise<number> {
     return typeof max === 'number' ? max : DEFAULT_MAX_OUTPUT_PX;
   } catch {
     return DEFAULT_MAX_OUTPUT_PX;
+  }
+}
+
+/**
+ * Reads the admin-configured credit cost for a virtual try-on job (simple
+ * tryon + saree) from the same `config:system` Redis key the admin panel
+ * edits (GET/PATCH /admin/config). Falls back to SIMPLE_TRYON_COST if
+ * nothing is stored yet, or the entry is missing/malformed.
+ */
+export async function getTryonCreditCost(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const cost = cfg.tryon?.creditCost;
+    return typeof cost === 'number' ? cost : SIMPLE_TRYON_COST;
+  } catch {
+    return SIMPLE_TRYON_COST;
   }
 }

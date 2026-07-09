@@ -89,6 +89,11 @@ export const SystemConfigBody = z.object({
     )
     .optional(),
   merchantCatalogAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
+  tryon: z
+    .object({
+      creditCost: z.number().int().positive().max(1_000),
+    })
+    .optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────

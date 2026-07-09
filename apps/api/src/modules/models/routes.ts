@@ -220,17 +220,21 @@ export async function modelsRoutes(app: FastifyInstance) {
         )
         .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
 
-      // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes
+      // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes,
+      // and per-type active overrides (a pose can be hidden for one garment type without
+      // touching its global isActive flag or its visibility under other garment types).
       let configMap = new Map<
         string,
         { lowerNodeId: string | null; shoeNodeId: string | null; sizeNodeIds: string[] | null }
       >();
+      let inactiveForType = new Set<string>();
       if (garmentTypeId && items.length > 0) {
         const poseIds = items.map((i) => i.id);
         const configs = await app.db
           .select({
             poseAssetId: schema.poseGarmentConfigs.poseAssetId,
             workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+            isActive: schema.poseGarmentConfigs.isActive,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
@@ -261,23 +265,28 @@ export async function modelsRoutes(app: FastifyInstance) {
               },
             ]),
         );
+        inactiveForType = new Set(
+          configs.filter((c) => c.isActive === false).map((c) => c.poseAssetId),
+        );
       }
 
       return {
-        items: items.map((i) => {
-          const cfg = configMap.get(i.id);
-          const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
-          const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
-          const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
-          return {
-            id: i.id,
-            label: i.displayName ?? i.label,
-            thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl),
-            hasLower: lowerNodeId != null,
-            hasShoes: shoeNodeId != null,
-            hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
-          };
-        }),
+        items: items
+          .filter((i) => !inactiveForType.has(i.id))
+          .map((i) => {
+            const cfg = configMap.get(i.id);
+            const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : i.lowerNodeId;
+            const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : i.shoeNodeId;
+            const sizeNodeIds = cfg !== undefined ? cfg.sizeNodeIds : i.sizeNodeIds;
+            return {
+              id: i.id,
+              label: i.displayName ?? i.label,
+              thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl),
+              hasLower: lowerNodeId != null,
+              hasShoes: shoeNodeId != null,
+              hasAspectRatio: (sizeNodeIds?.length ?? 0) > 0,
+            };
+          }),
       };
     },
   );

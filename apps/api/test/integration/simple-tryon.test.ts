@@ -144,7 +144,7 @@ describe('simple tryon (garment from catalog)', () => {
     return { jobId: job.id, workflowTemplateId: workflow.id, subcategoryId: subcat.id };
   }
 
-  it('happy path: deducts 35 credits, uses keys.output(sourceJobId) as garment, resolves workflow', async () => {
+  it('happy path: deducts 5 credits, uses keys.output(sourceJobId) as garment, resolves workflow', async () => {
     const { token, userId } = await registerUser('tryon-happy@x.com');
     await grantCredits(userId, 100);
     const {
@@ -168,13 +168,13 @@ describe('simple tryon (garment from catalog)', () => {
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job.status).toBe('QUEUED');
-    expect(job.creditsCharged).toBe(35);
+    expect(job.creditsCharged).toBe(5);
 
     const [bal] = await app.db
       .select()
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
-    expect(bal.balance).toBe(65);
+    expect(bal.balance).toBe(95);
 
     const [inputs] = await app.db
       .select()

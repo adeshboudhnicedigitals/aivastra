@@ -123,6 +123,7 @@ export function GarmentTypesTab() {
       workflowTemplateId: string | null;
       promptGarmentPhase: string | null;
       promptFacePhase: string | null;
+      isActive: boolean | null;
     },
   ) => {
     setSavingConfigId(poseAssetId);
@@ -136,8 +137,12 @@ export function GarmentTypesTab() {
           p.id === poseAssetId
             ? {
                 ...p,
+                isActive: patch.isActive ?? p.globalIsActive,
                 config:
-                  patch.workflowTemplateId || patch.promptGarmentPhase || patch.promptFacePhase
+                  patch.workflowTemplateId ||
+                  patch.promptGarmentPhase ||
+                  patch.promptFacePhase ||
+                  patch.isActive !== null
                     ? patch
                     : null,
               }
@@ -175,17 +180,31 @@ export function GarmentTypesTab() {
     }
   };
 
-  const togglePoseActive = async (poseAssetId: string, isActive: boolean) => {
-    setPoseConfigs((prev) => prev.map((p) => (p.id === poseAssetId ? { ...p, isActive } : p)));
+  // Toggling "active" here scopes to this garment type only — it writes a
+  // pose_garment_configs override, not the pose asset's global isActive flag
+  // (that one lives on the Pose Assets tab and applies to every garment type).
+  const togglePoseActive = async (
+    garmentTypeId: string,
+    poseAssetId: string,
+    isActive: boolean,
+  ) => {
+    const prevItem = poseConfigs.find((p) => p.id === poseAssetId);
+    const patch = {
+      workflowTemplateId: prevItem?.config?.workflowTemplateId ?? null,
+      promptGarmentPhase: prevItem?.config?.promptGarmentPhase ?? null,
+      promptFacePhase: prevItem?.config?.promptFacePhase ?? null,
+      isActive,
+    };
+    setPoseConfigs((prev) =>
+      prev.map((p) => (p.id === poseAssetId ? { ...p, isActive, config: patch } : p)),
+    );
     try {
-      await apiFetch(`/admin/assets/pose-assets/${poseAssetId}`, {
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ isActive }),
+        body: JSON.stringify(patch),
       });
     } catch {
-      setPoseConfigs((prev) =>
-        prev.map((p) => (p.id === poseAssetId ? { ...p, isActive: !isActive } : p)),
-      );
+      setPoseConfigs((prev) => prev.map((p) => (p.id === poseAssetId && prevItem ? prevItem : p)));
       toast({ kind: 'error', title: 'Failed to update pose' });
     }
   };
@@ -273,7 +292,9 @@ export function GarmentTypesTab() {
           storagePublicUrl={storagePublicUrl}
           onBack={() => setSubView({ kind: 'list' })}
           onSave={saveConfig}
-          onToggleActive={togglePoseActive}
+          onToggleActive={(poseAssetId, isActive) =>
+            togglePoseActive(subView.sub.id, poseAssetId, isActive)
+          }
           onSaveDefaultPose={saveDefaultPose}
           savingDefaultPose={savingDefaultPose}
         />
@@ -1297,6 +1318,7 @@ interface PoseConfigsPanelProps {
       workflowTemplateId: string | null;
       promptGarmentPhase: string | null;
       promptFacePhase: string | null;
+      isActive: boolean | null;
     },
   ) => Promise<void>;
   onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
@@ -1334,13 +1356,18 @@ function PoseConfigsPanel({
     if (!bulkWorkflow || selectedIds.length === 0) return;
     setBulkSaving(true);
     try {
+      // Follow the selected workflow's own default prompt — same convention as the
+      // pose-asset-level bulk-workflow route — so applying a workflow in bulk doesn't
+      // leave a stale prompt (or a mismatched one inherited from whatever was there before).
+      const wf = workflows.find((w) => w.id === bulkWorkflow);
       await Promise.all(
         selectedIds.map((id) => {
           const item = items.find((i) => i.id === id);
           return onSave(sub.id, id, {
             workflowTemplateId: bulkWorkflow,
-            promptGarmentPhase: item?.config?.promptGarmentPhase ?? null,
+            promptGarmentPhase: wf?.defaultGarmentPhasePrompt || null,
             promptFacePhase: null,
+            isActive: item?.config?.isActive ?? null,
           });
         }),
       );
@@ -1361,6 +1388,7 @@ function PoseConfigsPanel({
             workflowTemplateId: null,
             promptGarmentPhase: null,
             promptFacePhase: null,
+            isActive: null,
           }),
         ),
       );
@@ -1390,6 +1418,9 @@ function PoseConfigsPanel({
       workflowTemplateId: editWorkflow || null,
       promptGarmentPhase: editGarmentPrompt || null,
       promptFacePhase: null,
+      // This modal only edits workflow/prompt — preserve whatever active override
+      // (if any) is already set via the card's Switch, rather than clearing it.
+      isActive: editing.config?.isActive ?? null,
     });
     closeEdit();
   };
@@ -1511,7 +1542,11 @@ function PoseConfigsPanel({
           const defaultWorkflow = item.defaultWorkflowTemplateId
             ? workflows.find((w) => w.id === item.defaultWorkflowTemplateId)?.label
             : null;
-          const hasOverride = !!item.config;
+          const hasWorkflowOverride = !!item.config?.workflowTemplateId;
+          const hasPromptOverride = !!item.config?.promptGarmentPhase;
+          const hasActiveOverride =
+            item.config?.isActive !== null && item.config?.isActive !== undefined;
+          const hasOverride = hasWorkflowOverride || hasPromptOverride || hasActiveOverride;
 
           return (
             <div
@@ -1593,12 +1628,22 @@ function PoseConfigsPanel({
                       {defaultWorkflow}
                     </span>
                   ) : null}
-                  {hasOverride && (
+                  {hasPromptOverride && (
                     <span
                       className="badge dot"
                       style={{ fontSize: 10, background: 'var(--pink)', color: '#fff' }}
+                      title="Override positive prompt"
                     >
-                      overridden
+                      prompt overridden
+                    </span>
+                  )}
+                  {hasActiveOverride && (
+                    <span
+                      className="badge dot"
+                      style={{ fontSize: 10, background: 'var(--pink)', color: '#fff' }}
+                      title={`This pose is ${item.config?.isActive ? 'force-enabled' : 'disabled'} for ${sub.label} only — the global toggle on the Pose Assets tab is unaffected`}
+                    >
+                      {item.config?.isActive ? 'enabled here only' : 'disabled here only'}
                     </span>
                   )}
                 </div>
@@ -1657,7 +1702,18 @@ function PoseConfigsPanel({
                   className="select"
                   value={editWorkflow}
                   disabled={savingId === editing.id}
-                  onChange={(e) => setEditWorkflow(e.target.value)}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setEditWorkflow(newId);
+                    // Always follow the newly selected workflow's own default prompt — same
+                    // convention as the pose-asset-level edit modal — so switching workflows
+                    // here doesn't keep sending the previous workflow's prompt text. Admin can
+                    // still hand-edit the textarea below before saving to customize further.
+                    const wf = newId ? workflows.find((w) => w.id === newId) : null;
+                    setEditGarmentPrompt(
+                      wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
+                    );
+                  }}
                 >
                   <option value="">
                     Use default (
@@ -1673,6 +1729,10 @@ function PoseConfigsPanel({
                     </option>
                   ))}
                 </select>
+                <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                  Changing this updates the prompt below to that workflow's own default — edit it
+                  after to customize further.
+                </span>
               </div>
               <div className="field">
                 <label>Positive prompt</label>
@@ -1698,6 +1758,7 @@ function PoseConfigsPanel({
                       workflowTemplateId: null,
                       promptGarmentPhase: null,
                       promptFacePhase: null,
+                      isActive: null,
                     }).then(closeEdit)
                   }
                 >
