@@ -9,7 +9,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { ImagePickerModal } from '../components/ImagePickerModal';
 import { apiFetch } from '../lib/api';
-import type { ShopifyProductListItem } from '../types';
+import type { FunnelTemplateItem, ShopifyProductListItem } from '../types';
 
 const STATUS_TONE: Record<string, 'success' | 'attention' | 'critical'> = {
   active: 'success',
@@ -22,14 +22,21 @@ export default function ProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pickerProductId, setPickerProductId] = useState<number | null>(null);
+  const [funnelTemplates, setFunnelTemplates] = useState<FunnelTemplateItem[]>([]);
   const { selectedResources } = useIndexResourceState(
     items.map((i) => ({ id: String(i.shopifyProductId) })),
   );
 
   const load = useCallback(() => {
     setLoading(true);
-    apiFetch<{ items: ShopifyProductListItem[] }>('/v1/shopify/products?pageSize=100')
-      .then((data) => setItems(data.items))
+    Promise.all([
+      apiFetch<{ items: ShopifyProductListItem[] }>('/v1/shopify/products?pageSize=100'),
+      apiFetch<{ items: FunnelTemplateItem[] }>('/v1/shopify/funnel-templates'),
+    ])
+      .then(([products, funnels]) => {
+        setItems(products.items);
+        setFunnelTemplates(funnels.items);
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
@@ -72,6 +79,19 @@ export default function ProductsPage() {
     }
   }
 
+  async function setFunnel(shopifyProductId: number, funnelTemplateId: string | null) {
+    setError(null);
+    try {
+      await apiFetch(`/v1/shopify/products/${shopifyProductId}/funnel`, {
+        method: 'PATCH',
+        body: JSON.stringify({ funnelTemplateId }),
+      });
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   return (
     <Page title="Products">
       {error && (
@@ -88,6 +108,7 @@ export default function ProductsPage() {
           { title: 'Title' },
           { title: 'Status' },
           { title: 'Try-on enabled' },
+          { title: 'Funnel' },
         ]}
         loading={loading}
       >
@@ -119,6 +140,19 @@ export default function ProductsPage() {
                 title={item.status !== 'active' ? 'Waiting for product sync' : undefined}
                 onChange={(e) => toggleEnabled(item.shopifyProductId, e.target.checked)}
               />
+            </IndexTable.Cell>
+            <IndexTable.Cell>
+              <select
+                value={item.funnelTemplateId ?? ''}
+                onChange={(e) => setFunnel(item.shopifyProductId, e.target.value || null)}
+              >
+                <option value="">Automated (no manual pin)</option>
+                {funnelTemplates.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
             </IndexTable.Cell>
           </IndexTable.Row>
         ))}

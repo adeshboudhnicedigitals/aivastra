@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, exists, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 
 export async function shopifyMeRoutes(app: FastifyInstance) {
@@ -42,11 +42,29 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         ),
       );
 
+    const [{ funnelConfigured }] = await app.db
+      .select({
+        funnelConfigured: exists(
+          app.db
+            .select()
+            .from(schema.shopifyProductGarments)
+            .where(
+              and(
+                eq(schema.shopifyProductGarments.storeId, store.id),
+                sql`${schema.shopifyProductGarments.funnelTemplateId} is not null`,
+              ),
+            ),
+        ),
+      })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, store.id))
+      .limit(1);
+
     return {
       store: { shopDomain: store.shopDomain, settings: store.settings },
       credits: credits?.balance ?? 0,
       plan,
-      stats: { totalTryOns, syncedProductCount, enabledProductCount },
+      stats: { totalTryOns, syncedProductCount, enabledProductCount, funnelConfigured },
     };
   });
 }
