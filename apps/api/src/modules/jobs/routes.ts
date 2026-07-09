@@ -10,6 +10,7 @@ import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { createJob, createSimpleTryonJob } from './create.js';
 import { createSareeJob } from './createSaree.js';
@@ -102,15 +103,16 @@ export async function jobsRoutes(app: FastifyInstance) {
           return null;
         }
       };
-      const [modelImageUrl, sampleSareeImageUrl] = await Promise.all([
+      const [modelImageUrl, sampleSareeImageUrl, creditsCost] = await Promise.all([
         presign(row?.modelImageThumbKey ?? modelImageKey),
         presign(row?.sampleSareeImageThumbKey ?? sampleSareeImageKey),
+        getTryonCreditCost(app),
       ]);
       return {
         modelImageUrl,
         sampleSareeImageUrl,
         isConfigured: !!modelImageKey,
-        creditsCost: 35 as const,
+        creditsCost,
       };
     },
   );
@@ -152,15 +154,17 @@ export async function jobsRoutes(app: FastifyInstance) {
       }
     };
 
-    const [personSampleUrl, garmentSampleUrl] = await Promise.all([
+    const [personSampleUrl, garmentSampleUrl, creditsCost] = await Promise.all([
       presign(settings?.personSampleThumbKey ?? settings?.personSampleKey),
       presign(settings?.garmentSampleThumbKey ?? settings?.garmentSampleKey),
+      getTryonCreditCost(app),
     ]);
 
     return {
       categories: cats.map((c) => ({ id: c.id, name: c.name, slug: c.slug })),
       personSampleUrl,
       garmentSampleUrl,
+      creditsCost,
     };
   });
 

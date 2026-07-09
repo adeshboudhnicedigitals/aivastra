@@ -12,6 +12,7 @@ type TryonCategoriesResponse = {
   categories: TryonCategory[];
   personSampleUrl: string | null;
   garmentSampleUrl: string | null;
+  creditsCost: number;
 };
 type GarmentCatalogImage = {
   jobId: string;
@@ -20,7 +21,7 @@ type GarmentCatalogImage = {
   tryonCategoryName: string;
 };
 
-const CREDITS_COST = 35;
+const DEFAULT_CREDITS_COST = 5;
 
 function UploadZone({
   file: _file,
@@ -514,6 +515,7 @@ export default function TryOnPage() {
     staleTime: 5 * 60 * 1000,
   });
   const personSampleUrl = tryonData?.personSampleUrl ?? null;
+  const creditsCost = tryonData?.creditsCost ?? DEFAULT_CREDITS_COST;
 
   useJobStream(
     useCallback(
@@ -881,7 +883,7 @@ export default function TryOnPage() {
                   style={{ opacity: 0.6 }}
                 />
                 <span style={{ fontSize: 14, fontWeight: 500, color: C.mid }}>
-                  Uses {CREDITS_COST} credits
+                  Uses {creditsCost} credits
                   {credits && (
                     <span style={{ color: C.light, marginLeft: 6 }}>
                       ({credits.balance} available)

@@ -74,6 +74,11 @@ export const SystemConfigBody = z.object({
       '4K': ResolutionConfig.optional(),
     })
     .optional(),
+  tryon: z
+    .object({
+      creditCost: z.number().int().positive().max(1_000),
+    })
+    .optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────
