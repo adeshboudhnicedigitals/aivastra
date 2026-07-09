@@ -1221,9 +1221,28 @@ async function processShopifyJob(
   const widgetClientId = job.widgetClientId!;
   const { creditsCharged } = job;
 
-  const workflowTemplateId = params.workflowTemplateId as string | undefined;
   const garmentKey = inputs.upperGarmentKey;
   const customerPhotoKey = job.customerPhotoKey;
+
+  const [garmentRow] = await db
+    .select({
+      funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
+    })
+    .from(schema.shopifyProductGarments)
+    .where(eq(schema.shopifyProductGarments.r2Key, garmentKey ?? ''))
+    .limit(1);
+
+  let workflowTemplateId: string | undefined;
+  if (garmentRow?.funnelTemplateId) {
+    const [funnelTemplate] = await db
+      .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.id, garmentRow.funnelTemplateId));
+    workflowTemplateId = funnelTemplate?.workflowTemplateId;
+  }
+  if (!workflowTemplateId) {
+    workflowTemplateId = params.workflowTemplateId as string | undefined;
+  }
 
   if (!workflowTemplateId || !garmentKey || !customerPhotoKey) {
     await markWidgetFailed(
@@ -1233,7 +1252,7 @@ async function processShopifyJob(
       creditsCharged,
       stream,
       messageId,
-      'SHOPIFY_INPUTS_MISSING',
+      !workflowTemplateId ? 'NO_WORKFLOW_CONFIGURED' : 'SHOPIFY_INPUTS_MISSING',
       jobLog,
       startedAt,
     );
