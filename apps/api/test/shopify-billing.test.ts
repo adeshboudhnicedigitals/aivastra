@@ -14,7 +14,7 @@ let planId: string;
 
 beforeAll(async () => {
   c = await startContainers();
-  app = await buildTestApp(c, { SHOPIFY_TOKEN_ENC_KEY: ENC_KEY, SHOPIFY_JOB_COST: 10 });
+  app = await buildTestApp(c, { SHOPIFY_TOKEN_ENC_KEY: ENC_KEY });
   const store = await upsertShopifyStore(
     app,
     {

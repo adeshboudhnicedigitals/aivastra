@@ -31,7 +31,6 @@ export interface ShopifyMe {
     shopDomain: string;
     settings: ShopifyStoreSettings;
   };
-  credits: number;
   plan: ShopifyPlan | null;
   stats: ShopifyStats;
 }

@@ -5,17 +5,6 @@ import type { FastifyInstance } from 'fastify';
 export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-
-    let credits: { balance: number } | undefined;
-    if (store.widgetClientId) {
-      const [row] = await app.db
-        .select({ balance: schema.widgetClientCredits.balance })
-        .from(schema.widgetClientCredits)
-        .where(eq(schema.widgetClientCredits.widgetClientId, store.widgetClientId))
-        .limit(1);
-      credits = row;
-    }
-
     let plan: typeof schema.shopifyPlans.$inferSelect | null = null;
     if (store.shopifyPlanId) {
       const [row] = await app.db
@@ -66,7 +55,6 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
 
     return {
       store: { shopDomain: store.shopDomain, settings: store.settings },
-      credits: credits?.balance ?? 0,
       plan,
       stats: { totalTryOns, syncedProductCount, enabledProductCount, funnelConfigured },
     };

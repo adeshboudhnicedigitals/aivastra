@@ -43,7 +43,6 @@ const Env = z.object({
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
-  SHOPIFY_JOB_COST: z.coerce.number().default(10),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {
