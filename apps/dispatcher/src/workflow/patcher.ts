@@ -148,7 +148,9 @@ export function applyWorkflowPatch(
   // Dual-size-group templates. Latent group (max-width/max-height) is derived from the
   // raw aspect numbers via resizeToMax, capped at latentMaxPx — this is the diffusion
   // canvas size and doesn't need to match any fixed enum value. Output group (result-width/
-  // result-height) uses the resolved outputDims directly.
+  // result-height) uses the resolved outputDims directly — the max-output-resolution ceiling
+  // is a product/pricing decision enforced once, globally, by the API before enqueue
+  // (see getMaxOutputPx in apps/api), not a per-template technical constraint like latentMaxPx.
   const latentSizeNodeIds = tmpl.latentSizeNodeIds ?? [];
   const outputSizeNodeIds = tmpl.outputSizeNodeIds ?? [];
   if (outputDims && (latentSizeNodeIds.length === 2 || outputSizeNodeIds.length === 2)) {
