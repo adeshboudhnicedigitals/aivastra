@@ -45,5 +45,5 @@ assets/*
 .opencode/*
 .codeboarding/
 
-/legacy_ecosystem/
+# /legacy_ecosystem/
 /apps/admin-mobile/
