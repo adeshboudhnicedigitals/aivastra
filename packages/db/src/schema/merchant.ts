@@ -10,6 +10,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { jobs } from './jobs.js';
+import { garmentSubcategories } from './models.js';
 import { users } from './users.js';
 
 export const merchants = pgTable('merchants', {
@@ -35,6 +36,25 @@ export const merchants = pgTable('merchants', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const merchantCatalogSubcategories = pgTable(
+  'merchant_catalog_subcategories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    merchantId: uuid('merchant_id')
+      .notNull()
+      .references(() => merchants.id, { onDelete: 'cascade' }),
+    category: text('category').notNull(), // 'men' | 'women' | 'boys' | 'girls'
+    name: text('name').notNull(),
+    garmentSubcategoryId: uuid('garment_subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id), // admin garment type — drives the try-on workflow; many subcats -> one type
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('merchant_catalog_subcategories_merchant_idx').on(t.merchantId, t.category)],
+);
 
 export const merchantCredits = pgTable('merchant_credits', {
   merchantId: uuid('merchant_id')
@@ -81,13 +101,18 @@ export const merchantCatalogItems = pgTable(
     merchantId: uuid('merchant_id')
       .notNull()
       .references(() => merchants.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => merchantCatalogSubcategories.id, { onDelete: 'cascade' }),
     label: text('label').notNull(),
     sku: text('sku'),
-    gender: text('gender'),
-    category: text('category'),
+    actualPricePaise: integer('actual_price_paise').notNull(),
+    offerPricePaise: integer('offer_price_paise').notNull(),
     r2Key: text('r2_key').notNull(),
     thumbnailKey: text('thumbnail_key').notNull(),
     sourceJobId: uuid('source_job_id').references(() => jobs.id, { onDelete: 'set null' }),
+    sourceKind: text('source_kind').notNull().default('uploaded'), // 'uploaded' | 'generated' | 'imported'
+    flatSourceKey: text('flat_source_key'), // provenance only for sourceKind='generated' — never sent to ComfyUI
     isActive: boolean('is_active').notNull().default(true),
     moderationStatus: text('moderation_status').notNull().default('approved'),
     moderationNote: text('moderation_note'),
@@ -97,6 +122,7 @@ export const merchantCatalogItems = pgTable(
   },
   (t) => [
     index('merchant_catalog_items_merchant_idx').on(t.merchantId, t.isActive),
+    index('merchant_catalog_items_subcategory_idx').on(t.subcategoryId),
     uniqueIndex('merchant_catalog_items_merchant_source_job_unique')
       .on(t.merchantId, t.sourceJobId)
       .where(sql`${t.sourceJobId} is not null`),

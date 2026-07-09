@@ -673,6 +673,13 @@
       "when": 1783512362369,
       "tag": "0095_drop_widget_embed_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1783600000000,
+      "tag": "0096_merchant_catalog_subcategories",
+      "breakpoints": true
     }
   ]
 }
