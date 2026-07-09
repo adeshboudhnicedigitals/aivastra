@@ -637,7 +637,8 @@ export default function PricingPage(): React.ReactElement {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            // Single column while the Virtual Try-On tab below is commented out.
+            gridTemplateColumns: '1fr',
             borderRadius: 14,
             border: `1px solid ${C.border}`,
             background: C.white,
@@ -684,6 +685,7 @@ export default function PricingPage(): React.ReactElement {
                   </svg>
                 ),
               },
+              /* AI Virtual Try-On Offline tab — hidden for now, keep for later re-enable.
               {
                 key: 'tryon',
                 label: 'AI Virtual Try-On Offline',
@@ -703,6 +705,7 @@ export default function PricingPage(): React.ReactElement {
                   </svg>
                 ),
               },
+              */
             ] as const
           ).map((tab) => {
             const isActive = activeTab === tab.key;
@@ -739,7 +742,8 @@ export default function PricingPage(): React.ReactElement {
 
       {/* Pricing cards */}
       <div style={{ background: C.bg }}>
-        {activeTab === 'tryon' && (
+        {/* AI Virtual Try-On Offline pricing cards — hidden for now (gated to false), keep for later re-enable. */}
+        {false && activeTab === 'tryon' && (
           <div style={{ padding: '0 10px 48px', maxWidth: 1320, margin: '0 auto' }}>
             {/* Two option cards */}
             <div
@@ -1405,12 +1409,7 @@ export default function PricingPage(): React.ReactElement {
                           >
                             {displayBase(plan.basePaise)}
                           </span>
-                          <span style={{ fontSize: 14, color: C.mid, marginLeft: 4 }}>/ month</span>
-                          <div style={{ fontSize: 11, color: C.light, marginTop: 5 }}>
-                            {isNonIn
-                              ? `Billed as ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))} INR`
-                              : `+ ${displayTax(plan.basePaise)} GST = ${displayTotal(plan.basePaise)} total`}
-                          </div>
+                          <span style={{ fontSize: 14, color: C.mid, marginLeft: 4 }}>+ Taxes</span>
                         </div>
 
                         {/* Usage overview — 2K / 4K image counts */}

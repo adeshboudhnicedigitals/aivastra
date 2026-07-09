@@ -10,7 +10,7 @@ export const SareeConfigResponse = z.object({
   modelImageUrl: z.string().url().nullable(),
   sampleSareeImageUrl: z.string().url().nullable(),
   isConfigured: z.boolean(),
-  creditsCost: z.literal(35),
+  creditsCost: z.number().int().positive(),
 });
 
 // ── Admin: settings ────────────────────────────────────────────────────────

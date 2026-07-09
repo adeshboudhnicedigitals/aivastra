@@ -61,7 +61,8 @@ export const CreateTryOnJobRequest = z.object({
   platform: z.string().optional(),
 });
 
-export const SIMPLE_TRYON_COST = 35;
+/** Fallback default — the actual charged cost is admin-configurable, see getTryonCreditCost(). */
+export const SIMPLE_TRYON_COST = 5;
 
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),

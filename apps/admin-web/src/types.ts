@@ -255,7 +255,8 @@ export interface ModelPoseAsset {
 
 export interface PoseGarmentConfig {
   id: string;
-  isActive: boolean;
+  isActive: boolean; // effective for this garment type: config.isActive ?? globalIsActive
+  globalIsActive: boolean; // the pose asset's own flag (Pose Assets tab), shared by every garment type
   defaultWorkflowTemplateId: string | null;
   defaultPromptGarmentPhase: string | null;
   defaultPromptFacePhase: string | null;
@@ -267,6 +268,7 @@ export interface PoseGarmentConfig {
     workflowTemplateId: string | null;
     promptGarmentPhase: string | null;
     promptFacePhase: string | null;
+    isActive: boolean | null;
   } | null;
 }
 
