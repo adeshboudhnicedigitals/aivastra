@@ -13,7 +13,6 @@ const API_KEY = 'test-key';
 let c: Containers;
 let app: TestApp;
 let storeId: string;
-let widgetClientId: string;
 let token: string;
 
 beforeAll(async () => {
@@ -36,7 +35,6 @@ beforeAll(async () => {
     'read_products',
   );
   storeId = store.id;
-  widgetClientId = store.widgetClientId;
   token = signSessionToken('m.myshopify.com', API_SECRET, API_KEY);
 
   await app.db.insert(schema.shopifyProductGarments).values([
@@ -63,7 +61,7 @@ beforeAll(async () => {
     await (app.db.insert(schema.jobs).values as any)({
       id: randomUUID(),
       userId: null,
-      widgetClientId,
+      shopifyStoreId: storeId,
       status: 'COMPLETED',
       creditsCharged: 10,
     });

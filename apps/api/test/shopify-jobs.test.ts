@@ -28,12 +28,33 @@ beforeAll(async () => {
     'read_products',
   );
   storeId = store.id;
-  widgetClientId = store.widgetClientId;
-  // seed credits + a synced garment + a resolvable customer photo
+  // widget job endpoint still requires a widgetClient for auth; create one explicitly
+  // since upsertShopifyStore no longer auto-creates widget_clients rows.
+  const [wc] = await app.db
+    .insert(schema.widgetClients)
+    .values({
+      clientType: 'shopify',
+      isActive: true,
+      companyName: 'J',
+      contactName: 'J',
+      email: 'j@j.com',
+      phone: '',
+      websiteUrl: 'https://j.myshopify.com',
+      companySize: 'unknown',
+      purpose: 'shopify',
+      businessAddress: '',
+      passwordHash: '',
+      allowedOrigins: ['https://j.myshopify.com'],
+    })
+    .returning();
+  widgetClientId = wc.id;
+  widgetKey = wc.widgetKey;
+  // link store to widget client for the widget endpoint (still uses widgetClientId lookup)
   await app.db
-    .update(schema.widgetClientCredits)
-    .set({ balance: 100 })
-    .where(eq(schema.widgetClientCredits.widgetClientId, widgetClientId));
+    .update(schema.shopifyStores)
+    .set({ widgetClientId: wc.id })
+    .where(eq(schema.shopifyStores.id, storeId));
+  await app.db.insert(schema.widgetClientCredits).values({ widgetClientId: wc.id, balance: 100 });
   await app.db.insert(schema.shopifyProductGarments).values({
     storeId,
     shopifyProductId: 88,
@@ -42,11 +63,6 @@ beforeAll(async () => {
     status: 'active',
     enabled: true,
   });
-  const [wc] = await app.db
-    .select()
-    .from(schema.widgetClients)
-    .where(eq(schema.widgetClients.id, widgetClientId));
-  widgetKey = wc.widgetKey;
   // upload a customer photo + register ownership (mirror widget presign flow)
   const photoKey = `widget-inputs/${widgetClientId}/photo.jpg`;
   await app.storage.putObject(photoKey, Buffer.from([1, 2, 3]), 'image/jpeg');

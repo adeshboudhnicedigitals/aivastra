@@ -41,55 +41,28 @@ export async function upsertShopifyStore(
       .limit(1);
 
     if (existing) {
-      await tx
-        .update(schema.widgetClients)
-        .set({ isActive: true, allowedOrigins: origins, updatedAt: new Date() })
-        .where(eq(schema.widgetClients.id, existing.widgetClientId));
       const [store] = await tx
         .update(schema.shopifyStores)
-        .set({ accessToken: enc, scope, uninstalledAt: null, updatedAt: new Date() })
+        .set({
+          accessToken: enc,
+          scope,
+          allowedOrigins: origins,
+          uninstalledAt: null,
+          updatedAt: new Date(),
+        })
         .where(eq(schema.shopifyStores.id, existing.id))
         .returning();
       return store;
     }
 
-    // email UNIQUE guard: suffix if a non-shopify client already owns this email
-    let email = shop.email;
-    const [emailClash] = await tx
-      .select({ id: schema.widgetClients.id })
-      .from(schema.widgetClients)
-      .where(eq(schema.widgetClients.email, email))
-      .limit(1);
-    if (emailClash) email = `owner+shop-${shop.shopifyShopId}@${shop.myshopifyDomain}`;
-
-    const [wc] = await tx
-      .insert(schema.widgetClients)
-      .values({
-        clientType: 'shopify',
-        isActive: true,
-        companyName: shop.name,
-        contactName: shop.shopOwner ?? shop.name,
-        email,
-        phone: shop.phone ?? '',
-        websiteUrl: `https://${shop.shopDomain}`,
-        companySize: 'unknown',
-        purpose: 'shopify',
-        businessAddress: shop.address ?? '',
-        passwordHash: '',
-        allowedOrigins: origins,
-      })
-      .returning();
-
-    await tx.insert(schema.widgetClientCredits).values({ widgetClientId: wc.id, balance: 0 });
-
     const [store] = await tx
       .insert(schema.shopifyStores)
       .values({
-        widgetClientId: wc.id,
         shopDomain: shop.shopDomain,
         shopifyShopId: shop.shopifyShopId,
         accessToken: enc,
         scope,
+        allowedOrigins: origins,
       })
       .returning();
     return store;
@@ -170,12 +143,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     };
 
     const store = await upsertShopifyStore(app, details, access_token, scope);
-    const [wc] = await app.db
-      .select({ widgetKey: schema.widgetClients.widgetKey })
-      .from(schema.widgetClients)
-      .where(eq(schema.widgetClients.id, store.widgetClientId))
-      .limit(1);
-    if (wc) await writeWidgetKeyMetafield(q.shop, access_token, wc.widgetKey, req.log);
+    await writeWidgetKeyMetafield(q.shop, access_token, store.storeKey, req.log);
     // Webhook registration is Task 7; call registerWebhooks(app, q.shop, access_token) here once it exists.
     await app.shopifyRegisterWebhooks?.(q.shop, access_token);
 
