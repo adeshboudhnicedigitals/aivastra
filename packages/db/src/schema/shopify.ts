@@ -42,9 +42,10 @@ export const shopifyPlans = pgTable('shopify_plans', {
 export const shopifyStores = pgTable('shopify_stores', {
   id: uuid('id').primaryKey().defaultRandom(),
   widgetClientId: uuid('widget_client_id')
-    .notNull()
     .unique()
     .references(() => widgetClients.id, { onDelete: 'cascade' }),
+  storeKey: uuid('store_key').notNull().unique().defaultRandom(),
+  allowedOrigins: text('allowed_origins').array().notNull().default([]),
   shopDomain: text('shop_domain').notNull().unique(),
   shopifyShopId: bigint('shopify_shop_id', { mode: 'number' }).notNull().unique(),
   accessToken: text('access_token').notNull(), // encrypted: iv:authTag:ciphertext

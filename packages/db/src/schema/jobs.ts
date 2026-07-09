@@ -10,6 +10,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { catalogItems } from './catalog.js';
 import { garmentSubcategories, modelBackgrounds, modelFaces, modelPoseAssets } from './models.js';
+import { shopifyStores } from './shopify.js';
 import { users } from './users.js';
 import { widgetClients } from './widget.js';
 
@@ -29,6 +30,9 @@ export const jobs = pgTable('jobs', {
   // Nullable self-FK: set only by the regenerate endpoint for traceability.
   parentJobId: uuid('parent_job_id'),
   widgetClientId: uuid('widget_client_id').references(() => widgetClients.id, {
+    onDelete: 'set null',
+  }),
+  shopifyStoreId: uuid('shopify_store_id').references(() => shopifyStores.id, {
     onDelete: 'set null',
   }),
   customerPhotoKey: text('customer_photo_key'),

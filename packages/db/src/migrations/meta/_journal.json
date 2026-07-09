@@ -652,6 +652,20 @@
       "when": 1783585257654,
       "tag": "0092_slimy_tana_nile",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1783617043504,
+      "tag": "0093_shopify_standalone_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1783617100000,
+      "tag": "0094_backfill_shopify_store_key",
+      "breakpoints": true
     }
   ]
 }
