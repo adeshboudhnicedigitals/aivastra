@@ -65,7 +65,9 @@ export async function processJob(
     .select({
       id: schema.jobs.id,
       status: schema.jobs.status,
+      userId: schema.jobs.userId,
       widgetClientId: schema.jobs.widgetClientId,
+      shopifyStoreId: schema.jobs.shopifyStoreId,
       customerPhotoKey: schema.jobs.customerPhotoKey,
       creditsCharged: schema.jobs.creditsCharged,
       attempts: schema.jobs.attempts,
@@ -118,7 +120,7 @@ export async function processJob(
   }
 
   // Widget jobs: widgetClientId set, faceId/bgId/poseId are null — route to dedicated processor.
-  if (job.widgetClientId) {
+  if (job.widgetClientId || job.shopifyStoreId) {
     await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt);
     return;
   }
@@ -920,13 +922,11 @@ async function processSareeJob(
 
 type WidgetJob = {
   id: string;
+  userId: string | null;
   widgetClientId: string | null;
+  shopifyStoreId: string | null;
   customerPhotoKey: string | null;
   creditsCharged: number;
-  // Needed by processShopifyJob (MAX_QUEUE_WAIT_MS backoff decision + finalizeOutput's
-  // jobWatermark param). processJob's initial select already loads both columns, so the
-  // real object passed in always has them — widening the type here is just making that
-  // explicit; it doesn't change processWidgetJob's own behavior, which never reads them.
   createdAt: Date;
   watermark: boolean;
 };
@@ -1201,9 +1201,9 @@ async function processWidgetJob(
 // load one workflow_templates row by ID and reuse its tryon*_node_id columns
 // (tryonPersonNodeId = customer photo node, tryonGarmentNodeId = garment node,
 // tryonOutputNodeId = output node) — the same "reuse the generic tryon* columns
-// for a non-tryon job kind" precedent saree established. Failure handling,
-// however, follows processWidgetJob: no MAX_ATTEMPTS retry-then-terminate —
-// any terminal failure goes straight to markWidgetFailed (widget credit refund).
+// for a non-tryon job kind" precedent saree established. Failure handling
+// follows the same pattern: no MAX_ATTEMPTS retry-then-terminate —
+// any terminal failure goes straight to markShopifyFailed (user credit refund).
 
 async function processShopifyJob(
   cfg: ProcessorConfig,
@@ -1217,8 +1217,10 @@ async function processShopifyJob(
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
-  // biome-ignore lint/style/noNonNullAssertion: widgetClientId is guaranteed non-null for widget jobs
-  const widgetClientId = job.widgetClientId!;
+  // biome-ignore lint/style/noNonNullAssertion: userId/shopifyStoreId guaranteed non-null for shopify jobs routed through this path
+  const userId = job.userId!;
+  // biome-ignore lint/style/noNonNullAssertion: userId/shopifyStoreId guaranteed non-null for shopify jobs routed through this path
+  const shopifyStoreId = job.shopifyStoreId!;
   const { creditsCharged } = job;
 
   const garmentKey = inputs.upperGarmentKey;
@@ -1245,10 +1247,11 @@ async function processShopifyJob(
   }
 
   if (!workflowTemplateId || !garmentKey || !customerPhotoKey) {
-    await markWidgetFailed(
+    await markShopifyFailed(
       cfg,
       jobId,
-      widgetClientId,
+      userId,
+      shopifyStoreId,
       creditsCharged,
       stream,
       messageId,
@@ -1272,10 +1275,11 @@ async function processShopifyJob(
     .where(eq(schema.workflowTemplates.id, workflowTemplateId));
 
   if (!template) {
-    await markWidgetFailed(
+    await markShopifyFailed(
       cfg,
       jobId,
-      widgetClientId,
+      userId,
+      shopifyStoreId,
       creditsCharged,
       stream,
       messageId,
@@ -1291,10 +1295,11 @@ async function processShopifyJob(
   const outputNodeId = template.tryonOutputNodeId;
 
   if (!personNodeId || !garmentNodeId || !outputNodeId) {
-    await markWidgetFailed(
+    await markShopifyFailed(
       cfg,
       jobId,
-      widgetClientId,
+      userId,
+      shopifyStoreId,
       creditsCharged,
       stream,
       messageId,
@@ -1316,10 +1321,11 @@ async function processShopifyJob(
       jobLog.warn(
         'no idle shopify worker — job exceeded max queue wait, terminating with widget refund',
       );
-      await markWidgetFailed(
+      await markShopifyFailed(
         cfg,
         jobId,
-        widgetClientId,
+        userId,
+        shopifyStoreId,
         creditsCharged,
         stream,
         messageId,
@@ -1412,14 +1418,10 @@ async function processShopifyJob(
 
     const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
 
-    // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
-    // finalizeOutput has no idea about widgetClientId, so the widget-specific
-    // completion side-effects (SSE + outbound webhook) are published separately
-    // below, mirroring processWidgetJob's own success path exactly.
     const { resultKey } = await finalizeOutput({
       imageBytes,
       jobId,
-      userId: '', // no real user for widget/shopify jobs, mirrors processWidgetJob's own use of '' for transitionJob's userId param
+      userId,
       jobWatermark: job.watermark,
       db,
       pub,
@@ -1427,26 +1429,6 @@ async function processShopifyJob(
       r2Bucket,
       jobLog,
     });
-
-    await pub.publish(
-      `sse:events:widget:${widgetClientId}`,
-      JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
-    );
-    await redis.xadd(
-      'webhooks:outbound',
-      'MAXLEN',
-      '~',
-      10000,
-      '*',
-      'jobId',
-      jobId,
-      'widgetClientId',
-      widgetClientId,
-      'status',
-      'COMPLETED',
-      'resultKey',
-      resultKey,
-    );
 
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
@@ -1456,10 +1438,11 @@ async function processShopifyJob(
     jobLog.error({ err }, 'shopify job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
-    await markWidgetFailed(
+    await markShopifyFailed(
       cfg,
       jobId,
-      widgetClientId,
+      userId,
+      shopifyStoreId,
       creditsCharged,
       stream,
       messageId,
@@ -1527,6 +1510,46 @@ async function markWidgetFailed(
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome('failed', startedAt);
   log.warn({ jobId, errorCode }, 'widget job FAILED — widget credits refunded');
+}
+
+async function markShopifyFailed(
+  cfg: ProcessorConfig,
+  jobId: string,
+  userId: string,
+  shopifyStoreId: string,
+  creditsCharged: number,
+  stream: string,
+  messageId: string,
+  errorCode: string,
+  log: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub } = cfg;
+
+  await db.transaction(async (tx) => {
+    const existing = await tx
+      .select()
+      .from(schema.creditLedger)
+      .where(
+        and(
+          eq(schema.creditLedger.jobId, jobId),
+          eq(schema.creditLedger.reason, 'JOB_FAIL_REFUND'),
+        ),
+      );
+    if (existing.length) return;
+    await tx
+      .update(schema.userCredits)
+      .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.userCredits.userId, userId));
+    await tx
+      .insert(schema.creditLedger)
+      .values({ userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+  });
+
+  await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
+  await redis.xack(stream, 'dispatcher-cg', messageId);
+  recordJobOutcome('failed', startedAt);
+  log.warn({ jobId, shopifyStoreId, errorCode }, 'shopify job FAILED — user credits refunded');
 }
 
 // ── Regular job failure handling ───────────────────────────────────────────
