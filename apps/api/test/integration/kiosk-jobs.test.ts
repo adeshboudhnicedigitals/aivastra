@@ -98,6 +98,10 @@ async function uploadCustomerPhoto(app: TestApp, accessToken: string, bytes: Buf
   return r2Key;
 }
 
+// Seeds the full chain a kiosk job's workflow resolution walks: a 'tryon'-type
+// workflow template -> a tryon category pointing at it -> a garment type pointing
+// at that category -> a merchant subcategory pointing at that garment type ->
+// the catalog item itself. Mirrors createSimpleTryonJob's resolution chain.
 async function seedCatalogItem(app: TestApp, merchantId: string) {
   const id = randomUUID();
   const imageKey = `merchant-catalog/${merchantId}/${id}/image.jpg`;
@@ -105,15 +109,64 @@ async function seedCatalogItem(app: TestApp, merchantId: string) {
   await app.storage.putObject(imageKey, Buffer.from('catalog-image'), 'image/jpeg');
   await app.storage.putObject(thumbKey, Buffer.from('catalog-thumb'), 'image/jpeg');
 
+  const [workflowTemplate] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `kiosk-tryon-wf-${randomUUID()}`,
+      label: 'Kiosk tryon workflow',
+      jsonContent: {},
+      workflowType: 'tryon',
+      faceNodeId: '',
+      poseNodeId: '',
+      bgNodeId: '',
+      upperNodeIds: [],
+      facePhasePromptNode: '1',
+      garmentPhasePromptNode: '1',
+      tryonPersonNodeId: '1',
+      tryonGarmentNodeId: '2',
+      tryonOutputNodeId: '3',
+    })
+    .returning();
+
+  const [tryonCategory] = await app.db
+    .insert(schema.tryonCategories)
+    .values({
+      name: 'Kiosk sarees',
+      slug: `kiosk-sarees-${randomUUID()}`,
+      workflowTemplateId: workflowTemplate.id,
+    })
+    .returning();
+
+  const [garmentType] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug: 'women',
+      slug: `kiosk-saree-type-${randomUUID()}`,
+      label: 'Saree',
+      tryonCategoryId: tryonCategory.id,
+    })
+    .returning();
+
+  const [subcategory] = await app.db
+    .insert(schema.merchantCatalogSubcategories)
+    .values({
+      merchantId,
+      category: 'women',
+      name: 'Sarees',
+      garmentSubcategoryId: garmentType.id,
+    })
+    .returning();
+
   const [item] = await app.db
     .insert(schema.merchantCatalogItems)
     .values({
       id,
       merchantId,
+      subcategoryId: subcategory.id,
       label: 'Blue Saree',
       sku: 'SKU-001',
-      gender: 'women',
-      category: 'Sarees',
+      actualPricePaise: 200000,
+      offerPricePaise: 180000,
       r2Key: imageKey,
       thumbnailKey: thumbKey,
       isActive: true,

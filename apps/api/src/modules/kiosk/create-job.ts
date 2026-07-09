@@ -11,6 +11,7 @@ interface CreateKioskJobInput {
   upperGarmentKey: string;
   customerPhotoKey: string;
   cost: number;
+  workflowTemplateId: string;
 }
 
 export async function createKioskJob(
@@ -38,6 +39,7 @@ export async function createKioskJob(
       faceId: null,
       backgroundId: null,
       poseId: null,
+      params: { workflowTemplateId: input.workflowTemplateId },
     });
 
     // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the merchant ledger helper.

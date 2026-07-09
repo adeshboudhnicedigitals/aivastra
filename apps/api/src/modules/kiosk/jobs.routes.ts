@@ -159,8 +159,30 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
           r2Key: schema.merchantCatalogItems.r2Key,
           isActive: schema.merchantCatalogItems.isActive,
           moderationStatus: schema.merchantCatalogItems.moderationStatus,
+          workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+          tryonCategoryIsActive: schema.tryonCategories.isActive,
+          workflowTemplateIsActive: schema.workflowTemplates.isActive,
         })
         .from(schema.merchantCatalogItems)
+        .innerJoin(
+          schema.merchantCatalogSubcategories,
+          eq(schema.merchantCatalogSubcategories.id, schema.merchantCatalogItems.subcategoryId),
+        )
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(
+            schema.garmentSubcategories.id,
+            schema.merchantCatalogSubcategories.garmentSubcategoryId,
+          ),
+        )
+        .leftJoin(
+          schema.tryonCategories,
+          eq(schema.tryonCategories.id, schema.garmentSubcategories.tryonCategoryId),
+        )
+        .leftJoin(
+          schema.workflowTemplates,
+          eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
+        )
         .where(eq(schema.merchantCatalogItems.id, merchantCatalogItemId))
         .limit(1);
 
@@ -169,6 +191,16 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       }
       if (!item.isActive || item.moderationStatus !== 'approved') {
         throw new AppError('FORBIDDEN', 403, 'catalog item is not available');
+      }
+      // Kill-switch parity with createSimpleTryonJob: a tryon category (or its workflow
+      // template) that an admin deactivated after garment types were mapped to it must
+      // not resolve.
+      if (
+        !item.workflowTemplateId ||
+        !item.tryonCategoryIsActive ||
+        !item.workflowTemplateIsActive
+      ) {
+        throw new AppError('VALIDATION', 400, 'garment type has no tryon category configured');
       }
       if (!customerPhotoKey.startsWith(`kiosk-inputs/${kioskDeviceId}/`)) {
         throw new AppError('FORBIDDEN', 403, 'customer photo key does not belong to this device');
@@ -195,6 +227,7 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
         upperGarmentKey: item.r2Key,
         customerPhotoKey,
         cost: KIOSK_JOB_COST,
+        workflowTemplateId: item.workflowTemplateId,
       });
 
       reply.code(201);
