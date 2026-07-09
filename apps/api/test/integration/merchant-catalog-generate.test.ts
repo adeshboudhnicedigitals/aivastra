@@ -1,0 +1,339 @@
+import { randomUUID } from 'node:crypto';
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { signAccess } from '../../src/modules/auth/service';
+import { buildTestApp, type TestApp } from '../helpers/api';
+import { type Containers, startContainers } from '../helpers/containers';
+
+const JWT_SECRET = 'test-jwt-secret-0123456789abcdef-32min';
+const secret = new TextEncoder().encode(JWT_SECRET);
+const CONFIG_KEY = 'config:system';
+
+async function createMerchant(app: TestApp, email: string) {
+  const [merchantUser] = await app.db
+    .insert(schema.users)
+    .values({ email, passwordHash: 'unused' })
+    .returning();
+  const [merchant] = await app.db
+    .insert(schema.merchants)
+    .values({
+      companyName: 'Merchant Co',
+      contactName: 'Merchant Owner',
+      phone: '9999999999',
+      websiteUrl: 'https://example.com',
+      companySize: '1-10',
+      purpose: 'merchant tests',
+      businessAddress: 'Test Street',
+      isActive: true,
+      userId: merchantUser.id,
+    })
+    .returning();
+  await app.db.insert(schema.merchantCredits).values({ merchantId: merchant.id, balance: 0 });
+  return { merchant, userId: merchantUser.id };
+}
+
+async function authHeader(userId: string) {
+  const token = await signAccess(secret, userId, { kind: 'access' }, '15m');
+  return { authorization: `Bearer ${token}` };
+}
+
+async function grantUserCredits(app: TestApp, userId: string, amount: number) {
+  await app.db
+    .insert(schema.userCredits)
+    .values({ userId, balance: amount })
+    .onConflictDoUpdate({ target: schema.userCredits.userId, set: { balance: amount } });
+}
+
+async function seedWorkflowTemplate(app: TestApp) {
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `regular-wf-${randomUUID()}`,
+      label: 'Regular workflow',
+      jsonContent: {},
+      faceNodeId: '1',
+      poseNodeId: '1',
+      bgNodeId: '1',
+      upperNodeIds: ['2'],
+      facePhasePromptNode: '1',
+      garmentPhasePromptNode: '1',
+    })
+    .returning();
+  return wf;
+}
+
+async function seedPose(app: TestApp, genderSlug: string, workflowTemplateId: string) {
+  const [pose] = await app.db
+    .insert(schema.modelPoseAssets)
+    .values({
+      label: `Pose ${randomUUID()}`,
+      r2Key: 'poses/seed/pose.jpg',
+      thumbnailKey: 'poses/seed/pose.thumb.jpg',
+      genderSlug,
+      workflowTemplateId,
+    })
+    .returning();
+  return pose;
+}
+
+async function seedFace(app: TestApp, gender: string) {
+  const [face] = await app.db
+    .insert(schema.modelFaces)
+    .values({
+      gender,
+      label: `Face ${randomUUID()}`,
+      r2Key: 'faces/seed/face.jpg',
+      thumbnailKey: 'faces/seed/face.thumb.jpg',
+    })
+    .returning();
+  return face;
+}
+
+async function seedBackground(app: TestApp) {
+  const [bg] = await app.db
+    .insert(schema.modelBackgrounds)
+    .values({
+      label: `Background ${randomUUID()}`,
+      r2Key: 'backgrounds/seed/bg.jpg',
+      thumbnailKey: 'backgrounds/seed/bg.thumb.jpg',
+    })
+    .returning();
+  return bg;
+}
+
+async function seedGarmentType(app: TestApp, genderSlug: string, defaultPoseId: string | null) {
+  const [row] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({ genderSlug, slug: `type-${randomUUID()}`, label: 'Type', defaultPoseId })
+    .returning();
+  return row;
+}
+
+describe('merchant catalog generate (single, Path B)', () => {
+  let c: Containers;
+  let app: TestApp;
+
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c);
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  beforeEach(async () => {
+    await app.redis.del('jobs:normal');
+  });
+
+  afterEach(async () => {
+    await app.redis.del(CONFIG_KEY);
+  });
+
+  async function seedFullDefaults(genderSlug: string) {
+    const wf = await seedWorkflowTemplate(app);
+    const pose = await seedPose(app, genderSlug, wf.id);
+    const face = await seedFace(app, genderSlug);
+    const bg = await seedBackground(app);
+    const garmentType = await seedGarmentType(app, genderSlug, pose.id);
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        merchantCatalogDefaults: { [genderSlug]: { faceId: face.id, backgroundId: bg.id } },
+        merchantCatalogAspectRatio: '2:3',
+      }),
+    );
+    return { garmentType, pose, face, bg, workflowTemplate: wf };
+  }
+
+  it('creates a userId-owned studio job (not merchantId-owned) with the admin-fixed inputs, and deducts user credits', async () => {
+    const { merchant, userId } = await createMerchant(app, 'gen-happy@example.com');
+    await grantUserCredits(app, userId, 100);
+    const auth = await authHeader(userId);
+    const { garmentType } = await seedFullDefaults('men');
+
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'men', name: 'Shirts', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const presign = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/presign',
+      headers: auth,
+      payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+    });
+    expect(presign.statusCode).toBe(200);
+    const { r2Key: flatImageKey, uploadUrl } = presign.json() as {
+      r2Key: string;
+      uploadUrl: string;
+    };
+    const put = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: Buffer.from('flat'),
+    });
+    expect(put.ok).toBe(true);
+
+    const generate = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey },
+    });
+    expect(generate.statusCode).toBe(201);
+    const { jobId } = generate.json() as { jobId: string };
+    expect(jobId).toBeTruthy();
+
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job.userId).toBe(userId);
+    expect(job.merchantId).toBeNull();
+    expect(job.status).toBe('QUEUED');
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect(inputs.faceId).toBeTruthy();
+    expect(inputs.backgroundId).toBeTruthy();
+    expect(inputs.poseId).toBeTruthy();
+    expect(inputs.garmentTypeId).toBe(garmentType.id);
+    expect(inputs.upperGarmentKey).toBe(flatImageKey);
+    const params = inputs.params as Record<string, unknown>;
+    expect(params.kind).toBe('merchant_catalog');
+    expect(params.subcategoryId).toBe(subcategoryId);
+
+    const [bal] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(bal.balance).toBeLessThan(100);
+
+    const len = await app.redis.xlen('jobs:normal');
+    expect(len).toBeGreaterThanOrEqual(1);
+
+    void merchant; // referenced only for setup symmetry with other tests in this file
+  });
+
+  it('rejects with 400 when the garment type has no default pose configured', async () => {
+    const { userId } = await createMerchant(app, 'gen-nopose@example.com');
+    await grantUserCredits(app, userId, 100);
+    const auth = await authHeader(userId);
+    const garmentType = await seedGarmentType(app, 'men', null);
+
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'men', name: 'Shirts', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const generate = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey: 'merchant-catalog/x/flat/y/garment.jpg' },
+    });
+    expect(generate.statusCode).toBe(400);
+  });
+
+  it('rejects with 400 when no merchantCatalogDefaults are configured for the category', async () => {
+    const { userId } = await createMerchant(app, 'gen-nodefaults@example.com');
+    await grantUserCredits(app, userId, 100);
+    const auth = await authHeader(userId);
+    const wf = await seedWorkflowTemplate(app);
+    const pose = await seedPose(app, 'men', wf.id);
+    const garmentType = await seedGarmentType(app, 'men', pose.id);
+    // deliberately do not set config:system
+
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'men', name: 'Shirts', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const generate = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey: 'merchant-catalog/x/flat/y/garment.jpg' },
+    });
+    expect(generate.statusCode).toBe(400);
+  });
+
+  it('marks a completed job COMPLETED via the status poll and creates a product on client confirmation', async () => {
+    const { userId } = await createMerchant(app, 'gen-complete@example.com');
+    await grantUserCredits(app, userId, 100);
+    const auth = await authHeader(userId);
+    const { garmentType } = await seedFullDefaults('women');
+
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const presign = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/presign',
+      headers: auth,
+      payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+    });
+    const { r2Key: flatImageKey, uploadUrl } = presign.json() as {
+      r2Key: string;
+      uploadUrl: string;
+    };
+    await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: Buffer.from('flat'),
+    });
+
+    const generate = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey },
+    });
+    const { jobId } = generate.json() as { jobId: string };
+
+    // Simulate the dispatcher completing the job (dispatcher is not running in
+    // this integration test — write the terminal state directly, exactly as
+    // simple-tryon.test.ts / regenerate.test.ts already do for the same reason).
+    const resultKey = `outputs/${jobId}/result.png`;
+    await app.storage.putObject(resultKey, Buffer.from('generated-catalogue-image'), 'image/png');
+    await app.db.update(schema.jobs).set({ status: 'COMPLETED' }).where(eq(schema.jobs.id, jobId));
+    await app.db.insert(schema.jobOutputs).values({ jobId, resultKey });
+
+    const status = await app.inject({
+      method: 'GET',
+      url: `/v1/merchant/catalog/generate/${jobId}`,
+      headers: auth,
+    });
+    expect(status.statusCode).toBe(200);
+    const statusBody = status.json() as { status: string; resultUrl: string | null };
+    expect(statusBody.status).toBe('COMPLETED');
+    expect(statusBody.resultUrl).toBeTruthy();
+
+    const imported = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/import',
+      headers: auth,
+      payload: { jobId, subcategoryId },
+    });
+    expect(imported.statusCode).toBe(201);
+    const product = imported.json() as { sourceKind: string; sourceJobId: string };
+    expect(product.sourceKind).toBe('imported');
+    expect(product.sourceJobId).toBe(jobId);
+  });
+});

@@ -3,8 +3,8 @@ import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   MerchantCatalogCreateBody,
-  // biome-ignore lint/correctness/noUnusedImports: wired up by Tasks 9/10 (generate + generate-bulk routes), landed now to avoid re-touching this import block.
   MerchantCatalogGenerateBody,
+  // biome-ignore lint/correctness/noUnusedImports: wired up by Task 10 (generate-bulk route), landed now to avoid re-touching this import block.
   MerchantCatalogGenerateBulkBody,
   MerchantCatalogImportBody,
   MerchantCatalogPresignBody,
@@ -16,9 +16,8 @@ import { and, count, desc, eq, ilike, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-
-const MERCHANT_CATALOG_MAX_BYTES = 5 * 1024 * 1024;
-const MERCHANT_CATALOG_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+import { createMerchantCatalogJob } from './create-job.js';
+import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
 
@@ -41,36 +40,6 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
     imageUrl,
     thumbnailUrl,
   };
-}
-
-async function assertMerchantUploadKey(
-  app: FastifyInstance,
-  merchantId: string,
-  key: string,
-  label: string,
-) {
-  if (!key.startsWith(`merchant-catalog/${merchantId}/`)) {
-    throw new AppError('FORBIDDEN', 403, `${label} key does not belong to this merchant`);
-  }
-
-  const owner = await app.redis.get(`upload:owner:${key}`);
-  if (owner !== merchantId) {
-    throw new AppError('FORBIDDEN', 403, `${label} upload session expired or not owned`);
-  }
-
-  let head: { contentLength: number; contentType: string | null };
-  try {
-    head = await app.storage.headObject(key);
-  } catch {
-    throw new AppError('BAD_UPLOAD', 400, `${label} not found`);
-  }
-
-  if (head.contentLength > MERCHANT_CATALOG_MAX_BYTES) {
-    throw new AppError('BAD_UPLOAD', 413, `${label} exceeds 5MB limit`);
-  }
-  if (!head.contentType || !MERCHANT_CATALOG_CONTENT_TYPES.has(head.contentType)) {
-    throw new AppError('BAD_UPLOAD', 400, `${label} must be jpeg, png, or webp`);
-  }
 }
 
 function catalogueLabel(catalogueId: string | null, jobId: string): string {
@@ -142,7 +111,13 @@ async function copyJobOutputIntoProduct(
       app.storage.deleteObject(thumbKey),
     ]);
     if ((err as { code?: string }).code === '23505') {
-      throw new AppError('CONFLICT', 409, 'job already imported');
+      throw new AppError(
+        'CONFLICT',
+        409,
+        params.sourceKind === 'generated'
+          ? 'job already used for a generated product'
+          : 'job already imported',
+      );
     }
     throw err;
   }
@@ -347,7 +322,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const key =
         kind === 'thumbnail'
           ? keys.merchantCatalogItemThumb(merchantId, assetId)
-          : keys.merchantCatalogItem(merchantId, assetId);
+          : kind === 'flat'
+            ? keys.merchantCatalogFlatGarment(merchantId, assetId)
+            : keys.merchantCatalogItem(merchantId, assetId);
 
       const { url, expiresIn } = await app.storage.presignPut(key, contentType, contentLength, 600);
       await app.redis.set(`upload:owner:${key}`, merchantId, 'EX', 600);
@@ -660,6 +637,94 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
       reply.code(201);
       return await serializeCatalogItem(app, item);
+    },
+  );
+
+  app.post(
+    '/v1/merchant/catalog/generate',
+    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBody } },
+    async (req, reply) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { subcategoryId, flatImageKey } = req.body as z.infer<
+        typeof MerchantCatalogGenerateBody
+      >;
+
+      const [row] = await app.db
+        .select({
+          userId: schema.merchants.userId,
+          category: schema.merchantCatalogSubcategories.category,
+          garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
+        })
+        .from(schema.merchantCatalogSubcategories)
+        .innerJoin(
+          schema.merchants,
+          eq(schema.merchants.id, schema.merchantCatalogSubcategories.merchantId),
+        )
+        .where(
+          and(
+            eq(schema.merchantCatalogSubcategories.id, subcategoryId),
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+          ),
+        )
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+
+      const { jobId } = await createMerchantCatalogJob(app, {
+        userId: row.userId,
+        garmentSubcategoryId: row.garmentSubcategoryId,
+        category: row.category,
+        flatImageKey,
+        subcategoryId,
+        merchantId,
+      });
+
+      reply.code(201);
+      return { jobId };
+    },
+  );
+
+  app.get(
+    '/v1/merchant/catalog/generate/:jobId',
+    { preHandler: app.requireMerchant, schema: { params: z.object({ jobId: z.string().uuid() }) } },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { jobId } = req.params as { jobId: string };
+
+      const [client] = await app.db
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
+        .limit(1);
+      if (!client) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+
+      const [job] = await app.db
+        .select({
+          id: schema.jobs.id,
+          userId: schema.jobs.userId,
+          status: schema.jobs.status,
+          errorCode: schema.jobs.errorCode,
+          resultKey: schema.jobOutputs.resultKey,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(eq(schema.jobs.id, jobId))
+        .limit(1);
+      if (!job || job.userId !== client.userId) {
+        throw new AppError('NOT_FOUND', 404, 'job not found');
+      }
+
+      const resultUrl = job.resultKey
+        ? await app.storage
+            .presignGet(job.resultKey, 3600)
+            .then((r) => r.url)
+            .catch(() => null)
+        : null;
+
+      return { jobId: job.id, status: job.status, resultUrl, errorCode: job.errorCode };
     },
   );
 }
