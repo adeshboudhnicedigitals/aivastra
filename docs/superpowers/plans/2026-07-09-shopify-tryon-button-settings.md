@@ -201,3 +201,104 @@ No automated test applies. Verification:
 git add apps/shopify-extension/extensions/tryon-theme-extension/blocks/tryon-block.liquid apps/shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.css
 git commit -m "feat(shopify-extension): customizable try-on button settings (text, colors, radius)"
 ```
+
+---
+
+## Task 2: Selector-driven button placement
+
+**Context:** Shopify always injects a `target: "body"` block right before `</body>`, regardless of theme-editor position — there's no drag-to-place UI for app embeds. Antla's own `settings_data.json` (merchant-provided reference) confirms their block is also `target: "body"`, and it reads `general_block_selector` (default `.product-form`) + `block_alignment` settings, then uses JS to move the button element into that DOM location on load. This task adds the same mechanism so the button appears inline near the Buy button instead of floating at the page bottom.
+
+**Files:**
+- Modify: `apps/shopify-extension/extensions/tryon-theme-extension/blocks/tryon-block.liquid`
+- Modify: `apps/shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.js`
+
+**Interfaces:**
+- Consumes: nothing new.
+- Produces: nothing consumed by other tasks — last task of this plan.
+
+- [ ] **Step 1: Add placement settings + data attributes**
+
+In `apps/shopify-extension/extensions/tryon-theme-extension/blocks/tryon-block.liquid`, add two data attributes to the root `<div>` (after the existing `style` attribute):
+
+```liquid
+    data-placement-selector="{{ block.settings.placement_selector }}"
+    data-block-alignment="{{ block.settings.block_alignment }}"
+```
+
+And add two settings to the `{% schema %}` block's `"settings"` array (after `border_radius`):
+
+```json
+    {
+      "type": "text",
+      "id": "placement_selector",
+      "label": "Insert button at CSS selector",
+      "info": "By default the button is placed near the Buy button. If it doesn't appear in the right spot on your theme, enter a different CSS selector here.",
+      "default": ".product-form"
+    },
+    {
+      "type": "select",
+      "id": "block_alignment",
+      "label": "Position within that element",
+      "options": [
+        { "value": "start", "label": "Start" },
+        { "value": "end", "label": "End" }
+      ],
+      "default": "start"
+    }
+```
+
+- [ ] **Step 2: Move the button on load in `tryon-widget.js`**
+
+In `apps/shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.js`, add a `placeWidget` function and call it before `initWidget` in the bottom `forEach`:
+
+```js
+function placeWidget(root) {
+  const selector = root.dataset.placementSelector;
+  if (!selector) return;
+  const target = document.querySelector(selector);
+  if (!target) return;
+  if (root.dataset.blockAlignment === 'end') {
+    target.appendChild(root);
+  } else {
+    target.insertBefore(root, target.firstChild);
+  }
+}
+```
+
+Replace the final line:
+```js
+  document.querySelectorAll('.aivastra-tryon').forEach(initWidget);
+```
+with:
+```js
+  document.querySelectorAll('.aivastra-tryon').forEach((root) => {
+    placeWidget(root);
+    initWidget(root);
+  });
+```
+
+`placeWidget` runs first so `initWidget`'s `root.querySelector(...)` calls for the button/modal/etc. still work — moving a DOM node preserves its children and event-listener-free state, so calling `initWidget` after the move is safe either way, but placing first matches the natural reading order.
+
+- [ ] **Step 3: Deploy and verify theme-check passes**
+
+Run (from `apps/shopify-extension/`):
+```bash
+cd apps/shopify-extension
+npx shopify app deploy
+```
+Expected: confirm "Yes, release this new version" → ends with "New version released to users." No new theme-check errors beyond the pre-existing `ImgWidthAndHeight` warning.
+
+- [ ] **Step 4: Manual verification against the real dev store**
+
+No automated test applies. Verification:
+1. In the theme editor → App embeds → "Try It On", confirm two new fields appear: "Insert button at CSS selector" (default `.product-form`) and "Position within that element" (Start/End).
+2. Open a real product page — confirm the button now renders inline near the Buy button, not floating at the bottom of the page.
+3. If it doesn't appear in the right spot (selector mismatch for this theme), change the selector field to match this theme's actual buy-button wrapper class and confirm the button moves.
+4. Confirm the upload → generate → result modal still opens and works from the new position (moving the container preserves the `position: fixed` modal overlay behavior).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/shopify-extension/extensions/tryon-theme-extension/blocks/tryon-block.liquid apps/shopify-extension/extensions/tryon-theme-extension/assets/tryon-widget.js
+git commit -m "feat(shopify-extension): selector-driven button placement (matches Antla's technique)"
+```

@@ -121,5 +121,20 @@
     }
   }
 
-  document.querySelectorAll('.aivastra-tryon').forEach(initWidget);
+  function placeWidget(root) {
+    const selector = root.dataset.placementSelector;
+    if (!selector) return;
+    const target = document.querySelector(selector);
+    if (!target) return;
+    if (root.dataset.blockAlignment === 'end') {
+      target.appendChild(root);
+    } else {
+      target.insertBefore(root, target.firstChild);
+    }
+  }
+
+  document.querySelectorAll('.aivastra-tryon').forEach((root) => {
+    placeWidget(root);
+    initWidget(root);
+  });
 })();
