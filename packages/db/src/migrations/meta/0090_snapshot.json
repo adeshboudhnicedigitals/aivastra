@@ -1,6 +1,6 @@
 {
-  "id": "cbdd9471-2a57-4810-900f-10aa3a7f2baf",
-  "prevId": "73831dd6-f4ab-48c6-8875-8d378bc38e8e",
+  "id": "73831dd6-f4ab-48c6-8875-8d378bc38e8e",
+  "prevId": "1338bac0-34ea-4839-96b0-3b0585d94d7f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2633,25 +2633,12 @@
           "primaryKey": false,
           "notNull": true
         },
-        "title": {
-          "name": "title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "status": {
           "name": "status",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "default": "'processing'"
-        },
-        "enabled": {
-          "name": "enabled",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         },
         "failed_reason": {
           "name": "failed_reason",
