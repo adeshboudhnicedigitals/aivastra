@@ -170,7 +170,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       const poses = await app.db
         .select({
           id: schema.modelPoseAssets.id,
-          isActive: schema.modelPoseAssets.isActive,
+          globalIsActive: schema.modelPoseAssets.isActive,
           label: schema.modelPoseAssets.label,
           displayName: schema.modelPoseAssets.displayName,
           thumbnailKey: schema.modelPoseAssets.thumbnailKey,
@@ -206,14 +206,19 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       return {
         items: poses.map((p) => {
           const cfg = configMap.get(p.id) ?? null;
+          // Effective active state for this garment type: the per-type override
+          // wins when set, otherwise fall back to the pose asset's global flag.
+          const isActive = cfg?.isActive ?? p.globalIsActive;
           return {
             ...p,
+            isActive,
             thumbnailUrl: app.storage.publicUrl(p.thumbnailKey),
             config: cfg
               ? {
                   workflowTemplateId: cfg.workflowTemplateId,
                   promptGarmentPhase: cfg.promptGarmentPhase,
                   promptFacePhase: cfg.promptFacePhase,
+                  isActive: cfg.isActive,
                 }
               : null,
           };
@@ -234,18 +239,21 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           workflowTemplateId: z.string().uuid().nullable(),
           promptGarmentPhase: z.string().nullable(),
           promptFacePhase: z.string().nullable(),
+          isActive: z.boolean().nullable(),
         }),
       },
     },
     async (req) => {
       const { id, poseAssetId } = req.params as { id: string; poseAssetId: string };
-      const { workflowTemplateId, promptGarmentPhase, promptFacePhase } = req.body as {
+      const { workflowTemplateId, promptGarmentPhase, promptFacePhase, isActive } = req.body as {
         workflowTemplateId: string | null;
         promptGarmentPhase: string | null;
         promptFacePhase: string | null;
+        isActive: boolean | null;
       };
 
-      const hasOverride = workflowTemplateId || promptGarmentPhase || promptFacePhase;
+      const hasOverride =
+        workflowTemplateId || promptGarmentPhase || promptFacePhase || isActive !== null;
       if (!hasOverride) {
         await app.db
           .delete(schema.poseGarmentConfigs)
@@ -266,6 +274,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           workflowTemplateId: workflowTemplateId ?? null,
           promptGarmentPhase: promptGarmentPhase ?? null,
           promptFacePhase: promptFacePhase ?? null,
+          isActive,
           updatedAt: new Date(),
         })
         .onConflictDoUpdate({
@@ -274,6 +283,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             workflowTemplateId: workflowTemplateId ?? null,
             promptGarmentPhase: promptGarmentPhase ?? null,
             promptFacePhase: promptFacePhase ?? null,
+            isActive,
             updatedAt: new Date(),
           },
         });

@@ -140,7 +140,7 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// Per-garment-type workflow/prompt overrides for a pose asset.
+// Per-garment-type workflow/prompt/active overrides for a pose asset.
 // Null fields mean "use the pose asset's default".
 export const poseGarmentConfigs = pgTable(
   'pose_garment_configs',
@@ -157,6 +157,10 @@ export const poseGarmentConfigs = pgTable(
     }),
     promptGarmentPhase: text('prompt_garment_phase'),
     promptFacePhase: text('prompt_face_phase'),
+    // Null = inherit model_pose_assets.is_active (the global flag). Non-null overrides
+    // it for this garment type only — it can only narrow (hide a globally-active pose
+    // for one type), never widen a globally-inactive pose back into visibility.
+    isActive: boolean('is_active'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

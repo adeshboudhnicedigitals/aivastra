@@ -617,6 +617,13 @@
       "when": 1752249600000,
       "tag": "0087_saree_workflow_template_id",
       "breakpoints": false
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1783555200000,
+      "tag": "0088_pose_garment_configs_is_active",
+      "breakpoints": false
     }
   ]
 }
