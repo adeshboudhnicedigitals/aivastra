@@ -1304,15 +1304,18 @@ function PoseConfigsPanel({
     if (!bulkWorkflow || selectedIds.length === 0) return;
     setBulkSaving(true);
     try {
+      // Follow the selected workflow's own default prompt — same convention as the
+      // pose-asset-level bulk-workflow route — so applying a workflow in bulk doesn't
+      // leave a stale prompt (or a mismatched one inherited from whatever was there before).
+      const wf = workflows.find((w) => w.id === bulkWorkflow);
       await Promise.all(
-        selectedIds.map((id) => {
-          const item = items.find((i) => i.id === id);
-          return onSave(sub.id, id, {
+        selectedIds.map((id) =>
+          onSave(sub.id, id, {
             workflowTemplateId: bulkWorkflow,
-            promptGarmentPhase: item?.config?.promptGarmentPhase ?? null,
+            promptGarmentPhase: wf?.defaultGarmentPhasePrompt || null,
             promptFacePhase: null,
-          });
-        }),
+          }),
+        ),
       );
       clearSelection();
       setBulkWorkflow('');
@@ -1458,7 +1461,9 @@ function PoseConfigsPanel({
           const defaultWorkflow = item.defaultWorkflowTemplateId
             ? workflows.find((w) => w.id === item.defaultWorkflowTemplateId)?.label
             : null;
-          const hasOverride = !!item.config;
+          const hasWorkflowOverride = !!item.config?.workflowTemplateId;
+          const hasPromptOverride = !!item.config?.promptGarmentPhase;
+          const hasOverride = hasWorkflowOverride || hasPromptOverride;
 
           return (
             <div
@@ -1540,12 +1545,13 @@ function PoseConfigsPanel({
                       {defaultWorkflow}
                     </span>
                   ) : null}
-                  {hasOverride && (
+                  {hasPromptOverride && (
                     <span
                       className="badge dot"
                       style={{ fontSize: 10, background: 'var(--pink)', color: '#fff' }}
+                      title="Override positive prompt"
                     >
-                      overridden
+                      prompt overridden
                     </span>
                   )}
                 </div>
@@ -1604,7 +1610,18 @@ function PoseConfigsPanel({
                   className="select"
                   value={editWorkflow}
                   disabled={savingId === editing.id}
-                  onChange={(e) => setEditWorkflow(e.target.value)}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setEditWorkflow(newId);
+                    // Always follow the newly selected workflow's own default prompt — same
+                    // convention as the pose-asset-level edit modal — so switching workflows
+                    // here doesn't keep sending the previous workflow's prompt text. Admin can
+                    // still hand-edit the textarea below before saving to customize further.
+                    const wf = newId ? workflows.find((w) => w.id === newId) : null;
+                    setEditGarmentPrompt(
+                      wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
+                    );
+                  }}
                 >
                   <option value="">
                     Use default (
@@ -1620,6 +1637,10 @@ function PoseConfigsPanel({
                     </option>
                   ))}
                 </select>
+                <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                  Changing this updates the prompt below to that workflow's own default — edit it
+                  after to customize further.
+                </span>
               </div>
               <div className="field">
                 <label>Positive prompt</label>
