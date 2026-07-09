@@ -1,6 +1,6 @@
 {
-  "id": "a082de32-5808-4efb-9ac4-28435568b28b",
-  "prevId": "0c4e8531-522c-4ab5-bab8-cd478efeb9a2",
+  "id": "814aa606-5d21-4d9f-ac6b-b73eef02a459",
+  "prevId": "a082de32-5808-4efb-9ac4-28435568b28b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3342,24 +3342,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'regular'"
-        },
-        "widget_garment_node_id": {
-          "name": "widget_garment_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "widget_customer_photo_node_id": {
-          "name": "widget_customer_photo_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "widget_output_node_id": {
-          "name": "widget_output_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "tryon_person_node_id": {
           "name": "tryon_person_node_id",

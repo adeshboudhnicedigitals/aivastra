@@ -1,6 +1,6 @@
 {
-  "id": "a082de32-5808-4efb-9ac4-28435568b28b",
-  "prevId": "0c4e8531-522c-4ab5-bab8-cd478efeb9a2",
+  "id": "0c4e8531-522c-4ab5-bab8-cd478efeb9a2",
+  "prevId": "e904f432-4b93-4ed3-8b75-3dd7fdce8de4",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1931,12 +1931,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "subcategory_id": {
-          "name": "subcategory_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "label": {
           "name": "label",
           "type": "text",
@@ -1949,17 +1943,17 @@
           "primaryKey": false,
           "notNull": false
         },
-        "actual_price_paise": {
-          "name": "actual_price_paise",
-          "type": "integer",
+        "gender": {
+          "name": "gender",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
-        "offer_price_paise": {
-          "name": "offer_price_paise",
-          "type": "integer",
+        "category": {
+          "name": "category",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "r2_key": {
           "name": "r2_key",
@@ -1976,19 +1970,6 @@
         "source_job_id": {
           "name": "source_job_id",
           "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source_kind": {
-          "name": "source_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'uploaded'"
-        },
-        "flat_source_key": {
-          "name": "flat_source_key",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -2056,21 +2037,6 @@
           "method": "btree",
           "with": {}
         },
-        "merchant_catalog_items_subcategory_idx": {
-          "name": "merchant_catalog_items_subcategory_idx",
-          "columns": [
-            {
-              "expression": "subcategory_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "merchant_catalog_items_merchant_source_job_unique": {
           "name": "merchant_catalog_items_merchant_source_job_unique",
           "columns": [
@@ -2104,15 +2070,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "merchant_catalog_items_subcategory_id_merchant_catalog_subcategories_id_fk": {
-          "name": "merchant_catalog_items_subcategory_id_merchant_catalog_subcategories_id_fk",
-          "tableFrom": "merchant_catalog_items",
-          "tableTo": "merchant_catalog_subcategories",
-          "columnsFrom": ["subcategory_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "merchant_catalog_items_source_job_id_jobs_id_fk": {
           "name": "merchant_catalog_items_source_job_id_jobs_id_fk",
           "tableFrom": "merchant_catalog_items",
@@ -2120,112 +2077,6 @@
           "columnsFrom": ["source_job_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.merchant_catalog_subcategories": {
-      "name": "merchant_catalog_subcategories",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "merchant_id": {
-          "name": "merchant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "category": {
-          "name": "category",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "garment_subcategory_id": {
-          "name": "garment_subcategory_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "merchant_catalog_subcategories_merchant_idx": {
-          "name": "merchant_catalog_subcategories_merchant_idx",
-          "columns": [
-            {
-              "expression": "merchant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "category",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "merchant_catalog_subcategories_merchant_id_merchants_id_fk": {
-          "name": "merchant_catalog_subcategories_merchant_id_merchants_id_fk",
-          "tableFrom": "merchant_catalog_subcategories",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "merchant_catalog_subcategories_garment_subcategory_id_garment_subcategories_id_fk": {
-          "name": "merchant_catalog_subcategories_garment_subcategory_id_garment_subcategories_id_fk",
-          "tableFrom": "merchant_catalog_subcategories",
-          "tableTo": "garment_subcategories",
-          "columnsFrom": ["garment_subcategory_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
@@ -2702,12 +2553,6 @@
         },
         "tryon_category_id": {
           "name": "tryon_category_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "default_pose_id": {
-          "name": "default_pose_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false

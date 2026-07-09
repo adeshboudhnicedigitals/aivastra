@@ -621,71 +621,78 @@
     {
       "idx": 88,
       "version": "7",
-      "when": 1779121000000,
-      "tag": "0088_kiosk_auth_foundation",
-      "breakpoints": true
+      "when": 1783555200000,
+      "tag": "0088_pose_garment_configs_is_active",
+      "breakpoints": false
     },
     {
       "idx": 89,
       "version": "7",
-      "when": 1779122000000,
-      "tag": "0089_merchant_portal",
+      "when": 1779121000000,
+      "tag": "0089_kiosk_auth_foundation",
       "breakpoints": true
     },
     {
       "idx": 90,
       "version": "7",
-      "when": 1779123000000,
-      "tag": "0090_kiosk_jobs",
+      "when": 1779122000000,
+      "tag": "0090_merchant_portal",
       "breakpoints": true
     },
     {
       "idx": 91,
       "version": "7",
-      "when": 1779124000000,
-      "tag": "0091_user_device_session_limits",
+      "when": 1779123000000,
+      "tag": "0091_kiosk_jobs",
       "breakpoints": true
     },
     {
       "idx": 92,
       "version": "7",
-      "when": 1779125000000,
-      "tag": "0092_needy_annihilus",
+      "when": 1779124000000,
+      "tag": "0092_user_device_session_limits",
       "breakpoints": true
     },
     {
       "idx": 93,
       "version": "7",
-      "when": 1783502486179,
-      "tag": "0093_merchant_identity_unification",
+      "when": 1779125000000,
+      "tag": "0093_needy_annihilus",
       "breakpoints": true
     },
     {
       "idx": 94,
       "version": "7",
-      "when": 1783502600000,
-      "tag": "0094_merchant_naming_cleanup",
+      "when": 1783502486179,
+      "tag": "0094_merchant_identity_unification",
       "breakpoints": true
     },
     {
       "idx": 95,
       "version": "7",
-      "when": 1783512362369,
-      "tag": "0095_drop_widget_embed_columns",
+      "when": 1783502600000,
+      "tag": "0095_merchant_naming_cleanup",
       "breakpoints": true
     },
     {
       "idx": 96,
       "version": "7",
-      "when": 1783600000000,
-      "tag": "0096_merchant_catalog_subcategories",
+      "when": 1783512362369,
+      "tag": "0096_drop_widget_embed_columns",
       "breakpoints": true
     },
     {
       "idx": 97,
       "version": "7",
+      "when": 1783600000000,
+      "tag": "0097_merchant_catalog_subcategories",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
       "when": 1783600919136,
-      "tag": "0097_drop_widget_workflow_type",
+      "tag": "0098_drop_widget_workflow_type",
       "breakpoints": true
     }
   ]

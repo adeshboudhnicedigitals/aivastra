@@ -1,6 +1,6 @@
 {
-  "id": "fcd1cbcc-f898-4de1-acc0-1ade929870ef",
-  "prevId": "0b8ab629-a45e-4f38-b9bf-ec74b59473f5",
+  "id": "0b8ab629-a45e-4f38-b9bf-ec74b59473f5",
+  "prevId": "ff46251a-6fa3-4dbf-88de-6760fe11fd23",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -286,447 +286,6 @@
           "columns": ["slug"]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chatbot_conversations": {
-      "name": "chatbot_conversations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'BOT'"
-        },
-        "assigned_agent_id": {
-          "name": "assigned_agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "escalation_reason": {
-          "name": "escalation_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_message_at": {
-          "name": "last_message_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "closed_at": {
-          "name": "closed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "chatbot_conversations_one_active_idx": {
-          "name": "chatbot_conversations_one_active_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"chatbot_conversations\".\"status\" <> 'CLOSED'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "chatbot_conversations_status_idx": {
-          "name": "chatbot_conversations_status_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "last_message_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "chatbot_conversations_user_id_users_id_fk": {
-          "name": "chatbot_conversations_user_id_users_id_fk",
-          "tableFrom": "chatbot_conversations",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "chatbot_conversations_assigned_agent_id_admin_users_id_fk": {
-          "name": "chatbot_conversations_assigned_agent_id_admin_users_id_fk",
-          "tableFrom": "chatbot_conversations",
-          "tableTo": "admin_users",
-          "columnsFrom": ["assigned_agent_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chatbot_embeddings": {
-      "name": "chatbot_embeddings",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "qna_id": {
-          "name": "qna_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content_tsv": {
-          "name": "content_tsv",
-          "type": "tsvector",
-          "primaryKey": false,
-          "notNull": false,
-          "generated": {
-            "as": "to_tsvector('english', content)",
-            "type": "stored"
-          }
-        },
-        "embedding": {
-          "name": "embedding",
-          "type": "vector(1536)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "embedded_at": {
-          "name": "embedded_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "chatbot_embeddings_hnsw_idx": {
-          "name": "chatbot_embeddings_hnsw_idx",
-          "columns": [
-            {
-              "expression": "embedding",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last",
-              "opclass": "vector_cosine_ops"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "hnsw",
-          "with": {}
-        },
-        "chatbot_embeddings_tsv_idx": {
-          "name": "chatbot_embeddings_tsv_idx",
-          "columns": [
-            {
-              "expression": "content_tsv",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "gin",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "chatbot_embeddings_qna_id_chatbot_qna_id_fk": {
-          "name": "chatbot_embeddings_qna_id_chatbot_qna_id_fk",
-          "tableFrom": "chatbot_embeddings",
-          "tableTo": "chatbot_qna",
-          "columnsFrom": ["qna_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chatbot_events": {
-      "name": "chatbot_events",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "actor_id": {
-          "name": "actor_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "from_status": {
-          "name": "from_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "to_status": {
-          "name": "to_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chatbot_events_conversation_id_chatbot_conversations_id_fk": {
-          "name": "chatbot_events_conversation_id_chatbot_conversations_id_fk",
-          "tableFrom": "chatbot_events",
-          "tableTo": "chatbot_conversations",
-          "columnsFrom": ["conversation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chatbot_messages": {
-      "name": "chatbot_messages",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "conversation_id": {
-          "name": "conversation_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sender_id": {
-          "name": "sender_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "meta": {
-          "name": "meta",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "chatbot_messages_conv_idx": {
-          "name": "chatbot_messages_conv_idx",
-          "columns": [
-            {
-              "expression": "conversation_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "chatbot_messages_conversation_id_chatbot_conversations_id_fk": {
-          "name": "chatbot_messages_conversation_id_chatbot_conversations_id_fk",
-          "tableFrom": "chatbot_messages",
-          "tableTo": "chatbot_conversations",
-          "columnsFrom": ["conversation_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chatbot_qna": {
-      "name": "chatbot_qna",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "question": {
-          "name": "question",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "answer": {
-          "name": "answer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tags": {
-          "name": "tags",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1989,12 +1548,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "instruction_image_key": {
-          "name": "instruction_image_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "is_active": {
           "name": "is_active",
           "type": "boolean",
@@ -2772,12 +2325,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "workflow_template_id": {
-          "name": "workflow_template_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -2787,17 +2334,7 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {
-        "saree_settings_workflow_template_id_workflow_templates_id_fk": {
-          "name": "saree_settings_workflow_template_id_workflow_templates_id_fk",
-          "tableFrom": "saree_settings",
-          "tableTo": "workflow_templates",
-          "columnsFrom": ["workflow_template_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -3270,12 +2807,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "company_name": {
-          "name": "company_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "tier": {
           "name": "tier",
           "type": "text",
@@ -3687,6 +3218,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
         "phone": {
           "name": "phone",
           "type": "text",
@@ -3713,6 +3250,12 @@
         },
         "business_address": {
           "name": "business_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "password_hash": {
+          "name": "password_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -3768,7 +3311,7 @@
           "name": "user_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "settings": {
           "name": "settings",
@@ -3800,21 +3343,21 @@
           "tableTo": "users",
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
+        "widget_clients_email_unique": {
+          "name": "widget_clients_email_unique",
+          "nullsNotDistinct": false,
+          "columns": ["email"]
+        },
         "widget_clients_widget_key_unique": {
           "name": "widget_clients_widget_key_unique",
           "nullsNotDistinct": false,
           "columns": ["widget_key"]
-        },
-        "widget_clients_user_id_unique": {
-          "name": "widget_clients_user_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["user_id"]
         }
       },
       "policies": {},
