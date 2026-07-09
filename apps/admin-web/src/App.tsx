@@ -15,6 +15,7 @@ import LoginPage from './pages/LoginPage';
 import RecycleBinPage from './pages/RecycleBinPage';
 import SareePage from './pages/SareePage';
 import SettingsPage from './pages/SettingsPage';
+import ShopifyFunnelsPage from './pages/ShopifyFunnelsPage';
 import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
 import { WidgetClientDetail } from './pages/WidgetClientDetail';
@@ -38,6 +39,7 @@ const PATH_LABELS: Record<string, string> = {
   settings: 'Settings',
   workers: 'Workers',
   saree: 'Saree',
+  'shopify-funnels': 'Shopify Funnels',
 };
 
 function readStoredTheme(): Theme {
@@ -196,6 +198,7 @@ export default function App() {
             <Route path="/users" element={<UsersPage {...pageProps} />} />
             <Route path="/jobs" element={<JobsPage {...pageProps} />} />
             <Route path="/workflows" element={<WorkflowsPage {...pageProps} />} />
+            <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />
             <Route path="/saree" element={<SareePage {...pageProps} />} />
             <Route path="/chat-inbox" element={<ChatInboxPage {...pageProps} />} />
