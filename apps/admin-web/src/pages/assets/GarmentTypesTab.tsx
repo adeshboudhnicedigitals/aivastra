@@ -122,6 +122,7 @@ export function GarmentTypesTab() {
       workflowTemplateId: string | null;
       promptGarmentPhase: string | null;
       promptFacePhase: string | null;
+      isActive: boolean | null;
     },
   ) => {
     setSavingConfigId(poseAssetId);
@@ -135,8 +136,12 @@ export function GarmentTypesTab() {
           p.id === poseAssetId
             ? {
                 ...p,
+                isActive: patch.isActive ?? p.globalIsActive,
                 config:
-                  patch.workflowTemplateId || patch.promptGarmentPhase || patch.promptFacePhase
+                  patch.workflowTemplateId ||
+                  patch.promptGarmentPhase ||
+                  patch.promptFacePhase ||
+                  patch.isActive !== null
                     ? patch
                     : null,
               }
@@ -151,17 +156,31 @@ export function GarmentTypesTab() {
     }
   };
 
-  const togglePoseActive = async (poseAssetId: string, isActive: boolean) => {
-    setPoseConfigs((prev) => prev.map((p) => (p.id === poseAssetId ? { ...p, isActive } : p)));
+  // Toggling "active" here scopes to this garment type only — it writes a
+  // pose_garment_configs override, not the pose asset's global isActive flag
+  // (that one lives on the Pose Assets tab and applies to every garment type).
+  const togglePoseActive = async (
+    garmentTypeId: string,
+    poseAssetId: string,
+    isActive: boolean,
+  ) => {
+    const prevItem = poseConfigs.find((p) => p.id === poseAssetId);
+    const patch = {
+      workflowTemplateId: prevItem?.config?.workflowTemplateId ?? null,
+      promptGarmentPhase: prevItem?.config?.promptGarmentPhase ?? null,
+      promptFacePhase: prevItem?.config?.promptFacePhase ?? null,
+      isActive,
+    };
+    setPoseConfigs((prev) =>
+      prev.map((p) => (p.id === poseAssetId ? { ...p, isActive, config: patch } : p)),
+    );
     try {
-      await apiFetch(`/admin/assets/pose-assets/${poseAssetId}`, {
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}/pose-configs/${poseAssetId}`, {
         method: 'PATCH',
-        body: JSON.stringify({ isActive }),
+        body: JSON.stringify(patch),
       });
     } catch {
-      setPoseConfigs((prev) =>
-        prev.map((p) => (p.id === poseAssetId ? { ...p, isActive: !isActive } : p)),
-      );
+      setPoseConfigs((prev) => prev.map((p) => (p.id === poseAssetId && prevItem ? prevItem : p)));
       toast({ kind: 'error', title: 'Failed to update pose' });
     }
   };
@@ -249,7 +268,9 @@ export function GarmentTypesTab() {
           storagePublicUrl={storagePublicUrl}
           onBack={() => setSubView({ kind: 'list' })}
           onSave={saveConfig}
-          onToggleActive={togglePoseActive}
+          onToggleActive={(poseAssetId, isActive) =>
+            togglePoseActive(subView.sub.id, poseAssetId, isActive)
+          }
         />
       )}
 
@@ -1271,6 +1292,7 @@ interface PoseConfigsPanelProps {
       workflowTemplateId: string | null;
       promptGarmentPhase: string | null;
       promptFacePhase: string | null;
+      isActive: boolean | null;
     },
   ) => Promise<void>;
   onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
@@ -1309,13 +1331,15 @@ function PoseConfigsPanel({
       // leave a stale prompt (or a mismatched one inherited from whatever was there before).
       const wf = workflows.find((w) => w.id === bulkWorkflow);
       await Promise.all(
-        selectedIds.map((id) =>
-          onSave(sub.id, id, {
+        selectedIds.map((id) => {
+          const item = items.find((i) => i.id === id);
+          return onSave(sub.id, id, {
             workflowTemplateId: bulkWorkflow,
             promptGarmentPhase: wf?.defaultGarmentPhasePrompt || null,
             promptFacePhase: null,
-          }),
-        ),
+            isActive: item?.config?.isActive ?? null,
+          });
+        }),
       );
       clearSelection();
       setBulkWorkflow('');
@@ -1334,6 +1358,7 @@ function PoseConfigsPanel({
             workflowTemplateId: null,
             promptGarmentPhase: null,
             promptFacePhase: null,
+            isActive: null,
           }),
         ),
       );
@@ -1363,6 +1388,9 @@ function PoseConfigsPanel({
       workflowTemplateId: editWorkflow || null,
       promptGarmentPhase: editGarmentPrompt || null,
       promptFacePhase: null,
+      // This modal only edits workflow/prompt — preserve whatever active override
+      // (if any) is already set via the card's Switch, rather than clearing it.
+      isActive: editing.config?.isActive ?? null,
     });
     closeEdit();
   };
@@ -1463,7 +1491,9 @@ function PoseConfigsPanel({
             : null;
           const hasWorkflowOverride = !!item.config?.workflowTemplateId;
           const hasPromptOverride = !!item.config?.promptGarmentPhase;
-          const hasOverride = hasWorkflowOverride || hasPromptOverride;
+          const hasActiveOverride =
+            item.config?.isActive !== null && item.config?.isActive !== undefined;
+          const hasOverride = hasWorkflowOverride || hasPromptOverride || hasActiveOverride;
 
           return (
             <div
@@ -1552,6 +1582,15 @@ function PoseConfigsPanel({
                       title="Override positive prompt"
                     >
                       prompt overridden
+                    </span>
+                  )}
+                  {hasActiveOverride && (
+                    <span
+                      className="badge dot"
+                      style={{ fontSize: 10, background: 'var(--pink)', color: '#fff' }}
+                      title={`This pose is ${item.config?.isActive ? 'force-enabled' : 'disabled'} for ${sub.label} only — the global toggle on the Pose Assets tab is unaffected`}
+                    >
+                      {item.config?.isActive ? 'enabled here only' : 'disabled here only'}
                     </span>
                   )}
                 </div>
@@ -1666,6 +1705,7 @@ function PoseConfigsPanel({
                       workflowTemplateId: null,
                       promptGarmentPhase: null,
                       promptFacePhase: null,
+                      isActive: null,
                     }).then(closeEdit)
                   }
                 >
