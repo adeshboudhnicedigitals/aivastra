@@ -70,7 +70,7 @@ export type MerchantCatalogModerationStatus = z.infer<typeof MerchantCatalogMode
 
 export const MerchantCatalogPresignBody = z.object({
   assetId: z.string().uuid().optional(),
-  kind: z.enum(['image', 'thumbnail']),
+  kind: z.enum(['image', 'thumbnail', 'flat']),
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   contentLength: z
     .number()
@@ -81,10 +81,11 @@ export const MerchantCatalogPresignBody = z.object({
 export type MerchantCatalogPresignBody = z.infer<typeof MerchantCatalogPresignBody>;
 
 export const MerchantCatalogCreateBody = z.object({
+  subcategoryId: z.string().uuid(),
   label: z.string().min(1).max(200),
   sku: z.string().max(120).optional(),
-  gender: MerchantCatalogGender.nullish(),
-  category: z.string().max(120).nullish(),
+  actualPrice: z.number().int().min(0), // rupees — converted to paise at the route layer
+  offerPrice: z.number().int().min(0), // rupees — converted to paise at the route layer
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
 });
@@ -92,19 +93,21 @@ export type MerchantCatalogCreateBody = z.infer<typeof MerchantCatalogCreateBody
 
 export const MerchantCatalogUpdateBody = z
   .object({
+    subcategoryId: z.string().uuid().optional(),
     label: z.string().min(1).max(200).optional(),
     sku: z.string().max(120).nullable().optional(),
-    gender: MerchantCatalogGender.nullish(),
-    category: z.string().max(120).nullable().optional(),
+    actualPrice: z.number().int().min(0).optional(),
+    offerPrice: z.number().int().min(0).optional(),
     isActive: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(999999).optional(),
   })
   .refine(
     (body) =>
+      body.subcategoryId !== undefined ||
       body.label !== undefined ||
       body.sku !== undefined ||
-      body.gender !== undefined ||
-      body.category !== undefined ||
+      body.actualPrice !== undefined ||
+      body.offerPrice !== undefined ||
       body.isActive !== undefined ||
       body.sortOrder !== undefined,
     { message: 'at least one field is required' },
@@ -116,19 +119,24 @@ export const MerchantCatalogImportBody = z.object({
 });
 export type MerchantCatalogImportBody = z.infer<typeof MerchantCatalogImportBody>;
 
+export const MerchantCatalogSourceKind = z.enum(['uploaded', 'generated', 'imported']);
+export type MerchantCatalogSourceKind = z.infer<typeof MerchantCatalogSourceKind>;
+
 export const MerchantCatalogItem = z.object({
   id: z.string().uuid(),
   merchantId: z.string().uuid(),
+  subcategoryId: z.string().uuid(),
   label: z.string(),
   sku: z.string().nullable(),
-  gender: MerchantCatalogGender.nullable(),
-  category: z.string().nullable(),
+  actualPrice: z.number().int(), // rupees — converted from paise by the route layer
+  offerPrice: z.number().int(),
   r2Key: z.string(),
   thumbnailKey: z.string(),
   imageUrl: z.string().url().nullable(),
   thumbnailUrl: z.string().url().nullable(),
   sourceJobId: z.string().uuid().nullable(),
-  sourceKind: z.enum(['imported', 'uploaded']),
+  sourceKind: MerchantCatalogSourceKind,
+  flatSourceKey: z.string().nullable(),
   isActive: z.boolean(),
   moderationStatus: MerchantCatalogModerationStatus,
   moderationNote: z.string().nullable(),
@@ -142,6 +150,82 @@ export const MerchantCatalogListResponse = z.object({
   items: z.array(MerchantCatalogItem),
 });
 export type MerchantCatalogListResponse = z.infer<typeof MerchantCatalogListResponse>;
+
+export const MerchantCatalogCategory = z.enum(['men', 'women', 'boys', 'girls']);
+export type MerchantCatalogCategory = z.infer<typeof MerchantCatalogCategory>;
+
+export const MerchantCatalogSubcategoryCreateBody = z.object({
+  category: MerchantCatalogCategory,
+  name: z.string().min(1).max(160),
+  garmentSubcategoryId: z.string().uuid(),
+});
+export type MerchantCatalogSubcategoryCreateBody = z.infer<
+  typeof MerchantCatalogSubcategoryCreateBody
+>;
+
+export const MerchantCatalogSubcategoryUpdateBody = z
+  .object({
+    name: z.string().min(1).max(160).optional(),
+    garmentSubcategoryId: z.string().uuid().optional(),
+    sortOrder: z.number().int().min(0).max(999999).optional(),
+  })
+  .refine(
+    (body) =>
+      body.name !== undefined ||
+      body.garmentSubcategoryId !== undefined ||
+      body.sortOrder !== undefined,
+    { message: 'at least one field is required' },
+  );
+export type MerchantCatalogSubcategoryUpdateBody = z.infer<
+  typeof MerchantCatalogSubcategoryUpdateBody
+>;
+
+export const MerchantCatalogSubcategory = z.object({
+  id: z.string().uuid(),
+  merchantId: z.string().uuid(),
+  category: MerchantCatalogCategory,
+  name: z.string(),
+  garmentSubcategoryId: z.string().uuid(),
+  sortOrder: z.number().int(),
+  productCount: z.number().int(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type MerchantCatalogSubcategory = z.infer<typeof MerchantCatalogSubcategory>;
+
+export const MerchantCatalogSubcategoryListResponse = z.object({
+  items: z.array(MerchantCatalogSubcategory),
+});
+export type MerchantCatalogSubcategoryListResponse = z.infer<
+  typeof MerchantCatalogSubcategoryListResponse
+>;
+
+export const MerchantCatalogGenerateBody = z.object({
+  subcategoryId: z.string().uuid(),
+  flatImageKey: z.string().min(1),
+});
+export type MerchantCatalogGenerateBody = z.infer<typeof MerchantCatalogGenerateBody>;
+
+export const MerchantCatalogGenerateBulkBody = z.object({
+  subcategoryId: z.string().uuid(),
+  flatImageKeys: z.array(z.string().min(1)).min(1).max(50),
+});
+export type MerchantCatalogGenerateBulkBody = z.infer<typeof MerchantCatalogGenerateBulkBody>;
+
+export const MerchantCatalogGenerateStatus = z.object({
+  jobId: z.string().uuid(),
+  status: z.string(),
+  resultUrl: z.string().url().nullable(),
+  errorCode: z.string().nullable(),
+});
+export type MerchantCatalogGenerateStatus = z.infer<typeof MerchantCatalogGenerateStatus>;
+
+export const MerchantCatalogGenerateBulkStatusResponse = z.object({
+  items: z.array(MerchantCatalogGenerateStatus),
+});
+export type MerchantCatalogGenerateBulkStatusResponse = z.infer<
+  typeof MerchantCatalogGenerateBulkStatusResponse
+>;
 
 export const MerchantCatalogueStudioJob = z.object({
   jobId: z.string().uuid(),

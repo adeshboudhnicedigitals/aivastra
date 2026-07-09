@@ -79,6 +79,16 @@ export const SystemConfigBody = z.object({
   // final image resolution is a product/pricing decision, unlike latentMaxPx
   // (per-template, VRAM-bound diffusion canvas size).
   maxOutputPx: z.number().int().min(512).max(4096).optional(),
+  // Admin-fixed inputs for merchant catalogue-manager's constrained "flat garment
+  // -> catalogue image" generation. Keyed by category so studio-style face/background
+  // variety per gender is preserved without per-merchant or per-item picking.
+  merchantCatalogDefaults: z
+    .record(
+      z.enum(['men', 'women', 'boys', 'girls']),
+      z.object({ faceId: z.string().uuid(), backgroundId: z.string().uuid() }),
+    )
+    .optional(),
+  merchantCatalogAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────
@@ -368,6 +378,7 @@ export const PatchGarmentTypeBody = z.object({
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
+  defaultPoseId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
