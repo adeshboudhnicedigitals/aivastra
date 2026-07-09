@@ -3,11 +3,16 @@ import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   MerchantCatalogCreateBody,
+  // biome-ignore lint/correctness/noUnusedImports: wired up by Tasks 9/10 (generate + generate-bulk routes), landed now to avoid re-touching this import block.
+  MerchantCatalogGenerateBody,
+  MerchantCatalogGenerateBulkBody,
   MerchantCatalogImportBody,
   MerchantCatalogPresignBody,
+  MerchantCatalogSubcategoryCreateBody,
+  MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, desc, eq, ilike, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -72,7 +77,189 @@ function catalogueLabel(catalogueId: string | null, jobId: string): string {
   return `Job ${jobId.slice(0, 8)}`;
 }
 
+async function serializeSubcategory(
+  app: FastifyInstance,
+  row: typeof schema.merchantCatalogSubcategories.$inferSelect,
+) {
+  const [{ n }] = await app.db
+    .select({ n: count() })
+    .from(schema.merchantCatalogItems)
+    .where(eq(schema.merchantCatalogItems.subcategoryId, row.id));
+  return { ...row, productCount: n };
+}
+
 export async function merchantCatalogRoutes(app: FastifyInstance) {
+  app.get(
+    '/v1/merchant/catalog/subcategories',
+    { preHandler: app.requireMerchant },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { category } = req.query as { category?: string };
+      const where = category
+        ? and(
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+            eq(schema.merchantCatalogSubcategories.category, category),
+          )
+        : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
+
+      const rows = await app.db
+        .select()
+        .from(schema.merchantCatalogSubcategories)
+        .where(where)
+        .orderBy(
+          schema.merchantCatalogSubcategories.sortOrder,
+          desc(schema.merchantCatalogSubcategories.createdAt),
+        );
+
+      return { items: await Promise.all(rows.map((row) => serializeSubcategory(app, row))) };
+    },
+  );
+
+  app.post(
+    '/v1/merchant/catalog/subcategories',
+    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogSubcategoryCreateBody } },
+    async (req, reply) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const body = req.body as z.infer<typeof MerchantCatalogSubcategoryCreateBody>;
+      const [garmentType] = await app.db
+        .select({ id: schema.garmentSubcategories.id })
+        .from(schema.garmentSubcategories)
+        .where(
+          and(
+            eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
+            eq(schema.garmentSubcategories.isActive, true),
+          ),
+        )
+        .limit(1);
+      if (!garmentType)
+        throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
+
+      const [row] = await app.db
+        .insert(schema.merchantCatalogSubcategories)
+        .values({
+          merchantId,
+          category: body.category,
+          name: body.name,
+          garmentSubcategoryId: body.garmentSubcategoryId,
+        })
+        .returning();
+
+      reply.code(201);
+      return await serializeSubcategory(app, row);
+    },
+  );
+
+  app.patch(
+    '/v1/merchant/catalog/subcategories/:id',
+    {
+      preHandler: app.requireMerchant,
+      schema: {
+        params: z.object({ id: z.string().uuid() }),
+        body: MerchantCatalogSubcategoryUpdateBody,
+      },
+    },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { id } = req.params as { id: string };
+      const body = req.body as z.infer<typeof MerchantCatalogSubcategoryUpdateBody>;
+
+      if (body.garmentSubcategoryId !== undefined) {
+        const [garmentType] = await app.db
+          .select({ id: schema.garmentSubcategories.id })
+          .from(schema.garmentSubcategories)
+          .where(
+            and(
+              eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
+              eq(schema.garmentSubcategories.isActive, true),
+            ),
+          )
+          .limit(1);
+        if (!garmentType)
+          throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
+      }
+
+      const [updated] = await app.db
+        .update(schema.merchantCatalogSubcategories)
+        .set({
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.garmentSubcategoryId !== undefined
+            ? { garmentSubcategoryId: body.garmentSubcategoryId }
+            : {}),
+          ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.merchantCatalogSubcategories.id, id),
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+          ),
+        )
+        .returning();
+
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+      return await serializeSubcategory(app, updated);
+    },
+  );
+
+  app.delete(
+    '/v1/merchant/catalog/subcategories/:id',
+    {
+      preHandler: app.requireMerchant,
+      schema: { params: z.object({ id: z.string().uuid() }) },
+    },
+    async (req, reply) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { id } = req.params as { id: string };
+
+      // Select children before the cascading delete so their R2 objects can be
+      // cleaned up — the DB FK cascade removes the rows but knows nothing about R2.
+      const children = await app.db
+        .select({
+          r2Key: schema.merchantCatalogItems.r2Key,
+          thumbnailKey: schema.merchantCatalogItems.thumbnailKey,
+          flatSourceKey: schema.merchantCatalogItems.flatSourceKey,
+        })
+        .from(schema.merchantCatalogItems)
+        .where(
+          and(
+            eq(schema.merchantCatalogItems.subcategoryId, id),
+            eq(schema.merchantCatalogItems.merchantId, merchantId),
+          ),
+        );
+
+      const [deleted] = await app.db
+        .delete(schema.merchantCatalogSubcategories)
+        .where(
+          and(
+            eq(schema.merchantCatalogSubcategories.id, id),
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+          ),
+        )
+        .returning();
+
+      if (!deleted) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+
+      await Promise.allSettled(
+        children.flatMap((c) => [
+          app.storage.deleteObject(c.r2Key),
+          app.storage.deleteObject(c.thumbnailKey),
+          ...(c.flatSourceKey ? [app.storage.deleteObject(c.flatSourceKey)] : []),
+        ]),
+      );
+
+      reply.code(204);
+      return reply.send();
+    },
+  );
+
   app.post(
     '/v1/merchant/catalog/presign',
     { preHandler: app.requireMerchant, schema: { body: MerchantCatalogPresignBody } },
