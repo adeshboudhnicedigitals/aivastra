@@ -20,12 +20,7 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
       .catch(() => null),
   ]);
 
-  return {
-    ...item,
-    imageUrl,
-    thumbnailUrl,
-    sourceKind: item.sourceJobId ? ('imported' as const) : ('uploaded' as const),
-  };
+  return { ...item, imageUrl, thumbnailUrl };
 }
 
 export async function adminMerchantCatalogRoutes(app: FastifyInstance) {

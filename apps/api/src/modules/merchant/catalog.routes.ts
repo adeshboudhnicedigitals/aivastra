@@ -36,9 +36,10 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
 
   return {
     ...item,
+    actualPrice: Math.round(item.actualPricePaise / 100),
+    offerPrice: Math.round(item.offerPricePaise / 100),
     imageUrl,
     thumbnailUrl,
-    sourceKind: item.sourceJobId ? ('imported' as const) : ('uploaded' as const),
   };
 }
 
@@ -289,18 +290,17 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     const merchantId = req.merchantClientId;
     if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-    const search = ((req.query as { search?: string }).search ?? '').trim();
-    const where = search
-      ? and(
-          eq(schema.merchantCatalogItems.merchantId, merchantId),
-          ilike(schema.merchantCatalogItems.label, `%${search}%`),
-        )
-      : eq(schema.merchantCatalogItems.merchantId, merchantId);
+    const { search = '', subcategoryId } = req.query as { search?: string; subcategoryId?: string };
+    const conditions = [eq(schema.merchantCatalogItems.merchantId, merchantId)];
+    if (search.trim())
+      conditions.push(ilike(schema.merchantCatalogItems.label, `%${search.trim()}%`));
+    if (subcategoryId)
+      conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
 
     const items = await app.db
       .select()
       .from(schema.merchantCatalogItems)
-      .where(where)
+      .where(and(...conditions))
       .orderBy(schema.merchantCatalogItems.sortOrder, desc(schema.merchantCatalogItems.createdAt));
 
     return { items: await Promise.all(items.map((item) => serializeCatalogItem(app, item))) };
@@ -314,6 +314,19 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
       const body = req.body as z.infer<typeof MerchantCatalogCreateBody>;
+
+      const [subcategory] = await app.db
+        .select({ id: schema.merchantCatalogSubcategories.id })
+        .from(schema.merchantCatalogSubcategories)
+        .where(
+          and(
+            eq(schema.merchantCatalogSubcategories.id, body.subcategoryId),
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+          ),
+        )
+        .limit(1);
+      if (!subcategory) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+
       await Promise.all([
         assertMerchantUploadKey(app, merchantId, body.r2Key, 'image'),
         assertMerchantUploadKey(app, merchantId, body.thumbnailKey, 'thumbnail'),
@@ -323,10 +336,11 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .insert(schema.merchantCatalogItems)
         .values({
           merchantId,
+          subcategoryId: body.subcategoryId,
           label: body.label,
           sku: body.sku?.trim() || null,
-          gender: body.gender ?? null,
-          category: body.category?.trim() || null,
+          actualPricePaise: body.actualPrice * 100,
+          offerPricePaise: body.offerPrice * 100,
           r2Key: body.r2Key,
           thumbnailKey: body.thumbnailKey,
         })
@@ -352,13 +366,29 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
       const { id } = req.params as { id: string };
       const body = req.body as z.infer<typeof MerchantCatalogUpdateBody>;
+
+      if (body.subcategoryId !== undefined) {
+        const [subcategory] = await app.db
+          .select({ id: schema.merchantCatalogSubcategories.id })
+          .from(schema.merchantCatalogSubcategories)
+          .where(
+            and(
+              eq(schema.merchantCatalogSubcategories.id, body.subcategoryId),
+              eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+            ),
+          )
+          .limit(1);
+        if (!subcategory) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+      }
+
       const [updated] = await app.db
         .update(schema.merchantCatalogItems)
         .set({
+          ...(body.subcategoryId !== undefined ? { subcategoryId: body.subcategoryId } : {}),
           ...(body.label !== undefined ? { label: body.label } : {}),
           ...(body.sku !== undefined ? { sku: body.sku?.trim() || null } : {}),
-          ...(body.gender !== undefined ? { gender: body.gender ?? null } : {}),
-          ...(body.category !== undefined ? { category: body.category?.trim() || null } : {}),
+          ...(body.actualPrice !== undefined ? { actualPricePaise: body.actualPrice * 100 } : {}),
+          ...(body.offerPrice !== undefined ? { offerPricePaise: body.offerPrice * 100 } : {}),
           ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
           ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
           updatedAt: new Date(),
