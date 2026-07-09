@@ -6,10 +6,9 @@ import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GradBtn } from '@/components/ui/grad-btn';
-import { GarmentType, Product, Subcategory } from './ProductModal';
-import { ProductModal } from './ProductModal';
-import { SubcategoryModal } from './SubcategoryModal';
 import { BulkUploadModal } from './BulkUploadModal';
+import { type Product, ProductModal } from './ProductModal';
+import { type GarmentType, type Subcategory, SubcategoryModal } from './SubcategoryModal';
 
 type Category = 'men' | 'women' | 'boys' | 'girls';
 
@@ -43,11 +42,46 @@ const INITIAL_SUBCATEGORIES: Subcategory[] = [
 ];
 
 const INITIAL_PRODUCTS: Product[] = [
-  { id: 'p-1', subcategoryId: 'sub-1', label: 'Classic Linen Shirt', sku: 'SH-LN-WHT-M', actualPrice: 1499, offerPrice: 1199 },
-  { id: 'p-2', subcategoryId: 'sub-1', label: 'Striped Cotton Shirt', sku: 'SH-CT-STP-L', actualPrice: 1299, offerPrice: 999 },
-  { id: 'p-3', subcategoryId: 'sub-2', label: 'Denim Trucker Jacket', sku: 'JK-DN-BLU-L', actualPrice: 2999, offerPrice: 2499 },
-  { id: 'p-4', subcategoryId: 'sub-3', label: 'Kanjeevaram Silk Saree', sku: 'SR-KJ-RED-O', actualPrice: 5999, offerPrice: 4999 },
-  { id: 'p-5', subcategoryId: 'sub-4', label: 'Cotton Printed Kurti', sku: 'KT-CT-PRT-S', actualPrice: 899, offerPrice: 899 },
+  {
+    id: 'p-1',
+    subcategoryId: 'sub-1',
+    label: 'Classic Linen Shirt',
+    sku: 'SH-LN-WHT-M',
+    actualPrice: 1499,
+    offerPrice: 1199,
+  },
+  {
+    id: 'p-2',
+    subcategoryId: 'sub-1',
+    label: 'Striped Cotton Shirt',
+    sku: 'SH-CT-STP-L',
+    actualPrice: 1299,
+    offerPrice: 999,
+  },
+  {
+    id: 'p-3',
+    subcategoryId: 'sub-2',
+    label: 'Denim Trucker Jacket',
+    sku: 'JK-DN-BLU-L',
+    actualPrice: 2999,
+    offerPrice: 2499,
+  },
+  {
+    id: 'p-4',
+    subcategoryId: 'sub-3',
+    label: 'Kanjeevaram Silk Saree',
+    sku: 'SR-KJ-RED-O',
+    actualPrice: 5999,
+    offerPrice: 4999,
+  },
+  {
+    id: 'p-5',
+    subcategoryId: 'sub-4',
+    label: 'Cotton Printed Kurti',
+    sku: 'KT-CT-PRT-S',
+    actualPrice: 899,
+    offerPrice: 899,
+  },
 ];
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -128,7 +162,7 @@ export function CatalogueManagerContent() {
   const handleSaveSubcategory = (name: string, garmentTypeId: string) => {
     if (editingSub) {
       setSubcategories((prev) =>
-        prev.map((s) => (s.id === editingSub.id ? { ...s, name, garmentTypeId } : s))
+        prev.map((s) => (s.id === editingSub.id ? { ...s, name, garmentTypeId } : s)),
       );
     } else {
       const newSub: Subcategory = {
@@ -156,9 +190,7 @@ export function CatalogueManagerContent() {
   const handleSaveProduct = (prodData: Omit<Product, 'id' | 'subcategoryId'>) => {
     if (!selectedSubcategoryId) return;
     if (editingProd) {
-      setProducts((prev) =>
-        prev.map((p) => (p.id === editingProd.id ? { ...p, ...prodData } : p))
-      );
+      setProducts((prev) => prev.map((p) => (p.id === editingProd.id ? { ...p, ...prodData } : p)));
     } else {
       const newProd: Product = {
         id: generateId(),
@@ -280,6 +312,7 @@ export function CatalogueManagerContent() {
           const productCount = products.filter((p) => p.subcategoryId === sub.id).length;
 
           return (
+            // biome-ignore lint/a11y/useSemanticElements: contains a nested interactive <button> (delete) — real <button> here would be invalid HTML (no nesting)
             <div
               key={sub.id}
               className="prod-card focus-ring"
@@ -695,9 +728,7 @@ export function CatalogueManagerContent() {
               </div>
             }
           />
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {renderProductGrid()}
-          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>{renderProductGrid()}</div>
         </>
       )}
 
