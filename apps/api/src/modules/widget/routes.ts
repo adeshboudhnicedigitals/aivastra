@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { promises as dns } from 'node:dns';
 import { schema } from '@aivastra/db';
 import { WidgetJobRequest, WidgetPresignRequest } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
@@ -143,11 +143,10 @@ export async function widgetRoutes(app: FastifyInstance) {
         if (cached) return reply.send({ jobId: cached });
       }
 
-      const { garmentImageUrl, customerPhotoKey, shopifyProductId } = req.body as {
+      const { garmentImageUrl, customerPhotoKey } = req.body as {
         garmentImageUrl?: string;
         customerPhotoKey: string;
         aspectRatio?: string;
-        shopifyProductId?: number;
       };
 
       if (!customerPhotoKey.startsWith(`widget-inputs/${clientId}/`)) {
@@ -169,62 +168,10 @@ export async function widgetRoutes(app: FastifyInstance) {
         throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 5MB limit');
       }
 
-      let resolvedGarmentKey: string | null = null;
-      let jobParams: Record<string, unknown> | null = null;
-      let jobCost = WIDGET_JOB_COST;
-
-      if (shopifyProductId) {
-        const [store] = await app.db
-          .select()
-          .from(schema.shopifyStores)
-          .where(eq(schema.shopifyStores.widgetClientId, clientId))
-          .limit(1);
-        if (!store || store.uninstalledAt) {
-          throw new AppError('FORBIDDEN', 403, 'store not active');
-        }
-
-        const [garment] = await app.db
-          .select()
-          .from(schema.shopifyProductGarments)
-          .where(
-            and(
-              eq(schema.shopifyProductGarments.storeId, store.id),
-              eq(schema.shopifyProductGarments.shopifyProductId, shopifyProductId),
-              eq(schema.shopifyProductGarments.status, 'active'),
-            ),
-          )
-          .limit(1);
-
-        if (!garment) {
-          // trigger async sync, tell the storefront to retry
-          const { enqueueSync } = await import('../shopify/service.js');
-          await enqueueSync(app.redis, { storeId: store.id, mode: 'product', shopifyProductId });
-          return reply
-            .code(202)
-            .send({ message: "We're preparing this product for try-on. Check back in a moment." });
-        }
-
-        if (!garment.enabled) {
-          // synced and active, but the merchant hasn't turned try-on on for this product —
-          // not a freshness problem, so no resync trigger here (would be pointless work).
-          return reply
-            .code(202)
-            .send({ message: 'This product is not available for try-on right now.' });
-        }
-
-        resolvedGarmentKey = garment.r2Key;
-        jobCost = app.env.SHOPIFY_JOB_COST;
-        jobParams = {
-          kind: 'shopify',
-          shopifyProductId,
-          workflowTemplateId: store.settings?.workflowTemplateId,
-        };
-      }
+      const jobCost = WIDGET_JOB_COST;
 
       let garmentR2Key: string;
-      if (resolvedGarmentKey) {
-        garmentR2Key = resolvedGarmentKey;
-      } else {
+      {
         if (!garmentImageUrl) {
           throw new AppError('VALIDATION', 400, 'garmentImageUrl is required');
         }
@@ -278,7 +225,7 @@ export async function widgetRoutes(app: FastifyInstance) {
           faceId: null,
           backgroundId: null,
           poseId: null,
-          params: jobParams,
+          params: null,
         });
 
         // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the widget ledger helper
