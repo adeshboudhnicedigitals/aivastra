@@ -116,6 +116,7 @@ export type MerchantCatalogUpdateBody = z.infer<typeof MerchantCatalogUpdateBody
 
 export const MerchantCatalogImportBody = z.object({
   jobId: z.string().uuid(),
+  subcategoryId: z.string().uuid(),
 });
 export type MerchantCatalogImportBody = z.infer<typeof MerchantCatalogImportBody>;
 
@@ -254,7 +255,7 @@ export const KioskCatalogItem = z.object({
   id: z.string().uuid(),
   label: z.string(),
   sku: z.string().nullable(),
-  gender: MerchantCatalogGender.nullable(),
+  gender: MerchantCatalogCategory.nullable(),
   category: z.string().nullable(),
   imageUrl: z.string().url().nullable(),
   thumbnailUrl: z.string().url().nullable(),

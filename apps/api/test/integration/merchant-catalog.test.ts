@@ -254,8 +254,6 @@ describe('merchant catalog', () => {
   });
 
   it('imports linked studio jobs by copy, survives source-job deletion, and rejects invalid imports', async () => {
-    // NOTE: r2Key/thumbnailKey assertions for imported items are updated in Task 6,
-    // which changes /import to copy the job's OUTPUT (not upperGarmentKey) into r2Key.
     const linkedUser = await createUser(app, 'studio-linked@example.com');
     const otherUser = await createUser(app, 'studio-other@example.com');
 
@@ -263,6 +261,15 @@ describe('merchant catalog', () => {
       userId: linkedUser.id,
     });
     const authLinked = await merchantAuthHeader(linkedMerchant.userId);
+
+    const garmentType = await seedGarmentType(app, 'women');
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: authLinked,
+      payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
 
     const garmentBody = Buffer.from('source-garment');
     const resultBody = Buffer.from('source-result');
@@ -297,7 +304,7 @@ describe('merchant catalog', () => {
       method: 'POST',
       url: '/v1/merchant/catalog/import',
       headers: authLinked,
-      payload: { jobId: linkedStudioJob.job.id },
+      payload: { jobId: linkedStudioJob.job.id, subcategoryId },
     });
     expect(imported.statusCode).toBe(201);
     const importedItem = imported.json() as {
@@ -316,7 +323,11 @@ describe('merchant catalog', () => {
     expect(importedItem.r2Key).not.toBe(linkedStudioJob.garmentKey);
     expect(importedItem.thumbnailKey).not.toBe(linkedStudioJob.thumbnailKey);
 
-    expect((await app.storage.getObject(importedItem.r2Key)).equals(garmentBody)).toBe(true);
+    const [importedRow] = await app.db
+      .select()
+      .from(schema.merchantCatalogItems)
+      .where(eq(schema.merchantCatalogItems.id, importedItem.id));
+    expect((await app.storage.getObject(importedRow.r2Key)).equals(resultBody)).toBe(true);
     expect((await app.storage.getObject(importedItem.thumbnailKey)).equals(thumbBody)).toBe(true);
 
     const cataloguesAfter = await app.inject({
@@ -334,7 +345,7 @@ describe('merchant catalog', () => {
       method: 'POST',
       url: '/v1/merchant/catalog/import',
       headers: authLinked,
-      payload: { jobId: linkedStudioJob.job.id },
+      payload: { jobId: linkedStudioJob.job.id, subcategoryId },
     });
     expect(duplicateImport.statusCode).toBe(409);
 
@@ -342,7 +353,7 @@ describe('merchant catalog', () => {
       method: 'POST',
       url: '/v1/merchant/catalog/import',
       headers: authLinked,
-      payload: { jobId: otherUsersJob.job.id },
+      payload: { jobId: otherUsersJob.job.id, subcategoryId },
     });
     expect(otherUserImport.statusCode).toBe(403);
 
@@ -357,7 +368,7 @@ describe('merchant catalog', () => {
       .where(eq(schema.merchantCatalogItems.id, importedItem.id))
       .limit(1);
     expect(persisted?.sourceJobId).toBeNull();
-    expect((await app.storage.getObject(importedItem.r2Key)).equals(garmentBody)).toBe(true);
+    expect((await app.storage.getObject(importedItem.r2Key)).equals(resultBody)).toBe(true);
 
     const catalogAfterDelete = await app.inject({
       method: 'GET',
@@ -384,6 +395,6 @@ describe('merchant catalog', () => {
     // biome-ignore lint/style/noNonNullAssertion: presence just asserted above
     const servedImage = await fetch(catalogItems[0]!.imageUrl!);
     expect(servedImage.ok).toBe(true);
-    expect(Buffer.from(await servedImage.arrayBuffer()).equals(garmentBody)).toBe(true);
+    expect(Buffer.from(await servedImage.arrayBuffer()).equals(resultBody)).toBe(true);
   });
 });
