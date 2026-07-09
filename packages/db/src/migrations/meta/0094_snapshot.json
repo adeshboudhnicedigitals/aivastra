@@ -1,6 +1,6 @@
 {
-  "id": "e904f432-4b93-4ed3-8b75-3dd7fdce8de4",
-  "prevId": "fcd1cbcc-f898-4de1-acc0-1ade929870ef",
+  "id": "fcd1cbcc-f898-4de1-acc0-1ade929870ef",
+  "prevId": "0b8ab629-a45e-4f38-b9bf-ec74b59473f5",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1577,8 +1577,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -1626,11 +1626,11 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "jobs_merchant_id_merchants_id_fk": {
-          "name": "jobs_merchant_id_merchants_id_fk",
+        "jobs_widget_client_id_widget_clients_id_fk": {
+          "name": "jobs_widget_client_id_widget_clients_id_fk",
           "tableFrom": "jobs",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
@@ -1662,8 +1662,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -1740,11 +1740,11 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "kiosk_devices_merchant_id_merchants_id_fk": {
-          "name": "kiosk_devices_merchant_id_merchants_id_fk",
+        "kiosk_devices_widget_client_id_widget_clients_id_fk": {
+          "name": "kiosk_devices_widget_client_id_widget_clients_id_fk",
           "tableFrom": "kiosk_devices",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -1773,8 +1773,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -1804,11 +1804,11 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "kiosk_result_cart_items_merchant_id_merchants_id_fk": {
-          "name": "kiosk_result_cart_items_merchant_id_merchants_id_fk",
+        "kiosk_result_cart_items_widget_client_id_widget_clients_id_fk": {
+          "name": "kiosk_result_cart_items_widget_client_id_widget_clients_id_fk",
           "tableFrom": "kiosk_result_cart_items",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -1825,10 +1825,10 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "kiosk_result_cart_items_job_merchant_unique": {
-          "name": "kiosk_result_cart_items_job_merchant_unique",
+        "kiosk_result_cart_items_job_widget_unique": {
+          "name": "kiosk_result_cart_items_job_widget_unique",
           "nullsNotDistinct": false,
-          "columns": ["job_id", "merchant_id"]
+          "columns": ["job_id", "widget_client_id"]
         }
       },
       "policies": {},
@@ -1852,8 +1852,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -1883,11 +1883,11 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "kiosk_result_likes_merchant_id_merchants_id_fk": {
-          "name": "kiosk_result_likes_merchant_id_merchants_id_fk",
+        "kiosk_result_likes_widget_client_id_widget_clients_id_fk": {
+          "name": "kiosk_result_likes_widget_client_id_widget_clients_id_fk",
           "tableFrom": "kiosk_result_likes",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -1904,10 +1904,10 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "kiosk_result_likes_job_merchant_unique": {
-          "name": "kiosk_result_likes_job_merchant_unique",
+        "kiosk_result_likes_job_widget_unique": {
+          "name": "kiosk_result_likes_job_widget_unique",
           "nullsNotDistinct": false,
-          "columns": ["job_id", "merchant_id"]
+          "columns": ["job_id", "widget_client_id"]
         }
       },
       "policies": {},
@@ -3117,8 +3117,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -3214,11 +3214,11 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "refresh_tokens_merchant_id_merchants_id_fk": {
-          "name": "refresh_tokens_merchant_id_merchants_id_fk",
+        "refresh_tokens_widget_client_id_widget_clients_id_fk": {
+          "name": "refresh_tokens_widget_client_id_widget_clients_id_fk",
           "tableFrom": "refresh_tokens",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -3230,7 +3230,7 @@
       "checkConstraints": {
         "refresh_tokens_exactly_one_owner": {
           "name": "refresh_tokens_exactly_one_owner",
-          "value": "num_nonnulls(user_id, kiosk_device_id, merchant_id) = 1"
+          "value": "num_nonnulls(user_id, kiosk_device_id, widget_client_id) = 1"
         }
       },
       "isRLSEnabled": false
@@ -3350,8 +3350,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -3441,11 +3441,11 @@
         }
       },
       "indexes": {
-        "merchant_catalog_items_merchant_idx": {
-          "name": "merchant_catalog_items_merchant_idx",
+        "merchant_catalog_items_widget_client_idx": {
+          "name": "merchant_catalog_items_widget_client_idx",
           "columns": [
             {
-              "expression": "merchant_id",
+              "expression": "widget_client_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3462,11 +3462,11 @@
           "method": "btree",
           "with": {}
         },
-        "merchant_catalog_items_merchant_source_job_unique": {
-          "name": "merchant_catalog_items_merchant_source_job_unique",
+        "merchant_catalog_items_widget_client_source_job_unique": {
+          "name": "merchant_catalog_items_widget_client_source_job_unique",
           "columns": [
             {
-              "expression": "merchant_id",
+              "expression": "widget_client_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3486,11 +3486,11 @@
         }
       },
       "foreignKeys": {
-        "merchant_catalog_items_merchant_id_merchants_id_fk": {
-          "name": "merchant_catalog_items_merchant_id_merchants_id_fk",
+        "merchant_catalog_items_widget_client_id_widget_clients_id_fk": {
+          "name": "merchant_catalog_items_widget_client_id_widget_clients_id_fk",
           "tableFrom": "merchant_catalog_items",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -3522,8 +3522,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -3599,11 +3599,11 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "merchant_payments_merchant_id_merchants_id_fk": {
-          "name": "merchant_payments_merchant_id_merchants_id_fk",
+        "merchant_payments_widget_client_id_widget_clients_id_fk": {
+          "name": "merchant_payments_widget_client_id_widget_clients_id_fk",
           "tableFrom": "merchant_payments",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -3621,12 +3621,12 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.merchant_credits": {
-      "name": "merchant_credits",
+    "public.widget_client_credits": {
+      "name": "widget_client_credits",
       "schema": "",
       "columns": {
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": true,
           "notNull": true
@@ -3648,11 +3648,11 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "merchant_credits_merchant_id_merchants_id_fk": {
-          "name": "merchant_credits_merchant_id_merchants_id_fk",
-          "tableFrom": "merchant_credits",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+        "widget_client_credits_widget_client_id_widget_clients_id_fk": {
+          "name": "widget_client_credits_widget_client_id_widget_clients_id_fk",
+          "tableFrom": "widget_client_credits",
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -3664,8 +3664,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.merchants": {
-      "name": "merchants",
+    "public.widget_clients": {
+      "name": "widget_clients",
       "schema": "",
       "columns": {
         "id": {
@@ -3794,9 +3794,9 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "merchants_user_id_users_id_fk": {
-          "name": "merchants_user_id_users_id_fk",
-          "tableFrom": "merchants",
+        "widget_clients_user_id_users_id_fk": {
+          "name": "widget_clients_user_id_users_id_fk",
+          "tableFrom": "widget_clients",
           "tableTo": "users",
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
@@ -3806,13 +3806,13 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "merchants_widget_key_unique": {
-          "name": "merchants_widget_key_unique",
+        "widget_clients_widget_key_unique": {
+          "name": "widget_clients_widget_key_unique",
           "nullsNotDistinct": false,
           "columns": ["widget_key"]
         },
-        "merchants_user_id_unique": {
-          "name": "merchants_user_id_unique",
+        "widget_clients_user_id_unique": {
+          "name": "widget_clients_user_id_unique",
           "nullsNotDistinct": false,
           "columns": ["user_id"]
         }
@@ -3821,8 +3821,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.merchant_credit_ledger": {
-      "name": "merchant_credit_ledger",
+    "public.widget_credit_ledger": {
+      "name": "widget_credit_ledger",
       "schema": "",
       "columns": {
         "id": {
@@ -3832,8 +3832,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "merchant_id": {
-          "name": "merchant_id",
+        "widget_client_id": {
+          "name": "widget_client_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -3872,11 +3872,11 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "merchant_credit_ledger_merchant_id_merchants_id_fk": {
-          "name": "merchant_credit_ledger_merchant_id_merchants_id_fk",
-          "tableFrom": "merchant_credit_ledger",
-          "tableTo": "merchants",
-          "columnsFrom": ["merchant_id"],
+        "widget_credit_ledger_widget_client_id_widget_clients_id_fk": {
+          "name": "widget_credit_ledger_widget_client_id_widget_clients_id_fk",
+          "tableFrom": "widget_credit_ledger",
+          "tableTo": "widget_clients",
+          "columnsFrom": ["widget_client_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
