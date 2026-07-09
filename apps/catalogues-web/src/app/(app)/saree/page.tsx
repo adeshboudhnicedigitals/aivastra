@@ -7,13 +7,13 @@ import { TopBar } from '@/components/topbar';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 
-const CREDITS_COST = 35;
+const DEFAULT_CREDITS_COST = 5;
 
 type SareeConfig = {
   modelImageUrl: string | null;
   sampleSareeImageUrl: string | null;
   isConfigured: boolean;
-  creditsCost: 35;
+  creditsCost: number;
 };
 
 function SareeUploadZone({
@@ -309,6 +309,7 @@ export default function SareePage() {
   });
   const sampleSareeImageUrl = cfg?.sampleSareeImageUrl ?? null;
   const isConfigured = cfg?.isConfigured ?? false;
+  const creditsCost = cfg?.creditsCost ?? DEFAULT_CREDITS_COST;
 
   const { data: credits } = useQuery<{ balance: number }>({
     queryKey: ['credits'],
@@ -471,7 +472,7 @@ export default function SareePage() {
                 style={{ opacity: 0.6 }}
               />
               <span style={{ fontSize: 14, fontWeight: 500, color: C.mid }}>
-                Uses {CREDITS_COST} credits
+                Uses {creditsCost} credits
                 {credits && (
                   <span style={{ color: C.light, marginLeft: 6 }}>
                     ({credits.balance} available)

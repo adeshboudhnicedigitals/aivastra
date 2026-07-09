@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import type { DB } from '@aivastra/db';
 import { schema } from '@aivastra/db';
 import { jobsCreatedTotal } from '@aivastra/observability';
-import { type CreateSareeJobRequest, SIMPLE_TRYON_COST } from '@aivastra/types';
+import type { CreateSareeJobRequest } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { assertOwnsUploadKey } from './create.js';
@@ -17,7 +18,7 @@ export async function createSareeJob(
   body: z.infer<typeof CreateSareeJobRequest>,
 ) {
   const { garmentKey } = body;
-  const COST = SIMPLE_TRYON_COST;
+  const COST = await getTryonCreditCost(app);
 
   // 1. Ownership + existence + size check on the user-uploaded saree.
   await assertOwnsUploadKey(app, userId, garmentKey);

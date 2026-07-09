@@ -8,13 +8,12 @@ import {
   type CreateTryOnJobRequest,
   type Resolution,
   resolutionFromDims,
-  SIMPLE_TRYON_COST,
 } from '@aivastra/types';
 import { aliasedTable, and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { getResolutionCreditCost } from '../../lib/resolution-config.js';
+import { getResolutionCreditCost, getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
@@ -342,7 +341,7 @@ export async function createSimpleTryonJob(
   body: z.infer<typeof CreateSimpleTryonRequest>,
 ) {
   const { personKey, sourceJobId } = body;
-  const COST = SIMPLE_TRYON_COST;
+  const COST = await getTryonCreditCost(app);
 
   await assertOwnsUploadKey(app, userId, personKey);
 
