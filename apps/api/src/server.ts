@@ -55,6 +55,7 @@ import { metricsPlugin } from './plugins/metrics.js';
 import { redisPlugin } from './plugins/redis.js';
 import { sentryPlugin } from './plugins/sentry.js';
 import { shopifyAuthPlugin } from './plugins/shopify-auth.js';
+import { shopifyWidgetAuthPlugin } from './plugins/shopify-widget-auth.js';
 import { storagePlugin } from './plugins/storage.js';
 import { widgetAuthPlugin } from './plugins/widget-auth.js';
 
@@ -131,6 +132,7 @@ export async function buildServer(env: Env) {
   await app.register(authPlugin);
   await app.register(widgetAuthPlugin);
   await app.register(shopifyAuthPlugin);
+  await app.register(shopifyWidgetAuthPlugin);
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {
