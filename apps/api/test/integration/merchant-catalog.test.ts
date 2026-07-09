@@ -58,6 +58,14 @@ async function createUser(app: TestApp, email: string) {
   return user;
 }
 
+async function seedGarmentType(app: TestApp, genderSlug: string) {
+  const [row] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({ genderSlug, slug: `type-${randomUUID()}`, label: 'Type' })
+    .returning();
+  return row;
+}
+
 async function merchantAuthHeader(userId: string) {
   const token = await signAccess(secret, userId, { kind: 'access' }, '15m');
   return { authorization: `Bearer ${token}` };
@@ -178,15 +186,25 @@ describe('merchant catalog', () => {
     await putPresigned(imageUpload.uploadUrl, imageBody, 'image/jpeg');
     await putPresigned(thumbUpload.uploadUrl, thumbBody, 'image/jpeg');
 
+    const garmentType = await seedGarmentType(app, 'women');
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: authA,
+      payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
     const created = await app.inject({
       method: 'POST',
       url: '/v1/merchant/catalog',
       headers: authA,
       payload: {
+        subcategoryId,
         label: 'Red Saree',
         sku: 'SKU-1',
-        gender: 'women',
-        category: 'Sarees',
+        actualPrice: 2000,
+        offerPrice: 1800,
         r2Key: imageUpload.r2Key,
         thumbnailKey: thumbUpload.r2Key,
       },
@@ -195,11 +213,17 @@ describe('merchant catalog', () => {
     const item = created.json() as {
       id: string;
       merchantId: string;
+      subcategoryId: string;
+      actualPrice: number;
+      offerPrice: number;
       r2Key: string;
       thumbnailKey: string;
-      sourceKind: 'uploaded' | 'imported';
+      sourceKind: 'uploaded' | 'generated' | 'imported';
     };
     expect(item.merchantId).toBe(merchantA.id);
+    expect(item.subcategoryId).toBe(subcategoryId);
+    expect(item.actualPrice).toBe(2000);
+    expect(item.offerPrice).toBe(1800);
     expect(item.sourceKind).toBe('uploaded');
 
     const listed = await app.inject({ method: 'GET', url: '/v1/merchant/catalog', headers: authA });
@@ -230,6 +254,8 @@ describe('merchant catalog', () => {
   });
 
   it('imports linked studio jobs by copy, survives source-job deletion, and rejects invalid imports', async () => {
+    // NOTE: r2Key/thumbnailKey assertions for imported items are updated in Task 6,
+    // which changes /import to copy the job's OUTPUT (not upperGarmentKey) into r2Key.
     const linkedUser = await createUser(app, 'studio-linked@example.com');
     const otherUser = await createUser(app, 'studio-other@example.com');
 
