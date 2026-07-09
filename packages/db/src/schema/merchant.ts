@@ -3,7 +3,6 @@ import {
   boolean,
   index,
   integer,
-  jsonb,
   pgTable,
   text,
   timestamp,
@@ -13,57 +12,43 @@ import {
 import { jobs } from './jobs.js';
 import { users } from './users.js';
 
-export interface WidgetSettings {
-  widgetName?: string;
-  position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
-  primaryColor?: string;
-  buttonColor?: string;
-  bgColor?: string;
-  borderRadius?: number;
-  shadow?: boolean;
-  minSizeMb?: number;
-  maxSizeMb?: number;
-  cameraUpload?: boolean;
-  customCss?: string;
-}
-
-export const widgetClients = pgTable('widget_clients', {
+export const merchants = pgTable('merchants', {
   id: uuid('id').primaryKey().defaultRandom(),
   companyName: text('company_name').notNull(),
   contactName: text('contact_name').notNull(),
-  email: text('email').notNull().unique(),
   phone: text('phone').notNull(),
   websiteUrl: text('website_url').notNull(),
   companySize: text('company_size').notNull(),
   purpose: text('purpose').notNull(),
   businessAddress: text('business_address').notNull(),
-  passwordHash: text('password_hash').notNull(),
-  widgetKey: uuid('widget_key').notNull().unique().defaultRandom(),
   isActive: boolean('is_active').notNull().default(false),
   kioskEnabled: boolean('kiosk_enabled').notNull().default(false),
   maxKioskDevices: integer('max_kiosk_devices').notNull().default(5),
-  allowedOrigins: text('allowed_origins').array().notNull().default([]),
   webhookUrl: text('webhook_url'),
   webhookSecret: text('webhook_secret'),
-  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
-  settings: jsonb('settings').$type<WidgetSettings>().notNull().default({}),
+  // Login credentials live on `users` — a merchant IS a user with a merchants
+  // profile attached (same pattern as admin_users). One merchant account per user.
+  userId: uuid('user_id')
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const widgetClientCredits = pgTable('widget_client_credits', {
-  widgetClientId: uuid('widget_client_id')
+export const merchantCredits = pgTable('merchant_credits', {
+  merchantId: uuid('merchant_id')
     .primaryKey()
-    .references(() => widgetClients.id, { onDelete: 'cascade' }),
+    .references(() => merchants.id, { onDelete: 'cascade' }),
   balance: integer('balance').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const merchantPayments = pgTable('merchant_payments', {
   id: uuid('id').primaryKey().defaultRandom(),
-  widgetClientId: uuid('widget_client_id')
+  merchantId: uuid('merchant_id')
     .notNull()
-    .references(() => widgetClients.id, { onDelete: 'cascade' }),
+    .references(() => merchants.id, { onDelete: 'cascade' }),
   planId: text('plan_id').notNull(),
   razorpayOrderId: text('razorpay_order_id').notNull().unique(),
   razorpayPaymentId: text('razorpay_payment_id'),
@@ -77,11 +62,11 @@ export const merchantPayments = pgTable('merchant_payments', {
   paidAt: timestamp('paid_at', { withTimezone: true }),
 });
 
-export const widgetCreditLedger = pgTable('widget_credit_ledger', {
+export const merchantCreditLedger = pgTable('merchant_credit_ledger', {
   id: uuid('id').primaryKey().defaultRandom(),
-  widgetClientId: uuid('widget_client_id')
+  merchantId: uuid('merchant_id')
     .notNull()
-    .references(() => widgetClients.id, { onDelete: 'cascade' }),
+    .references(() => merchants.id, { onDelete: 'cascade' }),
   delta: integer('delta').notNull(),
   reason: text('reason').notNull(),
   jobId: uuid('job_id'),
@@ -93,9 +78,9 @@ export const merchantCatalogItems = pgTable(
   'merchant_catalog_items',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    widgetClientId: uuid('widget_client_id')
+    merchantId: uuid('merchant_id')
       .notNull()
-      .references(() => widgetClients.id, { onDelete: 'cascade' }),
+      .references(() => merchants.id, { onDelete: 'cascade' }),
     label: text('label').notNull(),
     sku: text('sku'),
     gender: text('gender'),
@@ -111,9 +96,9 @@ export const merchantCatalogItems = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('merchant_catalog_items_widget_client_idx').on(t.widgetClientId, t.isActive),
-    uniqueIndex('merchant_catalog_items_widget_client_source_job_unique')
-      .on(t.widgetClientId, t.sourceJobId)
+    index('merchant_catalog_items_merchant_idx').on(t.merchantId, t.isActive),
+    uniqueIndex('merchant_catalog_items_merchant_source_job_unique')
+      .on(t.merchantId, t.sourceJobId)
       .where(sql`${t.sourceJobId} is not null`),
   ],
 );

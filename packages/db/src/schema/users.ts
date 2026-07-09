@@ -10,7 +10,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { kioskDevices } from './kiosk.js';
-import { widgetClients } from './widget.js';
+import { merchants } from './merchant.js';
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -38,7 +38,7 @@ export const refreshTokens = pgTable(
     kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
       onDelete: 'cascade',
     }),
-    widgetClientId: uuid('widget_client_id').references(() => widgetClients.id, {
+    merchantId: uuid('merchant_id').references(() => merchants.id, {
       onDelete: 'cascade',
     }),
     familyId: uuid('family_id').notNull(),
@@ -56,7 +56,7 @@ export const refreshTokens = pgTable(
   () => [
     check(
       'refresh_tokens_exactly_one_owner',
-      sql`num_nonnulls(user_id, kiosk_device_id, widget_client_id) = 1`,
+      sql`num_nonnulls(user_id, kiosk_device_id, merchant_id) = 1`,
     ),
   ],
 );
