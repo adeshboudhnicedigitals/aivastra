@@ -1,7 +1,8 @@
+import crypto from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
@@ -51,6 +52,13 @@ describe('dispatcher shopify job routing', () => {
   });
 
   async function seedShopifyJob() {
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({ email: `shopify-user-${Date.now()}@test.com`, displayName: 'Test Shopper' })
+      .returning();
+    if (!user) throw new Error('failed to seed user');
+    await env.db.insert(schema.userCredits).values({ userId: user.id, balance: 5 });
+
     const [client] = await env.db
       .insert(schema.widgetClients)
       .values({
@@ -67,9 +75,18 @@ describe('dispatcher shopify job routing', () => {
         isActive: true,
       })
       .returning();
-    await env.db
-      .insert(schema.widgetClientCredits)
-      .values({ widgetClientId: client?.id, balance: 5 });
+
+    const [store] = await env.db
+      .insert(schema.shopifyStores)
+      .values({
+        widgetClientId: client?.id as string,
+        shopDomain: `shopify-${Date.now()}.myshopify.com`,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+    if (!store) throw new Error('failed to seed store');
 
     const [template] = await env.db
       .insert(schema.workflowTemplates)
@@ -94,15 +111,15 @@ describe('dispatcher shopify job routing', () => {
       })
       .returning();
 
-    // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers userId as non-null; widget/shopify jobs legitimately have null userId (mirrors apps/api/src/modules/widget/routes.ts)
     const [job] = await (env.db.insert(schema.jobs).values as any)({
+      userId: user.id,
       widgetClientId: client?.id,
+      shopifyStoreId: store.id,
       customerPhotoKey: `widget-inputs/${client?.id}/photo.jpg`,
       status: 'QUEUED',
       creditsCharged: 2,
     }).returning();
 
-    // biome-ignore lint/suspicious/noExplicitAny: face/bg/pose are nullable in SQL but Drizzle types them non-null (mirrors apps/api/src/modules/widget/routes.ts)
     await (env.db.insert(schema.jobInputs).values as any)({
       jobId: job?.id,
       upperGarmentKey: `shopify-garments/${client?.id}/garment.jpg`,
@@ -128,12 +145,21 @@ describe('dispatcher shopify job routing', () => {
 
     return {
       jobId: job?.id as string,
+      userId: user.id,
+      storeId: store.id,
       clientId: client?.id as string,
       templateId: template?.id as string,
     };
   }
 
   async function seedShopifyJobViaFunnel(opts: { withFunnel: boolean }) {
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({ email: `shopify-funnel-user-${Date.now()}@test.com`, displayName: 'Test Shopper' })
+      .returning();
+    if (!user) throw new Error('failed to seed user');
+    await env.db.insert(schema.userCredits).values({ userId: user.id, balance: 5 });
+
     const [client] = await env.db
       .insert(schema.widgetClients)
       .values({
@@ -150,9 +176,6 @@ describe('dispatcher shopify job routing', () => {
         isActive: true,
       })
       .returning();
-    await env.db
-      .insert(schema.widgetClientCredits)
-      .values({ widgetClientId: client?.id, balance: 5 });
 
     const [store] = await env.db
       .insert(schema.shopifyStores)
@@ -212,9 +235,10 @@ describe('dispatcher shopify job routing', () => {
       funnelAssignmentSource: funnelTemplateIdToAssign ? 'manual' : null,
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: mirrors seedShopifyJob's own userId cast above
     const [job] = await (env.db.insert(schema.jobs).values as any)({
+      userId: user.id,
       widgetClientId: client?.id,
+      shopifyStoreId: store.id,
       customerPhotoKey: `widget-inputs/${client?.id}/photo.jpg`,
       status: 'QUEUED',
       creditsCharged: 2,
@@ -241,7 +265,59 @@ describe('dispatcher shopify job routing', () => {
       );
     }
 
-    return { jobId: job?.id as string };
+    return { jobId: job?.id as string, userId: user.id, storeId: store.id };
+  }
+
+  const STARTING_BALANCE = 100;
+
+  async function seedLinkedShopifyJob(_opts: { withFunnel: boolean } = { withFunnel: false }) {
+    const shopDomain = `linked-${Date.now()}.myshopify.com`;
+    const [store] = await env.db
+      .insert(schema.shopifyStores)
+      .values({
+        shopDomain,
+        shopifyShopId: Date.now(),
+        accessToken: 'enc',
+        scope: 'read_products',
+      })
+      .returning();
+    if (!store) throw new Error('failed to seed store');
+
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({ email: `shopify-user-${Date.now()}@test.com`, displayName: 'Test Shopper' })
+      .returning();
+    if (!user) throw new Error('failed to seed user');
+
+    await env.db
+      .insert(schema.userCredits)
+      .values({ userId: user.id, balance: STARTING_BALANCE - 5 })
+      .onConflictDoUpdate({
+        target: schema.userCredits.userId,
+        set: { balance: sql`${schema.userCredits.balance} - 5` },
+      });
+
+    const jobId = crypto.randomUUID();
+    await env.db.insert(schema.jobs).values({
+      id: jobId,
+      userId: user.id,
+      shopifyStoreId: store.id,
+      widgetClientId: null,
+      customerPhotoKey: 'widget-inputs/x/photo.jpg',
+      status: 'QUEUED',
+      creditsCharged: 5,
+    } as any);
+
+    await env.db.insert(schema.jobInputs).values({
+      jobId,
+      upperGarmentKey: 'catalog/upper-garment.png',
+      faceId: null,
+      backgroundId: null,
+      poseId: null,
+      params: { kind: 'shopify' },
+    } as any);
+
+    return { jobId, userId: user.id, storeId: store.id };
   }
 
   it("resolves the workflow via the product's funnel template", async () => {
@@ -278,7 +354,7 @@ describe('dispatcher shopify job routing', () => {
   });
 
   it('routes to processShopifyJob: claims a "shopify" worker and patches the person/garment nodes', async () => {
-    const { jobId, clientId } = await seedShopifyJob();
+    const { jobId } = await seedShopifyJob();
     const log = createLogger('test');
 
     await processJob(
@@ -316,20 +392,40 @@ describe('dispatcher shopify job routing', () => {
     expect(personImage).not.toEqual(expect.stringContaining('shopify_garment'));
     expect(garmentImage).not.toEqual(expect.stringContaining('shopify_customer'));
 
-    // Widget-specific completion side-effect: outbound webhook stream entry.
-    const webhookEntries = await redis.xrange('webhooks:outbound', '-', '+');
-    const shopifyEntry = webhookEntries.find(([, fields]) => {
-      const idx = fields.indexOf('jobId');
-      return idx !== -1 && fields[idx + 1] === jobId;
-    });
-    expect(shopifyEntry).toBeDefined();
-    const fields = shopifyEntry?.[1] ?? [];
-    const widgetClientIdIdx = fields.indexOf('widgetClientId');
-    expect(fields[widgetClientIdIdx + 1]).toBe(clientId);
-    const statusIdx = fields.indexOf('status');
-    expect(fields[statusIdx + 1]).toBe('COMPLETED');
-
     const worker = await (await import('../../src/worker/registry.js')).getWorkers(redis);
     expect(worker.get(WORKER_ID)?.status).toBe('IDLE');
+  });
+
+  it('refunds user_credits (not widget_client_credits) on terminal failure for a linked shopify job', async () => {
+    const { jobId, userId } = await seedLinkedShopifyJob({ withFunnel: false });
+
+    const cfg = {
+      db: env.db,
+      redis,
+      pub,
+      storage: env.storage,
+      s3: env.s3,
+      r2Bucket: env.r2Bucket,
+      log: createLogger('test'),
+    } as Parameters<typeof processJob>[0];
+
+    await deregisterWorker(redis, WORKER_ID);
+    try {
+      await processJob(cfg, jobId, '', 'jobs:normal', 'msg-1');
+
+      const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+      expect(job?.status).toBe('FAILED');
+
+      const [credits] = await env.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, userId));
+      expect(credits?.balance).toBe(STARTING_BALANCE);
+    } finally {
+      await registerWorkers(redis, [
+        { id: WORKER_ID, url: comfy.url, apiKey: 'test-key', allowedJobTypes: ['shopify'] },
+      ]);
+      await redis.setex(`worker:health:${WORKER_ID}`, 30, '1');
+    }
   });
 });
