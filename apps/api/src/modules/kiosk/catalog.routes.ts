@@ -31,15 +31,15 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
 
 export async function kioskCatalogRoutes(app: FastifyInstance) {
   app.get('/v1/kiosk/catalog', { preHandler: app.requireKioskDevice }, async (req) => {
-    const widgetClientId = req.merchantClientId;
-    if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+    const merchantId = req.merchantClientId;
+    if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
     const items = await app.db
       .select()
       .from(schema.merchantCatalogItems)
       .where(
         and(
-          eq(schema.merchantCatalogItems.widgetClientId, widgetClientId),
+          eq(schema.merchantCatalogItems.merchantId, merchantId),
           eq(schema.merchantCatalogItems.isActive, true),
           eq(schema.merchantCatalogItems.moderationStatus, 'approved'),
         ),

@@ -33,14 +33,14 @@ export async function adminMerchantCatalogRoutes(app: FastifyInstance) {
     '/admin/merchant-catalog',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
     async (req) => {
-      const { widgetClientId, search = '' } = req.query as {
-        widgetClientId?: string;
+      const { merchantId, search = '' } = req.query as {
+        merchantId?: string;
         search?: string;
       };
 
       const filters = [];
-      if (widgetClientId) {
-        filters.push(eq(schema.merchantCatalogItems.widgetClientId, widgetClientId));
+      if (merchantId) {
+        filters.push(eq(schema.merchantCatalogItems.merchantId, merchantId));
       }
       if (search.trim()) {
         filters.push(ilike(schema.merchantCatalogItems.label, `%${search.trim()}%`));

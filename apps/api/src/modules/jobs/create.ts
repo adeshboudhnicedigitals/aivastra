@@ -14,7 +14,7 @@ import { aliasedTable, and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { getResolutionCreditCost } from '../../lib/resolution-config.js';
+import { getMaxOutputPx, getResolutionCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
@@ -68,10 +68,28 @@ export async function createJob(
   // S1: compute cost server-side from actual output dims — never trust client's `resolution`.
   const customW = body.params?.outputWidth;
   const customH = body.params?.outputHeight;
-  const outputDims =
+  const requestedDims =
     customW && customH
       ? { width: customW, height: customH }
       : (ASPECT_DIMENSIONS[body.aspectRatio] ?? { width: 2048, height: 2048 });
+  // Platform-wide resolution ceiling — admin-configured, not per-workflow (see
+  // getMaxOutputPx). Only downscale, and only the long edge exceeding it; the
+  // dispatcher patches the workflow with whatever dims land in job_inputs.params,
+  // so this is the single enforcement point.
+  const maxOutputPx = await getMaxOutputPx(app);
+  const requestedLongEdge = Math.max(requestedDims.width, requestedDims.height);
+  const outputDims =
+    requestedLongEdge > maxOutputPx
+      ? requestedDims.width >= requestedDims.height
+        ? {
+            width: maxOutputPx,
+            height: Math.round(maxOutputPx * (requestedDims.height / requestedDims.width)),
+          }
+        : {
+            width: Math.round(maxOutputPx * (requestedDims.width / requestedDims.height)),
+            height: maxOutputPx,
+          }
+      : requestedDims;
   const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
   const COST = await getResolutionCreditCost(app, resolution);
 
@@ -296,6 +314,11 @@ export async function createJob(
         userHint: promptGuard(body.userHint),
         params: {
           ...(body.params ?? {}),
+          // Always the clamped, server-computed dims — whether derived from the
+          // aspect-ratio enum or a custom request, this is what the dispatcher
+          // patches the workflow with. Never let a raw pre-maxOutputPx value through.
+          outputWidth: outputDims.width,
+          outputHeight: outputDims.height,
           ...(effectiveAspectRatio ? { aspectRatio: effectiveAspectRatio } : {}),
           resolution,
           ...(platform ? { platform } : {}),

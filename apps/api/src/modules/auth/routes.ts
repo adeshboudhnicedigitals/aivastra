@@ -38,7 +38,7 @@ const DeviceLogoutBody = z.object({ refreshToken: z.string().min(1) });
 const DEVICE_SESSION_PORTALS = ['mobile', 'kiosk'] as const;
 const FORCE_LOGOUT_TTL_SECONDS = 5 * 60;
 
-type RefreshOwnerType = 'user' | 'kioskDevice' | 'widgetClient';
+type RefreshOwnerType = 'user' | 'kioskDevice' | 'merchant';
 
 type RefreshOwner = {
   ownerType: RefreshOwnerType;
@@ -57,18 +57,18 @@ type RotationResult =
 function refreshOwner(row: {
   userId: string | null;
   kioskDeviceId: string | null;
-  widgetClientId: string | null;
+  merchantId: string | null;
 }): RefreshOwner | null {
   if (row.userId) return { ownerType: 'user', ownerId: row.userId };
   if (row.kioskDeviceId) return { ownerType: 'kioskDevice', ownerId: row.kioskDeviceId };
-  if (row.widgetClientId) return { ownerType: 'widgetClient', ownerId: row.widgetClientId };
+  if (row.merchantId) return { ownerType: 'merchant', ownerId: row.merchantId };
   return null;
 }
 
 function refreshOwnerInsert(owner: RefreshOwner) {
   if (owner.ownerType === 'user') return { userId: owner.ownerId };
   if (owner.ownerType === 'kioskDevice') return { kioskDeviceId: owner.ownerId };
-  return { widgetClientId: owner.ownerId };
+  return { merchantId: owner.ownerId };
 }
 
 export async function rotateTokenFamily(
@@ -97,7 +97,7 @@ export async function rotateTokenFamily(
         .select({
           userId: schema.refreshTokens.userId,
           kioskDeviceId: schema.refreshTokens.kioskDeviceId,
-          widgetClientId: schema.refreshTokens.widgetClientId,
+          merchantId: schema.refreshTokens.merchantId,
         })
         .from(schema.refreshTokens)
         .where(

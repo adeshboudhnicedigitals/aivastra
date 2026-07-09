@@ -1,30 +1,30 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
-import { atomicWidgetDeduct } from './ledger.js';
+import { atomicMerchantDeduct } from '../merchant/ledger.js';
 
-export const WIDGET_JOB_COST = 10;
+export const KIOSK_JOB_COST = 10;
 
-interface CreateWidgetStyleJobInput {
-  widgetClientId: string;
+interface CreateKioskJobInput {
+  merchantId: string;
   kioskDeviceId?: string;
   upperGarmentKey: string;
   customerPhotoKey: string;
   cost: number;
 }
 
-export async function createWidgetStyleJob(
+export async function createKioskJob(
   app: FastifyInstance,
-  input: CreateWidgetStyleJobInput,
+  input: CreateKioskJobInput,
 ): Promise<string> {
   const jobId = randomUUID();
 
   await app.db.transaction(async (tx) => {
-    // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers userId/FK cols as non-null; widget-style jobs legitimately have null userId and null face/bg/pose.
+    // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers userId/FK cols as non-null; kiosk jobs legitimately have null userId and null face/bg/pose.
     await (tx.insert(schema.jobs).values as any)({
       id: jobId,
       userId: null,
-      widgetClientId: input.widgetClientId,
+      merchantId: input.merchantId,
       kioskDeviceId: input.kioskDeviceId ?? null,
       customerPhotoKey: input.customerPhotoKey,
       status: 'QUEUED',
@@ -40,8 +40,8 @@ export async function createWidgetStyleJob(
       poseId: null,
     });
 
-    // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the widget ledger helper.
-    await atomicWidgetDeduct(tx as any, input.widgetClientId, input.cost, jobId);
+    // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses the custom methods added by the merchant ledger helper.
+    await atomicMerchantDeduct(tx as any, input.merchantId, input.cost, jobId);
   });
 
   await app.redis.xadd(
@@ -53,7 +53,7 @@ export async function createWidgetStyleJob(
     'jobId',
     jobId,
     'type',
-    'WIDGET_TRYON',
+    'KIOSK_TRYON',
   );
 
   return jobId;

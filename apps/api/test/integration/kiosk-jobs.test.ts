@@ -38,34 +38,38 @@ async function buildKioskTestApp(c: Containers) {
 }
 
 async function seedMerchant(app: TestApp, email: string, balance = 100) {
+  const [merchantUser] = await app.db
+    .insert(schema.users)
+    .values({ email, passwordHash: 'unused' })
+    .returning();
+
   const [client] = await app.db
-    .insert(schema.widgetClients)
+    .insert(schema.merchants)
     .values({
       companyName: 'Kiosk Co',
       contactName: 'Kiosk Owner',
-      email,
       phone: '9999999999',
       websiteUrl: 'https://example.com',
       companySize: '1-10',
       purpose: 'kiosk tests',
       businessAddress: 'Test Street',
-      passwordHash: 'unused',
       isActive: true,
       kioskEnabled: true,
       maxKioskDevices: 5,
+      userId: merchantUser.id,
     })
     .returning();
 
-  await app.db.insert(schema.widgetClientCredits).values({
-    widgetClientId: client.id,
+  await app.db.insert(schema.merchantCredits).values({
+    merchantId: client.id,
     balance,
   });
 
   return client;
 }
 
-async function claimDevice(app: TestApp, widgetClientId: string, label: string, androidId: string) {
-  const { device, pairingCode } = await createKioskDevice(app, widgetClientId, label);
+async function claimDevice(app: TestApp, merchantId: string, label: string, androidId: string) {
+  const { device, pairingCode } = await createKioskDevice(app, merchantId, label);
   const claim = await app.inject({
     method: 'POST',
     url: '/v1/kiosk/auth/claim',
@@ -94,10 +98,10 @@ async function uploadCustomerPhoto(app: TestApp, accessToken: string, bytes: Buf
   return r2Key;
 }
 
-async function seedCatalogItem(app: TestApp, widgetClientId: string) {
+async function seedCatalogItem(app: TestApp, merchantId: string) {
   const id = randomUUID();
-  const imageKey = `merchant-catalog/${widgetClientId}/${id}/image.jpg`;
-  const thumbKey = `merchant-catalog/${widgetClientId}/${id}/thumb.jpg`;
+  const imageKey = `merchant-catalog/${merchantId}/${id}/image.jpg`;
+  const thumbKey = `merchant-catalog/${merchantId}/${id}/thumb.jpg`;
   await app.storage.putObject(imageKey, Buffer.from('catalog-image'), 'image/jpeg');
   await app.storage.putObject(thumbKey, Buffer.from('catalog-thumb'), 'image/jpeg');
 
@@ -105,7 +109,7 @@ async function seedCatalogItem(app: TestApp, widgetClientId: string) {
     .insert(schema.merchantCatalogItems)
     .values({
       id,
-      widgetClientId,
+      merchantId,
       label: 'Blue Saree',
       sku: 'SKU-001',
       gender: 'women',
@@ -174,24 +178,24 @@ describe('kiosk jobs', () => {
     const { jobId } = create.json() as { jobId: string };
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    expect(job.widgetClientId).toBe(merchant.id);
+    expect(job.merchantId).toBe(merchant.id);
     expect(job.kioskDeviceId).toBe(ownerDevice.device.id);
     expect(job.status).toBe('QUEUED');
 
     const streamEntries = await app.redis.xrevrange('jobs:normal', '+', '-', 'COUNT', 1);
     const streamPayload = streamEntryToObject(streamEntries[0]);
-    expect(streamPayload).toMatchObject({ jobId, type: 'WIDGET_TRYON' });
+    expect(streamPayload).toMatchObject({ jobId, type: 'KIOSK_TRYON' });
 
     const [credits] = await app.db
       .select()
-      .from(schema.widgetClientCredits)
-      .where(eq(schema.widgetClientCredits.widgetClientId, merchant.id));
+      .from(schema.merchantCredits)
+      .where(eq(schema.merchantCredits.merchantId, merchant.id));
     expect(credits.balance).toBe(90);
 
     const ledgerRows = await app.db
       .select()
-      .from(schema.widgetCreditLedger)
-      .where(eq(schema.widgetCreditLedger.jobId, jobId));
+      .from(schema.merchantCreditLedger)
+      .where(eq(schema.merchantCreditLedger.jobId, jobId));
     expect(ledgerRows).toHaveLength(1);
     expect(ledgerRows[0]?.delta).toBe(-10);
     expect(ledgerRows[0]?.reason).toBe('JOB_DISPATCH');
@@ -231,7 +235,7 @@ describe('kiosk jobs', () => {
         authorization: `Bearer ${ownerDevice.accessToken}`,
         'content-type': 'application/json',
       },
-      payload: { widgetClientId: otherMerchant.id, userId: 'forged-user' },
+      payload: { merchantId: otherMerchant.id, userId: 'forged-user' },
     });
     expect(forgedLike.statusCode).toBe(400);
 
@@ -242,7 +246,7 @@ describe('kiosk jobs', () => {
         authorization: `Bearer ${ownerDevice.accessToken}`,
         'content-type': 'application/json',
       },
-      payload: { widgetClientId: otherMerchant.id, userId: 'forged-user' },
+      payload: { merchantId: otherMerchant.id, userId: 'forged-user' },
     });
     expect(forgedCart.statusCode).toBe(400);
 
@@ -290,7 +294,7 @@ describe('kiosk jobs', () => {
       .where(
         and(
           eq(schema.kioskResultLikes.jobId, jobId),
-          eq(schema.kioskResultLikes.widgetClientId, merchant.id),
+          eq(schema.kioskResultLikes.merchantId, merchant.id),
         ),
       );
     expect(likeRows).toHaveLength(1);
@@ -302,7 +306,7 @@ describe('kiosk jobs', () => {
       .where(
         and(
           eq(schema.kioskResultCartItems.jobId, jobId),
-          eq(schema.kioskResultCartItems.widgetClientId, merchant.id),
+          eq(schema.kioskResultCartItems.merchantId, merchant.id),
         ),
       );
     expect(cartRows).toHaveLength(1);
@@ -370,7 +374,7 @@ describe('kiosk jobs', () => {
       .from(schema.jobs)
       .where(
         and(
-          eq(schema.jobs.widgetClientId, merchant.id),
+          eq(schema.jobs.merchantId, merchant.id),
           eq(schema.jobs.customerPhotoKey, customerPhotoKey),
         ),
       );
@@ -378,14 +382,14 @@ describe('kiosk jobs', () => {
 
     const [credits] = await app.db
       .select()
-      .from(schema.widgetClientCredits)
-      .where(eq(schema.widgetClientCredits.widgetClientId, merchant.id));
+      .from(schema.merchantCredits)
+      .where(eq(schema.merchantCredits.merchantId, merchant.id));
     expect(credits.balance).toBe(5);
 
     const ledger = await app.db
       .select()
-      .from(schema.widgetCreditLedger)
-      .where(eq(schema.widgetCreditLedger.widgetClientId, merchant.id));
+      .from(schema.merchantCreditLedger)
+      .where(eq(schema.merchantCreditLedger.merchantId, merchant.id));
     expect(ledger).toHaveLength(0);
   });
 });

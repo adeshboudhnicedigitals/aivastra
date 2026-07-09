@@ -32,18 +32,18 @@ export async function merchantKioskDevicesRoutes(app: FastifyInstance) {
       const [[client], [deviceCount]] = await Promise.all([
         app.db
           .select({
-            kioskEnabled: schema.widgetClients.kioskEnabled,
-            maxKioskDevices: schema.widgetClients.maxKioskDevices,
+            kioskEnabled: schema.merchants.kioskEnabled,
+            maxKioskDevices: schema.merchants.maxKioskDevices,
           })
-          .from(schema.widgetClients)
-          .where(eq(schema.widgetClients.id, clientId))
+          .from(schema.merchants)
+          .where(eq(schema.merchants.id, clientId))
           .limit(1),
         app.db
           .select({ n: count() })
           .from(schema.kioskDevices)
           .where(
             and(
-              eq(schema.kioskDevices.widgetClientId, clientId),
+              eq(schema.kioskDevices.merchantId, clientId),
               ne(schema.kioskDevices.status, 'revoked'),
             ),
           ),
@@ -68,7 +68,7 @@ export async function merchantKioskDevicesRoutes(app: FastifyInstance) {
     const devices = await app.db
       .select()
       .from(schema.kioskDevices)
-      .where(eq(schema.kioskDevices.widgetClientId, clientId))
+      .where(eq(schema.kioskDevices.merchantId, clientId))
       .orderBy(desc(schema.kioskDevices.createdAt));
     return { devices: devices.map(publicDevice) };
   });
@@ -89,9 +89,7 @@ export async function merchantKioskDevicesRoutes(app: FastifyInstance) {
           ...(body.status === 'revoked' ? { status: 'revoked', revokedAt: now } : {}),
           updatedAt: now,
         })
-        .where(
-          and(eq(schema.kioskDevices.id, id), eq(schema.kioskDevices.widgetClientId, clientId)),
-        )
+        .where(and(eq(schema.kioskDevices.id, id), eq(schema.kioskDevices.merchantId, clientId)))
         .returning();
       if (!updated) throw new AppError('NOT_FOUND', 404, 'kiosk device not found');
       return publicDevice(updated);
@@ -120,7 +118,7 @@ export async function merchantKioskDevicesRoutes(app: FastifyInstance) {
         .where(
           and(
             eq(schema.kioskDevices.id, id),
-            eq(schema.kioskDevices.widgetClientId, clientId),
+            eq(schema.kioskDevices.merchantId, clientId),
             ne(schema.kioskDevices.status, 'active'),
           ),
         )

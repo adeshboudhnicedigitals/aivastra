@@ -43,20 +43,24 @@ async function buildKioskTestApp(c: Containers) {
   return app;
 }
 
-async function seedWidgetClient(app: TestApp, email: string) {
+async function seedMerchantClient(app: TestApp, email: string) {
+  const [merchantUser] = await app.db
+    .insert(schema.users)
+    .values({ email, passwordHash: 'unused' })
+    .returning();
+
   const [client] = await app.db
-    .insert(schema.widgetClients)
+    .insert(schema.merchants)
     .values({
       companyName: 'Kiosk Co',
       contactName: 'Kiosk Owner',
-      email,
       phone: '9999999999',
       websiteUrl: 'https://example.com',
       companySize: '1-10',
       purpose: 'kiosk tests',
       businessAddress: 'Test Street',
-      passwordHash: 'unused',
       isActive: true,
+      userId: merchantUser.id,
     })
     .returning();
   return client;
@@ -77,7 +81,7 @@ describe('kiosk auth foundation', () => {
   });
 
   it('provisions, claims, refreshes, rejects cross-audience access, logs out, and re-pairs', async () => {
-    const client = await seedWidgetClient(app, 'kiosk-main@example.com');
+    const client = await seedMerchantClient(app, 'kiosk-main@example.com');
 
     const created = await createKioskDevice(app, client.id, 'Front Counter Tablet');
     expect(created.pairingCode).toMatch(/^[A-Z2-7]{10}$/);
@@ -157,13 +161,7 @@ describe('kiosk auth foundation', () => {
     });
     expect(afterLogoutRefresh.statusCode).toBe(401);
 
-    const merchantToken = await signAccess(
-      secret,
-      client.id,
-      { email: client.email },
-      '7d',
-      'merchant',
-    );
+    const merchantToken = await signAccess(secret, client.userId, { kind: 'access' }, '7d');
     const regenerate = await app.inject({
       method: 'POST',
       url: `/v1/merchant/kiosk-devices/${created.device.id}/pairing-code`,
@@ -212,7 +210,7 @@ describe('kiosk auth foundation', () => {
   });
 
   it('rejects user-owned refresh tokens and enforces exactly one refresh-token owner', async () => {
-    const client = await seedWidgetClient(app, 'kiosk-owner-check@example.com');
+    const client = await seedMerchantClient(app, 'kiosk-owner-check@example.com');
     const { device } = await createKioskDevice(app, client.id, 'Owner Check Tablet');
     const [user] = await app.db
       .insert(schema.users)

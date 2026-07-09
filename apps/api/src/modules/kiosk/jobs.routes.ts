@@ -6,8 +6,8 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createWidgetStyleJob, WIDGET_JOB_COST } from '../widget/create-job.js';
-import { widgetRefund } from '../widget/ledger.js';
+import { merchantRefund } from '../merchant/ledger.js';
+import { createKioskJob, KIOSK_JOB_COST } from './create-job.js';
 
 const MAX_KIOSK_UPLOAD_BYTES = 5 * 1024 * 1024;
 
@@ -42,12 +42,12 @@ function writeSseHeaders(reply: FastifyReply): void {
   });
 }
 
-async function loadOwnedJob(app: FastifyInstance, widgetClientId: string, id: string) {
+async function loadOwnedJob(app: FastifyInstance, merchantId: string, id: string) {
   const [job] = await app.db
     .select({
       id: schema.jobs.id,
       status: schema.jobs.status,
-      widgetClientId: schema.jobs.widgetClientId,
+      merchantId: schema.jobs.merchantId,
       kioskDeviceId: schema.jobs.kioskDeviceId,
       creditsCharged: schema.jobs.creditsCharged,
       resultKey: schema.jobOutputs.resultKey,
@@ -60,15 +60,15 @@ async function loadOwnedJob(app: FastifyInstance, widgetClientId: string, id: st
     .where(eq(schema.jobs.id, id))
     .limit(1);
 
-  if (!job || job.widgetClientId !== widgetClientId) {
+  if (!job || job.merchantId !== merchantId) {
     throw new AppError('NOT_FOUND', 404, 'job not found');
   }
 
   return job;
 }
 
-async function serializeJob(app: FastifyInstance, widgetClientId: string, id: string) {
-  const job = await loadOwnedJob(app, widgetClientId, id);
+async function serializeJob(app: FastifyInstance, merchantId: string, id: string) {
+  const job = await loadOwnedJob(app, merchantId, id);
   const [liked, inCart] = await Promise.all([
     app.db
       .select({ id: schema.kioskResultLikes.id })
@@ -76,7 +76,7 @@ async function serializeJob(app: FastifyInstance, widgetClientId: string, id: st
       .where(
         and(
           eq(schema.kioskResultLikes.jobId, id),
-          eq(schema.kioskResultLikes.widgetClientId, widgetClientId),
+          eq(schema.kioskResultLikes.merchantId, merchantId),
         ),
       )
       .limit(1),
@@ -86,7 +86,7 @@ async function serializeJob(app: FastifyInstance, widgetClientId: string, id: st
       .where(
         and(
           eq(schema.kioskResultCartItems.jobId, id),
-          eq(schema.kioskResultCartItems.widgetClientId, widgetClientId),
+          eq(schema.kioskResultCartItems.merchantId, merchantId),
         ),
       )
       .limit(1),
@@ -103,7 +103,7 @@ async function serializeJob(app: FastifyInstance, widgetClientId: string, id: st
   return {
     id: job.id,
     status: job.status,
-    widgetClientId: job.widgetClientId,
+    merchantId: job.merchantId,
     kioskDeviceId: job.kioskDeviceId,
     resultKey: job.resultKey,
     shareUrl,
@@ -143,9 +143,9 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       schema: { body: KioskJobCreateBody },
     },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
+      const merchantId = req.merchantClientId;
       const kioskDeviceId = req.kioskDeviceId;
-      if (!widgetClientId || !kioskDeviceId) {
+      if (!merchantId || !kioskDeviceId) {
         throw new AppError('UNAUTH', 401, 'missing kiosk identity');
       }
 
@@ -155,7 +155,7 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       const [item] = await app.db
         .select({
           id: schema.merchantCatalogItems.id,
-          widgetClientId: schema.merchantCatalogItems.widgetClientId,
+          merchantId: schema.merchantCatalogItems.merchantId,
           r2Key: schema.merchantCatalogItems.r2Key,
           isActive: schema.merchantCatalogItems.isActive,
           moderationStatus: schema.merchantCatalogItems.moderationStatus,
@@ -164,7 +164,7 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
         .where(eq(schema.merchantCatalogItems.id, merchantCatalogItemId))
         .limit(1);
 
-      if (!item || item.widgetClientId !== widgetClientId) {
+      if (!item || item.merchantId !== merchantId) {
         throw new AppError('NOT_FOUND', 404, 'catalog item not found');
       }
       if (!item.isActive || item.moderationStatus !== 'approved') {
@@ -189,12 +189,12 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
         throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 5MB limit');
       }
 
-      const jobId = await createWidgetStyleJob(app, {
-        widgetClientId,
+      const jobId = await createKioskJob(app, {
+        merchantId,
         kioskDeviceId,
         upperGarmentKey: item.r2Key,
         customerPhotoKey,
-        cost: WIDGET_JOB_COST,
+        cost: KIOSK_JOB_COST,
       });
 
       reply.code(201);
@@ -209,10 +209,10 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { id } = req.params as { id: string };
-      return serializeJob(app, widgetClientId, id);
+      return serializeJob(app, merchantId, id);
     },
   );
 
@@ -223,10 +223,10 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { id } = req.params as { id: string };
-      const job = await loadOwnedJob(app, widgetClientId, id);
+      const job = await loadOwnedJob(app, merchantId, id);
 
       if (job.status === 'COMPLETED' || job.status === 'FAILED' || job.status === 'CANCELLED') {
         throw new AppError('NOT_CANCELLABLE', 409, 'Job is already finished or cancelled');
@@ -238,11 +238,11 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       await app.db.transaction(async (tx) => {
         await tx.update(schema.jobs).set({ status: 'CANCELLED' }).where(eq(schema.jobs.id, id));
         // biome-ignore lint/suspicious/noExplicitAny: tx type narrowing loses custom methods in the widget ledger helper.
-        await widgetRefund(tx as any, widgetClientId, job.creditsCharged, id, 'REFUND_CANCELLED');
+        await merchantRefund(tx as any, merchantId, job.creditsCharged, id, 'REFUND_CANCELLED');
       });
 
       const evt = JSON.stringify({ type: 'STATUS', jobId: id, status: 'CANCELLED' });
-      await app.redis.publish(`sse:events:widget:${widgetClientId}`, evt);
+      await app.redis.publish(`sse:events:widget:${merchantId}`, evt);
 
       reply.code(200);
       return { status: 'CANCELLED' };
@@ -256,16 +256,16 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       schema: { params: z.object({ id: z.string().uuid() }) },
     },
     async (req, reply) => {
-      const widgetClientId = req.merchantClientId;
-      if (!widgetClientId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
       const { id } = req.params as { id: string };
 
-      await loadOwnedJob(app, widgetClientId, id);
+      await loadOwnedJob(app, merchantId, id);
       writeSseHeaders(reply);
 
       // biome-ignore lint/suspicious/noExplicitAny: redisSub is decorated on app at runtime; not in Fastify's type map.
       const sub: Redis = (app as any).redisSub.duplicate();
-      const channel = `sse:events:widget:${widgetClientId}`;
+      const channel = `sse:events:widget:${merchantId}`;
 
       sub.on('error', (err) => {
         req.log.warn({ err, channel }, 'kiosk sse redis subscriber error');
