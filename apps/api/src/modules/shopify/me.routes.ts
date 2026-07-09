@@ -6,11 +6,15 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
 
-    const [credits] = await app.db
-      .select({ balance: schema.widgetClientCredits.balance })
-      .from(schema.widgetClientCredits)
-      .where(eq(schema.widgetClientCredits.widgetClientId, store.widgetClientId))
-      .limit(1);
+    let credits: { balance: number } | undefined;
+    if (store.widgetClientId) {
+      const [row] = await app.db
+        .select({ balance: schema.widgetClientCredits.balance })
+        .from(schema.widgetClientCredits)
+        .where(eq(schema.widgetClientCredits.widgetClientId, store.widgetClientId))
+        .limit(1);
+      credits = row;
+    }
 
     let plan: typeof schema.shopifyPlans.$inferSelect | null = null;
     if (store.shopifyPlanId) {
@@ -25,7 +29,7 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
     const [{ totalTryOns }] = await app.db
       .select({ totalTryOns: count() })
       .from(schema.jobs)
-      .where(eq(schema.jobs.widgetClientId, store.widgetClientId));
+      .where(eq(schema.jobs.shopifyStoreId, store.id));
 
     const [{ syncedProductCount }] = await app.db
       .select({ syncedProductCount: count() })

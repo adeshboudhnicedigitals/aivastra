@@ -31,16 +31,12 @@ afterAll(async () => {
 });
 
 describe('upsertShopifyStore', () => {
-  it('creates widget client + credits + store on first install', async () => {
+  it('creates a store with allowedOrigins on first install', async () => {
     const store = await upsertShopifyStore(app, shop, 'shpat_token_1', 'read_products');
     expect(store.shopDomain).toBe('demo.myshopify.com');
-    const [wc] = await app.db
-      .select()
-      .from(schema.widgetClients)
-      .where(eq(schema.widgetClients.id, store.widgetClientId));
-    expect(wc.clientType).toBe('shopify');
-    expect(wc.isActive).toBe(true);
-    expect(wc.allowedOrigins).toContain('https://demo.myshopify.com');
+    expect(store.allowedOrigins).toContain('https://demo.myshopify.com');
+    expect(store.allowedOrigins).toContain('https://demo.example.com');
+    expect(store.storeKey).toBeTruthy(); // auto-generated UUID
     // token stored encrypted, not plaintext
     expect(store.accessToken).not.toContain('shpat_token_1');
   });

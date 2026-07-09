@@ -63,10 +63,6 @@ export async function shopifyWebhookRoutes(app: FastifyInstance) {
                 .update(schema.shopifyStores)
                 .set({ uninstalledAt: new Date() })
                 .where(eq(schema.shopifyStores.id, store.id));
-              await app.db
-                .update(schema.widgetClients)
-                .set({ isActive: false })
-                .where(eq(schema.widgetClients.id, store.widgetClientId));
             }
             break;
           case 'products_update':

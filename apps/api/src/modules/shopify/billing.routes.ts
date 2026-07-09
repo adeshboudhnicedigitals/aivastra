@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
@@ -7,15 +7,14 @@ import { SHOPIFY_API_VERSION } from './service.js';
 
 /**
  * Activates a Shopify recurring charge for a store: links the store to the chosen
- * plan/charge and adds `plan.includedTryons * SHOPIFY_JOB_COST` to the widget credit
- * balance (additive top-up, not an overwrite).
+ * plan/charge.
  *
  * Idempotency: `billingPlanId` is set to the last activated `chargeId`. If this call is
  * a replay of an already-processed charge (Shopify retry, double-clicked return URL),
  * the store's `billingPlanId` (read fresh inside the transaction) will already match
- * `chargeId` — in that case this is a no-op: no credit seed, no ledger row. The check is
- * done inside the same transaction as the update to avoid a race between two
- * near-simultaneous calls for the same charge.
+ * `chargeId` — in that case this is a no-op. The check is done inside the same
+ * transaction as the update to avoid a race between two near-simultaneous calls for
+ * the same charge.
  */
 export async function activateCharge(
   app: FastifyInstance,
@@ -32,33 +31,20 @@ export async function activateCharge(
       .for('update');
     if (!existing) throw new AppError('NOT_FOUND', 404, 'store not found');
     if (existing.billingPlanId === chargeId) {
-      // Replay of an already-activated charge — skip credit seed and ledger insert.
+      // Replay of an already-activated charge — no-op.
       return;
     }
     const [plan] = await tx
-      .select()
+      .select({ id: schema.shopifyPlans.id })
       .from(schema.shopifyPlans)
       .where(eq(schema.shopifyPlans.id, planId))
       .limit(1);
     if (!plan) throw new AppError('NOT_FOUND', 404, 'plan not found');
-    const [store] = await tx
+    await tx
       .update(schema.shopifyStores)
       .set({ shopifyPlanId: planId, billingPlanId: chargeId, updatedAt: new Date() })
       .where(eq(schema.shopifyStores.id, storeId))
       .returning();
-    const seed = plan.includedTryons * app.env.SHOPIFY_JOB_COST;
-    await tx
-      .update(schema.widgetClientCredits)
-      .set({
-        balance: sql`${schema.widgetClientCredits.balance} + ${seed}`,
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.widgetClientCredits.widgetClientId, store.widgetClientId));
-    await tx.insert(schema.widgetCreditLedger).values({
-      widgetClientId: store.widgetClientId,
-      delta: seed,
-      reason: 'SHOPIFY_PLAN_ACTIVATED',
-    });
   });
 }
 

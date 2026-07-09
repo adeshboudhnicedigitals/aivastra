@@ -11,7 +11,6 @@ const ENC_KEY = Buffer.alloc(32, 3).toString('base64');
 let c: Containers;
 let app: TestApp;
 let storeId: string;
-let widgetClientId: string;
 
 function sign(raw: string) {
   return createHmac('sha256', SECRET).update(Buffer.from(raw)).digest('base64');
@@ -33,7 +32,6 @@ beforeAll(async () => {
     'read_products',
   );
   storeId = store.id;
-  widgetClientId = store.widgetClientId;
 });
 afterAll(async () => {
   await app?.close();
@@ -55,7 +53,7 @@ describe('shopify webhooks', () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it('processes app/uninstalled: deactivates store + widget client', async () => {
+  it('processes app/uninstalled: deactivates store', async () => {
     const raw = '{"id":999}';
     const res = await app.inject({
       method: 'POST',
@@ -73,11 +71,6 @@ describe('shopify webhooks', () => {
       .from(schema.shopifyStores)
       .where(eq(schema.shopifyStores.id, storeId));
     expect(store.uninstalledAt).not.toBeNull();
-    const [wc] = await app.db
-      .select()
-      .from(schema.widgetClients)
-      .where(eq(schema.widgetClients.id, widgetClientId));
-    expect(wc.isActive).toBe(false);
   });
 
   it('processes products/update: enqueues a sync task', async () => {
