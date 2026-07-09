@@ -65,7 +65,7 @@ export async function processJob(
     .select({
       id: schema.jobs.id,
       status: schema.jobs.status,
-      widgetClientId: schema.jobs.widgetClientId,
+      merchantId: schema.jobs.merchantId,
       customerPhotoKey: schema.jobs.customerPhotoKey,
       creditsCharged: schema.jobs.creditsCharged,
       attempts: schema.jobs.attempts,
@@ -117,8 +117,8 @@ export async function processJob(
     return;
   }
 
-  // Widget jobs: widgetClientId set, faceId/bgId/poseId are null — route to dedicated processor.
-  if (job.widgetClientId) {
+  // Widget jobs: merchantId set, faceId/bgId/poseId are null — route to dedicated processor.
+  if (job.merchantId) {
     await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt);
     return;
   }
@@ -920,7 +920,7 @@ async function processSareeJob(
 
 type WidgetJob = {
   id: string;
-  widgetClientId: string | null;
+  merchantId: string | null;
   customerPhotoKey: string | null;
   creditsCharged: number;
 };
@@ -936,8 +936,8 @@ async function processWidgetJob(
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket, widgetComfyUrl, widgetComfyBasicAuth } = cfg;
   const jobId = job.id;
-  // biome-ignore lint/style/noNonNullAssertion: widgetClientId is guaranteed non-null for widget jobs
-  const widgetClientId = job.widgetClientId!;
+  // biome-ignore lint/style/noNonNullAssertion: merchantId is guaranteed non-null for widget jobs
+  const merchantId = job.merchantId!;
   const { creditsCharged } = job;
 
   if (!widgetComfyUrl || !widgetComfyBasicAuth) {
@@ -945,7 +945,7 @@ async function processWidgetJob(
     await markWidgetFailed(
       cfg,
       jobId,
-      widgetClientId,
+      merchantId,
       creditsCharged,
       stream,
       messageId,
@@ -960,7 +960,7 @@ async function processWidgetJob(
     await markWidgetFailed(
       cfg,
       jobId,
-      widgetClientId,
+      merchantId,
       creditsCharged,
       stream,
       messageId,
@@ -993,7 +993,7 @@ async function processWidgetJob(
     await markWidgetFailed(
       cfg,
       jobId,
-      widgetClientId,
+      merchantId,
       creditsCharged,
       stream,
       messageId,
@@ -1135,7 +1135,7 @@ async function processWidgetJob(
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
     await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog);
     await pub.publish(
-      `sse:events:widget:${widgetClientId}`,
+      `sse:events:widget:${merchantId}`,
       JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
     );
     await redis.xadd(
@@ -1146,8 +1146,8 @@ async function processWidgetJob(
       '*',
       'jobId',
       jobId,
-      'widgetClientId',
-      widgetClientId,
+      'merchantId',
+      merchantId,
       'status',
       'COMPLETED',
       'resultKey',
@@ -1162,7 +1162,7 @@ async function processWidgetJob(
     await markWidgetFailed(
       cfg,
       jobId,
-      widgetClientId,
+      merchantId,
       creditsCharged,
       stream,
       messageId,
@@ -1176,7 +1176,7 @@ async function processWidgetJob(
 async function markWidgetFailed(
   cfg: ProcessorConfig,
   jobId: string,
-  widgetClientId: string,
+  merchantId: string,
   creditsCharged: number,
   stream: string,
   messageId: string,
@@ -1190,26 +1190,26 @@ async function markWidgetFailed(
   await db.transaction(async (tx) => {
     const existing = await tx
       .select()
-      .from(schema.widgetCreditLedger)
+      .from(schema.merchantCreditLedger)
       .where(
         and(
-          eq(schema.widgetCreditLedger.jobId, jobId),
-          eq(schema.widgetCreditLedger.reason, 'JOB_FAIL_REFUND'),
+          eq(schema.merchantCreditLedger.jobId, jobId),
+          eq(schema.merchantCreditLedger.reason, 'JOB_FAIL_REFUND'),
         ),
       );
     if (existing.length) return;
     await tx
-      .update(schema.widgetClientCredits)
-      .set({ balance: sql`${schema.widgetClientCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.widgetClientCredits.widgetClientId, widgetClientId));
+      .update(schema.merchantCredits)
+      .set({ balance: sql`${schema.merchantCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.merchantCredits.merchantId, merchantId));
     await tx
-      .insert(schema.widgetCreditLedger)
-      .values({ widgetClientId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+      .insert(schema.merchantCreditLedger)
+      .values({ merchantId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
   });
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log);
   await pub.publish(
-    `sse:events:widget:${widgetClientId}`,
+    `sse:events:widget:${merchantId}`,
     JSON.stringify({ jobId, type: 'STATUS', status: 'FAILED', errorCode }),
   );
   await redis.xadd(
@@ -1220,8 +1220,8 @@ async function markWidgetFailed(
     '*',
     'jobId',
     jobId,
-    'widgetClientId',
-    widgetClientId,
+    'merchantId',
+    merchantId,
     'status',
     'FAILED',
     'errorCode',
