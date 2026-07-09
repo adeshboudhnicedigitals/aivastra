@@ -43,6 +43,7 @@ export function GarmentTypesTab() {
   const [poseConfigs, setPoseConfigs] = useState<PoseGarmentConfig[]>([]);
   const [configsLoading, setConfigsLoading] = useState(false);
   const [savingConfigId, setSavingConfigId] = useState<string | null>(null);
+  const [savingDefaultPose, setSavingDefaultPose] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
   const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
 
@@ -151,6 +152,29 @@ export function GarmentTypesTab() {
     }
   };
 
+  const saveDefaultPose = async (garmentTypeId: string, poseAssetId: string | null) => {
+    setSavingDefaultPose(true);
+    try {
+      await apiFetch(`/admin/assets/garment-types/${garmentTypeId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ defaultPoseId: poseAssetId }),
+      });
+      setGarmentTypes((prev) =>
+        prev.map((s) => (s.id === garmentTypeId ? { ...s, defaultPoseId: poseAssetId } : s)),
+      );
+      setSubView((prev) =>
+        prev.kind === 'configs' && prev.sub.id === garmentTypeId
+          ? { kind: 'configs', sub: { ...prev.sub, defaultPoseId: poseAssetId } }
+          : prev,
+      );
+      toast({ title: 'Default pose updated' });
+    } catch {
+      toast({ kind: 'error', title: 'Failed to update default pose' });
+    } finally {
+      setSavingDefaultPose(false);
+    }
+  };
+
   const togglePoseActive = async (poseAssetId: string, isActive: boolean) => {
     setPoseConfigs((prev) => prev.map((p) => (p.id === poseAssetId ? { ...p, isActive } : p)));
     try {
@@ -250,6 +274,8 @@ export function GarmentTypesTab() {
           onBack={() => setSubView({ kind: 'list' })}
           onSave={saveConfig}
           onToggleActive={togglePoseActive}
+          onSaveDefaultPose={saveDefaultPose}
+          savingDefaultPose={savingDefaultPose}
         />
       )}
 
@@ -1274,6 +1300,8 @@ interface PoseConfigsPanelProps {
     },
   ) => Promise<void>;
   onToggleActive: (poseAssetId: string, isActive: boolean) => Promise<void>;
+  onSaveDefaultPose: (garmentTypeId: string, poseAssetId: string | null) => Promise<void>;
+  savingDefaultPose: boolean;
 }
 
 function PoseConfigsPanel({
@@ -1286,6 +1314,8 @@ function PoseConfigsPanel({
   onBack,
   onSave,
   onToggleActive,
+  onSaveDefaultPose,
+  savingDefaultPose,
 }: PoseConfigsPanelProps) {
   const [editing, setEditing] = useState<PoseGarmentConfig | null>(null);
   const [editWorkflow, setEditWorkflow] = useState('');
@@ -1441,6 +1471,29 @@ function PoseConfigsPanel({
             </>
           )}
         </div>
+      </div>
+
+      <div className="field" style={{ maxWidth: 360, margin: '12px 0' }}>
+        <label>Default pose (merchant catalogue generation)</label>
+        <select
+          className="select"
+          value={sub.defaultPoseId ?? ''}
+          disabled={savingDefaultPose}
+          onChange={(e) => void onSaveDefaultPose(sub.id, e.target.value || null)}
+        >
+          <option value="">— none (generation disabled for this type) —</option>
+          {items
+            .filter((i) => i.isActive)
+            .map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.displayName ?? i.label}
+              </option>
+            ))}
+        </select>
+        <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+          Used when a merchant uploads a flat garment for this type — the pose (and its workflow) is
+          fixed so every generated image is try-on-suitable.
+        </span>
       </div>
 
       <div

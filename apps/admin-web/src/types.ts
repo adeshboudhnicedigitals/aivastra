@@ -46,6 +46,7 @@ export interface GarmentType {
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
   tryonCategoryId?: string | null;
+  defaultPoseId: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
