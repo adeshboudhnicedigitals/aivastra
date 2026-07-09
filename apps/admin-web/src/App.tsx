@@ -17,8 +17,6 @@ import SareePage from './pages/SareePage';
 import SettingsPage from './pages/SettingsPage';
 import TryonPage from './pages/TryonPage';
 import UsersPage from './pages/UsersPage';
-import { WidgetClientDetail } from './pages/WidgetClientDetail';
-import { WidgetClients } from './pages/WidgetClients';
 import WorkersPage from './pages/WorkersPage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import type { ToastItem } from './types';
@@ -203,8 +201,6 @@ export default function App() {
             <Route path="/contacts" element={<ContactRequestsPage {...pageProps} />} />
             <Route path="/recycle-bin" element={<RecycleBinPage {...pageProps} />} />
             <Route path="/settings" element={<SettingsPage {...settingsProps} />} />
-            <Route path="/widget-clients" element={<WidgetClients {...pageProps} />} />
-            <Route path="/widget-clients/:id" element={<WidgetClientDetail {...pageProps} />} />
             <Route path="/workers" element={<WorkersPage {...pageProps} />} />
             <Route path="*" element={<DashboardPage {...pageProps} />} />
           </Routes>

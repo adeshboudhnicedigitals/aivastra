@@ -1,5 +1,5 @@
 'use client';
-import { WidgetClientLogin } from '@aivastra/types';
+import { MerchantLogin } from '@aivastra/types';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,7 +9,7 @@ import type { z } from 'zod';
 import { LockIcon, MailIcon } from '@/components/icons';
 import { LogoAuth } from '@/components/logo';
 
-type LoginForm = z.infer<typeof WidgetClientLogin>;
+type LoginForm = z.infer<typeof MerchantLogin>;
 
 const fieldWrap: React.CSSProperties = {
   position: 'relative',
@@ -97,7 +97,7 @@ export default function MerchantLoginPage() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<LoginForm>({ resolver: zodResolver(WidgetClientLogin) });
+  } = useForm<LoginForm>({ resolver: zodResolver(MerchantLogin) });
 
   async function onSubmit(data: LoginForm) {
     setError('');

@@ -71,12 +71,6 @@ const groups: NavGroup[] = [
     label: 'Clients',
     items: [
       {
-        k: 'widget-clients',
-        label: 'Widget Clients',
-        icon: Icon.Monitor,
-        roles: ['SUPER_ADMIN', 'ADMIN'],
-      },
-      {
         k: 'users',
         label: 'Users',
         icon: Icon.Users,

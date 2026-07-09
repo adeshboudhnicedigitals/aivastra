@@ -1,10 +1,9 @@
 'use client';
 
-import { ArrowRight, Check, Copy } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -25,7 +24,6 @@ type JobRow = {
 
 export function DashboardContent({ data }: { data: MerchantData }) {
   const [recentJobs, setRecentJobs] = useState<JobRow[]>([]);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch('/api/merchant/jobs')
@@ -34,21 +32,9 @@ export function DashboardContent({ data }: { data: MerchantData }) {
       .catch(() => {});
   }, []);
 
-  const embedCode = `<script>
-  window.AIVASTRA_WIDGET = { widget_key: "${data.widgetKey}" };
-</script>
-<script src="https://app.aivastra.com/widget/loader.js"></script>`;
-
-  function copySnippet() {
-    navigator.clipboard.writeText(embedCode).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    });
-  }
-
   const stats = [
     {
-      label: 'Widget Status',
+      label: 'Account Status',
       value: data.isActive ? 'Active' : 'Inactive',
       sub: 'Admin managed',
       badge: data.isActive ? 'success' : 'default',
@@ -89,7 +75,7 @@ export function DashboardContent({ data }: { data: MerchantData }) {
           Welcome back, {data.contactName}
         </h1>
         <p style={{ fontSize: '0.875rem', color: 'hsl(var(--text-secondary))', margin: 0 }}>
-          Manage your widget embeds, monitor kiosk devices, and curate your private catalog.
+          Monitor kiosk devices and curate your private catalog.
         </p>
       </div>
 
@@ -133,52 +119,8 @@ export function DashboardContent({ data }: { data: MerchantData }) {
         ))}
       </div>
 
-      {/* Main Bento Layout */}
-      <div className="grid-responsive-2">
-        {/* Embed Snippet */}
-        <Card>
-          <CardHeader
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'flex-start',
-            }}
-          >
-            <div>
-              <CardTitle>Embed Snippet</CardTitle>
-              <CardDescription>
-                Copy and paste this code into your website's &lt;head&gt; tag.
-              </CardDescription>
-            </div>
-            <Button variant="secondary" size="sm" onClick={copySnippet}>
-              {copied ? <Check size={14} /> : <Copy size={14} />}
-              {copied ? 'Copied' : 'Copy'}
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <pre
-              style={{
-                margin: 0,
-                padding: 'var(--space-4)',
-                borderRadius: 'var(--radius-md)',
-                background: 'hsl(var(--bg-surface-hover))',
-                border: '1px solid hsl(var(--border-default))',
-                fontSize: '0.8125rem',
-                lineHeight: 1.6,
-                color: 'hsl(var(--text-primary))',
-                overflowX: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-              }}
-            >
-              {embedCode}
-            </pre>
-          </CardContent>
-        </Card>
-
-        {/* Quick Links */}
+      {/* Quick Links */}
+      <div>
         <Card>
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>
@@ -236,8 +178,8 @@ export function DashboardContent({ data }: { data: MerchantData }) {
           }}
         >
           <div>
-            <CardTitle>Recent Widget Jobs</CardTitle>
-            <CardDescription>Your latest generation requests from the widget.</CardDescription>
+            <CardTitle>Recent Jobs</CardTitle>
+            <CardDescription>Your latest try-on generation requests.</CardDescription>
           </div>
           <Badge variant="default">{recentJobs.length} records</Badge>
         </CardHeader>
