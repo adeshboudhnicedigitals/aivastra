@@ -373,6 +373,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     '2K': { enabled: true, creditCost: 25 },
     '4K': { enabled: true, creditCost: 40 },
   });
+  const [maxOutputPx, setMaxOutputPx] = useState(2048);
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
 
@@ -386,11 +387,13 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    apiFetch<{ resolutions?: Record<string, { enabled: boolean; creditCost: number }> }>(
-      '/admin/config',
-    )
+    apiFetch<{
+      resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
+      maxOutputPx?: number;
+    }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
+        if (cfg.maxOutputPx) setMaxOutputPx(cfg.maxOutputPx);
       })
       .catch(() => toast({ kind: 'error', title: 'Failed to load system config' }))
       .finally(() => setSysLoading(false));
@@ -401,7 +404,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     try {
       await apiFetch('/admin/config', {
         method: 'PATCH',
-        body: JSON.stringify({ resolutions }),
+        body: JSON.stringify({ resolutions, maxOutputPx }),
       });
       toast({ title: 'System config saved' });
     } catch {
@@ -997,8 +1000,51 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                   </div>
                 </div>
 
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Max Output Resolution
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Platform-wide ceiling on the long edge of a generated image, in pixels. Applies
+                    to every job regardless of which workflow produced it.
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                      maxWidth: 260,
+                    }}
+                  >
+                    <input
+                      className="input"
+                      type="number"
+                      min={512}
+                      max={4096}
+                      style={{ width: 100 }}
+                      value={maxOutputPx}
+                      disabled={sysSaving}
+                      onChange={(e) => setMaxOutputPx(Number(e.target.value))}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>px, long edge</span>
+                  </div>
+                </div>
+
                 <div className="setting-actions">
-                  <button className="btn primary" onClick={saveSysConfig} disabled={sysSaving}>
+                  <button
+                    className="btn primary"
+                    onClick={saveSysConfig}
+                    disabled={
+                      sysSaving ||
+                      !Number.isInteger(maxOutputPx) ||
+                      maxOutputPx < 512 ||
+                      maxOutputPx > 4096
+                    }
+                  >
                     {sysSaving ? 'Saving…' : 'Save'}
                   </button>
                 </div>

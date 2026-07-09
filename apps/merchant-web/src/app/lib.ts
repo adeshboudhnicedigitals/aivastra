@@ -3,20 +3,6 @@ import { redirect } from 'next/navigation';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-export interface WidgetSettings {
-  widgetName?: string;
-  position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
-  primaryColor?: string;
-  buttonColor?: string;
-  bgColor?: string;
-  borderRadius?: number;
-  shadow?: boolean;
-  minSizeMb?: number;
-  maxSizeMb?: number;
-  cameraUpload?: boolean;
-  customCss?: string;
-}
-
 export interface MerchantData {
   id: string;
   companyName: string;
@@ -24,14 +10,11 @@ export interface MerchantData {
   email: string;
   phone: string;
   websiteUrl: string;
-  widgetKey: string;
   creditBalance: number;
   isActive: boolean;
   kioskEnabled: boolean;
   maxKioskDevices: number;
   userId: string | null;
-  allowedOrigins: string[];
-  settings: WidgetSettings;
   createdAt: string;
 }
 

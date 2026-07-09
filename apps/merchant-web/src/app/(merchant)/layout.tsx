@@ -1,10 +1,8 @@
 'use client';
 
 import {
-  BookOpen,
   CreditCard,
   Grid2x2,
-  KeyRound,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -12,7 +10,6 @@ import {
   Moon,
   Package,
   PhoneCall,
-  Settings,
   Sun,
   UserCircle2,
   X,
@@ -43,10 +40,7 @@ const SIDEBAR_WIDTH = 260;
 const NAV: NavSection[] = [
   {
     section: 'Overview',
-    items: [
-      { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-      { label: 'Widget Embed', href: '/api-keys', icon: KeyRound },
-    ],
+    items: [{ label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }],
   },
   {
     section: 'Kiosk',
@@ -58,11 +52,7 @@ const NAV: NavSection[] = [
   },
   {
     section: 'Account',
-    items: [
-      { label: 'Settings', href: '/settings', icon: Settings },
-      { label: 'Documentation', href: '/documentation', icon: BookOpen },
-      { label: 'Pricing', href: '/pricing', icon: CreditCard },
-    ],
+    items: [{ label: 'Pricing', href: '/pricing', icon: CreditCard }],
   },
 ];
 

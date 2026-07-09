@@ -1,5 +1,5 @@
 'use client';
-import { WidgetClientSignup } from '@aivastra/types';
+import { MerchantSignup } from '@aivastra/types';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Check } from 'lucide-react';
 import Link from 'next/link';
@@ -9,7 +9,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { LogoAuth } from '@/components/logo';
 
-const SignupSchema = WidgetClientSignup.extend({
+const SignupSchema = MerchantSignup.extend({
   confirm: z.string().min(1, 'Please confirm your password'),
   terms: z.literal(true, { errorMap: () => ({ message: 'You must agree to the terms' }) }),
 }).refine((d) => d.password === d.confirm, {
