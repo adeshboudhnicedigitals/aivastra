@@ -11,6 +11,8 @@ let c: Containers;
 let app: TestApp;
 let storeId: string;
 
+let workflowTemplateId: string;
+
 beforeAll(async () => {
   c = await startContainers();
   app = await buildTestApp(c, { SHOPIFY_TOKEN_ENC_KEY: ENC_KEY });
@@ -27,11 +29,34 @@ beforeAll(async () => {
     'read_products',
   );
   storeId = store.id;
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: 'sync-test',
+      label: 'Sync Test WF',
+      jsonContent: {},
+      faceNodeId: 'x',
+      poseNodeId: 'x',
+      bgNodeId: 'x',
+      upperNodeIds: [],
+      facePhasePromptNode: 'x',
+      garmentPhasePromptNode: 'x',
+      workflowType: 'tryon',
+    })
+    .returning();
+  workflowTemplateId = wf.id;
 });
 afterAll(async () => {
   await app?.close();
   await c?.stop();
 });
+
+const mockFetch = (async () =>
+  ({
+    ok: true,
+    arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    headers: new Map([['content-type', 'image/jpeg']]),
+  }) as unknown as Response) as typeof fetch;
 
 describe('syncProduct', () => {
   it('uploads first image to R2 and upserts an active garment row', async () => {
@@ -195,5 +220,135 @@ describe('syncProduct', () => {
       );
     expect(row.status).toBe('failed');
     expect(row.failedReason).toContain('10MB');
+  });
+
+  it('persists product_type/tags/vendor and leaves funnel unassigned with no matching rule', async () => {
+    await syncProduct(
+      app,
+      storeId,
+      {
+        id: 501,
+        title: 'Test Shirt',
+        image: { src: 'https://cdn.shopify.com/shirt.jpg' },
+        product_type: 'Shirts',
+        tags: 'Sale, Cotton',
+        vendor: 'Acme Co',
+      },
+      mockFetch,
+    );
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 501),
+        ),
+      );
+    expect(row.productType).toBe('Shirts');
+    expect(row.tags).toEqual(['Sale', 'Cotton']);
+    expect(row.vendor).toBe('Acme Co');
+    expect(row.funnelTemplateId).toBeNull();
+    expect(row.funnelAssignmentSource).toBeNull();
+  });
+
+  it('auto-assigns a funnel template when an automated rule matches', async () => {
+    const [template] = await app.db
+      .insert(schema.shopifyFunnelTemplates)
+      .values({ slug: 'upper-test', label: 'Upper', workflowTemplateId })
+      .returning();
+    await app.db.insert(schema.shopifyFunnelRules).values({
+      storeId,
+      funnelTemplateId: template.id,
+      mode: 'automated',
+      conditions: [{ field: 'product_type', operator: 'equals', value: 'Shirts' }],
+      priority: 0,
+    });
+
+    await syncProduct(
+      app,
+      storeId,
+      {
+        id: 502,
+        title: 'Auto-Assigned Shirt',
+        image: { src: 'https://cdn.shopify.com/shirt2.jpg' },
+        product_type: 'Shirts',
+        tags: '',
+        vendor: 'Acme Co',
+      },
+      mockFetch,
+    );
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 502),
+        ),
+      );
+    expect(row.funnelTemplateId).toBe(template.id);
+    expect(row.funnelAssignmentSource).toBe('automated');
+  });
+
+  it('does not overwrite a manually-assigned funnel on re-sync', async () => {
+    const [manualTemplate] = await app.db
+      .insert(schema.shopifyFunnelTemplates)
+      .values({ slug: 'manual-test', label: 'Manual Pick', workflowTemplateId })
+      .returning();
+
+    await syncProduct(
+      app,
+      storeId,
+      {
+        id: 503,
+        title: 'Manually Pinned',
+        image: { src: 'https://cdn.shopify.com/shirt3.jpg' },
+        product_type: 'Shirts',
+        tags: '',
+        vendor: '',
+      },
+      mockFetch,
+    );
+    const [before] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 503),
+        ),
+      );
+    await app.db
+      .update(schema.shopifyProductGarments)
+      .set({ funnelTemplateId: manualTemplate.id, funnelAssignmentSource: 'manual' })
+      .where(eq(schema.shopifyProductGarments.id, before.id));
+
+    await syncProduct(
+      app,
+      storeId,
+      {
+        id: 503,
+        title: 'Manually Pinned (re-synced)',
+        image: { src: 'https://cdn.shopify.com/shirt3.jpg' },
+        product_type: 'Pants',
+        tags: '',
+        vendor: '',
+      },
+      mockFetch,
+    );
+    const [after] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 503),
+        ),
+      );
+    expect(after.funnelTemplateId).toBe(manualTemplate.id);
+    expect(after.funnelAssignmentSource).toBe('manual');
   });
 });

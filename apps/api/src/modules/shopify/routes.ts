@@ -2,6 +2,7 @@ import type { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
 import { shopifyAuthRoutes } from './auth.routes.js';
 import { shopifyBillingRoutes } from './billing.routes.js';
+import { shopifyFunnelRoutes } from './funnel.routes.js';
 import { shopifyMeRoutes } from './me.routes.js';
 import { shopifyOnboardingRoutes } from './onboarding.routes.js';
 import { shopifyProductsRoutes } from './products.routes.js';
@@ -20,6 +21,7 @@ export async function shopifyRoutes(app: FastifyInstance) {
   await app.register(shopifyBillingRoutes);
   await app.register(shopifyProductsRoutes);
   await app.register(shopifyOnboardingRoutes);
+  await app.register(shopifyFunnelRoutes);
   // Plain (non-fp) function: gets its own encapsulated child context, so the
   // raw-body JSON content-type parser registered inside stays scoped to these
   // webhook routes only and never leaks to sibling routes or the rest of the app.

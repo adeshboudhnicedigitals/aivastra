@@ -1,12 +1,16 @@
 import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { assignFunnelFromRules } from './funnel-rules.js';
 import { SHOPIFY_API_VERSION } from './service.js';
 
 interface ShopifyProduct {
   id: number;
   title: string;
   image?: { src?: string } | null;
+  product_type?: string;
+  tags?: string;
+  vendor?: string;
 }
 
 /** Minimal shape we need from a fetch Response — lets tests pass a plain object
@@ -44,9 +48,12 @@ async function upsertGarment(
   r2Key: string,
   title: string,
   status: string,
+  productType: string | null,
+  tags: string[] | null,
+  vendor: string | null,
   failedReason?: string,
 ) {
-  await app.db
+  const [row] = await app.db
     .insert(schema.shopifyProductGarments)
     .values({
       storeId,
@@ -55,6 +62,9 @@ async function upsertGarment(
       r2Key,
       title,
       status,
+      productType,
+      tags,
+      vendor,
       failedReason,
     })
     .onConflictDoUpdate({
@@ -63,16 +73,18 @@ async function upsertGarment(
         schema.shopifyProductGarments.shopifyProductId,
         schema.shopifyProductGarments.shopifyVariantId,
       ],
-      // r2Key intentionally excluded: a merchant's chosen garment image (set via
-      // PATCH /v1/shopify/products/:id, stored at a distinct garment-<uuid>.jpg key)
-      // must survive routine product re-syncs (products/update webhook fires on any
-      // edit -- price, description, tags, ...). syncProduct always downloads to the
-      // same deterministic `garment.jpg` path regardless of any override, so a
-      // never-overridden row's r2Key already equals that path from its initial
-      // insert -- excluding it from the update changes nothing for that case, while
-      // correctly preserving an override.
-      set: { title, status, failedReason: failedReason ?? null, syncedAt: sql`now()` },
-    });
+      set: {
+        title,
+        status,
+        productType,
+        tags,
+        vendor,
+        failedReason: failedReason ?? null,
+        syncedAt: sql`now()`,
+      },
+    })
+    .returning();
+  return row;
 }
 
 export async function syncProduct(
@@ -82,17 +94,31 @@ export async function syncProduct(
   fetchFn: FetchLike = fetch as unknown as FetchLike,
 ): Promise<void> {
   const r2Key = `shopify-garments/${storeId}/${product.id}/garment.jpg`;
+  const productType = product.product_type ?? null;
+  const tags = product.tags
+    ? product.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+    : null;
+  const vendor = product.vendor ?? null;
   const src = product.image?.src;
   if (!src) {
-    await upsertGarment(
+    const row = await upsertGarment(
       app,
       storeId,
       product.id,
       r2Key,
       product.title,
       'failed',
+      productType,
+      tags,
+      vendor,
       'no product image',
     );
+    if (row.funnelAssignmentSource !== 'manual') {
+      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor });
+    }
     return;
   }
   try {
@@ -101,9 +127,6 @@ export async function syncProduct(
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let res: FetchLikeResponse;
     try {
-      // redirect: 'error' stops assertShopifyCdn's host allowlist from being bypassed by
-      // a redirect (e.g. 302 from an allowed host to an arbitrary/internal host) — fetch
-      // throws instead of following it, which the outer catch below already handles.
       res = await fetchFn(src, { redirect: 'error', signal: controller.signal });
     } finally {
       clearTimeout(timeout);
@@ -120,18 +143,37 @@ export async function syncProduct(
     const buf = Buffer.from(arrayBuffer);
     const ct = res.headers.get('content-type') ?? 'image/jpeg';
     await app.storage.putObject(r2Key, buf, ct);
-    await upsertGarment(app, storeId, product.id, r2Key, product.title, 'active');
+    const row = await upsertGarment(
+      app,
+      storeId,
+      product.id,
+      r2Key,
+      product.title,
+      'active',
+      productType,
+      tags,
+      vendor,
+    );
+    if (row.funnelAssignmentSource !== 'manual') {
+      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor });
+    }
   } catch (err) {
     app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
-    await upsertGarment(
+    const row = await upsertGarment(
       app,
       storeId,
       product.id,
       r2Key,
       product.title,
       'failed',
+      productType,
+      tags,
+      vendor,
       (err as Error).message,
     );
+    if (row.funnelAssignmentSource !== 'manual') {
+      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor });
+    }
   }
 }
 
