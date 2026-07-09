@@ -384,6 +384,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const [modelBackgroundsList, setModelBackgroundsList] = useState<
     Array<{ id: string; label: string }>
   >([]);
+  const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
 
@@ -402,6 +403,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       maxOutputPx?: number;
       merchantCatalogDefaults?: Record<string, { faceId: string; backgroundId: string }>;
       merchantCatalogAspectRatio?: string;
+      tryon?: { creditCost: number };
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
@@ -409,6 +411,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         if (cfg.merchantCatalogDefaults) setMerchantCatalogDefaults(cfg.merchantCatalogDefaults);
         if (cfg.merchantCatalogAspectRatio)
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
+        if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
       })
       .catch(() => toast({ kind: 'error', title: 'Failed to load system config' }))
       .finally(() => setSysLoading(false));
@@ -433,6 +436,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           maxOutputPx,
           merchantCatalogDefaults,
           merchantCatalogAspectRatio,
+          tryon: { creditCost: tryonCreditCost },
         }),
       });
       toast({ title: 'System config saved' });
@@ -1060,6 +1064,46 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       onChange={(e) => setMaxOutputPx(Number(e.target.value))}
                     />
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>px, long edge</span>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Virtual Try-On Pricing
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Credit cost per virtual try-on generation (studio "reuse as try-on" and saree
+                    try-on both share this cost).
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                    }}
+                  >
+                    <span className="setting-lbl">Try-On</span>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                    >
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        style={{ width: 80, textAlign: 'right' }}
+                        value={tryonCreditCost}
+                        disabled={sysSaving}
+                        onChange={(e) => setTryonCreditCost(Number(e.target.value))}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        credits / try-on
+                      </span>
+                    </div>
                   </div>
                 </div>
 

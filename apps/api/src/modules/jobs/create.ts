@@ -8,13 +8,16 @@ import {
   type CreateTryOnJobRequest,
   type Resolution,
   resolutionFromDims,
-  SIMPLE_TRYON_COST,
 } from '@aivastra/types';
 import { aliasedTable, and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { getMaxOutputPx, getResolutionCreditCost } from '../../lib/resolution-config.js';
+import {
+  getMaxOutputPx,
+  getResolutionCreditCost,
+  getTryonCreditCost,
+} from '../../lib/resolution-config.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
@@ -213,6 +216,7 @@ export async function createJob(
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
       configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+      configIsActive: schema.poseGarmentConfigs.isActive,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
       overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
@@ -233,6 +237,13 @@ export async function createJob(
       eq(schema.poseGarmentConfigs.workflowTemplateId, overrideWorkflow.id),
     )
     .where(inArray(schema.modelPoseAssets.id, poseIds));
+
+  // A per-garment-type active override can hide a pose for this garment type
+  // specifically (see /v1/models/poses) — reject here too so a stale client can't
+  // submit a job for a pose+garmentType combo the admin explicitly disabled.
+  if (garmentTypeId && poseWorkflowRows.some((r) => r.configIsActive === false)) {
+    throw new AppError('BAD_CATALOG', 400, 'one or more poses not found or inactive');
+  }
 
   const poseWorkflows = poseWorkflowRows.map((r) => ({
     poseId: r.poseId,
@@ -365,7 +376,7 @@ export async function createSimpleTryonJob(
   body: z.infer<typeof CreateSimpleTryonRequest>,
 ) {
   const { personKey, sourceJobId } = body;
-  const COST = SIMPLE_TRYON_COST;
+  const COST = await getTryonCreditCost(app);
 
   await assertOwnsUploadKey(app, userId, personKey);
 

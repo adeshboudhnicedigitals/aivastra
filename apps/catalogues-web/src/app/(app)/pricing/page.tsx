@@ -637,7 +637,8 @@ export default function PricingPage(): React.ReactElement {
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            // Single column while the Virtual Try-On tab below is commented out.
+            gridTemplateColumns: '1fr',
             borderRadius: 14,
             border: `1px solid ${C.border}`,
             background: C.white,
@@ -684,9 +685,10 @@ export default function PricingPage(): React.ReactElement {
                   </svg>
                 ),
               },
+              /* AI Virtual Try-On Offline tab — hidden for now, keep for later re-enable.
               {
                 key: 'tryon',
-                label: 'AI Virtual Try-On',
+                label: 'AI Virtual Try-On Offline',
                 icon: (
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
@@ -703,6 +705,7 @@ export default function PricingPage(): React.ReactElement {
                   </svg>
                 ),
               },
+              */
             ] as const
           ).map((tab) => {
             const isActive = activeTab === tab.key;
@@ -739,7 +742,8 @@ export default function PricingPage(): React.ReactElement {
 
       {/* Pricing cards */}
       <div style={{ background: C.bg }}>
-        {activeTab === 'tryon' && (
+        {/* AI Virtual Try-On Offline pricing cards — hidden for now (gated to false), keep for later re-enable. */}
+        {false && activeTab === 'tryon' && (
           <div style={{ padding: '0 10px 48px', maxWidth: 1320, margin: '0 auto' }}>
             {/* Two option cards */}
             <div
@@ -811,12 +815,13 @@ export default function PricingPage(): React.ReactElement {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
+                    height: 64,
                   }}
                 >
-                  <span
+                  <div
                     style={{
-                      width: 32,
-                      height: 32,
+                      width: 40,
+                      height: 40,
                       borderRadius: 10,
                       background: C.card,
                       border: `1px solid ${C.border}`,
@@ -827,19 +832,35 @@ export default function PricingPage(): React.ReactElement {
                     }}
                   >
                     <Shirt size={16} color={C.text} />
-                  </span>
+                  </div>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: C.text, lineHeight: 1 }}>
-                      50,000
+                    <div
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 600,
+                        color: C.text,
+                        lineHeight: '20px',
+                        letterSpacing: 0,
+                      }}
+                    >
+                      Up to 30,000
                     </div>
-                    <div style={{ fontSize: 9, color: C.mid, marginTop: 2 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 500,
+                        color: C.mid,
+                        lineHeight: '16px',
+                        letterSpacing: 0,
+                      }}
+                    >
                       Virtual Try-On Sessions
                     </div>
                   </div>
                 </div>
 
                 {/* Features */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: 361.33 }}>
                   {[
                     'Unlimited AI Models',
                     'Unlimited Backgrounds Library',
@@ -847,7 +868,16 @@ export default function PricingPage(): React.ReactElement {
                     'Priority Support',
                     'Regular Feature Updates',
                   ].map((f) => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div
+                      key={f}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        width: 361.33,
+                        height: 18,
+                      }}
+                    >
                       <span
                         style={{
                           width: 18,
@@ -881,12 +911,13 @@ export default function PricingPage(): React.ReactElement {
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
+                      height: 64,
                     }}
                   >
                     <span
                       style={{
-                        width: 34,
-                        height: 34,
+                        width: 40,
+                        height: 40,
                         borderRadius: 8,
                         background: C.card,
                         border: `1px solid ${C.border}`,
@@ -899,10 +930,26 @@ export default function PricingPage(): React.ReactElement {
                       <ImagePlus size={14} color={C.text} />
                     </span>
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
+                      <div
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: C.text,
+                          lineHeight: '20px',
+                          letterSpacing: 0,
+                        }}
+                      >
                         ₹15 per Image
                       </div>
-                      <div style={{ fontSize: 10, color: C.mid, marginTop: 1 }}>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 500,
+                          color: C.mid,
+                          lineHeight: '16px',
+                          letterSpacing: 0,
+                        }}
+                      >
                         Generate additional AI catalogue images
                       </div>
                     </div>
@@ -1033,13 +1080,14 @@ export default function PricingPage(): React.ReactElement {
                           padding: '8px 6px',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 6,
+                          gap: 8,
+                          height: 64,
                         }}
                       >
-                        <span
+                        <div
                           style={{
-                            width: 24,
-                            height: 24,
+                            width: 40,
+                            height: 40,
                             borderRadius: 6,
                             background: s.iconBg,
                             display: 'inline-flex',
@@ -1049,15 +1097,27 @@ export default function PricingPage(): React.ReactElement {
                           }}
                         >
                           {s.icon}
-                        </span>
+                        </div>
                         <div>
                           <div
-                            style={{ fontSize: 14, fontWeight: 800, color: C.text, lineHeight: 1 }}
+                            style={{
+                              fontSize: 16,
+                              fontWeight: 600,
+                              color: C.text,
+                              lineHeight: '20px',
+                              letterSpacing: 0,
+                            }}
                           >
                             {s.count}
                           </div>
                           <div
-                            style={{ fontSize: 9, color: C.mid, marginTop: 1, lineHeight: '12px' }}
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 500,
+                              color: C.mid,
+                              lineHeight: '16px',
+                              letterSpacing: 0,
+                            }}
                           >
                             {s.label}
                           </div>
@@ -1068,7 +1128,7 @@ export default function PricingPage(): React.ReactElement {
                 </div>
 
                 {/* Features */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: 361.33 }}>
                   {[
                     'AI Catalogue Generation & Virtual Try-On',
                     'Unlimited AI Models',
@@ -1076,7 +1136,16 @@ export default function PricingPage(): React.ReactElement {
                     'White-Label Branding',
                     'Priority Technical Support',
                   ].map((f) => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div
+                      key={f}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        width: 361.33,
+                        height: 18,
+                      }}
+                    >
                       <span
                         style={{
                           width: 18,
@@ -1132,8 +1201,8 @@ export default function PricingPage(): React.ReactElement {
                         >
                           <span
                             style={{
-                              width: 34,
-                              height: 34,
+                              width: 40,
+                              height: 40,
                               borderRadius: 8,
                               border: `1px solid ${C.border}`,
                               background: C.card,
@@ -1146,10 +1215,28 @@ export default function PricingPage(): React.ReactElement {
                             {a.icon}
                           </span>
                           <div>
-                            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
+                            <div
+                              style={{
+                                fontSize: 16,
+                                fontWeight: 600,
+                                color: C.text,
+                                lineHeight: '20px',
+                                letterSpacing: 0,
+                              }}
+                            >
                               {a.val}
                             </div>
-                            <div style={{ fontSize: 10, color: C.mid }}>{a.label}</div>
+                            <div
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 500,
+                                color: C.mid,
+                                lineHeight: '16px',
+                                letterSpacing: 0,
+                              }}
+                            >
+                              {a.label}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1173,195 +1260,6 @@ export default function PricingPage(): React.ReactElement {
                     border: 'none',
                     background: 'linear-gradient(to right, #F55C7A, #F6B553)',
                     color: '#fff',
-                    fontFamily: 'inherit',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                  }}
-                >
-                  Contact Sales <ArrowRight size={14} />
-                </button>
-              </div>
-
-              {/* Option 3 — copy of Option 2 */}
-              <div
-                style={{
-                  width: 410,
-                  flex: '0 0 auto',
-                  background: C.card,
-                  border: `2px solid color-mix(in srgb, ${C.mid} 30%, transparent)`,
-                  borderRadius: 20,
-                  padding: 24,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 20,
-                  boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
-                }}
-              >
-                {/* Badge */}
-                <span
-                  style={{
-                    alignSelf: 'flex-start',
-                    padding: '4px 14px',
-                    borderRadius: 6,
-                    background: C.field,
-                    border: `1px solid color-mix(in srgb, ${C.mid} 35%, transparent)`,
-                    color: C.text,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: '0.5px',
-                  }}
-                >
-                  Offline
-                </span>
-
-                <div style={{ fontSize: 18, fontWeight: 800, color: C.text, lineHeight: 1.2 }}>
-                  Virtual Try-On Platform
-                </div>
-
-                {/* Price */}
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                  <span
-                    style={{
-                      fontSize: 36,
-                      fontWeight: 900,
-                      color: C.text,
-                      letterSpacing: '-1.5px',
-                    }}
-                  >
-                    ₹30,000
-                  </span>
-                  <span style={{ fontSize: 13, color: C.mid }}>/month + GST</span>
-                </div>
-
-                {/* Key stat */}
-                <div
-                  style={{
-                    background: C.field,
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 12,
-                    padding: '12px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                  }}
-                >
-                  <span
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 10,
-                      background: C.card,
-                      border: `1px solid ${C.border}`,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Shirt size={16} color={C.text} />
-                  </span>
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: C.text, lineHeight: 1 }}>
-                      50,000
-                    </div>
-                    <div style={{ fontSize: 9, color: C.mid, marginTop: 2 }}>
-                      Virtual Try-On Sessions
-                    </div>
-                  </div>
-                </div>
-
-                {/* Features */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {[
-                    'Unlimited AI Models',
-                    'Unlimited Backgrounds Library',
-                    'White-Label Integration',
-                    'Priority Support',
-                    'Regular Feature Updates',
-                  ].map((f) => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span
-                        style={{
-                          width: 18,
-                          height: 18,
-                          borderRadius: '50%',
-                          background: C.field,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <CheckIcon size={10} color={C.text} />
-                      </span>
-                      <span style={{ fontSize: 12, color: C.text, fontWeight: 500 }}>{f}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Catalogue note — below features */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text }}>
-                    Need AI Catalogue Images?
-                  </div>
-                  <div
-                    style={{
-                      background: C.field,
-                      border: `1px solid ${C.border}`,
-                      borderRadius: 10,
-                      padding: '10px 12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 8,
-                        background: C.card,
-                        border: `1px solid ${C.border}`,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <ImagePlus size={14} color={C.text} />
-                    </span>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
-                        ₹15 per Image
-                      </div>
-                      <div style={{ fontSize: 10, color: C.mid, marginTop: 1 }}>
-                        Generate additional AI catalogue images
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  className="btn-hover-opacity"
-                  onClick={() =>
-                    setSalesModal(
-                      "Hi, I'm interested in the Virtual Try-On Only plan (Option 2 — ₹30,000/month). Please get in touch with more details.",
-                    )
-                  }
-                  style={{
-                    marginTop: 'auto',
-                    width: '100%',
-                    padding: 11,
-                    borderRadius: 10,
-                    border: 'none',
-                    background: C.text,
-                    color: C.card,
                     fontFamily: 'inherit',
                     fontWeight: 700,
                     fontSize: 14,
@@ -1511,12 +1409,7 @@ export default function PricingPage(): React.ReactElement {
                           >
                             {displayBase(plan.basePaise)}
                           </span>
-                          <span style={{ fontSize: 14, color: C.mid, marginLeft: 4 }}>/ month</span>
-                          <div style={{ fontSize: 11, color: C.light, marginTop: 5 }}>
-                            {isNonIn
-                              ? `Billed as ${paise(plan.basePaise + Math.round(plan.basePaise * GST_RATE))} INR`
-                              : `+ ${displayTax(plan.basePaise)} GST = ${displayTotal(plan.basePaise)} total`}
-                          </div>
+                          <span style={{ fontSize: 14, color: C.mid, marginLeft: 4 }}>+ Taxes</span>
                         </div>
 
                         {/* Usage overview — 2K / 4K image counts */}
