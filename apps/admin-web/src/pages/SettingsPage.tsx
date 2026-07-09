@@ -374,6 +374,16 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     '4K': { enabled: true, creditCost: 40 },
   });
   const [maxOutputPx, setMaxOutputPx] = useState(2048);
+  const [merchantCatalogDefaults, setMerchantCatalogDefaults] = useState<
+    Record<string, { faceId: string; backgroundId: string }>
+  >({});
+  const [merchantCatalogAspectRatio, setMerchantCatalogAspectRatio] = useState('2:3');
+  const [modelFacesList, setModelFacesList] = useState<
+    Array<{ id: string; label: string; gender: string }>
+  >([]);
+  const [modelBackgroundsList, setModelBackgroundsList] = useState<
+    Array<{ id: string; label: string }>
+  >([]);
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
 
@@ -390,21 +400,40 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     apiFetch<{
       resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
       maxOutputPx?: number;
+      merchantCatalogDefaults?: Record<string, { faceId: string; backgroundId: string }>;
+      merchantCatalogAspectRatio?: string;
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
         if (cfg.maxOutputPx) setMaxOutputPx(cfg.maxOutputPx);
+        if (cfg.merchantCatalogDefaults) setMerchantCatalogDefaults(cfg.merchantCatalogDefaults);
+        if (cfg.merchantCatalogAspectRatio)
+          setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
       })
       .catch(() => toast({ kind: 'error', title: 'Failed to load system config' }))
       .finally(() => setSysLoading(false));
   }, [toast]);
+
+  useEffect(() => {
+    apiFetch<{ items: Array<{ id: string; label: string; gender: string }> }>('/admin/assets/faces')
+      .then((res) => setModelFacesList(res.items))
+      .catch(() => {});
+    apiFetch<{ items: Array<{ id: string; label: string }> }>('/admin/assets/backgrounds')
+      .then((res) => setModelBackgroundsList(res.items))
+      .catch(() => {});
+  }, []);
 
   const saveSysConfig = async () => {
     setSysSaving(true);
     try {
       await apiFetch('/admin/config', {
         method: 'PATCH',
-        body: JSON.stringify({ resolutions, maxOutputPx }),
+        body: JSON.stringify({
+          resolutions,
+          maxOutputPx,
+          merchantCatalogDefaults,
+          merchantCatalogAspectRatio,
+        }),
       });
       toast({ title: 'System config saved' });
     } catch {
@@ -1031,6 +1060,91 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       onChange={(e) => setMaxOutputPx(Number(e.target.value))}
                     />
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>px, long edge</span>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Merchant Catalogue Defaults
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Fixed model/background used when a merchant generates a catalogue image from a
+                    flat garment photo — guarantees every generated image is try-on-suitable.
+                  </div>
+                  {(['men', 'women', 'boys', 'girls'] as const).map((cat) => (
+                    <div
+                      key={cat}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '80px 1fr 1fr',
+                        gap: 12,
+                        alignItems: 'center',
+                        marginBottom: 10,
+                      }}
+                    >
+                      <label style={{ textTransform: 'capitalize' }}>{cat}</label>
+                      <select
+                        className="select"
+                        value={merchantCatalogDefaults[cat]?.faceId ?? ''}
+                        disabled={sysSaving}
+                        onChange={(e) =>
+                          setMerchantCatalogDefaults((prev) => ({
+                            ...prev,
+                            [cat]: {
+                              ...prev[cat],
+                              faceId: e.target.value,
+                              backgroundId: prev[cat]?.backgroundId ?? '',
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">— select face —</option>
+                        {modelFacesList
+                          .filter((f) => f.gender === cat)
+                          .map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.label}
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        className="select"
+                        value={merchantCatalogDefaults[cat]?.backgroundId ?? ''}
+                        disabled={sysSaving}
+                        onChange={(e) =>
+                          setMerchantCatalogDefaults((prev) => ({
+                            ...prev,
+                            [cat]: {
+                              faceId: prev[cat]?.faceId ?? '',
+                              backgroundId: e.target.value,
+                            },
+                          }))
+                        }
+                      >
+                        <option value="">— select background —</option>
+                        {modelBackgroundsList.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  <div style={{ maxWidth: 200 }}>
+                    <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                      Aspect ratio
+                    </div>
+                    <select
+                      className="select"
+                      value={merchantCatalogAspectRatio}
+                      disabled={sysSaving}
+                      onChange={(e) => setMerchantCatalogAspectRatio(e.target.value)}
+                    >
+                      <option value="1:1">1:1</option>
+                      <option value="2:3">2:3</option>
+                      <option value="3:4">3:4</option>
+                      <option value="4:5">4:5</option>
+                    </select>
                   </div>
                 </div>
 
