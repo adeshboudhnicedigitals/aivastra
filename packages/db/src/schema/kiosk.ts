@@ -1,12 +1,12 @@
 import { pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { jobs } from './jobs.js';
-import { widgetClients } from './widget.js';
+import { merchants } from './merchant.js';
 
 export const kioskDevices = pgTable('kiosk_devices', {
   id: uuid('id').primaryKey().defaultRandom(),
-  widgetClientId: uuid('widget_client_id')
+  merchantId: uuid('merchant_id')
     .notNull()
-    .references(() => widgetClients.id, { onDelete: 'cascade' }),
+    .references(() => merchants.id, { onDelete: 'cascade' }),
   label: text('label').notNull(),
   status: text('status').notNull().default('pending'),
   pairingCodeHash: text('pairing_code_hash'),
@@ -27,16 +27,16 @@ export const kioskResultLikes = pgTable(
     jobId: uuid('job_id')
       .notNull()
       .references(() => jobs.id, { onDelete: 'cascade' }),
-    widgetClientId: uuid('widget_client_id')
+    merchantId: uuid('merchant_id')
       .notNull()
-      .references(() => widgetClients.id, { onDelete: 'cascade' }),
+      .references(() => merchants.id, { onDelete: 'cascade' }),
     kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
       onDelete: 'set null',
     }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    uniq: unique('kiosk_result_likes_job_widget_unique').on(t.jobId, t.widgetClientId),
+    uniq: unique('kiosk_result_likes_job_merchant_unique').on(t.jobId, t.merchantId),
   }),
 );
 
@@ -47,15 +47,15 @@ export const kioskResultCartItems = pgTable(
     jobId: uuid('job_id')
       .notNull()
       .references(() => jobs.id, { onDelete: 'cascade' }),
-    widgetClientId: uuid('widget_client_id')
+    merchantId: uuid('merchant_id')
       .notNull()
-      .references(() => widgetClients.id, { onDelete: 'cascade' }),
+      .references(() => merchants.id, { onDelete: 'cascade' }),
     kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
       onDelete: 'set null',
     }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    uniq: unique('kiosk_result_cart_items_job_widget_unique').on(t.jobId, t.widgetClientId),
+    uniq: unique('kiosk_result_cart_items_job_merchant_unique').on(t.jobId, t.merchantId),
   }),
 );

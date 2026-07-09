@@ -75,6 +75,10 @@ export const SystemConfigBody = z.object({
       '4K': ResolutionConfig.optional(),
     })
     .optional(),
+  // Platform-wide ceiling on requested output long edge (px). Not per-workflow —
+  // final image resolution is a product/pricing decision, unlike latentMaxPx
+  // (per-template, VRAM-bound diffusion canvas size).
+  maxOutputPx: z.number().int().min(512).max(4096).optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────

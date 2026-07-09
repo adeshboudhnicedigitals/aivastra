@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const WidgetClientSignup = z.object({
+export const MerchantSignup = z.object({
   companyName: z.string().min(1),
   contactName: z.string().min(1),
   email: z.string().email(),
@@ -11,24 +11,24 @@ export const WidgetClientSignup = z.object({
   businessAddress: z.string().min(1),
   password: z.string().min(8),
 });
-export type WidgetClientSignup = z.infer<typeof WidgetClientSignup>;
+export type MerchantSignup = z.infer<typeof MerchantSignup>;
 
-export const WidgetClientLogin = z.object({
+export const MerchantLogin = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
-export type WidgetClientLogin = z.infer<typeof WidgetClientLogin>;
+export type MerchantLogin = z.infer<typeof MerchantLogin>;
 
-export const WidgetClientProfileUpdate = z.object({
+export const MerchantProfileUpdate = z.object({
   contactName: z.string().min(1).max(120),
   phone: z.string().min(1).max(40),
   companyName: z.string().min(1).max(160),
   websiteUrl: z.string().url(),
 });
-export type WidgetClientProfileUpdate = z.infer<typeof WidgetClientProfileUpdate>;
+export type MerchantProfileUpdate = z.infer<typeof MerchantProfileUpdate>;
 
 /**
- * Authoritative merchant plan billing data â€” the single source of truth for
+ * Authoritative merchant plan billing data — the single source of truth for
  * money. The API computes order amounts from THIS, never from client input.
  * The web pricing UI merges display-only metadata on top of these by slug.
  */
@@ -61,50 +61,6 @@ export const MerchantPaymentVerify = z.object({
   razorpaySignature: z.string().min(1),
 });
 export type MerchantPaymentVerify = z.infer<typeof MerchantPaymentVerify>;
-
-export const WidgetSettingsUpdate = z.object({
-  settings: z
-    .object({
-      widgetName: z.string().max(80).optional(),
-      position: z.enum(['bottom-right', 'bottom-left', 'top-right', 'top-left']).optional(),
-      primaryColor: z.string().max(32).optional(),
-      buttonColor: z.string().max(32).optional(),
-      bgColor: z.string().max(32).optional(),
-      borderRadius: z.number().int().min(0).max(64).optional(),
-      shadow: z.boolean().optional(),
-      minSizeMb: z.number().min(0).max(50).optional(),
-      maxSizeMb: z.number().min(0).max(50).optional(),
-      cameraUpload: z.boolean().optional(),
-      customCss: z.string().max(5000).optional(),
-    })
-    .optional(),
-  allowedOrigins: z.array(z.string().max(255)).max(50).optional(),
-});
-export type WidgetSettingsUpdate = z.infer<typeof WidgetSettingsUpdate>;
-
-export const WidgetJobRequest = z.object({
-  garmentImageUrl: z.string().url(),
-  customerPhotoKey: z.string(),
-  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).default('2:3'),
-});
-export type WidgetJobRequest = z.infer<typeof WidgetJobRequest>;
-
-export const WidgetPresignRequest = z.object({
-  contentType: z.string(),
-  contentLength: z
-    .number()
-    .int()
-    .positive()
-    .max(5 * 1024 * 1024),
-});
-export type WidgetPresignRequest = z.infer<typeof WidgetPresignRequest>;
-
-export const WidgetConfigResponse = z.object({
-  widgetClientId: z.string().uuid(),
-  companyName: z.string(),
-  isActive: z.boolean(),
-});
-export type WidgetConfigResponse = z.infer<typeof WidgetConfigResponse>;
 
 export const MerchantCatalogGender = z.enum(['men', 'women', 'boy', 'girl']);
 export type MerchantCatalogGender = z.infer<typeof MerchantCatalogGender>;
@@ -162,7 +118,7 @@ export type MerchantCatalogImportBody = z.infer<typeof MerchantCatalogImportBody
 
 export const MerchantCatalogItem = z.object({
   id: z.string().uuid(),
-  widgetClientId: z.string().uuid(),
+  merchantId: z.string().uuid(),
   label: z.string(),
   sku: z.string().nullable(),
   gender: MerchantCatalogGender.nullable(),
@@ -245,7 +201,7 @@ export type KioskJobCreateBody = z.infer<typeof KioskJobCreateBody>;
 export const KioskJobDetailResponse = z.object({
   id: z.string().uuid(),
   status: z.string(),
-  widgetClientId: z.string().uuid(),
+  merchantId: z.string().uuid(),
   kioskDeviceId: z.string().uuid().nullable(),
   resultKey: z.string().nullable(),
   shareUrl: z.string().url().nullable(),
@@ -276,27 +232,23 @@ export const AdminMerchantCatalogUpdateBody = z
   );
 export type AdminMerchantCatalogUpdateBody = z.infer<typeof AdminMerchantCatalogUpdateBody>;
 
-export const AdminWidgetClientUpdateBody = z
+export const AdminMerchantUpdateBody = z
   .object({
     isActive: z.boolean().optional(),
     companyName: z.string().min(1).max(160).optional(),
-    allowedOrigins: z.array(z.string().max(255)).max(50).optional(),
     webhookUrl: z.string().url().nullable().optional(),
     webhookSecret: z.string().max(512).nullable().optional(),
     kioskEnabled: z.boolean().optional(),
     maxKioskDevices: z.number().int().min(1).max(100).optional(),
-    userId: z.string().uuid().nullable().optional(),
   })
   .refine(
     (body) =>
       body.isActive !== undefined ||
       body.companyName !== undefined ||
-      body.allowedOrigins !== undefined ||
       body.webhookUrl !== undefined ||
       body.webhookSecret !== undefined ||
       body.kioskEnabled !== undefined ||
-      body.maxKioskDevices !== undefined ||
-      body.userId !== undefined,
+      body.maxKioskDevices !== undefined,
     { message: 'at least one field is required' },
   );
-export type AdminWidgetClientUpdateBody = z.infer<typeof AdminWidgetClientUpdateBody>;
+export type AdminMerchantUpdateBody = z.infer<typeof AdminMerchantUpdateBody>;

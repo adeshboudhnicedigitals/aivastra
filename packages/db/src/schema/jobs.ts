@@ -10,9 +10,9 @@ import {
 } from 'drizzle-orm/pg-core';
 import { catalogItems } from './catalog.js';
 import { kioskDevices } from './kiosk.js';
+import { merchants } from './merchant.js';
 import { garmentSubcategories, modelBackgrounds, modelFaces, modelPoseAssets } from './models.js';
 import { users } from './users.js';
-import { widgetClients } from './widget.js';
 
 export const jobs = pgTable('jobs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -29,7 +29,7 @@ export const jobs = pgTable('jobs', {
   errorCode: text('error_code'),
   // Nullable self-FK: set only by the regenerate endpoint for traceability.
   parentJobId: uuid('parent_job_id'),
-  widgetClientId: uuid('widget_client_id').references(() => widgetClients.id, {
+  merchantId: uuid('merchant_id').references(() => merchants.id, {
     onDelete: 'set null',
   }),
   kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
