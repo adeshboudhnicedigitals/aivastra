@@ -81,7 +81,8 @@ export default function DashboardPage() {
   const synced = (me?.stats.syncedProductCount ?? 0) > 0;
   const enabled = (me?.stats.enabledProductCount ?? 0) > 0;
   const themeBlockDone = me?.store.settings.themeBlockConfirmed ?? false;
-  const doneCount = [synced, enabled, themeBlockDone].filter(Boolean).length;
+  const funnelConfigured = me?.stats.funnelConfigured ?? false;
+  const doneCount = [synced, enabled, themeBlockDone, funnelConfigured].filter(Boolean).length;
 
   return (
     <Page title="AiVastra Try-On">
@@ -99,7 +100,7 @@ export default function DashboardPage() {
                 <Text as="h2" variant="headingMd">
                   Getting Started
                 </Text>
-                <Badge tone={doneCount === 3 ? 'success' : 'info'}>{`${doneCount}/3`}</Badge>
+                <Badge tone={doneCount === 4 ? 'success' : 'info'}>{`${doneCount}/4`}</Badge>
               </InlineStack>
 
               <InlineStack align="space-between">
@@ -123,6 +124,13 @@ export default function DashboardPage() {
                     I've added it
                   </Button>
                 )}
+              </InlineStack>
+
+              <InlineStack align="space-between">
+                <Text as="p">
+                  {funnelConfigured ? '\u2705' : '\u2B55'} Set up your funnel templates
+                </Text>
+                <Button onClick={() => navigate('/funnel-setup')}>Go to Funnel Setup</Button>
               </InlineStack>
             </BlockStack>
           </Card>

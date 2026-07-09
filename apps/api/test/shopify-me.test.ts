@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -86,6 +87,49 @@ describe('GET /v1/shopify/me stats', () => {
       totalTryOns: 3,
       syncedProductCount: 2,
       enabledProductCount: 1,
+      funnelConfigured: false,
     });
+  });
+});
+
+describe('GET /v1/shopify/me stats.funnelConfigured', () => {
+  it('is false with no funnel assignment, true once one exists', async () => {
+    let res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.json().stats.funnelConfigured).toBe(false);
+
+    const [wf] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: 'me-stat-wf',
+        label: 'Me Stat WF',
+        jsonContent: {},
+        faceNodeId: 'x',
+        poseNodeId: 'x',
+        bgNodeId: 'x',
+        upperNodeIds: [],
+        facePhasePromptNode: 'x',
+        garmentPhasePromptNode: 'x',
+        workflowType: 'tryon',
+      })
+      .returning();
+    const [template] = await app.db
+      .insert(schema.shopifyFunnelTemplates)
+      .values({ slug: 'me-stat-test', label: 'Me Stat Test', workflowTemplateId: wf.id })
+      .returning();
+    await app.db
+      .update(schema.shopifyProductGarments)
+      .set({ funnelTemplateId: template.id, funnelAssignmentSource: 'manual' })
+      .where(eq(schema.shopifyProductGarments.storeId, storeId));
+
+    res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.json().stats.funnelConfigured).toBe(true);
   });
 });
