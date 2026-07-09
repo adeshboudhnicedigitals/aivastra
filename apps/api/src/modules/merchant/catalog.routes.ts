@@ -78,6 +78,76 @@ function catalogueLabel(catalogueId: string | null, jobId: string): string {
   return `Job ${jobId.slice(0, 8)}`;
 }
 
+/**
+ * Copies a completed job's OUTPUT (never the source garment) into a fresh
+ * merchant_catalog_items row. Used by both /import (Path A — merchant hand-picks
+ * an existing studio result) and the generate-completion flow (Path B — merchant
+ * uploaded a flat garment and the studio pipeline generated a catalogue image).
+ * The output image serves BOTH roles: kiosk display AND the ComfyUI try-on input
+ * for later virtual try-on jobs — there is no separate "flat garment" stored as
+ * r2Key; that would defeat guaranteeing every catalogue item is try-on-suitable.
+ */
+async function copyJobOutputIntoProduct(
+  app: FastifyInstance,
+  params: {
+    merchantId: string;
+    subcategoryId: string;
+    job: { id: string; catalogueId: string | null };
+    resultKey: string;
+    thumbnailKey: string | null;
+    sourceKind: 'imported' | 'generated';
+    flatSourceKey?: string;
+    label?: string;
+  },
+): Promise<MerchantCatalogRow> {
+  const sourceThumbKey = params.thumbnailKey ?? params.resultKey;
+  const [imageHead, thumbHead, imageBody, thumbBody] = await Promise.all([
+    app.storage.headObject(params.resultKey),
+    app.storage.headObject(sourceThumbKey),
+    app.storage.getObject(params.resultKey),
+    app.storage.getObject(sourceThumbKey),
+  ]).catch(() => {
+    throw new AppError('BAD_UPLOAD', 400, 'source assets are missing');
+  });
+
+  const assetId = randomUUID();
+  const imageKey = keys.merchantCatalogItem(params.merchantId, assetId);
+  const thumbKey = keys.merchantCatalogItemThumb(params.merchantId, assetId);
+  await Promise.all([
+    app.storage.putObject(imageKey, imageBody, imageHead.contentType ?? 'image/jpeg'),
+    app.storage.putObject(thumbKey, thumbBody, thumbHead.contentType ?? 'image/jpeg'),
+  ]);
+
+  try {
+    const [item] = await app.db
+      .insert(schema.merchantCatalogItems)
+      .values({
+        id: assetId,
+        merchantId: params.merchantId,
+        subcategoryId: params.subcategoryId,
+        label: params.label ?? catalogueLabel(params.job.catalogueId, params.job.id),
+        actualPricePaise: 0,
+        offerPricePaise: 0,
+        r2Key: imageKey,
+        thumbnailKey: thumbKey,
+        sourceJobId: params.job.id,
+        sourceKind: params.sourceKind,
+        flatSourceKey: params.flatSourceKey ?? null,
+      })
+      .returning();
+    return item;
+  } catch (err) {
+    await Promise.allSettled([
+      app.storage.deleteObject(imageKey),
+      app.storage.deleteObject(thumbKey),
+    ]);
+    if ((err as { code?: string }).code === '23505') {
+      throw new AppError('CONFLICT', 409, 'job already imported');
+    }
+    throw err;
+  }
+}
+
 async function serializeSubcategory(
   app: FastifyInstance,
   row: typeof schema.merchantCatalogSubcategories.$inferSelect,
@@ -535,7 +605,20 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { jobId } = req.body as z.infer<typeof MerchantCatalogImportBody>;
+      const { jobId, subcategoryId } = req.body as z.infer<typeof MerchantCatalogImportBody>;
+
+      const [subcategory] = await app.db
+        .select({ id: schema.merchantCatalogSubcategories.id })
+        .from(schema.merchantCatalogSubcategories)
+        .where(
+          and(
+            eq(schema.merchantCatalogSubcategories.id, subcategoryId),
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+          ),
+        )
+        .limit(1);
+      if (!subcategory) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+
       const [client] = await app.db
         .select({ userId: schema.merchants.userId })
         .from(schema.merchants)
@@ -549,12 +632,10 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           userId: schema.jobs.userId,
           catalogueId: schema.jobs.catalogueId,
           status: schema.jobs.status,
-          createdAt: schema.jobs.createdAt,
-          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          resultKey: schema.jobOutputs.resultKey,
           thumbnailKey: schema.jobOutputs.thumbnailKey,
         })
         .from(schema.jobs)
-        .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
         .where(eq(schema.jobs.id, jobId))
         .limit(1);
@@ -566,50 +647,19 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       if (job.status !== 'COMPLETED') {
         throw new AppError('CONFLICT', 409, 'only completed jobs can be imported');
       }
+      if (!job.resultKey) throw new AppError('BAD_UPLOAD', 400, 'job has no output');
 
-      const sourceThumbKey = job.thumbnailKey ?? keys.output(job.id);
-      const [imageHead, thumbHead, imageBody, thumbBody] = await Promise.all([
-        app.storage.headObject(job.upperGarmentKey),
-        app.storage.headObject(sourceThumbKey),
-        app.storage.getObject(job.upperGarmentKey),
-        app.storage.getObject(sourceThumbKey),
-      ]).catch(() => {
-        throw new AppError('BAD_UPLOAD', 400, 'source assets are missing');
+      const item = await copyJobOutputIntoProduct(app, {
+        merchantId,
+        subcategoryId,
+        job,
+        resultKey: job.resultKey,
+        thumbnailKey: job.thumbnailKey,
+        sourceKind: 'imported',
       });
 
-      const assetId = randomUUID();
-      const imageKey = keys.merchantCatalogItem(merchantId, assetId);
-      const thumbKey = keys.merchantCatalogItemThumb(merchantId, assetId);
-      await Promise.all([
-        app.storage.putObject(imageKey, imageBody, imageHead.contentType ?? 'image/jpeg'),
-        app.storage.putObject(thumbKey, thumbBody, thumbHead.contentType ?? 'image/jpeg'),
-      ]);
-
-      try {
-        const [item] = await app.db
-          .insert(schema.merchantCatalogItems)
-          .values({
-            id: assetId,
-            merchantId,
-            label: catalogueLabel(job.catalogueId, job.id),
-            r2Key: imageKey,
-            thumbnailKey: thumbKey,
-            sourceJobId: job.id,
-          })
-          .returning();
-
-        reply.code(201);
-        return await serializeCatalogItem(app, item);
-      } catch (err) {
-        await Promise.allSettled([
-          app.storage.deleteObject(imageKey),
-          app.storage.deleteObject(thumbKey),
-        ]);
-        if ((err as { code?: string }).code === '23505') {
-          throw new AppError('CONFLICT', 409, 'job already imported');
-        }
-        throw err;
-      }
+      reply.code(201);
+      return await serializeCatalogItem(app, item);
     },
   );
 }

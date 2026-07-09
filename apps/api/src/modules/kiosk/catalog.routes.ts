@@ -5,8 +5,16 @@ import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
+type SubcategoryRow = Pick<
+  typeof schema.merchantCatalogSubcategories.$inferSelect,
+  'category' | 'name'
+>;
 
-async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogRow) {
+async function serializeCatalogItem(
+  app: FastifyInstance,
+  item: MerchantCatalogRow,
+  subcategory: SubcategoryRow,
+) {
   const [imageUrl, thumbnailUrl] = await Promise.all([
     app.storage
       .presignGet(item.r2Key, 86_400)
@@ -22,8 +30,8 @@ async function serializeCatalogItem(app: FastifyInstance, item: MerchantCatalogR
     id: item.id,
     label: item.label,
     sku: item.sku,
-    gender: item.gender as KioskCatalogListResponse['items'][number]['gender'],
-    category: item.category,
+    gender: subcategory.category as KioskCatalogListResponse['items'][number]['gender'],
+    category: subcategory.name,
     imageUrl,
     thumbnailUrl,
   } satisfies KioskCatalogListResponse['items'][number];
@@ -34,9 +42,19 @@ export async function kioskCatalogRoutes(app: FastifyInstance) {
     const merchantId = req.merchantClientId;
     if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-    const items = await app.db
-      .select()
+    const rows = await app.db
+      .select({
+        item: schema.merchantCatalogItems,
+        subcategory: {
+          category: schema.merchantCatalogSubcategories.category,
+          name: schema.merchantCatalogSubcategories.name,
+        },
+      })
       .from(schema.merchantCatalogItems)
+      .innerJoin(
+        schema.merchantCatalogSubcategories,
+        eq(schema.merchantCatalogItems.subcategoryId, schema.merchantCatalogSubcategories.id),
+      )
       .where(
         and(
           eq(schema.merchantCatalogItems.merchantId, merchantId),
@@ -46,6 +64,10 @@ export async function kioskCatalogRoutes(app: FastifyInstance) {
       )
       .orderBy(schema.merchantCatalogItems.sortOrder, desc(schema.merchantCatalogItems.createdAt));
 
-    return { items: await Promise.all(items.map((item) => serializeCatalogItem(app, item))) };
+    return {
+      items: await Promise.all(
+        rows.map((row) => serializeCatalogItem(app, row.item, row.subcategory)),
+      ),
+    };
   });
 }
