@@ -1,6 +1,6 @@
 'use client';
 import { useQueryClient } from '@tanstack/react-query';
-import { MonitorPlay, Phone } from 'lucide-react';
+import { MonitorPlay, Package, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -33,6 +33,7 @@ const NAV: { id: string; href: string; label: string; icon: string; badge?: stri
     icon: `${BASE}/assets/catalog-icon.svg`,
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
+  { id: 'catalogue-manager', href: '/catalogue-manager', label: 'Catalogue', icon: 'package' },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
   { id: 'tutorials', href: '/tutorials', label: 'Tutorials', icon: 'monitor-play' },
   { id: 'contact', href: '/contact-us', label: 'Contact Us', icon: 'phone' },
@@ -166,6 +167,8 @@ export function Sidebar() {
                   <MonitorPlay size={20} />
                 ) : item.icon === 'phone' ? (
                   <Phone size={20} />
+                ) : item.icon === 'package' ? (
+                  <Package size={20} />
                 ) : (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
