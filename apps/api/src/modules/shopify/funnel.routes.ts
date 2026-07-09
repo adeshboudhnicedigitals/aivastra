@@ -1,7 +1,8 @@
 import { schema } from '@aivastra/db';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { resolveFunnelTemplateId } from './funnel-rules.js';
 
 const ConditionSchema = z.object({
   field: z.enum(['product_type', 'tags', 'vendor']),
@@ -73,6 +74,89 @@ export async function shopifyFunnelRoutes(app: FastifyInstance) {
         });
 
       return { ok: true };
+    },
+  );
+
+  app.patch(
+    '/v1/shopify/products/:id/funnel',
+    {
+      preHandler: app.requireShopifySession,
+      schema: {
+        body: z.object({ funnelTemplateId: z.string().uuid().nullable() }),
+      },
+    },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const { id } = req.params as { id: string };
+      const shopifyProductId = Number(id);
+      const { funnelTemplateId } = req.body as { funnelTemplateId: string | null };
+
+      const [existing] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, store.id),
+            eq(schema.shopifyProductGarments.shopifyProductId, shopifyProductId),
+          ),
+        )
+        .limit(1);
+      if (!existing) return { ok: false, reason: 'product not synced yet' };
+
+      if (funnelTemplateId === null) {
+        const resolved = await resolveFunnelTemplateId(app, store.id, {
+          productType: existing.productType,
+          tags: existing.tags,
+          vendor: existing.vendor,
+        });
+        await app.db
+          .update(schema.shopifyProductGarments)
+          .set({
+            funnelTemplateId: resolved,
+            funnelAssignmentSource: resolved ? 'automated' : null,
+          })
+          .where(eq(schema.shopifyProductGarments.id, existing.id));
+        return { ok: true };
+      }
+
+      await app.db
+        .update(schema.shopifyProductGarments)
+        .set({ funnelTemplateId, funnelAssignmentSource: 'manual' })
+        .where(eq(schema.shopifyProductGarments.id, existing.id));
+      return { ok: true };
+    },
+  );
+
+  app.post(
+    '/v1/shopify/funnel-templates/re-run',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+
+      const products = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(eq(schema.shopifyProductGarments.storeId, store.id));
+
+      let reassigned = 0;
+      for (const p of products) {
+        if (p.funnelAssignmentSource === 'manual') continue;
+        const resolved = await resolveFunnelTemplateId(app, store.id, {
+          productType: p.productType,
+          tags: p.tags,
+          vendor: p.vendor,
+        });
+        await app.db
+          .update(schema.shopifyProductGarments)
+          .set({
+            funnelTemplateId: resolved,
+            funnelAssignmentSource: resolved ? 'automated' : null,
+          })
+          .where(eq(schema.shopifyProductGarments.id, p.id));
+        reassigned += 1;
+      }
+
+      return { ok: true, reassigned };
     },
   );
 }

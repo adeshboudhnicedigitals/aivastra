@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
@@ -101,5 +101,150 @@ describe('PATCH /v1/shopify/funnel-templates/:id/rule', () => {
     expect(row.conditions).toEqual([
       { field: 'product_type', operator: 'equals', value: 'Shirts' },
     ]);
+  });
+});
+
+describe('PATCH /v1/shopify/products/:id/funnel', () => {
+  it('manually assigns a product to a funnel template', async () => {
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId,
+      shopifyProductId: 9001,
+      shopifyVariantId: 0,
+      r2Key: 'shopify-garments/test/9001/garment.jpg',
+      status: 'active',
+    });
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/shopify/products/9001/funnel',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { funnelTemplateId },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 9001),
+        ),
+      );
+    expect(row.funnelTemplateId).toBe(funnelTemplateId);
+    expect(row.funnelAssignmentSource).toBe('manual');
+  });
+
+  it('clearing to null resets to automated and re-evaluates immediately', async () => {
+    await app.db
+      .insert(schema.shopifyFunnelRules)
+      .values({
+        storeId,
+        funnelTemplateId,
+        mode: 'automated',
+        conditions: [{ field: 'vendor', operator: 'equals', value: 'ClearTest' }],
+        priority: 0,
+      })
+      .onConflictDoUpdate({
+        target: [schema.shopifyFunnelRules.storeId, schema.shopifyFunnelRules.funnelTemplateId],
+        set: {
+          mode: 'automated',
+          conditions: [{ field: 'vendor', operator: 'equals', value: 'ClearTest' }],
+        },
+      });
+    await app.db.insert(schema.shopifyProductGarments).values({
+      storeId,
+      shopifyProductId: 9002,
+      shopifyVariantId: 0,
+      r2Key: 'shopify-garments/test/9002/garment.jpg',
+      status: 'active',
+      vendor: 'ClearTest',
+      funnelTemplateId,
+      funnelAssignmentSource: 'manual',
+    });
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/shopify/products/9002/funnel',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { funnelTemplateId: null },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 9002),
+        ),
+      );
+    expect(row.funnelAssignmentSource).toBe('automated');
+    expect(row.funnelTemplateId).toBe(funnelTemplateId);
+  });
+});
+
+describe('POST /v1/shopify/funnel-templates/re-run', () => {
+  it('re-evaluates non-manual products, skips manual ones', async () => {
+    await app.db
+      .insert(schema.shopifyFunnelRules)
+      .values({
+        storeId,
+        funnelTemplateId,
+        mode: 'automated',
+        conditions: [{ field: 'vendor', operator: 'equals', value: 'RerunTest' }],
+        priority: 0,
+      })
+      .onConflictDoUpdate({
+        target: [schema.shopifyFunnelRules.storeId, schema.shopifyFunnelRules.funnelTemplateId],
+        set: {
+          mode: 'automated',
+          conditions: [{ field: 'vendor', operator: 'equals', value: 'RerunTest' }],
+        },
+      });
+    await app.db.insert(schema.shopifyProductGarments).values([
+      {
+        storeId,
+        shopifyProductId: 9003,
+        shopifyVariantId: 0,
+        r2Key: 'x',
+        status: 'active',
+        vendor: 'RerunTest',
+      },
+      {
+        storeId,
+        shopifyProductId: 9004,
+        shopifyVariantId: 0,
+        r2Key: 'y',
+        status: 'active',
+        vendor: 'RerunTest',
+        funnelTemplateId: null,
+        funnelAssignmentSource: 'manual',
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/funnel-templates/re-run',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const rows = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.vendor, 'RerunTest'),
+        ),
+      );
+    const auto = rows.find((r) => r.shopifyProductId === 9003);
+    const manual = rows.find((r) => r.shopifyProductId === 9004);
+    expect(auto?.funnelTemplateId).toBe(funnelTemplateId);
+    expect(auto?.funnelAssignmentSource).toBe('automated');
+    expect(manual?.funnelTemplateId).toBeNull();
+    expect(manual?.funnelAssignmentSource).toBe('manual');
   });
 });
