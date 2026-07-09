@@ -167,7 +167,6 @@ export default function DashboardPage() {
               <Text as="h2" variant="headingMd">
                 {me?.store.shopDomain}
               </Text>
-              <Text as="p">Credit balance: {me?.credits ?? 0}</Text>
               <InlineStack gap="200">
                 <Button onClick={() => navigate('/products')}>Manage Products</Button>
                 <Button onClick={() => navigate('/billing')}>Manage Billing</Button>

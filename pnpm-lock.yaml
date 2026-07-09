@@ -251,6 +251,9 @@ importers:
       '@types/adm-zip':
         specifier: ^0.5.8
         version: 0.5.8
+      '@types/ioredis-mock':
+        specifier: ^8.2.7
+        version: 8.2.7(ioredis@5.10.1)
       '@types/node':
         specifier: ^22.7.5
         version: 22.19.19

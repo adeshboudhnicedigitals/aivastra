@@ -10,8 +10,6 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { workflowTemplates } from './models.js';
-import { widgetClients } from './widget.js';
-
 export interface ShopifyStoreSettings {
   buttonText?: string;
   buttonColor?: string;
@@ -41,9 +39,6 @@ export const shopifyPlans = pgTable('shopify_plans', {
 
 export const shopifyStores = pgTable('shopify_stores', {
   id: uuid('id').primaryKey().defaultRandom(),
-  widgetClientId: uuid('widget_client_id')
-    .unique()
-    .references(() => widgetClients.id, { onDelete: 'cascade' }),
   storeKey: uuid('store_key').notNull().unique().defaultRandom(),
   allowedOrigins: text('allowed_origins').array().notNull().default([]),
   shopDomain: text('shop_domain').notNull().unique(),
