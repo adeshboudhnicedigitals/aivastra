@@ -28,7 +28,7 @@ export function ProductModal({ open, onClose, onSave, initialData }: ProductModa
   const [actualPrice, setActualPrice] = useState('');
   const [offerPrice, setOfferPrice] = useState('');
   const [imageDataUrl, setImageDataUrl] = useState<string | undefined>(undefined);
-  
+
   const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
   const [flatImageUrl, setFlatImageUrl] = useState<string | undefined>(undefined);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -186,7 +186,14 @@ export function ProductModal({ open, onClose, onSave, initialData }: ProductModa
             {initialData ? 'Edit Product' : 'Add Product'}
           </h3>
 
-          <div style={{ display: 'flex', borderRadius: 8, border: `1px solid ${C.border2}`, overflow: 'hidden' }}>
+          <div
+            style={{
+              display: 'flex',
+              borderRadius: 8,
+              border: `1px solid ${C.border2}`,
+              overflow: 'hidden',
+            }}
+          >
             <button
               type="button"
               onClick={() => setImageMode('catalogue')}

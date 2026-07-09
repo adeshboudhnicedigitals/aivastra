@@ -612,11 +612,9 @@ export default function StudioPage(): React.ReactElement {
   const customWNum = Number(customWStr);
   const customHNum = Number(customHStr);
   const customWErr =
-    customWStr !== '' &&
-    (Number.isNaN(customWNum) || customWNum < 768 || customWNum > maxOutputPx);
+    customWStr !== '' && (Number.isNaN(customWNum) || customWNum < 768 || customWNum > maxOutputPx);
   const customHErr =
-    customHStr !== '' &&
-    (Number.isNaN(customHNum) || customHNum < 768 || customHNum > maxOutputPx);
+    customHStr !== '' && (Number.isNaN(customHNum) || customHNum < 768 || customHNum > maxOutputPx);
   const customDimsReady =
     aspect !== 'custom' ||
     (!!customRatio && !!customWStr && !!customHStr && !customWErr && !customHErr);

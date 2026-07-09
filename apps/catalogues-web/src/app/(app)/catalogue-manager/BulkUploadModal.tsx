@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SpinnerIcon, TrashIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
-import { Product } from './ProductModal';
+import type { Product } from './ProductModal';
 
 interface QueueItem {
   id: string;
@@ -122,14 +122,14 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
     const queuedItems = items.filter((i) => i.status === 'queued');
     if (queuedItems.length === 0) return;
 
-    setItems((prev) => prev.map((item) => (item.status === 'queued' ? { ...item, status: 'generating' } : item)));
+    setItems((prev) =>
+      prev.map((item) => (item.status === 'queued' ? { ...item, status: 'generating' } : item)),
+    );
 
     queuedItems.forEach((item) => {
       const delay = 1500 + Math.random() * 1000; // 1.5s - 2.5s staggering
       setTimeout(() => {
-        setItems((prev) =>
-          prev.map((p) => (p.id === item.id ? { ...p, status: 'generated' } : p))
-        );
+        setItems((prev) => prev.map((p) => (p.id === item.id ? { ...p, status: 'generated' } : p)));
       }, delay);
     });
   };
@@ -147,12 +147,14 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
           };
         }
         return item;
-      })
+      }),
     );
   };
 
   const handleUpdateItem = (id: string, updates: Partial<QueueItem>) => {
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...updates, hasError: false } : item)));
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, ...updates, hasError: false } : item)),
+    );
   };
 
   const handleRemoveItem = (id: string) => {
@@ -165,7 +167,8 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
       if (item.status !== 'generated') return item;
       const act = parseInt(item.actualPrice, 10) || 0;
       const off = parseInt(item.offerPrice, 10) || 0;
-      const isValid = item.sku.trim() !== '' && item.actualPrice !== '' && item.offerPrice !== '' && off <= act;
+      const isValid =
+        item.sku.trim() !== '' && item.actualPrice !== '' && item.offerPrice !== '' && off <= act;
       if (!isValid) hasValidationError = true;
       return { ...item, hasError: !isValid };
     });
@@ -229,7 +232,9 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>Bulk Upload Flat Images</h3>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+              Bulk Upload Flat Images
+            </h3>
             <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>
               Upload multiple flat garment photos and process them into catalogue images.
             </div>
@@ -307,7 +312,11 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
             }}
           >
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <GradBtn type="button" onClick={handleGenerateAll} disabled={!hasQueued || isAnyGenerating}>
+              <GradBtn
+                type="button"
+                onClick={handleGenerateAll}
+                disabled={!hasQueued || isAnyGenerating}
+              >
                 Generate All
               </GradBtn>
               <span style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
@@ -316,21 +325,47 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
             </div>
 
             {hasGenerated && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: C.card, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border2}` }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Set price for all:</span>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  background: C.card,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                  Set price for all:
+                </span>
                 <input
                   type="number"
                   placeholder="Actual"
                   value={globalActual}
                   onChange={(e) => setGlobalActual(e.target.value)}
-                  style={{ width: 70, height: 28, fontSize: 12, borderRadius: 4, border: `1px solid ${C.border2}`, padding: '0 8px' }}
+                  style={{
+                    width: 70,
+                    height: 28,
+                    fontSize: 12,
+                    borderRadius: 4,
+                    border: `1px solid ${C.border2}`,
+                    padding: '0 8px',
+                  }}
                 />
                 <input
                   type="number"
                   placeholder="Offer"
                   value={globalOffer}
                   onChange={(e) => setGlobalOffer(e.target.value)}
-                  style={{ width: 70, height: 28, fontSize: 12, borderRadius: 4, border: `1px solid ${C.border2}`, padding: '0 8px' }}
+                  style={{
+                    width: 70,
+                    height: 28,
+                    fontSize: 12,
+                    borderRadius: 4,
+                    border: `1px solid ${C.border2}`,
+                    padding: '0 8px',
+                  }}
                 />
                 <button
                   type="button"
@@ -406,22 +441,64 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
               <div style={{ aspectRatio: '3/4', background: C.lighter, position: 'relative' }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 {/* biome-ignore lint/performance/noImgElement: local data url */}
-                <img src={item.fileUrl} alt="Upload preview" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                <img
+                  src={item.fileUrl}
+                  alt="Upload preview"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
 
                 {/* Status Badge overlay */}
                 <div style={{ position: 'absolute', bottom: 6, left: 6 }}>
                   {item.status === 'queued' && (
-                    <div style={{ background: C.mid, color: C.white, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, textTransform: 'uppercase' }}>
+                    <div
+                      style={{
+                        background: C.mid,
+                        color: C.white,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        textTransform: 'uppercase',
+                      }}
+                    >
                       Queued
                     </div>
                   )}
                   {item.status === 'generating' && (
-                    <div style={{ background: C.card, color: C.pink, fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 4, border: `1px solid ${C.border2}`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                    <div
+                      style={{
+                        background: C.card,
+                        color: C.pink,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        textTransform: 'uppercase',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        border: `1px solid ${C.border2}`,
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                      }}
+                    >
                       <SpinnerIcon size={10} /> Generating
                     </div>
                   )}
                   {item.status === 'generated' && (
-                    <div style={{ background: '#10b981', color: C.white, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div
+                      style={{
+                        background: '#10b981',
+                        color: C.white,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        textTransform: 'uppercase',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
                       ✓ Generated
                     </div>
                   )}
@@ -434,27 +511,78 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
                     placeholder="SKU"
                     value={item.sku}
                     onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
-                    style={{ width: '100%', height: 30, fontSize: 12, borderRadius: 6, border: `1px solid ${item.hasError && !item.sku ? C.pink : C.border2}`, padding: '0 8px', background: C.field, color: C.text }}
+                    style={{
+                      width: '100%',
+                      height: 30,
+                      fontSize: 12,
+                      borderRadius: 6,
+                      border: `1px solid ${item.hasError && !item.sku ? C.pink : C.border2}`,
+                      padding: '0 8px',
+                      background: C.field,
+                      color: C.text,
+                    }}
                   />
                   <div style={{ display: 'flex', gap: 8 }}>
                     <div style={{ position: 'relative', flex: 1 }}>
-                      <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: C.mid, fontWeight: 600 }}>₹</span>
+                      <span
+                        style={{
+                          position: 'absolute',
+                          left: 8,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          fontSize: 11,
+                          color: C.mid,
+                          fontWeight: 600,
+                        }}
+                      >
+                        ₹
+                      </span>
                       <input
                         type="number"
                         placeholder="Actual"
                         value={item.actualPrice}
                         onChange={(e) => handleUpdateItem(item.id, { actualPrice: e.target.value })}
-                        style={{ width: '100%', height: 30, fontSize: 12, borderRadius: 6, border: `1px solid ${item.hasError && (!item.actualPrice || (parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10))) ? C.pink : C.border2}`, padding: '0 6px 0 20px', background: C.field, color: C.text }}
+                        style={{
+                          width: '100%',
+                          height: 30,
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
+                          padding: '0 6px 0 20px',
+                          background: C.field,
+                          color: C.text,
+                        }}
                       />
                     </div>
                     <div style={{ position: 'relative', flex: 1 }}>
-                      <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: C.mid, fontWeight: 600 }}>₹</span>
+                      <span
+                        style={{
+                          position: 'absolute',
+                          left: 8,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          fontSize: 11,
+                          color: C.mid,
+                          fontWeight: 600,
+                        }}
+                      >
+                        ₹
+                      </span>
                       <input
                         type="number"
                         placeholder="Offer"
                         value={item.offerPrice}
                         onChange={(e) => handleUpdateItem(item.id, { offerPrice: e.target.value })}
-                        style={{ width: '100%', height: 30, fontSize: 12, borderRadius: 6, border: `1px solid ${item.hasError && (!item.offerPrice || (parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10))) ? C.pink : C.border2}`, padding: '0 6px 0 20px', background: C.field, color: C.text }}
+                        style={{
+                          width: '100%',
+                          height: 30,
+                          fontSize: 12,
+                          borderRadius: 6,
+                          border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
+                          padding: '0 6px 0 20px',
+                          background: C.field,
+                          color: C.text,
+                        }}
                       />
                     </div>
                   </div>
@@ -470,7 +598,16 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
         </div>
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 16, borderTop: `1px solid ${C.border2}`, flexShrink: 0 }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 10,
+            paddingTop: 16,
+            borderTop: `1px solid ${C.border2}`,
+            flexShrink: 0,
+          }}
+        >
           <button
             type="button"
             onClick={onClose}
@@ -489,7 +626,11 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
           >
             Cancel
           </button>
-          <GradBtn type="button" disabled={generatedCount === 0 || isAnyGenerating} onClick={handleAddCatalogue}>
+          <GradBtn
+            type="button"
+            disabled={generatedCount === 0 || isAnyGenerating}
+            onClick={handleAddCatalogue}
+          >
             Add {generatedCount} to Catalogue
           </GradBtn>
         </div>
