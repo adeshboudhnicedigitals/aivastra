@@ -336,4 +336,130 @@ describe('merchant catalog generate (single, Path B)', () => {
     expect(product.sourceKind).toBe('imported');
     expect(product.sourceJobId).toBe(jobId);
   });
+
+  describe('bulk generate', () => {
+    it('creates one job per flat image, tolerates partial failure, and reports batch status', async () => {
+      const { userId } = await createMerchant(app, 'gen-bulk@example.com');
+      await grantUserCredits(app, userId, 1000);
+      const auth = await authHeader(userId);
+      const { garmentType } = await seedFullDefaults('boys');
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'boys', name: 'T-Shirts', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const flatKeys: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const presign = await app.inject({
+          method: 'POST',
+          url: '/v1/merchant/catalog/presign',
+          headers: auth,
+          payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+        });
+        const { r2Key, uploadUrl } = presign.json() as { r2Key: string; uploadUrl: string };
+        await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'image/jpeg' },
+          body: Buffer.from(`flat-${i}`),
+        });
+        flatKeys.push(r2Key);
+      }
+
+      const bulk = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate-bulk',
+        headers: auth,
+        payload: { subcategoryId, flatImageKeys: flatKeys },
+      });
+      expect(bulk.statusCode).toBe(201);
+      const { jobIds } = bulk.json() as { jobIds: string[] };
+      expect(jobIds).toHaveLength(3);
+
+      const status = await app.inject({
+        method: 'GET',
+        url: `/v1/merchant/catalog/generate/status?jobIds=${jobIds.join(',')}`,
+        headers: auth,
+      });
+      expect(status.statusCode).toBe(200);
+      const body = status.json() as { items: Array<{ jobId: string; status: string }> };
+      expect(body.items).toHaveLength(3);
+      expect(body.items.every((i) => i.status === 'QUEUED')).toBe(true);
+    });
+
+    it('reports failures for unowned keys while still enqueuing the valid ones', async () => {
+      const { userId } = await createMerchant(app, 'gen-bulk-partial@example.com');
+      await grantUserCredits(app, userId, 1000);
+      const auth = await authHeader(userId);
+      const { garmentType } = await seedFullDefaults('boys');
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'boys', name: 'T-Shirts', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const presign = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/presign',
+        headers: auth,
+        payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+      });
+      const { r2Key: validKey, uploadUrl } = presign.json() as { r2Key: string; uploadUrl: string };
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: Buffer.from('flat-valid'),
+      });
+      const unownedKey = `merchants/${randomUUID()}/catalog/flat/${randomUUID()}.jpg`;
+
+      const bulk = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate-bulk',
+        headers: auth,
+        payload: { subcategoryId, flatImageKeys: [validKey, unownedKey] },
+      });
+      expect(bulk.statusCode).toBe(201);
+      const { jobIds, failures } = bulk.json() as {
+        jobIds: string[];
+        failures: Array<{ flatImageKey: string; error: string }>;
+      };
+      expect(jobIds).toHaveLength(1);
+      expect(failures).toHaveLength(1);
+      expect(failures[0].flatImageKey).toBe(unownedKey);
+    });
+
+    it('returns 400 when every image in the batch fails', async () => {
+      const { userId } = await createMerchant(app, 'gen-bulk-allfail@example.com');
+      await grantUserCredits(app, userId, 1000);
+      const auth = await authHeader(userId);
+      const { garmentType } = await seedFullDefaults('boys');
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'boys', name: 'T-Shirts', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const unownedKeys = [
+        `merchants/${randomUUID()}/catalog/flat/${randomUUID()}.jpg`,
+        `merchants/${randomUUID()}/catalog/flat/${randomUUID()}.jpg`,
+      ];
+
+      const bulk = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate-bulk',
+        headers: auth,
+        payload: { subcategoryId, flatImageKeys: unownedKeys },
+      });
+      expect(bulk.statusCode).toBe(400);
+    });
+  });
 });
