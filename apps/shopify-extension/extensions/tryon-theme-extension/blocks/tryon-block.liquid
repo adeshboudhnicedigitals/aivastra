@@ -1,20 +1,30 @@
 {% comment %}
   Renders a "Try It On" button + upload modal for the current product.
-  Silently renders nothing if the store's widget_key metafield is missing
-  (install incomplete, or metafield write failed) — a missing/broken
-  button is safer on a live storefront than one that always errors.
+  App-embed target: injected on every page by Shopify once the merchant
+  toggles it on under Theme editor -> App embeds (no per-template block
+  placement needed). Only renders on product pages (`product` is blank
+  everywhere else) and only once the widget_key metafield exists (install
+  incomplete, or metafield write failed) — a missing/broken button is
+  safer on a live storefront than one that always errors.
 {% endcomment %}
 
 {%- assign widget_key = shop.metafields.aivastra.widget_key -%}
-{%- if widget_key != blank -%}
+{%- if product != blank and widget_key != blank -%}
   <div
     class="aivastra-tryon"
     data-widget-key="{{ widget_key }}"
     data-product-id="{{ product.id }}"
     data-api-base="{{ block.settings.api_base | default: 'https://api.aivastra.com' }}"
+    data-placement-selector="{{ block.settings.placement_selector }}"
+    data-block-alignment="{{ block.settings.block_alignment }}"
+    style="--aivastra-button-color: {{ block.settings.button_color }}; --aivastra-text-color: {{ block.settings.text_color }}; --aivastra-border-radius: {{ block.settings.border_radius }}px;"
   >
+    {%- if block.settings.promo_text != blank -%}
+      <p class="aivastra-tryon__promo">{{ block.settings.promo_text | escape }}</p>
+    {%- endif -%}
+
     <button type="button" class="aivastra-tryon__button">
-      {{ 'tryon.button_label' | t }}
+      {{ block.settings.button_text | default: 'Try It On' | escape }}
     </button>
 
     <div class="aivastra-tryon__modal" hidden>
@@ -58,13 +68,63 @@
 {% schema %}
 {
   "name": "Try It On",
-  "target": "section",
+  "target": "body",
   "settings": [
     {
       "type": "text",
       "id": "api_base",
       "label": "API base URL",
       "default": "https://api.aivastra.com"
+    },
+    {
+      "type": "text",
+      "id": "promo_text",
+      "label": "Promotional text above button"
+    },
+    {
+      "type": "text",
+      "id": "button_text",
+      "label": "Button text",
+      "default": "Try It On"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Text color",
+      "default": "#FFFFFF"
+    },
+    {
+      "type": "color",
+      "id": "button_color",
+      "label": "Button color",
+      "default": "#000000"
+    },
+    {
+      "type": "range",
+      "id": "border_radius",
+      "label": "Border radius",
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "unit": "px",
+      "default": 4
+    },
+    {
+      "type": "text",
+      "id": "placement_selector",
+      "label": "Insert button at CSS selector",
+      "info": "By default the button is placed near the Buy button. If it doesn't appear in the right spot on your theme, enter a different CSS selector here.",
+      "default": ".product-form"
+    },
+    {
+      "type": "select",
+      "id": "block_alignment",
+      "label": "Position within that element",
+      "options": [
+        { "value": "start", "label": "Start" },
+        { "value": "end", "label": "End" }
+      ],
+      "default": "start"
     }
   ]
 }
