@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import BillingPage from './pages/BillingPage';
 import DashboardPage from './pages/DashboardPage';
+import FunnelSetupPage from './pages/FunnelSetupPage';
 import ProductsPage from './pages/ProductsPage';
 
 export default function App() {
@@ -14,6 +15,7 @@ export default function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/billing" element={<BillingPage />} />
           <Route path="/products" element={<ProductsPage />} />
+          <Route path="/funnel-setup" element={<FunnelSetupPage />} />
           <Route path="/embedded" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>

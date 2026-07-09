@@ -23,6 +23,7 @@ export interface ShopifyStats {
   totalTryOns: number;
   syncedProductCount: number;
   enabledProductCount: number;
+  funnelConfigured: boolean;
 }
 
 export interface ShopifyMe {
@@ -45,9 +46,30 @@ export interface ShopifyProductListItem {
   thumbnailUrl: string;
   status: string;
   enabled: boolean;
+  funnelTemplateId: string | null;
+  funnelAssignmentSource: 'manual' | 'automated' | null;
 }
 
 export interface ShopifyProductImage {
   id: number;
   src: string;
+}
+
+export interface FunnelRuleCondition {
+  field: 'product_type' | 'tags' | 'vendor';
+  operator: 'equals' | 'contains';
+  value: string;
+}
+
+export interface FunnelRule {
+  mode: 'manual' | 'automated';
+  conditions: FunnelRuleCondition[];
+  priority: number;
+}
+
+export interface FunnelTemplateItem {
+  id: string;
+  slug: string;
+  label: string;
+  rule: FunnelRule;
 }
