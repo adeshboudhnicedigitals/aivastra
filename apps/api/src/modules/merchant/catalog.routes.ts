@@ -4,7 +4,6 @@ import { keys } from '@aivastra/storage';
 import {
   MerchantCatalogCreateBody,
   MerchantCatalogGenerateBody,
-  // biome-ignore lint/correctness/noUnusedImports: wired up by Task 10 (generate-bulk route), landed now to avoid re-touching this import block.
   MerchantCatalogGenerateBulkBody,
   MerchantCatalogImportBody,
   MerchantCatalogPresignBody,
@@ -682,6 +681,120 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
       reply.code(201);
       return { jobId };
+    },
+  );
+
+  app.post(
+    '/v1/merchant/catalog/generate-bulk',
+    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBulkBody } },
+    async (req, reply) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { subcategoryId, flatImageKeys } = req.body as z.infer<
+        typeof MerchantCatalogGenerateBulkBody
+      >;
+
+      const [row] = await app.db
+        .select({
+          userId: schema.merchants.userId,
+          category: schema.merchantCatalogSubcategories.category,
+          garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
+        })
+        .from(schema.merchantCatalogSubcategories)
+        .innerJoin(
+          schema.merchants,
+          eq(schema.merchants.id, schema.merchantCatalogSubcategories.merchantId),
+        )
+        .where(
+          and(
+            eq(schema.merchantCatalogSubcategories.id, subcategoryId),
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+          ),
+        )
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+
+      const jobIds: string[] = [];
+      const failures: Array<{ flatImageKey: string; error: string }> = [];
+      for (const flatImageKey of flatImageKeys) {
+        try {
+          const { jobId } = await createMerchantCatalogJob(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            category: row.category,
+            flatImageKey,
+            subcategoryId,
+            merchantId,
+          });
+          jobIds.push(jobId);
+        } catch (err) {
+          if (!(err instanceof AppError)) {
+            app.log.warn({ err, flatImageKey }, 'merchant catalog bulk generate: item failed');
+          }
+          failures.push({
+            flatImageKey,
+            error: err instanceof AppError ? err.message : 'unknown error',
+          });
+        }
+      }
+
+      if (jobIds.length === 0) {
+        throw new AppError('VALIDATION', 400, 'all images in the batch failed to enqueue');
+      }
+
+      reply.code(201);
+      return { jobIds, failures };
+    },
+  );
+
+  app.get(
+    '/v1/merchant/catalog/generate/status',
+    { preHandler: app.requireMerchant },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { jobIds: jobIdsParam } = req.query as { jobIds?: string };
+      const jobIds = (jobIdsParam ?? '').split(',').filter(Boolean);
+      if (jobIds.length === 0) return { items: [] };
+
+      const [client] = await app.db
+        .select({ userId: schema.merchants.userId })
+        .from(schema.merchants)
+        .where(eq(schema.merchants.id, merchantId))
+        .limit(1);
+      if (!client) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+
+      const rows = await app.db
+        .select({
+          id: schema.jobs.id,
+          userId: schema.jobs.userId,
+          status: schema.jobs.status,
+          errorCode: schema.jobs.errorCode,
+          resultKey: schema.jobOutputs.resultKey,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(inArray(schema.jobs.id, jobIds));
+
+      const items = await Promise.all(
+        rows
+          .filter((row) => row.userId === client.userId)
+          .map(async (row) => ({
+            jobId: row.id,
+            status: row.status,
+            resultUrl: row.resultKey
+              ? await app.storage
+                  .presignGet(row.resultKey, 3600)
+                  .then((r) => r.url)
+                  .catch(() => null)
+              : null,
+            errorCode: row.errorCode,
+          })),
+      );
+
+      return { items };
     },
   );
 
