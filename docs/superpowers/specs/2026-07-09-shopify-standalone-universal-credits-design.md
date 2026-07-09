@@ -15,7 +15,7 @@ The embedded admin app (`apps/shopify`) is unaffected by any of this — it alre
 - `jobs.widgetClientId` links a job back to its `widget_clients` row; dispatcher's `processShopifyJob` joins `shopify_stores.widgetClientId = jobs.widgetClientId` to resolve the store.
 - Files touching `widget_clients`/`widget_client_credits` for Shopify: `auth.routes.ts`, `webhook.routes.ts`, `billing.routes.ts`, `me.routes.ts` (api), `processor.ts`, `consumer.ts`, `sweeper.ts`, `webhooks.ts` (dispatcher).
 - `jobs.userId` (nullable FK to `users.id`) already coexists on the same row as `jobs.widgetClientId` — no schema conflict in reusing this column for linked Shopify jobs.
-- Main app's per-job cost for a single-garment/single-photo flow (no resolution picker, closest shape to the Shopify flow) is `SIMPLE_TRYON_COST = 35` (`packages/types/src/jobs.ts`), distinct from `SHOPIFY_JOB_COST = 10`.
+- Main app's per-job cost for a single-garment/single-photo flow (no resolution picker, closest shape to the Shopify flow — `apps/api/src/modules/jobs/createSaree.ts` and `create.ts`'s simple-tryon path both use it) is `getTryonCreditCost(app)` (`apps/api/src/lib/resolution-config.ts`) — reads the admin-configurable `config:system` Redis key (same one `GET/PATCH /admin/config` edits), falling back to `SIMPLE_TRYON_COST = 5` (`packages/types/src/jobs.ts`) if unset. This — not a hardcoded number — is "our tryon pricing"; it's distinct from the flat `SHOPIFY_JOB_COST = 10` env var Shopify jobs use today.
 - Main app tokens are signed via `jose`'s `SignJWT`/`jwtVerify` (`apps/api/src/modules/auth/service.ts`'s `signAccess`/`verifyAccess`), HS256, optional `audience` claim already used to scope admin tokens (`audience: 'admin'`).
 
 ## Data Model Changes
@@ -51,7 +51,7 @@ New `requireShopifyStoreKey` preHandler (mirrors `requireWidgetClient` in `apps/
 `/v1/widget/*` keeps serving the generic embeddable widget (out of scope here — different merchants, different billing). Shopify gets its own namespace so the two never collide:
 
 - `POST /v1/shopify/customer/presign` — same behavior as today's `/v1/widget/presign`, auth via `requireShopifyStoreKey`.
-- `POST /v1/shopify/customer/jobs` — creates the job. Requires a valid, non-expired account token (see below) — no anonymous path. Resolves garment via `shopify_product_garments` exactly as today. Charges `user_credits` at `SIMPLE_TRYON_COST` via the shared `atomicDeduct`, in the same transaction as the job insert (existing invariant). Sets `jobs.userId` and `jobs.shopifyStoreId`.
+- `POST /v1/shopify/customer/jobs` — creates the job. Requires a valid, non-expired account token (see below) — no anonymous path. Resolves garment via `shopify_product_garments` exactly as today. Charges `user_credits` at `await getTryonCreditCost(app)` via the shared `atomicDeduct`, in the same transaction as the job insert (existing invariant). Sets `jobs.userId` and `jobs.shopifyStoreId`.
 - `GET /v1/shopify/customer/jobs/:id` — status/result poll fallback (used by the SSE reconnect logic already in `tryon-widget.js`).
 - `GET /v1/shopify/customer/jobs/:id/events` — SSE, same shape as today's `/v1/widget/jobs/:id/events`.
 - `POST /v1/shopify/customer/account/link` — called by the popup (authenticated as a normal app user via `Authorization: Bearer`). Mints a one-time code: `redis.set('shopify:link:{code}', userId, 'EX', 60)`. Returns `{ code }`.
@@ -76,8 +76,8 @@ Signed via the existing `signAccess`/`verifyAccess` helpers, `audience: 'shopify
 
 Every Shopify job now follows the exact main-app pattern:
 - No valid account token → widget shows "Sign in to try on," job is never created.
-- Valid token, insufficient balance → `atomicDeduct` fails, job creation returns the same insufficient-credits error the main studio already returns, widget shows "Out of credits — top up your account" with a link.
-- Valid token, sufficient balance → job created, `userId`/`shopifyStoreId` set, `user_credits` debited, `credit_ledger` entry written (reason `SHOPIFY_TRYON`).
+- Valid token, insufficient balance → `atomicDeduct` fails with `INSUFFICIENT_CREDITS` (402, matching `apps/api/src/modules/credits/ledger.ts`'s existing behavior), widget shows "Out of credits — top up your account" with a link.
+- Valid token, sufficient balance → job created, `userId`/`shopifyStoreId` set, `user_credits` debited at `getTryonCreditCost(app)`, `credit_ledger` entry written (reason `JOB_DISPATCH`, matching the existing convention in `ledger.ts` rather than inventing a new reason string).
 - Terminal failure (dispatcher) → refund via the same `credits/` refund helper against `user_credits`, not `widgetRefund`. `processShopifyJob` branches on `jobs.userId` being set (always true post-migration) instead of `widgetClientId`.
 
 `SHOPIFY_JOB_COST` (env, `apps/api/src/env.ts`) becomes dead once nothing charges it — remove the env var and its references rather than leaving an unused cost constant around.
@@ -86,7 +86,7 @@ Every Shopify job now follows the exact main-app pattern:
 
 New/changed error codes on `POST /v1/shopify/customer/jobs`:
 - `UNAUTHORIZED` (401) — missing/expired/invalid account token.
-- `INSUFFICIENT_CREDITS` (409) — reuse the existing main-app error code from `atomicDeduct`, don't invent a Shopify-specific one.
+- `INSUFFICIENT_CREDITS` (402) — reuse the existing main-app error code from `atomicDeduct`, don't invent a Shopify-specific one.
 - Existing `NO_WORKFLOW_CONFIGURED`/`SHOPIFY_INPUTS_MISSING` codes (from the funnel-templates work) are unchanged.
 
 ## Testing Approach
