@@ -1,16 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import type {
+  MerchantCatalogCategory as Category,
+  MerchantCatalogItem,
+  MerchantCatalogListResponse,
+  MerchantCatalogSubcategory,
+  MerchantCatalogSubcategoryListResponse,
+} from '@aivastra/types';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { ArrowLeft, GarmentIcon, TrashIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GradBtn } from '@/components/ui/grad-btn';
+import { api } from '@/lib/api';
 import { BulkUploadModal } from './BulkUploadModal';
-import { type Product, ProductModal } from './ProductModal';
-import { type GarmentType, type Subcategory, SubcategoryModal } from './SubcategoryModal';
-
-type Category = 'men' | 'women' | 'boys' | 'girls';
+import { ProductModal } from './ProductModal';
+import { SubcategoryModal } from './SubcategoryModal';
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: 'men', label: 'Men' },
@@ -19,204 +26,132 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: 'girls', label: 'Girls' },
 ];
 
-const GARMENT_TYPES: GarmentType[] = [
-  { id: 'men-shirt', label: 'Shirt', category: 'men' },
-  { id: 'men-tshirt', label: 'T-Shirt', category: 'men' },
-  { id: 'men-kurta', label: 'Kurta', category: 'men' },
-  { id: 'men-jacket', label: 'Jacket', category: 'men' },
-  { id: 'women-saree', label: 'Saree', category: 'women' },
-  { id: 'women-kurti', label: 'Kurti', category: 'women' },
-  { id: 'women-dress', label: 'Dress', category: 'women' },
-  { id: 'women-blouse', label: 'Blouse', category: 'women' },
-  { id: 'boys-shirt', label: 'Shirt', category: 'boys' },
-  { id: 'boys-tshirt', label: 'T-Shirt', category: 'boys' },
-  { id: 'girls-frock', label: 'Frock', category: 'girls' },
-  { id: 'girls-kurti', label: 'Kurti', category: 'girls' },
-];
-
-const INITIAL_SUBCATEGORIES: Subcategory[] = [
-  { id: 'sub-1', category: 'men', name: 'Premium Shirts', garmentTypeId: 'men-shirt' },
-  { id: 'sub-2', category: 'men', name: 'Casual Jackets', garmentTypeId: 'men-jacket' },
-  { id: 'sub-3', category: 'women', name: 'Festival Sarees', garmentTypeId: 'women-saree' },
-  { id: 'sub-4', category: 'women', name: 'Summer Kurtis', garmentTypeId: 'women-kurti' },
-];
-
-const INITIAL_PRODUCTS: Product[] = [
-  {
-    id: 'p-1',
-    subcategoryId: 'sub-1',
-    label: 'Classic Linen Shirt',
-    sku: 'SH-LN-WHT-M',
-    actualPrice: 1499,
-    offerPrice: 1199,
-  },
-  {
-    id: 'p-2',
-    subcategoryId: 'sub-1',
-    label: 'Striped Cotton Shirt',
-    sku: 'SH-CT-STP-L',
-    actualPrice: 1299,
-    offerPrice: 999,
-  },
-  {
-    id: 'p-3',
-    subcategoryId: 'sub-2',
-    label: 'Denim Trucker Jacket',
-    sku: 'JK-DN-BLU-L',
-    actualPrice: 2999,
-    offerPrice: 2499,
-  },
-  {
-    id: 'p-4',
-    subcategoryId: 'sub-3',
-    label: 'Kanjeevaram Silk Saree',
-    sku: 'SR-KJ-RED-O',
-    actualPrice: 5999,
-    offerPrice: 4999,
-  },
-  {
-    id: 'p-5',
-    subcategoryId: 'sub-4',
-    label: 'Cotton Printed Kurti',
-    sku: 'KT-CT-PRT-S',
-    actualPrice: 899,
-    offerPrice: 899,
-  },
-];
-
-const generateId = () => Math.random().toString(36).substring(2, 9);
+// "not a merchant account" / "merchant account inactive" — thrown by requireMerchant
+// (apps/api/src/plugins/portal-auth.ts) when the logged-in user has no merchants row.
+function isMerchantGateError(err: unknown): boolean {
+  return err instanceof Error && /merchant account/i.test(err.message);
+}
 
 export function CatalogueManagerContent() {
-  const [isMounted, setIsMounted] = useState(false);
-  const [subcategories, setSubcategories] = useState<Subcategory[]>(INITIAL_SUBCATEGORIES);
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
-
+  const qc = useQueryClient();
   const [selectedCategory, setSelectedCategory] = useState<Category>('men');
   const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null);
 
   // Modals state
   const [subModalOpen, setSubModalOpen] = useState(false);
-  const [editingSub, setEditingSub] = useState<Subcategory | undefined>(undefined);
-  const [deleteSub, setDeleteSub] = useState<Subcategory | undefined>(undefined);
+  const [editingSub, setEditingSub] = useState<MerchantCatalogSubcategory | undefined>(undefined);
+  const [deleteSub, setDeleteSub] = useState<MerchantCatalogSubcategory | undefined>(undefined);
 
   const [prodModalOpen, setProdModalOpen] = useState(false);
-  const [editingProd, setEditingProd] = useState<Product | undefined>(undefined);
-  const [deleteProd, setDeleteProd] = useState<Product | undefined>(undefined);
+  const [editingProd, setEditingProd] = useState<MerchantCatalogItem | undefined>(undefined);
+  const [deleteProd, setDeleteProd] = useState<MerchantCatalogItem | undefined>(undefined);
 
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
 
-  // Local Storage syncing
-  useEffect(() => {
-    const savedSubs = localStorage.getItem('av_subcategories');
-    const savedProds = localStorage.getItem('av_products');
-    if (savedSubs) {
-      try {
-        setSubcategories(JSON.parse(savedSubs));
-      } catch (e) {
-        console.error('Failed to parse subcategories', e);
-      }
-    }
-    if (savedProds) {
-      try {
-        setProducts(JSON.parse(savedProds));
-      } catch (e) {
-        console.error('Failed to parse products', e);
-      }
-    }
-    setIsMounted(true);
-  }, []);
+  const subcategoriesQuery = useQuery({
+    queryKey: ['merchant-catalog-subcategories'],
+    queryFn: () =>
+      api.get<MerchantCatalogSubcategoryListResponse>('/v1/merchant/catalog/subcategories'),
+  });
+  const subcategories = subcategoriesQuery.data?.items ?? [];
 
-  useEffect(() => {
-    if (isMounted) {
-      localStorage.setItem('av_subcategories', JSON.stringify(subcategories));
-    }
-  }, [subcategories, isMounted]);
+  const garmentTypesQuery = useQuery({
+    queryKey: ['garment-types', selectedCategory],
+    queryFn: () =>
+      api.get<{ items: { id: string; label: string }[] }>(
+        `/v1/models/garment-types?gender=${selectedCategory}`,
+      ),
+    enabled: !isMerchantGateError(subcategoriesQuery.error),
+  });
+  const garmentTypes = garmentTypesQuery.data?.items ?? [];
 
-  useEffect(() => {
-    if (isMounted) {
-      try {
-        localStorage.setItem('av_products', JSON.stringify(products));
-      } catch (err) {
-        console.warn('localStorage quota exceeded, stripping image data to persist state...');
-        try {
-          const stripped = products.map((p) => ({ ...p, imageDataUrl: undefined }));
-          localStorage.setItem('av_products', JSON.stringify(stripped));
-        } catch (innerErr) {
-          console.error('Failed to save products to localStorage', innerErr);
-        }
-      }
-    }
-  }, [products, isMounted]);
+  const productsQuery = useQuery({
+    queryKey: ['merchant-catalog-products', selectedSubcategoryId],
+    queryFn: () =>
+      api.get<MerchantCatalogListResponse>(
+        `/v1/merchant/catalog?subcategoryId=${selectedSubcategoryId}`,
+      ),
+    enabled: !!selectedSubcategoryId,
+  });
+  const products = productsQuery.data?.items ?? [];
 
-  if (!isMounted) {
-    return (
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: C.mid, fontSize: 14 }}>Loading catalogue...</div>
-      </div>
-    );
-  }
+  const invalidateSubcategories = () =>
+    qc.invalidateQueries({ queryKey: ['merchant-catalog-subcategories'] });
+  const invalidateProducts = () =>
+    qc.invalidateQueries({ queryKey: ['merchant-catalog-products', selectedSubcategoryId] });
 
-  const selectedSub = subcategories.find((s) => s.id === selectedSubcategoryId);
+  const createSubMutation = useMutation({
+    mutationFn: (vars: { name: string; garmentSubcategoryId: string }) =>
+      api.post<MerchantCatalogSubcategory>('/v1/merchant/catalog/subcategories', {
+        category: selectedCategory,
+        name: vars.name,
+        garmentSubcategoryId: vars.garmentSubcategoryId,
+      }),
+    onSuccess: () => {
+      invalidateSubcategories();
+      setSubModalOpen(false);
+      setEditingSub(undefined);
+    },
+  });
+
+  const updateSubMutation = useMutation({
+    mutationFn: (vars: { id: string; name: string; garmentSubcategoryId: string }) =>
+      api.patch<MerchantCatalogSubcategory>(`/v1/merchant/catalog/subcategories/${vars.id}`, {
+        name: vars.name,
+        garmentSubcategoryId: vars.garmentSubcategoryId,
+      }),
+    onSuccess: () => {
+      invalidateSubcategories();
+      setSubModalOpen(false);
+      setEditingSub(undefined);
+    },
+  });
+
+  const deleteSubMutation = useMutation({
+    mutationFn: (id: string) => api.del<void>(`/v1/merchant/catalog/subcategories/${id}`),
+    onSuccess: (_data, id) => {
+      invalidateSubcategories();
+      if (selectedSubcategoryId === id) setSelectedSubcategoryId(null);
+      setDeleteSub(undefined);
+    },
+  });
+
+  const deleteProductMutation = useMutation({
+    mutationFn: (id: string) => api.del<void>(`/v1/merchant/catalog/${id}`),
+    onSuccess: () => {
+      invalidateProducts();
+      invalidateSubcategories(); // productCount changed
+      setDeleteProd(undefined);
+    },
+  });
+
+  const isMounted = !subcategoriesQuery.isLoading;
+  const merchantGated = isMerchantGateError(subcategoriesQuery.error);
 
   // --- Handlers ---
-  const handleSaveSubcategory = (name: string, garmentTypeId: string) => {
-    if (editingSub) {
-      setSubcategories((prev) =>
-        prev.map((s) => (s.id === editingSub.id ? { ...s, name, garmentTypeId } : s)),
-      );
-    } else {
-      const newSub: Subcategory = {
-        id: generateId(),
-        category: selectedCategory,
-        name,
-        garmentTypeId,
-      };
-      setSubcategories((prev) => [...prev, newSub]);
-    }
-    setSubModalOpen(false);
-    setEditingSub(undefined);
+  const handleSaveSubcategory = (name: string, garmentSubcategoryId: string) => {
+    if (editingSub) updateSubMutation.mutate({ id: editingSub.id, name, garmentSubcategoryId });
+    else createSubMutation.mutate({ name, garmentSubcategoryId });
   };
 
   const handleDeleteSubcategory = () => {
-    if (!deleteSub) return;
-    setSubcategories((prev) => prev.filter((s) => s.id !== deleteSub.id));
-    setProducts((prev) => prev.filter((p) => p.subcategoryId !== deleteSub.id));
-    if (selectedSubcategoryId === deleteSub.id) {
-      setSelectedSubcategoryId(null);
-    }
-    setDeleteSub(undefined);
+    if (deleteSub) deleteSubMutation.mutate(deleteSub.id);
   };
 
-  const handleSaveProduct = (prodData: Omit<Product, 'id' | 'subcategoryId'>) => {
-    if (!selectedSubcategoryId) return;
-    if (editingProd) {
-      setProducts((prev) => prev.map((p) => (p.id === editingProd.id ? { ...p, ...prodData } : p)));
-    } else {
-      const newProd: Product = {
-        id: generateId(),
-        subcategoryId: selectedSubcategoryId,
-        ...prodData,
-      };
-      setProducts((prev) => [...prev, newProd]);
-    }
+  const handleDeleteProduct = () => {
+    if (deleteProd) deleteProductMutation.mutate(deleteProd.id);
+  };
+
+  const handleProductSaved = () => {
+    invalidateProducts();
+    invalidateSubcategories();
     setProdModalOpen(false);
     setEditingProd(undefined);
   };
 
-  const handleDeleteProduct = () => {
-    if (!deleteProd) return;
-    setProducts((prev) => prev.filter((p) => p.id !== deleteProd.id));
-    setDeleteProd(undefined);
-  };
-
-  const handleSaveBulkProducts = (newProductsData: Omit<Product, 'id' | 'subcategoryId'>[]) => {
-    if (!selectedSubcategoryId) return;
-    const newProducts: Product[] = newProductsData.map((prod) => ({
-      id: generateId(),
-      subcategoryId: selectedSubcategoryId,
-      ...prod,
-    }));
-    setProducts((prev) => [...prev, ...newProducts]);
+  const handleBulkSaved = () => {
+    invalidateProducts();
+    invalidateSubcategories();
     setBulkModalOpen(false);
   };
 
@@ -229,6 +164,47 @@ export function CatalogueManagerContent() {
     setEditingProd(undefined);
     setProdModalOpen(true);
   };
+
+  if (!isMounted) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: C.mid, fontSize: 14 }}>Loading catalogue...</div>
+      </div>
+    );
+  }
+
+  if (merchantGated) {
+    return (
+      <>
+        <TopBar
+          title="Catalogue Manager"
+          subtitle="Organize your products by category and garment type."
+        />
+        <div
+          style={{
+            flex: 1,
+            padding: '64px 24px',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: C.text, margin: 0 }}>
+            Merchant account required
+          </h3>
+          <p style={{ color: C.light, fontSize: 14, margin: 0, maxWidth: 360 }}>
+            This account isn't enabled for virtual try-on yet. Contact support to get your merchant
+            account activated.
+          </p>
+        </div>
+      </>
+    );
+  }
+
+  const selectedSub = subcategories.find((s) => s.id === selectedSubcategoryId);
+  const visibleSubs = subcategories.filter((s) => s.category === selectedCategory);
 
   // --- Views ---
   const renderCategoryTabs = () => (
@@ -265,8 +241,6 @@ export function CatalogueManagerContent() {
   );
 
   const renderSubcategoryGrid = () => {
-    const visibleSubs = subcategories.filter((s) => s.category === selectedCategory);
-
     if (visibleSubs.length === 0) {
       return (
         <div
@@ -308,8 +282,7 @@ export function CatalogueManagerContent() {
       >
         {visibleSubs.map((sub) => {
           const garmentTypeLabel =
-            GARMENT_TYPES.find((g) => g.id === sub.garmentTypeId)?.label || 'Unknown';
-          const productCount = products.filter((p) => p.subcategoryId === sub.id).length;
+            garmentTypes.find((g) => g.id === sub.garmentSubcategoryId)?.label || 'Unknown';
 
           return (
             // biome-ignore lint/a11y/useSemanticElements: contains a nested interactive <button> (delete) — real <button> here would be invalid HTML (no nesting)
@@ -411,7 +384,7 @@ export function CatalogueManagerContent() {
                     {garmentTypeLabel}
                   </span>
                   <span style={{ fontSize: 12, color: C.mid }}>
-                    • {productCount} {productCount === 1 ? 'product' : 'products'}
+                    • {sub.productCount} {sub.productCount === 1 ? 'product' : 'products'}
                   </span>
                 </div>
               </div>
@@ -424,9 +397,16 @@ export function CatalogueManagerContent() {
 
   const renderProductGrid = () => {
     if (!selectedSub) return null;
-    const subProducts = products.filter((p) => p.subcategoryId === selectedSub.id);
 
-    if (subProducts.length === 0) {
+    if (productsQuery.isLoading) {
+      return (
+        <div style={{ padding: '40px', textAlign: 'center', color: C.light, fontSize: 14 }}>
+          Loading products...
+        </div>
+      );
+    }
+
+    if (products.length === 0) {
       return (
         <div
           style={{
@@ -465,7 +445,7 @@ export function CatalogueManagerContent() {
           padding: '24px 28px 40px',
         }}
       >
-        {subProducts.map((product) => (
+        {products.map((product) => (
           <div
             key={product.id}
             className="prod-card"
@@ -563,12 +543,12 @@ export function CatalogueManagerContent() {
               }}
             >
               <div className="prod-card-img" style={{ width: '100%', height: '100%' }}>
-                {product.imageDataUrl ? (
+                {product.thumbnailUrl || product.imageUrl ? (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {/* biome-ignore lint/performance/noImgElement: local preview */}
+                    {/* biome-ignore lint/performance/noImgElement: presigned R2 URL */}
                     <img
-                      src={product.imageDataUrl}
+                      src={product.thumbnailUrl ?? product.imageUrl ?? undefined}
                       alt={product.label}
                       style={{
                         width: '100%',
@@ -625,7 +605,7 @@ export function CatalogueManagerContent() {
                   fontFamily: 'monospace',
                 }}
               >
-                SKU: {product.sku}
+                SKU: {product.sku ?? '—'}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
@@ -697,7 +677,7 @@ export function CatalogueManagerContent() {
                       marginTop: 2,
                     }}
                   >
-                    {GARMENT_TYPES.find((g) => g.id === selectedSub.garmentTypeId)?.label ||
+                    {garmentTypes.find((g) => g.id === selectedSub.garmentSubcategoryId)?.label ||
                       'Unknown'}
                   </div>
                 </div>
@@ -735,24 +715,40 @@ export function CatalogueManagerContent() {
       {/* Modals & Dialogs */}
       <SubcategoryModal
         open={subModalOpen}
-        onClose={() => setSubModalOpen(false)}
+        onClose={() => {
+          setSubModalOpen(false);
+          setEditingSub(undefined);
+        }}
         onSave={handleSaveSubcategory}
-        initialData={editingSub}
-        category={selectedCategory}
-        garmentTypes={GARMENT_TYPES}
+        initialData={
+          editingSub
+            ? {
+                id: editingSub.id,
+                name: editingSub.name,
+                garmentSubcategoryId: editingSub.garmentSubcategoryId,
+              }
+            : undefined
+        }
+        garmentTypes={garmentTypes}
+        isSaving={createSubMutation.isPending || updateSubMutation.isPending}
       />
 
       <ProductModal
         open={prodModalOpen}
-        onClose={() => setProdModalOpen(false)}
-        onSave={handleSaveProduct}
+        onClose={() => {
+          setProdModalOpen(false);
+          setEditingProd(undefined);
+        }}
+        onSaved={handleProductSaved}
+        subcategoryId={selectedSubcategoryId}
         initialData={editingProd}
       />
 
       <BulkUploadModal
         open={bulkModalOpen}
         onClose={() => setBulkModalOpen(false)}
-        onSave={handleSaveBulkProducts}
+        onSaved={handleBulkSaved}
+        subcategoryId={selectedSubcategoryId}
       />
 
       <ConfirmDialog
