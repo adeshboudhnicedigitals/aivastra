@@ -164,6 +164,24 @@ export default function DashboardPage() {
 
           <Card>
             <BlockStack gap="200">
+              <Text as="h3" variant="headingSm">
+                Credit Balance
+              </Text>
+              <Text as="p" variant="heading2xl">
+                {me?.creditBalance ?? 0}
+              </Text>
+              <Button
+                onClick={() =>
+                  window.open('https://app.aivastra.com/pricing', '_blank', 'noopener')
+                }
+              >
+                Top up on aivastra.com
+              </Button>
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="200">
               <Text as="h2" variant="headingMd">
                 {me?.store.shopDomain}
               </Text>
