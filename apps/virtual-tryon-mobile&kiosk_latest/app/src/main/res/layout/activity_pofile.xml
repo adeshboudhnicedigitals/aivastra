@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    tools:context=".activity.profile.PofileActivity">
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@drawable/screen_bg"
+        android:scaleType="fitXY"/>
+
+    <include layout="@layout/ll_toolbar"
+        android:id="@+id/ll_toolbar"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginLeft="@dimen/_10sdp"
+        android:layout_marginRight="@dimen/_10sdp"
+        android:padding="@dimen/_10sdp"
+        android:layout_centerInParent="true"
+        android:orientation="vertical">
+
+        <de.hdodenhof.circleimageview.CircleImageView
+            android:layout_width="@dimen/_80sdp"
+            android:layout_height="@dimen/_80sdp"
+            android:src="@drawable/profile_icon"
+            android:layout_gravity="center"
+            android:id="@+id/img_profile"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Username"
+            android:layout_marginTop="@dimen/_10sdp"
+            android:textColor="@color/black"
+            android:textSize="@dimen/_12sdp"
+            android:fontFamily="@font/popins_medium"
+            android:textAlignment="textStart"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="@dimen/_10sdp"
+            android:background="@drawable/edit_bg_grd"
+            android:layout_marginTop="@dimen/_3sdp"
+            android:textColor="@color/white"
+            android:id="@+id/txt_username"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Email"
+            android:layout_marginTop="@dimen/_10sdp"
+            android:textColor="@color/black"
+            android:textSize="@dimen/_12sdp"
+            android:fontFamily="@font/popins_medium"
+            android:textAlignment="textStart"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="@dimen/_10sdp"
+            android:background="@drawable/edit_bg_grd"
+            android:layout_marginTop="@dimen/_3sdp"
+            android:textColor="@color/white"
+            android:id="@+id/txt_email"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Select capture Auto Timer"
+            android:layout_marginTop="@dimen/_10sdp"
+            android:textColor="@color/black"
+            android:textSize="@dimen/_12sdp"
+            android:fontFamily="@font/popins_medium"
+            android:textAlignment="textStart"/>
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/spinnerLayout"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            app:endIconMode="dropdown_menu"
+            app:endIconScaleType="centerCrop"
+            app:endIconTint="@color/white"
+            app:endIconMinSize="@dimen/_30sdp">
+
+            <AutoCompleteTextView
+                android:id="@+id/materialSpinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/edit_bg_grd"
+                android:textColor="@color/white"
+                android:textAlignment="textStart"
+                android:gravity="start"
+                android:textSize="@dimen/_12sdp"
+                android:fontFamily="@font/popins_bold"
+                android:inputType="none"
+                android:singleLine="true"
+                android:includeFontPadding="false"
+                android:ellipsize="end"
+                android:padding="@dimen/_10sdp"
+                android:focusable="false"
+                android:cursorVisible="false" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+
+        <com.google.android.material.button.MaterialButton
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/_45sdp"
+            android:text="Logout"
+            android:layout_marginHorizontal="@dimen/_35sdp"
+            android:textAllCaps="false"
+            android:id="@+id/btn_logout"
+            android:textColor="@color/white"
+            android:textSize="@dimen/_14sdp"
+            android:layout_gravity="center"
+            android:layout_marginTop="@dimen/_20sdp"
+            android:fontFamily="@font/popins_medium"
+            android:backgroundTint="@color/purple"/>
+
+    </LinearLayout>
+
+</RelativeLayout>

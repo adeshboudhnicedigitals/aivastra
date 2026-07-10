@@ -1,6 +1,6 @@
 'use client';
 import { useQueryClient } from '@tanstack/react-query';
-import { MonitorPlay, Phone } from 'lucide-react';
+import { MonitorPlay, Package, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -10,7 +10,14 @@ import { C } from './tokens';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-const NAV: { id: string; href: string; label: string; icon: string; badge?: string }[] = [
+const NAV: {
+  id: string;
+  href: string;
+  label: string;
+  icon: string;
+  badge?: string;
+  devOnly?: boolean;
+}[] = [
   { id: 'studio', href: '/studio', label: 'Studio', icon: `${BASE}/assets/studio-icon.svg` },
   {
     id: 'tryon',
@@ -33,6 +40,15 @@ const NAV: { id: string; href: string; label: string; icon: string; badge?: stri
     icon: `${BASE}/assets/catalog-icon.svg`,
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
+  // Merchant virtual try-on catalogue management — backend wired up but not
+  // fully complete yet. Hidden from the sidebar in production until it's ready.
+  {
+    id: 'catalogue-manager',
+    href: '/catalogue-manager',
+    label: 'My Catalogue',
+    icon: 'package',
+    devOnly: true,
+  },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
   { id: 'tutorials', href: '/tutorials', label: 'Tutorials', icon: 'monitor-play' },
   { id: 'contact', href: '/contact-us', label: 'Contact Us', icon: 'phone' },
@@ -81,6 +97,8 @@ export function Sidebar() {
   const activeId = NAV.find(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   )?.id;
+  const visibleNav =
+    process.env.NODE_ENV === 'production' ? NAV.filter((item) => !item.devOnly) : NAV;
 
   return (
     <div
@@ -130,7 +148,7 @@ export function Sidebar() {
           gap: 12,
         }}
       >
-        {NAV.map((item) => {
+        {visibleNav.map((item) => {
           const isActive = activeId === item.id;
           const linkContent = (
             <div
@@ -166,6 +184,8 @@ export function Sidebar() {
                   <MonitorPlay size={20} />
                 ) : item.icon === 'phone' ? (
                   <Phone size={20} />
+                ) : item.icon === 'package' ? (
+                  <Package size={20} />
                 ) : (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}

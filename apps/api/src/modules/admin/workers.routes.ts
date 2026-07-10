@@ -154,6 +154,11 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
       schema: {
         params: z.object({ id: z.string() }),
         body: z.object({
+          id: z
+            .string()
+            .min(1)
+            .regex(/^[\w-]+$/, 'id must be alphanumeric with dashes')
+            .optional(),
           label: z.string().optional(),
           url: z.string().url().optional(),
           apiKey: z.string().min(1).optional(),
@@ -165,6 +170,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const body = req.body as {
+        id?: string;
         label?: string;
         url?: string;
         apiKey?: string;
@@ -179,9 +185,22 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
       if (!existing)
         return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Worker not found' } });
 
+      const nextId = body.id ?? id;
+      if (nextId !== id) {
+        const [conflict] = await app.db
+          .select({ id: schema.workers.id })
+          .from(schema.workers)
+          .where(eq(schema.workers.id, nextId));
+        if (conflict) {
+          return reply
+            .code(409)
+            .send({ error: { code: 'WORKER_EXISTS', message: 'Worker ID already exists' } });
+        }
+      }
+
       const [updated] = await app.db
         .update(schema.workers)
-        .set({ ...body, updatedAt: new Date() })
+        .set({ ...body, id: nextId, updatedAt: new Date() })
         .where(eq(schema.workers.id, id))
         .returning();
       if (!updated) {
@@ -190,33 +209,46 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           .send({ error: { code: 'UPDATE_FAILED', message: 'Failed to update worker' } });
       }
 
-      // Sync url/apiKey/allowedJobTypes changes to Redis
+      if (nextId !== id) {
+        const raw = await app.redis.hget(REGISTRY_KEY, id);
+        if (raw) {
+          await app.redis.hset(REGISTRY_KEY, nextId, raw);
+          await app.redis.hdel(REGISTRY_KEY, id);
+        }
+
+        const healthy = await app.redis.get(healthKey(id));
+        if (healthy !== null) {
+          await app.redis.set(healthKey(nextId), healthy);
+          await app.redis.del(healthKey(id));
+        }
+      }
+
       const newUrl = body.url ?? existing.url;
       const newApiKey = body.apiKey ?? existing.apiKey;
       if (
+        nextId !== id ||
         body.url !== undefined ||
         body.apiKey !== undefined ||
         body.allowedJobTypes !== undefined
       ) {
-        await syncToRedis(app.redis, id, {
+        await syncToRedis(app.redis, nextId, {
           url: newUrl,
           apiKey: newApiKey,
           allowedJobTypes: body.allowedJobTypes,
         });
       }
 
-      // isActive: false → set DRAINING in Redis
       if (body.isActive === false) {
-        const raw = await app.redis.hget(REGISTRY_KEY, id);
+        const raw = await app.redis.hget(REGISTRY_KEY, nextId);
         if (raw) {
           const entry = JSON.parse(raw) as Record<string, unknown>;
           entry.status = 'DRAINING';
-          await app.redis.hset(REGISTRY_KEY, id, JSON.stringify(entry));
+          await app.redis.hset(REGISTRY_KEY, nextId, JSON.stringify(entry));
         }
       }
 
-      const healthy = (await app.redis.get(healthKey(id))) === '1';
-      const raw = await app.redis.hget(REGISTRY_KEY, id);
+      const healthy = (await app.redis.get(healthKey(nextId))) === '1';
+      const raw = await app.redis.hget(REGISTRY_KEY, nextId);
       const registry = raw ? (JSON.parse(raw) as { status?: string; lastSeen?: number }) : {};
 
       return {
@@ -248,7 +280,7 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
         const entry = JSON.parse(raw) as { status?: string };
         if (entry.status === 'BUSY') {
           return reply.code(409).send({
-            error: { code: 'WORKER_BUSY', message: 'Cannot delete a BUSY worker — drain it first' },
+            error: { code: 'WORKER_BUSY', message: 'Cannot delete a BUSY worker - drain it first' },
           });
         }
       }

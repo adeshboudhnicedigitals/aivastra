@@ -13,6 +13,7 @@ export const BulkGrantBody = z.object({
 export const DeductCreditsBody = GrantCreditsBody;
 export const UpdateUserBody = z.object({
   tier: z.string().min(1).max(64).optional(),
+  maxActiveDevices: z.number().int().min(1).max(50).optional(),
   isBanned: z.boolean().optional(),
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
@@ -74,6 +75,20 @@ export const SystemConfigBody = z.object({
       '4K': ResolutionConfig.optional(),
     })
     .optional(),
+  // Platform-wide ceiling on requested output long edge (px). Not per-workflow —
+  // final image resolution is a product/pricing decision, unlike latentMaxPx
+  // (per-template, VRAM-bound diffusion canvas size).
+  maxOutputPx: z.number().int().min(512).max(4096).optional(),
+  // Admin-fixed inputs for merchant catalogue-manager's constrained "flat garment
+  // -> catalogue image" generation. Keyed by category so studio-style face/background
+  // variety per gender is preserved without per-merchant or per-item picking.
+  merchantCatalogDefaults: z
+    .record(
+      z.enum(['men', 'women', 'boys', 'girls']),
+      z.object({ faceId: z.string().uuid(), backgroundId: z.string().uuid() }),
+    )
+    .optional(),
+  merchantCatalogAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
   tryon: z
     .object({
       creditCost: z.number().int().positive().max(1_000),
@@ -147,7 +162,7 @@ export const CreateWorkflowBody = z
       ),
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'widget', 'tryon']).default('regular'),
+    workflowType: z.enum(['regular', 'tryon']).default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
@@ -165,10 +180,6 @@ export const CreateWorkflowBody = z
     resultNodeId: z.string().min(1).optional(),
     facePhasePromptNode: z.string().min(1).optional(),
     garmentPhasePromptNode: z.string().min(1).optional(),
-    // Widget workflow fields (required when workflowType = 'widget')
-    widgetGarmentNodeId: z.string().min(1).optional(),
-    widgetCustomerPhotoNodeId: z.string().min(1).optional(),
-    widgetOutputNodeId: z.string().min(1).optional(),
     // Tryon workflow fields (required when workflowType = 'tryon')
     tryonPersonNodeId: z.string().min(1).optional(),
     tryonGarmentNodeId: z.string().min(1).optional(),
@@ -185,9 +196,7 @@ export const CreateWorkflowBody = z
             'facePhasePromptNode',
             'garmentPhasePromptNode',
           ] as const)
-        : val.workflowType === 'widget'
-          ? (['widgetGarmentNodeId', 'widgetCustomerPhotoNodeId', 'widgetOutputNodeId'] as const)
-          : (['facePhasePromptNode', 'garmentPhasePromptNode'] as const);
+        : (['facePhasePromptNode', 'garmentPhasePromptNode'] as const);
     for (const field of required) {
       if (!val[field]) {
         ctx.addIssue({
@@ -201,7 +210,7 @@ export const CreateWorkflowBody = z
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'widget', 'tryon']).optional(),
+  workflowType: z.enum(['regular', 'tryon']).optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -229,10 +238,6 @@ export const UpdateWorkflowBody = z.object({
   resultNodeId: z.string().min(1).nullable().optional(),
   facePhasePromptNode: z.string().min(1).optional(),
   garmentPhasePromptNode: z.string().min(1).optional(),
-  // Widget workflow node IDs
-  widgetGarmentNodeId: z.string().min(1).nullable().optional(),
-  widgetCustomerPhotoNodeId: z.string().min(1).nullable().optional(),
-  widgetOutputNodeId: z.string().min(1).nullable().optional(),
   // Tryon workflow node IDs
   tryonPersonNodeId: z.string().min(1).nullable().optional(),
   tryonGarmentNodeId: z.string().min(1).nullable().optional(),
@@ -368,6 +373,7 @@ export const PatchGarmentTypeBody = z.object({
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
+  defaultPoseId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,

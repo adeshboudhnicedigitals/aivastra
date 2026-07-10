@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AiVastra" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowTranslucentStatus">true</item>
+        <item name="android:windowTranslucentNavigation">true</item>
+        <item name="android:windowBackground">@drawable/screen_bg</item>
+    </style>
+
+    <style name="BottomSheetDialogThemeFullWidth" parent="Theme.Design.Light.BottomSheetDialog">
+        <item name="bottomSheetStyle">@style/BottomSheetStyle</item>
+    </style>
+
+    <style name="BottomSheetStyle" parent="Widget.Design.BottomSheet.Modal">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:background">@android:color/transparent</item>
+    </style>
+
+    <style name="Theme.UCrop.Custom" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Keep no action bar -->
+        <item name="windowNoTitle">true</item>
+        <item name="windowActionBar">false</item>
+        <item name="android:windowFullscreen">false</item>
+
+        <!-- Make sure status and nav bars are opaque -->
+        <item name="android:statusBarColor">@color/gradiant2</item>
+        <item name="android:navigationBarColor">@color/gradiant2</item>
+        <item name="android:fitsSystemWindows">true</item>
+    </style>
+
+    <style name="SpecificCornerCut">
+        <item name="cornerSizeTopLeft">20dp</item>
+        <item name="cornerFamilyTopLeft">cut</item>
+        <item name="cornerSizeBottomRight">20dp</item>
+        <item name="cornerFamilyBottomRight">cut</item>
+    </style>
+
+    <style name="SpecificCornerCutImage">
+        <item name="cornerSizeTopLeft">15dp</item>
+        <item name="cornerFamilyTopLeft">cut</item>
+        <item name="cornerSizeBottomRight">15dp</item>
+        <item name="cornerFamilyBottomRight">cut</item>
+    </style>
+
+    <style name="SpecificCornerCutEditText">
+        <item name="cornerSizeTopLeft">10dp</item>
+        <item name="cornerFamilyTopLeft">cut</item>
+        <item name="cornerSizeBottomRight">10dp</item>
+        <item name="cornerFamilyBottomRight">cut</item>
+    </style>
+
+</resources>

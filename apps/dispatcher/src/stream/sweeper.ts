@@ -15,14 +15,14 @@ const IN_FLIGHT_STATES = ['PREPROCESSING', 'GENERATING', 'UPLOADING'];
 interface StuckJob {
   id: string;
   userId: string | null;
-  widgetClientId: string | null;
+  merchantId: string | null;
   creditsCharged: number;
 }
 
 const SELECT_COLS = {
   id: schema.jobs.id,
   userId: schema.jobs.userId,
-  widgetClientId: schema.jobs.widgetClientId,
+  merchantId: schema.jobs.merchantId,
   creditsCharged: schema.jobs.creditsCharged,
 };
 
@@ -82,23 +82,23 @@ async function failAndRefund(
   log: Logger,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    if (job.widgetClientId) {
+    if (job.merchantId) {
       const existing = await tx
         .select()
-        .from(schema.widgetCreditLedger)
+        .from(schema.merchantCreditLedger)
         .where(
           and(
-            eq(schema.widgetCreditLedger.jobId, job.id),
-            eq(schema.widgetCreditLedger.reason, 'JOB_FAIL_REFUND'),
+            eq(schema.merchantCreditLedger.jobId, job.id),
+            eq(schema.merchantCreditLedger.reason, 'JOB_FAIL_REFUND'),
           ),
         );
       if (existing.length) return;
       await tx
-        .update(schema.widgetClientCredits)
-        .set({ balance: sql`${schema.widgetClientCredits.balance} + ${job.creditsCharged}` })
-        .where(eq(schema.widgetClientCredits.widgetClientId, job.widgetClientId));
-      await tx.insert(schema.widgetCreditLedger).values({
-        widgetClientId: job.widgetClientId,
+        .update(schema.merchantCredits)
+        .set({ balance: sql`${schema.merchantCredits.balance} + ${job.creditsCharged}` })
+        .where(eq(schema.merchantCredits.merchantId, job.merchantId));
+      await tx.insert(schema.merchantCreditLedger).values({
+        merchantId: job.merchantId,
         delta: job.creditsCharged,
         reason: 'JOB_FAIL_REFUND',
         jobId: job.id,

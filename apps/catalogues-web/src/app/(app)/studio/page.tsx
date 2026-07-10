@@ -590,14 +590,31 @@ export default function StudioPage(): React.ReactElement {
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
   const effectiveAspect = aspect === 'custom' && customRatio ? customRatio : aspect;
 
+  const { data: resolutionConfigData } = useQuery<{
+    resolutions: Record<string, { enabled: boolean; creditCost: number }>;
+    maxOutputPx: number;
+  }>({
+    queryKey: ['resolution-configs'],
+    queryFn: () => api.get('/v1/config/resolutions'),
+    staleTime: 10 * 60 * 1000,
+  });
+  const resolutionConfig = resolutionConfigData?.resolutions ?? {
+    HD: { enabled: true, creditCost: 25 },
+    '2K': { enabled: true, creditCost: 35 },
+    '4K': { enabled: true, creditCost: 40 },
+  };
+  // Admin-configured platform ceiling (Settings → Max Output Resolution) — falls back
+  // to 2048 only until the query resolves, never as a silent permanent cap.
+  const maxOutputPx = resolutionConfigData?.maxOutputPx ?? 2048;
+
   // Custom dimension validation — computed at component level so handleSubmit and
   // canGenerate can both reference them without re-deriving inside the render IIFE.
   const customWNum = Number(customWStr);
   const customHNum = Number(customHStr);
   const customWErr =
-    customWStr !== '' && (Number.isNaN(customWNum) || customWNum < 768 || customWNum > 2048);
+    customWStr !== '' && (Number.isNaN(customWNum) || customWNum < 768 || customWNum > maxOutputPx);
   const customHErr =
-    customHStr !== '' && (Number.isNaN(customHNum) || customHNum < 768 || customHNum > 2048);
+    customHStr !== '' && (Number.isNaN(customHNum) || customHNum < 768 || customHNum > maxOutputPx);
   const customDimsReady =
     aspect !== 'custom' ||
     (!!customRatio && !!customWStr && !!customHStr && !customWErr && !customHErr);
@@ -854,18 +871,6 @@ export default function StudioPage(): React.ReactElement {
     },
     enabled: needsShoes,
   });
-  const { data: resolutionConfigData } = useQuery<{
-    resolutions: Record<string, { enabled: boolean; creditCost: number }>;
-  }>({
-    queryKey: ['resolution-configs'],
-    queryFn: () => api.get('/v1/config/resolutions'),
-    staleTime: 10 * 60 * 1000,
-  });
-  const resolutionConfig = resolutionConfigData?.resolutions ?? {
-    HD: { enabled: true, creditCost: 25 },
-    '2K': { enabled: true, creditCost: 35 },
-    '4K': { enabled: true, creditCost: 40 },
-  };
 
   const shoeRandomItems = useMemo(() => {
     const allItems = (shoesCatalog?.tree.filter((n) => n.slug !== 'other') ?? []).flatMap(
@@ -2599,8 +2604,8 @@ export default function StudioPage(): React.ReactElement {
                           }}
                         >
                           {wErr || hErr
-                            ? `${(wErr && wNum < 768) || (hErr && hNum < 768) ? 'Min 768px' : 'Max 2048px'}`
-                            : 'Min 768px · Max 2048px'}
+                            ? `${(wErr && wNum < 768) || (hErr && hNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
+                            : `Min 768px · Max ${maxOutputPx}px`}
                         </p>
                       )}
                     </div>

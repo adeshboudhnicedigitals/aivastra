@@ -1,7 +1,7 @@
 import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from '../helpers/api';
+import { createVerifiedUserToken } from '../helpers/auth';
 import { type Containers, startContainers } from '../helpers/containers';
 
 describe('GET /admin/me', () => {
@@ -16,38 +16,13 @@ describe('GET /admin/me', () => {
     await c?.stop();
   });
 
-  async function registerUser(email: string) {
-    await app.inject({
-      method: 'POST',
-      url: '/v1/auth/register',
-      payload: { displayName: 'Admin Me User', email, password: 'password123' },
-    });
-    const [user] = await app.db
-      .select({ id: schema.users.id })
-      .from(schema.users)
-      .where(eq(schema.users.email, email));
-    if (!user) throw new Error('user not found');
-    await app.db
-      .update(schema.users)
-      .set({ emailVerified: true })
-      .where(eq(schema.users.id, user.id));
-    const login = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/login',
-      payload: { email, password: 'password123' },
-    });
-    const { accessToken } = login.json();
-    const userId = JSON.parse(atob(accessToken.split('.')[1])).sub as string;
-    return { token: accessToken, userId };
-  }
-
   it('returns 401 with no token', async () => {
     const res = await app.inject({ method: 'GET', url: '/admin/me' });
     expect(res.statusCode).toBe(401);
   });
 
   it('returns 403 for non-admin user', async () => {
-    const { token } = await registerUser('plain@x.com');
+    const { token } = await createVerifiedUserToken(app, 'plain@x.com');
     const res = await app.inject({
       method: 'GET',
       url: '/admin/me',
@@ -57,7 +32,7 @@ describe('GET /admin/me', () => {
   });
 
   it('returns userId, email, and role for SUPER_ADMIN', async () => {
-    const { token, userId } = await registerUser('admin@x.com');
+    const { token, userId } = await createVerifiedUserToken(app, 'admin@x.com');
     await app.db.insert(schema.adminUsers).values({ userId, role: 'SUPER_ADMIN' });
     const res = await app.inject({
       method: 'GET',
@@ -73,7 +48,7 @@ describe('GET /admin/me', () => {
   });
 
   it('returns 200 for MODERATOR role', async () => {
-    const { token, userId } = await registerUser('mod@x.com');
+    const { token, userId } = await createVerifiedUserToken(app, 'mod@x.com');
     await app.db.insert(schema.adminUsers).values({ userId, role: 'MODERATOR' });
     const res = await app.inject({
       method: 'GET',

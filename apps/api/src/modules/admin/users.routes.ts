@@ -38,6 +38,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           displayName: schema.users.displayName,
           phone: schema.users.phone,
           tier: schema.users.tier,
+          maxActiveDevices: schema.users.maxActiveDevices,
           isBanned: schema.users.isBanned,
           banReason: schema.users.banReason,
           createdAt: schema.users.createdAt,
@@ -78,6 +79,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           displayName: schema.users.displayName,
           phone: schema.users.phone,
           tier: schema.users.tier,
+          maxActiveDevices: schema.users.maxActiveDevices,
           isBanned: schema.users.isBanned,
           banReason: schema.users.banReason,
           createdAt: schema.users.createdAt,
@@ -118,7 +120,9 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { id } = req.params as { id: string };
-      const { tier, isBanned, banReason, forceLogout } = req.body as z.infer<typeof UpdateUserBody>;
+      const { tier, maxActiveDevices, isBanned, banReason, forceLogout } = req.body as z.infer<
+        typeof UpdateUserBody
+      >;
 
       if (tier !== undefined) {
         const [plan] = await app.db
@@ -139,6 +143,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
 
       const patch: Record<string, unknown> = { updatedAt: new Date() };
       if (tier !== undefined) patch.tier = tier;
+      if (maxActiveDevices !== undefined) patch.maxActiveDevices = maxActiveDevices;
       if (isBanned !== undefined) patch.isBanned = isBanned;
       if (banReason !== undefined) patch.banReason = banReason;
       await app.db.update(schema.users).set(patch).where(eq(schema.users.id, id));

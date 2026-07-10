@@ -66,7 +66,7 @@ export async function processJob(
       id: schema.jobs.id,
       status: schema.jobs.status,
       userId: schema.jobs.userId,
-      widgetClientId: schema.jobs.widgetClientId,
+      merchantId: schema.jobs.merchantId,
       shopifyStoreId: schema.jobs.shopifyStoreId,
       customerPhotoKey: schema.jobs.customerPhotoKey,
       creditsCharged: schema.jobs.creditsCharged,
@@ -119,8 +119,8 @@ export async function processJob(
     return;
   }
 
-  // Widget jobs: widgetClientId set, faceId/bgId/poseId are null — route to dedicated processor.
-  if (job.widgetClientId || job.shopifyStoreId) {
+  // Widget jobs: merchantId/shopifyStoreId set, faceId/bgId/poseId are null — route to dedicated processor.
+  if (job.merchantId || job.shopifyStoreId) {
     await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt);
     return;
   }
@@ -923,7 +923,7 @@ async function processSareeJob(
 type WidgetJob = {
   id: string;
   userId: string | null;
-  widgetClientId: string | null;
+  merchantId: string | null;
   shopifyStoreId: string | null;
   customerPhotoKey: string | null;
   creditsCharged: number;
@@ -942,13 +942,13 @@ async function processWidgetJob(
 ): Promise<void> {
   const { db, redis, pub, s3, r2Bucket, widgetComfyUrl, widgetComfyBasicAuth } = cfg;
   const jobId = job.id;
-  // biome-ignore lint/style/noNonNullAssertion: widgetClientId is guaranteed non-null for widget jobs
-  const widgetClientId = job.widgetClientId!;
+  // biome-ignore lint/style/noNonNullAssertion: merchantId is guaranteed non-null for widget jobs
+  const merchantId = job.merchantId!;
   const { creditsCharged } = job;
 
   // Shopify widget jobs: job_inputs.params.kind === 'shopify' — route to the dedicated
   // shared-worker-pool processor instead of the widget-VPS flow below. Shopify jobs still
-  // carry widgetClientId (so they enter this function), but they don't use the fixed
+  // carry shopifyStoreId (so they enter this function), but they don't use the fixed
   // widgetComfyUrl/widgetComfyBasicAuth VPS at all, so this branch runs before that check.
   const rawParams =
     typeof inputs.params === 'string'
@@ -964,7 +964,7 @@ async function processWidgetJob(
     await markWidgetFailed(
       cfg,
       jobId,
-      widgetClientId,
+      merchantId,
       creditsCharged,
       stream,
       messageId,
@@ -979,7 +979,7 @@ async function processWidgetJob(
     await markWidgetFailed(
       cfg,
       jobId,
-      widgetClientId,
+      merchantId,
       creditsCharged,
       stream,
       messageId,
@@ -991,28 +991,19 @@ async function processWidgetJob(
   }
   const customerPhotoKey = job.customerPhotoKey;
 
-  // Load workflow template from DB (any active widget-type template)
-  const [templateRow] = await db
-    .select({
-      jsonContent: schema.workflowTemplates.jsonContent,
-      widgetGarmentNodeId: schema.workflowTemplates.widgetGarmentNodeId,
-      widgetCustomerPhotoNodeId: schema.workflowTemplates.widgetCustomerPhotoNodeId,
-      widgetOutputNodeId: schema.workflowTemplates.widgetOutputNodeId,
-    })
-    .from(schema.workflowTemplates)
-    .where(
-      and(
-        eq(schema.workflowTemplates.workflowType, 'widget'),
-        eq(schema.workflowTemplates.isActive, true),
-      ),
-    )
-    .limit(1);
-  if (!templateRow) {
-    jobLog.error('no active widget workflow template found in workflow_templates table');
+  // Resolve the per-job tryon workflow template — kiosk resolves this at job-creation
+  // time via garment type -> tryon_categories -> workflow_templates, the SAME mechanism
+  // the studio Try-On feature uses (see createSimpleTryonJob). Not "any active widget
+  // template" — the widget workflow category was retired in favor of tryon workflows.
+  const workflowTemplateId = rawParams.workflowTemplateId as string | undefined;
+  if (!workflowTemplateId) {
+    jobLog.error(
+      'kiosk job has no workflowTemplateId — garment type has no tryon category configured',
+    );
     await markWidgetFailed(
       cfg,
       jobId,
-      widgetClientId,
+      merchantId,
       creditsCharged,
       stream,
       messageId,
@@ -1023,9 +1014,59 @@ async function processWidgetJob(
     return;
   }
 
-  const garmentNodeId = templateRow.widgetGarmentNodeId ?? '31';
-  const customerPhotoNodeId = templateRow.widgetCustomerPhotoNodeId ?? '139';
-  const outputNodeId = templateRow.widgetOutputNodeId ?? '134';
+  const [templateRow] = await db
+    .select({
+      jsonContent: schema.workflowTemplates.jsonContent,
+      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
+      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
+    })
+    .from(schema.workflowTemplates)
+    .where(
+      and(
+        eq(schema.workflowTemplates.id, workflowTemplateId),
+        eq(schema.workflowTemplates.isActive, true),
+      ),
+    )
+    .limit(1);
+  if (!templateRow) {
+    jobLog.error({ workflowTemplateId }, 'resolved tryon workflow template not found or inactive');
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'WIDGET_TEMPLATE_MISSING',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const garmentNodeId = templateRow.tryonGarmentNodeId;
+  const customerPhotoNodeId = templateRow.tryonPersonNodeId;
+  const outputNodeId = templateRow.tryonOutputNodeId;
+
+  if (!garmentNodeId || !customerPhotoNodeId || !outputNodeId) {
+    jobLog.error(
+      { workflowTemplateId },
+      'resolved tryon workflow template is missing node ID mappings',
+    );
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'TRYON_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
 
   await transitionJob(db, pub, jobId, '', 'PREPROCESSING', {}, jobLog);
 
@@ -1154,7 +1195,7 @@ async function processWidgetJob(
     // Mark COMPLETED (transitionJob handles DB + admin SSE; publish widget channel separately)
     await transitionJob(db, pub, jobId, '', 'COMPLETED', { resultKey }, jobLog);
     await pub.publish(
-      `sse:events:widget:${widgetClientId}`,
+      `sse:events:widget:${merchantId}`,
       JSON.stringify({ jobId, type: 'STATUS', status: 'COMPLETED', resultKey }),
     );
     await redis.xadd(
@@ -1165,8 +1206,8 @@ async function processWidgetJob(
       '*',
       'jobId',
       jobId,
-      'widgetClientId',
-      widgetClientId,
+      'merchantId',
+      merchantId,
       'status',
       'COMPLETED',
       'resultKey',
@@ -1181,7 +1222,7 @@ async function processWidgetJob(
     await markWidgetFailed(
       cfg,
       jobId,
-      widgetClientId,
+      merchantId,
       creditsCharged,
       stream,
       messageId,
@@ -1194,8 +1235,8 @@ async function processWidgetJob(
 
 // ── Shopify job processor ──────────────────────────────────────────────────
 //
-// Shopify jobs are widget jobs (widgetClientId set, userId null, routed through
-// processWidgetJob) but they use the shared GPU worker pool — the exact
+// Shopify jobs are widget jobs (shopifyStoreId set, real userId set, routed
+// through processWidgetJob) but they use the shared GPU worker pool — the exact
 // ComfyUI/patcher/upload helpers imported at the top of this file — instead of
 // the dedicated widget ComfyUI VPS. Structurally this mirrors processSareeJob:
 // load one workflow_templates row by ID and reuse its tryon*_node_id columns
@@ -1456,7 +1497,7 @@ async function processShopifyJob(
 async function markWidgetFailed(
   cfg: ProcessorConfig,
   jobId: string,
-  widgetClientId: string,
+  merchantId: string,
   creditsCharged: number,
   stream: string,
   messageId: string,
@@ -1470,26 +1511,26 @@ async function markWidgetFailed(
   await db.transaction(async (tx) => {
     const existing = await tx
       .select()
-      .from(schema.widgetCreditLedger)
+      .from(schema.merchantCreditLedger)
       .where(
         and(
-          eq(schema.widgetCreditLedger.jobId, jobId),
-          eq(schema.widgetCreditLedger.reason, 'JOB_FAIL_REFUND'),
+          eq(schema.merchantCreditLedger.jobId, jobId),
+          eq(schema.merchantCreditLedger.reason, 'JOB_FAIL_REFUND'),
         ),
       );
     if (existing.length) return;
     await tx
-      .update(schema.widgetClientCredits)
-      .set({ balance: sql`${schema.widgetClientCredits.balance} + ${creditsCharged}` })
-      .where(eq(schema.widgetClientCredits.widgetClientId, widgetClientId));
+      .update(schema.merchantCredits)
+      .set({ balance: sql`${schema.merchantCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.merchantCredits.merchantId, merchantId));
     await tx
-      .insert(schema.widgetCreditLedger)
-      .values({ widgetClientId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+      .insert(schema.merchantCreditLedger)
+      .values({ merchantId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
   });
 
   await transitionJob(db, pub, jobId, '', 'FAILED', { errorCode }, log);
   await pub.publish(
-    `sse:events:widget:${widgetClientId}`,
+    `sse:events:widget:${merchantId}`,
     JSON.stringify({ jobId, type: 'STATUS', status: 'FAILED', errorCode }),
   );
   await redis.xadd(
@@ -1500,8 +1541,8 @@ async function markWidgetFailed(
     '*',
     'jobId',
     jobId,
-    'widgetClientId',
-    widgetClientId,
+    'merchantId',
+    merchantId,
     'status',
     'FAILED',
     'errorCode',

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const WidgetClientSignup = z.object({
+export const MerchantSignup = z.object({
   companyName: z.string().min(1),
   contactName: z.string().min(1),
   email: z.string().email(),
@@ -11,21 +11,21 @@ export const WidgetClientSignup = z.object({
   businessAddress: z.string().min(1),
   password: z.string().min(8),
 });
-export type WidgetClientSignup = z.infer<typeof WidgetClientSignup>;
+export type MerchantSignup = z.infer<typeof MerchantSignup>;
 
-export const WidgetClientLogin = z.object({
+export const MerchantLogin = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
-export type WidgetClientLogin = z.infer<typeof WidgetClientLogin>;
+export type MerchantLogin = z.infer<typeof MerchantLogin>;
 
-export const WidgetClientProfileUpdate = z.object({
+export const MerchantProfileUpdate = z.object({
   contactName: z.string().min(1).max(120),
   phone: z.string().min(1).max(40),
   companyName: z.string().min(1).max(160),
   websiteUrl: z.string().url(),
 });
-export type WidgetClientProfileUpdate = z.infer<typeof WidgetClientProfileUpdate>;
+export type MerchantProfileUpdate = z.infer<typeof MerchantProfileUpdate>;
 
 /**
  * Authoritative merchant plan billing data — the single source of truth for
@@ -62,49 +62,281 @@ export const MerchantPaymentVerify = z.object({
 });
 export type MerchantPaymentVerify = z.infer<typeof MerchantPaymentVerify>;
 
-export const WidgetSettingsUpdate = z.object({
-  settings: z
-    .object({
-      widgetName: z.string().max(80).optional(),
-      position: z.enum(['bottom-right', 'bottom-left', 'top-right', 'top-left']).optional(),
-      primaryColor: z.string().max(32).optional(),
-      buttonColor: z.string().max(32).optional(),
-      bgColor: z.string().max(32).optional(),
-      borderRadius: z.number().int().min(0).max(64).optional(),
-      shadow: z.boolean().optional(),
-      minSizeMb: z.number().min(0).max(50).optional(),
-      maxSizeMb: z.number().min(0).max(50).optional(),
-      cameraUpload: z.boolean().optional(),
-      customCss: z.string().max(5000).optional(),
-    })
-    .optional(),
-  allowedOrigins: z.array(z.string().max(255)).max(50).optional(),
-});
-export type WidgetSettingsUpdate = z.infer<typeof WidgetSettingsUpdate>;
+export const MerchantCatalogGender = z.enum(['men', 'women', 'boy', 'girl']);
+export type MerchantCatalogGender = z.infer<typeof MerchantCatalogGender>;
 
-export const WidgetJobRequest = z.object({
-  garmentImageUrl: z.string().url().optional(),
-  customerPhotoKey: z.string(),
-  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).default('2:3'),
-});
-export type WidgetJobRequest = z.infer<typeof WidgetJobRequest>;
+export const MerchantCatalogModerationStatus = z.enum(['approved', 'rejected']);
+export type MerchantCatalogModerationStatus = z.infer<typeof MerchantCatalogModerationStatus>;
 
-export const WidgetPresignRequest = z.object({
-  contentType: z.string(),
+export const MerchantCatalogPresignBody = z.object({
+  assetId: z.string().uuid().optional(),
+  kind: z.enum(['image', 'thumbnail', 'flat']),
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   contentLength: z
     .number()
     .int()
     .positive()
     .max(5 * 1024 * 1024),
 });
-export type WidgetPresignRequest = z.infer<typeof WidgetPresignRequest>;
+export type MerchantCatalogPresignBody = z.infer<typeof MerchantCatalogPresignBody>;
 
-export const WidgetConfigResponse = z.object({
-  widgetClientId: z.string().uuid(),
-  companyName: z.string(),
-  isActive: z.boolean(),
+export const MerchantCatalogCreateBody = z.object({
+  subcategoryId: z.string().uuid(),
+  label: z.string().min(1).max(200),
+  sku: z.string().max(120).optional(),
+  actualPrice: z.number().int().min(0), // rupees — converted to paise at the route layer
+  offerPrice: z.number().int().min(0), // rupees — converted to paise at the route layer
+  r2Key: z.string().min(1),
+  thumbnailKey: z.string().min(1),
 });
-export type WidgetConfigResponse = z.infer<typeof WidgetConfigResponse>;
+export type MerchantCatalogCreateBody = z.infer<typeof MerchantCatalogCreateBody>;
+
+export const MerchantCatalogUpdateBody = z
+  .object({
+    subcategoryId: z.string().uuid().optional(),
+    label: z.string().min(1).max(200).optional(),
+    sku: z.string().max(120).nullable().optional(),
+    actualPrice: z.number().int().min(0).optional(),
+    offerPrice: z.number().int().min(0).optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(999999).optional(),
+  })
+  .refine(
+    (body) =>
+      body.subcategoryId !== undefined ||
+      body.label !== undefined ||
+      body.sku !== undefined ||
+      body.actualPrice !== undefined ||
+      body.offerPrice !== undefined ||
+      body.isActive !== undefined ||
+      body.sortOrder !== undefined,
+    { message: 'at least one field is required' },
+  );
+export type MerchantCatalogUpdateBody = z.infer<typeof MerchantCatalogUpdateBody>;
+
+export const MerchantCatalogImportBody = z.object({
+  jobId: z.string().uuid(),
+  subcategoryId: z.string().uuid(),
+});
+export type MerchantCatalogImportBody = z.infer<typeof MerchantCatalogImportBody>;
+
+export const MerchantCatalogSourceKind = z.enum(['uploaded', 'generated', 'imported']);
+export type MerchantCatalogSourceKind = z.infer<typeof MerchantCatalogSourceKind>;
+
+export const MerchantCatalogItem = z.object({
+  id: z.string().uuid(),
+  merchantId: z.string().uuid(),
+  subcategoryId: z.string().uuid(),
+  label: z.string(),
+  sku: z.string().nullable(),
+  actualPrice: z.number().int(), // rupees — converted from paise by the route layer
+  offerPrice: z.number().int(),
+  r2Key: z.string(),
+  thumbnailKey: z.string(),
+  imageUrl: z.string().url().nullable(),
+  thumbnailUrl: z.string().url().nullable(),
+  sourceJobId: z.string().uuid().nullable(),
+  sourceKind: MerchantCatalogSourceKind,
+  flatSourceKey: z.string().nullable(),
+  isActive: z.boolean(),
+  moderationStatus: MerchantCatalogModerationStatus,
+  moderationNote: z.string().nullable(),
+  sortOrder: z.number().int(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type MerchantCatalogItem = z.infer<typeof MerchantCatalogItem>;
+
+export const MerchantCatalogListResponse = z.object({
+  items: z.array(MerchantCatalogItem),
+});
+export type MerchantCatalogListResponse = z.infer<typeof MerchantCatalogListResponse>;
+
+export const MerchantCatalogCategory = z.enum(['men', 'women', 'boys', 'girls']);
+export type MerchantCatalogCategory = z.infer<typeof MerchantCatalogCategory>;
+
+export const MerchantCatalogSubcategoryCreateBody = z.object({
+  category: MerchantCatalogCategory,
+  name: z.string().min(1).max(160),
+  garmentSubcategoryId: z.string().uuid(),
+});
+export type MerchantCatalogSubcategoryCreateBody = z.infer<
+  typeof MerchantCatalogSubcategoryCreateBody
+>;
+
+export const MerchantCatalogSubcategoryUpdateBody = z
+  .object({
+    name: z.string().min(1).max(160).optional(),
+    garmentSubcategoryId: z.string().uuid().optional(),
+    sortOrder: z.number().int().min(0).max(999999).optional(),
+  })
+  .refine(
+    (body) =>
+      body.name !== undefined ||
+      body.garmentSubcategoryId !== undefined ||
+      body.sortOrder !== undefined,
+    { message: 'at least one field is required' },
+  );
+export type MerchantCatalogSubcategoryUpdateBody = z.infer<
+  typeof MerchantCatalogSubcategoryUpdateBody
+>;
+
+export const MerchantCatalogSubcategory = z.object({
+  id: z.string().uuid(),
+  merchantId: z.string().uuid(),
+  category: MerchantCatalogCategory,
+  name: z.string(),
+  garmentSubcategoryId: z.string().uuid(),
+  sortOrder: z.number().int(),
+  productCount: z.number().int(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type MerchantCatalogSubcategory = z.infer<typeof MerchantCatalogSubcategory>;
+
+export const MerchantCatalogSubcategoryListResponse = z.object({
+  items: z.array(MerchantCatalogSubcategory),
+});
+export type MerchantCatalogSubcategoryListResponse = z.infer<
+  typeof MerchantCatalogSubcategoryListResponse
+>;
+
+export const MerchantCatalogGenerateBody = z.object({
+  subcategoryId: z.string().uuid(),
+  flatImageKey: z.string().min(1),
+});
+export type MerchantCatalogGenerateBody = z.infer<typeof MerchantCatalogGenerateBody>;
+
+export const MerchantCatalogGenerateBulkBody = z.object({
+  subcategoryId: z.string().uuid(),
+  flatImageKeys: z.array(z.string().min(1)).min(1).max(50),
+});
+export type MerchantCatalogGenerateBulkBody = z.infer<typeof MerchantCatalogGenerateBulkBody>;
+
+export const MerchantCatalogGenerateStatus = z.object({
+  jobId: z.string().uuid(),
+  status: z.string(),
+  resultUrl: z.string().url().nullable(),
+  errorCode: z.string().nullable(),
+});
+export type MerchantCatalogGenerateStatus = z.infer<typeof MerchantCatalogGenerateStatus>;
+
+export const MerchantCatalogGenerateBulkStatusResponse = z.object({
+  items: z.array(MerchantCatalogGenerateStatus),
+});
+export type MerchantCatalogGenerateBulkStatusResponse = z.infer<
+  typeof MerchantCatalogGenerateBulkStatusResponse
+>;
+
+export const MerchantCatalogueStudioJob = z.object({
+  jobId: z.string().uuid(),
+  catalogueId: z.string().uuid(),
+  label: z.string(),
+  thumbnailUrl: z.string().url().nullable(),
+  createdAt: z.string(),
+  imported: z.boolean(),
+});
+export type MerchantCatalogueStudioJob = z.infer<typeof MerchantCatalogueStudioJob>;
+
+export const MerchantCatalogueStudioGroup = z.object({
+  catalogueId: z.string().uuid(),
+  label: z.string(),
+  createdAt: z.string(),
+  jobs: z.array(MerchantCatalogueStudioJob),
+});
+export type MerchantCatalogueStudioGroup = z.infer<typeof MerchantCatalogueStudioGroup>;
+
+export const MerchantCataloguesResponse = z.object({
+  catalogues: z.array(MerchantCatalogueStudioGroup),
+});
+export type MerchantCataloguesResponse = z.infer<typeof MerchantCataloguesResponse>;
+
+export const KioskCatalogItem = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  sku: z.string().nullable(),
+  gender: MerchantCatalogCategory.nullable(),
+  category: z.string().nullable(),
+  imageUrl: z.string().url().nullable(),
+  thumbnailUrl: z.string().url().nullable(),
+});
+export type KioskCatalogItem = z.infer<typeof KioskCatalogItem>;
+
+export const KioskCatalogListResponse = z.object({
+  items: z.array(KioskCatalogItem),
+});
+export type KioskCatalogListResponse = z.infer<typeof KioskCatalogListResponse>;
+
+export const KioskPresignBody = z.object({
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  contentLength: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024),
+});
+export type KioskPresignBody = z.infer<typeof KioskPresignBody>;
+
+export const KioskJobCreateBody = z.object({
+  merchantCatalogItemId: z.string().uuid(),
+  customerPhotoKey: z.string().min(1),
+});
+export type KioskJobCreateBody = z.infer<typeof KioskJobCreateBody>;
+
+export const KioskJobDetailResponse = z.object({
+  id: z.string().uuid(),
+  status: z.string(),
+  merchantId: z.string().uuid(),
+  kioskDeviceId: z.string().uuid().nullable(),
+  resultKey: z.string().nullable(),
+  shareUrl: z.string().url().nullable(),
+  errorCode: z.string().nullable(),
+  liked: z.boolean(),
+  inCart: z.boolean(),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
+});
+export type KioskJobDetailResponse = z.infer<typeof KioskJobDetailResponse>;
+export const MerchantRefreshBody = z.object({
+  refreshToken: z.string().min(1),
+});
+export type MerchantRefreshBody = z.infer<typeof MerchantRefreshBody>;
+
+export const AdminMerchantCatalogUpdateBody = z
+  .object({
+    isActive: z.boolean().optional(),
+    moderationStatus: MerchantCatalogModerationStatus.optional(),
+    moderationNote: z.string().max(1000).nullable().optional(),
+  })
+  .refine(
+    (body) =>
+      body.isActive !== undefined ||
+      body.moderationStatus !== undefined ||
+      body.moderationNote !== undefined,
+    { message: 'at least one field is required' },
+  );
+export type AdminMerchantCatalogUpdateBody = z.infer<typeof AdminMerchantCatalogUpdateBody>;
+
+export const AdminMerchantUpdateBody = z
+  .object({
+    isActive: z.boolean().optional(),
+    companyName: z.string().min(1).max(160).optional(),
+    webhookUrl: z.string().url().nullable().optional(),
+    webhookSecret: z.string().max(512).nullable().optional(),
+    kioskEnabled: z.boolean().optional(),
+    maxKioskDevices: z.number().int().min(1).max(100).optional(),
+  })
+  .refine(
+    (body) =>
+      body.isActive !== undefined ||
+      body.companyName !== undefined ||
+      body.webhookUrl !== undefined ||
+      body.webhookSecret !== undefined ||
+      body.kioskEnabled !== undefined ||
+      body.maxKioskDevices !== undefined,
+    { message: 'at least one field is required' },
+  );
+export type AdminMerchantUpdateBody = z.infer<typeof AdminMerchantUpdateBody>;
 
 export const ShopifyCustomerPresignRequest = z.object({
   contentType: z.string(),

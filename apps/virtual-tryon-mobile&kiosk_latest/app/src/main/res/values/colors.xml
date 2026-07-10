@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="red">#ca3669</color>
+    <color name="purple">#9e41e2</color>
+    <color name="light_gray">#EBEBEB</color>
+    <color name="dark_gray">#A9A9A9</color>
+    <color name="black_50">#50000000</color>
+    <color name="black_90">#95000000</color>
+    <color name="white_70">#70FFFFFF</color>
+    <color name="white_90">#90FFFFFF</color>
+    <color name="yellow">#efbe5c</color>
+    <color name="parrot_green">#11cc17</color>
+    <color name="parrot_green90">#9011cc17</color>
+    <color name="light_brown_50">#50d3a571</color>
+    <color name="gradiant1">#f5881e</color>
+    <color name="gradiant2">#cc30dc</color>
+    <color name="gradiant3">#a803e5</color>
+    <color name="gradiant4">#a700e4</color>
+    <color name="gradiant5">#f26abe</color>
+    <color name="dark_brown">#4e151d</color>
+    <color name="gradiant1_50">#80f5881e</color>
+    <color name="gradiant2_50">#80cc30dc</color>
+    <color name="gradiant3_50">#80a803e5</color>
+
+
+</resources>

@@ -33,6 +33,7 @@ const JOB_TYPE_LABELS: Record<JobType, string> = {
 };
 
 const EMPTY_FORM = { id: '', label: '', url: '', apiKey: '', allowedJobTypes: [] as JobType[] };
+const WORKER_ID_PATTERN = /^[\w-]+$/;
 
 export default function WorkersPage({ toast }: Props) {
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -93,6 +94,7 @@ export default function WorkersPage({ toast }: Props) {
     try {
       if (editTarget) {
         const body: Record<string, string | boolean | string[]> = {};
+        if (form.id !== editTarget.id) body.id = form.id.trim();
         if (form.label !== editTarget.label) body.label = form.label;
         if (form.url !== editTarget.url) body.url = form.url;
         if (form.apiKey) body.apiKey = form.apiKey;
@@ -108,7 +110,7 @@ export default function WorkersPage({ toast }: Props) {
       } else {
         await apiFetch('/admin/workers', {
           method: 'POST',
-          body: JSON.stringify(form),
+          body: JSON.stringify({ ...form, id: form.id.trim() }),
         });
         toast({ title: 'Worker added' });
       }
@@ -167,16 +169,18 @@ export default function WorkersPage({ toast }: Props) {
   }
 
   function formatLastSeen(ts: number | null): string {
-    if (!ts) return '—';
+    if (!ts) return '--';
     const diff = Math.floor((Date.now() - ts) / 1000);
     if (diff < 60) return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     return `${Math.floor(diff / 3600)}h ago`;
   }
 
+  const normalizedId = form.id.trim();
+  const hasValidId = normalizedId.length > 0 && WORKER_ID_PATTERN.test(normalizedId);
   const canSave = editTarget
-    ? form.url.startsWith('http')
-    : form.id.length > 0 && form.url.startsWith('http') && form.apiKey.length > 0;
+    ? hasValidId && form.url.startsWith('http')
+    : hasValidId && form.url.startsWith('http') && form.apiKey.length > 0;
 
   return (
     <>
@@ -192,7 +196,7 @@ export default function WorkersPage({ toast }: Props) {
       </div>
 
       {loading ? (
-        <p style={{ color: 'var(--muted)', padding: '24px 0' }}>Loading…</p>
+        <p style={{ color: 'var(--muted)', padding: '24px 0' }}>Loading...</p>
       ) : workers.length === 0 ? (
         <div style={{ padding: '48px 0', textAlign: 'center', color: 'var(--muted)' }}>
           <Icon.Server />
@@ -383,22 +387,20 @@ export default function WorkersPage({ toast }: Props) {
               </button>
             </div>
 
-            {!editTarget && (
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                  Worker ID <span style={{ color: 'var(--danger)' }}>*</span>
-                </span>
-                <input
-                  className="input"
-                  placeholder="worker-c"
-                  value={form.id}
-                  onChange={(e) => setForm((f) => ({ ...f, id: e.target.value }))}
-                />
-                <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
-                  Alphanumeric + dashes, e.g. worker-a
-                </span>
-              </label>
-            )}
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                Worker ID <span style={{ color: 'var(--danger)' }}>*</span>
+              </span>
+              <input
+                className="input"
+                placeholder="worker-c"
+                value={form.id}
+                onChange={(e) => setForm((f) => ({ ...f, id: e.target.value }))}
+              />
+              <span style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
+                Alphanumeric + dashes, e.g. worker-a
+              </span>
+            </label>
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Label</span>
@@ -434,7 +436,7 @@ export default function WorkersPage({ toast }: Props) {
               <input
                 className="input"
                 type="password"
-                placeholder={editTarget ? '••••••' : 'API key'}
+                placeholder={editTarget ? '******' : 'API key'}
                 value={form.apiKey}
                 onChange={(e) => setForm((f) => ({ ...f, apiKey: e.target.value }))}
                 autoComplete="new-password"
@@ -487,7 +489,7 @@ export default function WorkersPage({ toast }: Props) {
                 onClick={() => void handleSave()}
                 disabled={saving || !canSave}
               >
-                {saving ? 'Saving…' : editTarget ? 'Save Changes' : 'Add Worker'}
+                {saving ? 'Saving...' : editTarget ? 'Save Changes' : 'Add Worker'}
               </button>
             </div>
           </div>

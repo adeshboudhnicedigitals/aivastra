@@ -46,9 +46,6 @@ export default function WorkflowsPage({ toast }: Props) {
   const [editForm, setEditForm] = useState({
     label: '',
     slug: '',
-    widgetGarmentNodeId: '',
-    widgetCustomerPhotoNodeId: '',
-    widgetOutputNodeId: '',
   });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -161,11 +158,6 @@ export default function WorkflowsPage({ toast }: Props) {
         label: editForm.label.trim(),
         slug: editForm.slug.trim(),
       };
-      if (editingWf.workflowType === 'widget') {
-        patch.widgetGarmentNodeId = editForm.widgetGarmentNodeId.trim() || null;
-        patch.widgetCustomerPhotoNodeId = editForm.widgetCustomerPhotoNodeId.trim() || null;
-        patch.widgetOutputNodeId = editForm.widgetOutputNodeId.trim() || null;
-      }
       await apiFetch(`/admin/workflows/${editingWf.id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
@@ -177,11 +169,6 @@ export default function WorkflowsPage({ toast }: Props) {
                 ...w,
                 label: editForm.label.trim(),
                 slug: editForm.slug.trim(),
-                ...(editingWf.workflowType === 'widget' && {
-                  widgetGarmentNodeId: editForm.widgetGarmentNodeId.trim() || null,
-                  widgetCustomerPhotoNodeId: editForm.widgetCustomerPhotoNodeId.trim() || null,
-                  widgetOutputNodeId: editForm.widgetOutputNodeId.trim() || null,
-                }),
               }
             : w,
         ),
@@ -287,24 +274,13 @@ export default function WorkflowsPage({ toast }: Props) {
                         padding: '2px 8px',
                         borderRadius: 10,
                         background:
-                          wf.workflowType === 'widget'
-                            ? 'rgba(139,92,246,0.12)'
-                            : wf.workflowType === 'tryon'
-                              ? 'rgba(236,72,153,0.12)'
-                              : 'rgba(37,99,235,0.1)',
-                        color:
-                          wf.workflowType === 'widget'
-                            ? '#7c3aed'
-                            : wf.workflowType === 'tryon'
-                              ? '#be185d'
-                              : '#1d4ed8',
+                          wf.workflowType === 'tryon'
+                            ? 'rgba(236,72,153,0.12)'
+                            : 'rgba(37,99,235,0.1)',
+                        color: wf.workflowType === 'tryon' ? '#be185d' : '#1d4ed8',
                       }}
                     >
-                      {wf.workflowType === 'widget'
-                        ? 'Widget'
-                        : wf.workflowType === 'tryon'
-                          ? 'Tryon'
-                          : 'Regular'}
+                      {wf.workflowType === 'tryon' ? 'Tryon' : 'Catalogue workflows'}
                     </span>
                   </td>
                   <td>
@@ -343,9 +319,6 @@ export default function WorkflowsPage({ toast }: Props) {
                           setEditForm({
                             label: wf.label,
                             slug: wf.slug,
-                            widgetGarmentNodeId: wf.widgetGarmentNodeId ?? '',
-                            widgetCustomerPhotoNodeId: wf.widgetCustomerPhotoNodeId ?? '',
-                            widgetOutputNodeId: wf.widgetOutputNodeId ?? '',
                           });
                         }}
                         title="Edit workflow"
@@ -470,47 +443,41 @@ export default function WorkflowsPage({ toast }: Props) {
                       fontSize: 13,
                     }}
                   >
-                    {(viewingDetail.workflowType === 'widget'
+                    {(viewingDetail.workflowType === 'tryon'
                       ? [
-                          ['Garment node', viewingDetail.widgetGarmentNodeId ?? '—'],
-                          ['Customer photo node', viewingDetail.widgetCustomerPhotoNodeId ?? '—'],
-                          ['Output node', viewingDetail.widgetOutputNodeId ?? '—'],
+                          ['Person node', viewingDetail.tryonPersonNodeId ?? '—'],
+                          ['Garment node', viewingDetail.tryonGarmentNodeId ?? '—'],
+                          ['Output node', viewingDetail.tryonOutputNodeId ?? '—'],
                         ]
-                      : viewingDetail.workflowType === 'tryon'
-                        ? [
-                            ['Person node', viewingDetail.tryonPersonNodeId ?? '—'],
-                            ['Garment node', viewingDetail.tryonGarmentNodeId ?? '—'],
-                            ['Output node', viewingDetail.tryonOutputNodeId ?? '—'],
-                          ]
-                        : [
-                            ['Face node', viewingDetail.faceNodeId],
-                            ['Pose node', viewingDetail.poseNodeId],
-                            ['Background node', viewingDetail.bgNodeId],
-                            ['Upper nodes', viewingDetail.upperNodeIds.join(', ')],
-                            ['Lower node', viewingDetail.lowerNodeId ?? '—'],
-                            ['Shoe node', viewingDetail.shoeNodeId ?? '—'],
-                            [
-                              'Size nodes',
-                              viewingDetail.sizeNodeIds.length > 0
-                                ? viewingDetail.sizeNodeIds.join(', ')
-                                : '—',
-                            ],
-                            [
-                              'Latent size nodes',
-                              viewingDetail.latentSizeNodeIds.length > 0
-                                ? `${viewingDetail.latentSizeNodeIds.join(', ')} (max ${viewingDetail.latentMaxPx}px)`
-                                : '—',
-                            ],
-                            [
-                              'Output size nodes',
-                              viewingDetail.outputSizeNodeIds.length > 0
-                                ? `${viewingDetail.outputSizeNodeIds.join(', ')} (max ${viewingDetail.outputMaxPx}px)`
-                                : '—',
-                            ],
-                            ['Result node', viewingDetail.resultNodeId ?? '—'],
-                            ['Negative prompt node', viewingDetail.facePhasePromptNode],
-                            ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
-                          ]
+                      : [
+                          ['Face node', viewingDetail.faceNodeId],
+                          ['Pose node', viewingDetail.poseNodeId],
+                          ['Background node', viewingDetail.bgNodeId],
+                          ['Upper nodes', viewingDetail.upperNodeIds.join(', ')],
+                          ['Lower node', viewingDetail.lowerNodeId ?? '—'],
+                          ['Shoe node', viewingDetail.shoeNodeId ?? '—'],
+                          [
+                            'Size nodes',
+                            viewingDetail.sizeNodeIds.length > 0
+                              ? viewingDetail.sizeNodeIds.join(', ')
+                              : '—',
+                          ],
+                          [
+                            'Latent size nodes',
+                            viewingDetail.latentSizeNodeIds.length > 0
+                              ? `${viewingDetail.latentSizeNodeIds.join(', ')} (max ${viewingDetail.latentMaxPx}px)`
+                              : '—',
+                          ],
+                          [
+                            'Output size nodes',
+                            viewingDetail.outputSizeNodeIds.length > 0
+                              ? `${viewingDetail.outputSizeNodeIds.join(', ')} (max ${viewingDetail.outputMaxPx}px)`
+                              : '—',
+                          ],
+                          ['Result node', viewingDetail.resultNodeId ?? '—'],
+                          ['Negative prompt node', viewingDetail.facePhasePromptNode],
+                          ['Positive prompt node', viewingDetail.garmentPhasePromptNode],
+                        ]
                     ).map(([k, v]) => (
                       <>
                         <span key={`k-${k}`} style={{ color: 'var(--muted)', fontWeight: 500 }}>
@@ -721,53 +688,6 @@ export default function WorkflowsPage({ toast }: Props) {
                   }
                 />
               </div>
-              {editingWf?.workflowType === 'widget' && (
-                <>
-                  <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
-                  <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
-                    <strong>Widget node IDs</strong>
-                  </p>
-                  <div className="field">
-                    <label>Garment node ID</label>
-                    <input
-                      className="input"
-                      value={editForm.widgetGarmentNodeId}
-                      disabled={editSaving}
-                      placeholder="e.g. 31"
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, widgetGarmentNodeId: e.target.value.trim() }))
-                      }
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Customer photo node ID</label>
-                    <input
-                      className="input"
-                      value={editForm.widgetCustomerPhotoNodeId}
-                      disabled={editSaving}
-                      placeholder="e.g. 139"
-                      onChange={(e) =>
-                        setEditForm((f) => ({
-                          ...f,
-                          widgetCustomerPhotoNodeId: e.target.value.trim(),
-                        }))
-                      }
-                    />
-                  </div>
-                  <div className="field">
-                    <label>Output node ID</label>
-                    <input
-                      className="input"
-                      value={editForm.widgetOutputNodeId}
-                      disabled={editSaving}
-                      placeholder="e.g. 134"
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, widgetOutputNodeId: e.target.value.trim() }))
-                      }
-                    />
-                  </div>
-                </>
-              )}
             </div>
             <div className="modal-foot">
               <button
