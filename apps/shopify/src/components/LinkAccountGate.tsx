@@ -1,4 +1,4 @@
-import { Banner, BlockStack, Button, Card, Page, Text } from '@shopify/polaris';
+import { Banner, BlockStack, Button, Text } from '@shopify/polaris';
 import { useState } from 'react';
 import { apiFetch } from '../lib/api';
 
@@ -56,10 +56,41 @@ export function LinkAccountGate({ onLinked }: { onLinked: () => void }) {
   }
 
   return (
-    <Page title="Link your aivastra account">
-      <Card>
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '32px',
+      }}
+    >
+      <div
+        style={{
+          width: '420px',
+          maxWidth: '100%',
+          background: 'var(--p-color-bg-surface)',
+          borderRadius: 'var(--p-border-radius-300)',
+          boxShadow: 'var(--p-shadow-100)',
+          padding: '36px 32px',
+          textAlign: 'center',
+        }}
+      >
+        <div
+          style={{
+            width: '52px',
+            height: '52px',
+            borderRadius: '14px',
+            margin: '0 auto 20px',
+            background:
+              'linear-gradient(135deg, var(--p-color-bg-fill-brand), var(--p-color-bg-fill-brand-hover))',
+          }}
+        />
         <BlockStack gap="300">
-          <Text as="p">
+          <Text as="h1" variant="headingLg" alignment="center">
+            Connect your AiVastra account
+          </Text>
+          <Text as="p" tone="subdued" alignment="center">
             To use AiVastra Try-On, link this store to your aivastra account. Billing and credits
             are managed on app.aivastra.com — nothing is charged through Shopify.
           </Text>
@@ -68,11 +99,11 @@ export function LinkAccountGate({ onLinked }: { onLinked: () => void }) {
               {error}
             </Banner>
           )}
-          <Button onClick={link} loading={linking} variant="primary">
+          <Button onClick={link} loading={linking} variant="primary" fullWidth>
             Link account
           </Button>
         </BlockStack>
-      </Card>
-    </Page>
+      </div>
+    </div>
   );
 }
