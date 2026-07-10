@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { encryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
+import { resolveAccountLinkCode } from './customer-auth.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
 import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
 
@@ -150,6 +151,24 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     req.log.info({ storeId: store.id, shop: q.shop }, 'shopify store installed');
     return reply.redirect(`${app.env.SHOPIFY_APP_URL}/embedded?shop=${q.shop}`);
   });
+
+  app.post(
+    '/v1/shopify/store/account/link',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const { code } = req.body as { code?: string };
+      if (!code) throw new AppError('VALIDATION', 400, 'code is required');
+      const userId = await resolveAccountLinkCode(app.redis, code);
+      if (!userId) throw new AppError('UNAUTHORIZED', 401, 'Link code invalid or expired');
+      const store = req.shopifyStore;
+      if (!store) throw new AppError('FORBIDDEN', 403, 'Store not installed');
+      await app.db
+        .update(schema.shopifyStores)
+        .set({ ownerUserId: userId, updatedAt: new Date() })
+        .where(eq(schema.shopifyStores.id, store.id));
+      return { ok: true };
+    },
+  );
 }
 
 declare module 'fastify' {
