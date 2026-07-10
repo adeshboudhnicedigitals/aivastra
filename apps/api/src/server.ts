@@ -94,7 +94,7 @@ export async function buildServer(env: Env) {
   await app.register(cors, {
     origin: async (origin: string | undefined) => {
       if (!origin) return false;
-      if (origin === env.CORS_ORIGIN) return true;
+      if (env.CORS_ORIGIN.includes(origin)) return true;
 
       const now = Date.now();
       const cached = originCache.get(origin);

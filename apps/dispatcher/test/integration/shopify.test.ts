@@ -371,7 +371,7 @@ describe('dispatcher shopify job routing', () => {
 
     await deregisterWorker(redis, WORKER_ID);
     try {
-      await processJob(cfg, jobId, '', 'jobs:normal', 'msg-1');
+      await processJob(cfg, jobId, '', 'jobs:normal', `${Date.now()}-0`);
 
       const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
       expect(job?.status).toBe('FAILED');
