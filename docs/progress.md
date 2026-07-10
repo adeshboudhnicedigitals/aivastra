@@ -1,3 +1,45 @@
+## 2026-07-10 - Catalogue Manager Backend Wiring + Try-On Filtering Follow-ups
+
+### Done
+- Wired `apps/catalogues-web/.../catalogue-manager` off its hardcoded/localStorage prototype onto the real `/v1/merchant/catalog/*` endpoints: subcategory CRUD, product CRUD (direct catalogue-image upload), and Path B (flat-image generate → poll → import) for both single and bulk upload, via a new shared `catalogue-manager/api.ts` helper. Added a graceful "merchant account required" state for the 403 case.
+- Verified live against the real dev API/MinIO/Postgres (not just typecheck): full subcategory + product CRUD lifecycle exercised via curl, confirmed dynamic per-merchant subcategories (the originally reported bug) and correct R2 upload/presign round-trip.
+- Fixed `GET /v1/assets` ("My Products" page) to exclude try-on jobs, which store the *source job's generated output* as `upperGarmentKey` (not a real upload) — same `job_inputs.params.sourceJobId` signal used by the catalogues-page fix. Added a regression test.
+- Raised the try-on page's "Browse from Catalog" picker cap (`GET /v1/tryon/garment-images`) from 50 to 200 (matching `/v1/catalogues`'s existing cap) — the hard cap with no pagination was silently dropping older eligible studio/saree images once a user's combined catalogue grew past it.
+- Hid the Tutorials and Catalogue Manager pages from the sidebar (`devOnly` nav flag) and blocked direct navigation to both routes in production via `middleware.ts` (`DEV_ONLY_PATHS`) — both are still WIP/placeholder content.
+
+### Failed / Not Done
+- Path B (flat-image generate) wiring in `catalogue-manager` was verified via code review + typecheck/build only, not exercised to completion — needs a real ComfyUI worker, unavailable in this dev environment.
+- Whether the `/v1/tryon/garment-images` eligibility chain (garment type → active tryon category → active workflow template) is itself excluding legitimate images on production is still open — asked for a diagnostic query to be run against prod to confirm.
+
+### Open Questions / Decisions
+- None new — diagnostic query for the tryon-picker eligibility gap is still pending from the user.
+
+## 2026-07-10 - Catalogue Page Try-On Exclusion
+
+### Done
+- Updated the user catalogue API so /v1/catalogues only returns studio/saree catalogue outputs and excludes virtual try-on result jobs identified by job_inputs.params.sourceJobId.
+- Updated /v1/catalogues/:id to return 404 for virtual try-on result catalogues, preventing direct catalogue-page access to try-on outputs.
+- Added a regression test covering studio + saree visibility and try-on exclusion.
+
+### Failed / Not Done
+- The full jobs-create.test.ts file still has pre-existing failures in older cases because their seedCatalog() helper inserts catalog_items without the now-required type column.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-10 - Local Dev Database Port Fix
+
+### Done
+- Set the local .env Postgres settings to `127.0.0.1:5433`, matching the active `aivastra-postgres` Docker container port mapping.
+- Verified Docker is running `aivastra-postgres` on `127.0.0.1:5433`; `127.0.0.1:5432` is a separate local Postgres process and rejects the repo credentials.
+- Identified the Sentry router transition message as a separate warning, not the cause of the current service crashes.
+
+### Failed / Not Done
+- Did not restart the running dev stack from this session; API, dispatcher, and chatbot need a fresh `pnpm dev` start to reload `.env`.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-07 - Multi-App Phase 3 & 3b Abandoned
 
 ### Done
