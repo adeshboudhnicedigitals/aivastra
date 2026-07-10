@@ -144,12 +144,17 @@ describe('admin credit analysis routes', () => {
     expect(body.items[0].totalSpent).toBe(15);
   });
 
-  it('detail view returns dailySpend, ledger, and no topProducts for a non-Shopify user', async () => {
+  it('detail view returns dailySpend, ledger (tagged with job source), and no topProducts for a non-Shopify user', async () => {
     const user = await seedUser(1000);
-    await seedJob(user.id, { source: 'catalog', creditsCharged: 10 });
+    const job = await seedJob(user.id, { source: 'catalog', creditsCharged: 10 });
     await app.db
       .insert(schema.creditLedger)
-      .values({ userId: user.id, delta: -10, reason: 'JOB_DISPATCH' });
+      .values({ userId: user.id, delta: -10, reason: 'JOB_DISPATCH', jobId: job.id });
+    // An account-level entry with no linked job (e.g. FREE_TRIAL/PAYMENT/admin grant)
+    // — should surface with source: null, not be dropped.
+    await app.db
+      .insert(schema.creditLedger)
+      .values({ userId: user.id, delta: 50, reason: 'FREE_TRIAL' });
 
     const res = await app.inject({
       method: 'GET',
@@ -159,14 +164,42 @@ describe('admin credit analysis routes', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
       dailySpend: unknown[];
-      ledger: unknown[];
+      ledger: { reason: string; source: string | null }[];
       topProducts: unknown[];
       hasShopifyStore: boolean;
     };
     expect(body.dailySpend.length).toBeGreaterThan(0);
-    expect(body.ledger.length).toBeGreaterThan(0);
+    expect(body.ledger).toHaveLength(2);
+    expect(body.ledger.find((l) => l.reason === 'JOB_DISPATCH')?.source).toBe('catalog');
+    expect(body.ledger.find((l) => l.reason === 'FREE_TRIAL')?.source).toBeNull();
     expect(body.topProducts).toEqual([]);
     expect(body.hasShopifyStore).toBe(false);
+  });
+
+  it('detail view ledger respects the source filter, dropping non-matching and account-level entries', async () => {
+    const user = await seedUser(1000);
+    const catalogJob = await seedJob(user.id, { source: 'catalog', creditsCharged: 10 });
+    const shopifyJob = await seedJob(user.id, { source: 'shopify', creditsCharged: 7 });
+    await app.db
+      .insert(schema.creditLedger)
+      .values({ userId: user.id, delta: -10, reason: 'JOB_DISPATCH', jobId: catalogJob.id });
+    await app.db
+      .insert(schema.creditLedger)
+      .values({ userId: user.id, delta: -7, reason: 'JOB_DISPATCH', jobId: shopifyJob.id });
+    await app.db
+      .insert(schema.creditLedger)
+      .values({ userId: user.id, delta: 50, reason: 'FREE_TRIAL' });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/credit-analysis/users/${user.id}?days=all&source=shopify`,
+      headers: authHeader,
+    });
+    const body = res.json() as {
+      ledger: { reason: string; source: string | null; delta: number }[];
+    };
+    expect(body.ledger).toHaveLength(1);
+    expect(body.ledger[0]).toMatchObject({ source: 'shopify', delta: -7 });
   });
 
   it('detail view returns topProducts for a Shopify-linked user, scoped to their own store', async () => {
@@ -181,10 +214,14 @@ describe('admin credit analysis routes', () => {
         ownerUserId: owner.id,
       })
       .returning();
+    // Real Shopify product IDs are large (e.g. 13 digits) — well beyond Postgres int4
+    // range (~2.1B). Regression guard for a bug where the route cast this to ::int
+    // and overflowed with "value ... is out of range for type integer".
+    const bigProductId = 10410278388029;
     await app.db.insert(schema.shopifyProductGarments).values({
       storeId: store.id,
-      shopifyProductId: 42,
-      r2Key: `shopify-garments/${store.id}/42/garment.jpg`,
+      shopifyProductId: bigProductId,
+      r2Key: `shopify-garments/${store.id}/${bigProductId}/garment.jpg`,
       title: 'Blue Shirt',
       status: 'active',
       enabled: true,
@@ -196,8 +233,8 @@ describe('admin credit analysis routes', () => {
       .where(eq(schema.jobs.id, job.id));
     await app.db.insert(schema.jobInputs).values({
       jobId: job.id,
-      upperGarmentKey: 'shopify-garments/x/42/garment.jpg',
-      params: { kind: 'shopify', shopifyProductId: 42 },
+      upperGarmentKey: `shopify-garments/x/${bigProductId}/garment.jpg`,
+      params: { kind: 'shopify', shopifyProductId: bigProductId },
     });
 
     const res = await app.inject({
@@ -212,7 +249,7 @@ describe('admin credit analysis routes', () => {
     expect(body.hasShopifyStore).toBe(true);
     expect(body.topProducts).toHaveLength(1);
     expect(body.topProducts[0]).toMatchObject({
-      shopifyProductId: 42,
+      shopifyProductId: bigProductId,
       title: 'Blue Shirt',
       creditsSpent: 8,
     });

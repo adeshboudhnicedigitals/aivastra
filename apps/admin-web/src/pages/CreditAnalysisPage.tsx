@@ -34,13 +34,24 @@ interface DailySpendPoint {
   spent: number;
 }
 
+type JobSource = Exclude<SourceFilter, 'all'>;
+
 interface LedgerEntry {
   id: string;
   delta: number;
   reason: string;
   jobId: string | null;
   createdAt: string;
+  source: JobSource | null;
 }
+
+const SOURCE_TAG_COLORS: Record<JobSource, string> = {
+  catalog: '#8a7cff',
+  tryon: '#4caf50',
+  saree: '#e08e45',
+  kiosk: '#5aa9e6',
+  shopify: '#95bf47',
+};
 
 interface TopProduct {
   shopifyProductId: number;
@@ -110,30 +121,41 @@ export default function CreditAnalysisPage({ toast }: Props) {
     load();
   }, [load]);
 
-  const openDetail = useCallback(
-    async (id: string) => {
-      setDetailId(id);
-      setDetail(null);
-      setDetailLoading(true);
+  const openDetail = (id: string) => {
+    setDetailId(id);
+  };
+
+  useEffect(() => {
+    if (!detailId) return;
+    let cancelled = false;
+    setDetail(null);
+    setDetailLoading(true);
+    (async () => {
       try {
         const params = new URLSearchParams({ days, source });
         const data = await apiFetch<CreditUserDetail>(
-          `/admin/credit-analysis/users/${id}?${params}`,
+          `/admin/credit-analysis/users/${detailId}?${params}`,
         );
-        setDetail(data);
+        if (!cancelled) setDetail(data);
       } catch (err) {
-        toast({
-          kind: 'error',
-          title: 'Failed to load user detail',
-          body: apiErrorMessage(err, 'Please try again.'),
-        });
-        setDetailId(null);
+        if (!cancelled) {
+          toast({
+            kind: 'error',
+            title: 'Failed to load user detail',
+            body: apiErrorMessage(err, 'Please try again.'),
+          });
+          setDetailId(null);
+        }
       } finally {
-        setDetailLoading(false);
+        if (!cancelled) setDetailLoading(false);
       }
-    },
-    [days, source, toast],
-  );
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetches whenever the opened user, or the day-range/source filter, changes —
+    // this is what lets changing the filter while a detail view is open refresh it.
+  }, [detailId, days, source, toast]);
 
   const handleSearch = (q: string) => {
     setQuery(q);
@@ -267,6 +289,21 @@ export default function CreditAnalysisPage({ toast }: Props) {
             <div className="card">
               <div className="card-head">
                 <h3>Recent ledger entries</h3>
+                <select
+                  className="select"
+                  value={source}
+                  onChange={(e) => {
+                    setSource(e.target.value as SourceFilter);
+                    setPage(0);
+                  }}
+                  style={{ marginLeft: 'auto', fontSize: 12, padding: '4px 8px' }}
+                >
+                  {(Object.keys(SOURCE_LABELS) as SourceFilter[]).map((s) => (
+                    <option key={s} value={s}>
+                      {SOURCE_LABELS[s]}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="card-body" style={{ padding: 0 }}>
                 {detail.ledger.length ? (
@@ -289,6 +326,25 @@ export default function CreditAnalysisPage({ toast }: Props) {
                         {l.delta}
                       </span>
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>{l.reason}</span>
+                      {l.source ? (
+                        <span
+                          className="badge dot"
+                          style={{
+                            background: `${SOURCE_TAG_COLORS[l.source]}1f`,
+                            color: SOURCE_TAG_COLORS[l.source],
+                            fontSize: 10,
+                          }}
+                        >
+                          {SOURCE_LABELS[l.source]}
+                        </span>
+                      ) : (
+                        <span
+                          className="badge dot"
+                          style={{ background: 'var(--bg-2)', color: 'var(--muted)', fontSize: 10 }}
+                        >
+                          Account
+                        </span>
+                      )}
                       <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 'auto' }}>
                         {new Date(l.createdAt).toLocaleString()}
                       </span>
