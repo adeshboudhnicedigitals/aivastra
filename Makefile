@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps
+.PHONY: setup dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy
 
 setup:
 	cp .env.example .env
@@ -63,6 +63,9 @@ db-migrate:
 
 seed-catalog:
 	pnpm seed:catalog
+
+shopify-deploy:
+	cd apps/shopify-extension && npx shopify app deploy
 
 # ── Production (VPS only) ──────────────────────────────────────────────────
 # Always pass --env-file .env.production so Compose var-substitution (${VAR}

@@ -254,6 +254,14 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                       : 'Admin'}
               </span>
             )}
+            {u.hasShopifyStore && (
+              <span
+                className="badge dot"
+                style={{ background: 'rgba(76,175,80,0.12)', color: 'var(--success, #4caf50)' }}
+              >
+                Shopify
+              </span>
+            )}
             <StatusBadge status={u.isBanned ? 'FAILED' : 'active'} />
             <button
               className="btn"
@@ -738,6 +746,19 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                                 title="Google account — no password set"
                               >
                                 Google
+                              </span>
+                            )}
+                            {u.hasShopifyStore && (
+                              <span
+                                className="badge dot"
+                                style={{
+                                  background: 'rgba(76,175,80,0.12)',
+                                  color: 'var(--success, #4caf50)',
+                                  fontSize: 10,
+                                }}
+                                title="Has installed the AiVastra Shopify app"
+                              >
+                                Shopify
                               </span>
                             )}
                           </span>

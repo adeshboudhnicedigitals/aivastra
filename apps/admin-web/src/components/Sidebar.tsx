@@ -67,7 +67,7 @@ const groups: NavGroup[] = [
       },
       {
         k: 'shopify-funnels',
-        label: 'Shopify Funnels',
+        label: 'Shopify',
         icon: Icon.Workflow,
         roles: ['SUPER_ADMIN', 'MODERATOR'],
       },

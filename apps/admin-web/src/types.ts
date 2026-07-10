@@ -136,6 +136,7 @@ export interface User {
   isAdmin: boolean;
   adminRole: string | null;
   hasPassword: boolean;
+  hasShopifyStore: boolean;
   balance: number;
   totalJobs: number;
   lastJobAt: string | null;
