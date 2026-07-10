@@ -36,6 +36,16 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         ),
       );
 
+    const [{ activeCount, processingCount, failedCount, disabledCount }] = await app.db
+      .select({
+        activeCount: sql<number>`COUNT(*) FILTER (WHERE ${schema.shopifyProductGarments.enabled} = true AND ${schema.shopifyProductGarments.status} = 'active')::int`,
+        processingCount: sql<number>`COUNT(*) FILTER (WHERE ${schema.shopifyProductGarments.enabled} = true AND ${schema.shopifyProductGarments.status} = 'processing')::int`,
+        failedCount: sql<number>`COUNT(*) FILTER (WHERE ${schema.shopifyProductGarments.enabled} = true AND ${schema.shopifyProductGarments.status} = 'failed')::int`,
+        disabledCount: sql<number>`COUNT(*) FILTER (WHERE ${schema.shopifyProductGarments.enabled} = false)::int`,
+      })
+      .from(schema.shopifyProductGarments)
+      .where(eq(schema.shopifyProductGarments.storeId, store.id));
+
     const [{ funnelConfigured }] = await app.db
       .select({
         funnelConfigured: exists(
@@ -59,9 +69,21 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         shopDomain: store.shopDomain,
         settings: store.settings,
         ownerUserId: store.ownerUserId,
+        connectedSince: store.installedAt.toISOString(),
       },
       creditBalance,
-      stats: { totalTryOns, syncedProductCount, enabledProductCount, funnelConfigured },
+      stats: {
+        totalTryOns,
+        syncedProductCount,
+        enabledProductCount,
+        funnelConfigured,
+        statusCounts: {
+          active: activeCount,
+          processing: processingCount,
+          failed: failedCount,
+          disabled: disabledCount,
+        },
+      },
     };
   });
 }
