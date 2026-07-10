@@ -1,4 +1,5 @@
 import '@shopify/polaris/build/esm/styles.css';
+import './theme.css';
 import { AppProvider, Spinner } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';

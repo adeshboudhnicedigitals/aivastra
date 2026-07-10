@@ -15,11 +15,24 @@ export function AppShell({ children }: { children: ReactNode }) {
       <nav
         style={{
           display: 'flex',
-          gap: '16px',
-          padding: '12px 20px',
-          borderBottom: '1px solid #e1e3e5',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '0 20px',
+          height: '52px',
+          borderBottom: '1px solid var(--p-color-border)',
+          background: 'var(--p-color-bg-surface)',
         }}
       >
+        <div
+          style={{
+            width: '22px',
+            height: '22px',
+            borderRadius: '6px',
+            marginRight: '16px',
+            background:
+              'linear-gradient(135deg, var(--p-color-bg-fill-brand), var(--p-color-bg-fill-brand-hover))',
+          }}
+        />
         {NAV_ITEMS.map((item) => {
           const active = location.pathname === item.to;
           return (
@@ -27,8 +40,17 @@ export function AppShell({ children }: { children: ReactNode }) {
               key={item.to}
               to={item.to}
               style={{
-                fontWeight: active ? 700 : 400,
-                textDecoration: active ? 'underline' : 'none',
+                display: 'flex',
+                alignItems: 'center',
+                height: '100%',
+                padding: '0 14px',
+                fontSize: '13.5px',
+                fontWeight: active ? 600 : 500,
+                color: active ? 'var(--p-color-text)' : 'var(--p-color-text-secondary)',
+                textDecoration: 'none',
+                borderBottom: active
+                  ? '2px solid var(--p-color-border-brand)'
+                  : '2px solid transparent',
               }}
             >
               {item.label}
