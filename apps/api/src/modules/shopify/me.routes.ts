@@ -5,14 +5,15 @@ import type { FastifyInstance } from 'fastify';
 export async function shopifyMeRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/me', { preHandler: app.requireShopifySession }, async (req) => {
     const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-    let plan: typeof schema.shopifyPlans.$inferSelect | null = null;
-    if (store.shopifyPlanId) {
+
+    let creditBalance: number | null = null;
+    if (store.ownerUserId) {
       const [row] = await app.db
-        .select()
-        .from(schema.shopifyPlans)
-        .where(eq(schema.shopifyPlans.id, store.shopifyPlanId))
+        .select({ balance: schema.userCredits.balance })
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, store.ownerUserId))
         .limit(1);
-      plan = row ?? null;
+      creditBalance = row?.balance ?? 0;
     }
 
     const [{ totalTryOns }] = await app.db
@@ -54,8 +55,12 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
       .limit(1);
 
     return {
-      store: { shopDomain: store.shopDomain, settings: store.settings },
-      plan,
+      store: {
+        shopDomain: store.shopDomain,
+        settings: store.settings,
+        ownerUserId: store.ownerUserId,
+      },
+      creditBalance,
       stats: { totalTryOns, syncedProductCount, enabledProductCount, funnelConfigured },
     };
   });
