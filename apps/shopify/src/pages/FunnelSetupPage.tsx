@@ -206,7 +206,11 @@ export default function FunnelSetupPage() {
                     </BlockStack>
                   )}
 
-                  <Button onClick={() => saveRule(item)} loading={savingId === item.id}>
+                  <Button
+                    onClick={() => saveRule(item)}
+                    loading={savingId === item.id}
+                    variant="primary"
+                  >
                     Save
                   </Button>
                 </BlockStack>
