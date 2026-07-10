@@ -7,23 +7,21 @@ import { PremiumSelect } from '@/components/ui/premium-select';
 export interface GarmentType {
   id: string;
   label: string;
-  category: string;
 }
 
-export interface Subcategory {
+export interface SubcategoryEditData {
   id: string;
-  category: string;
   name: string;
-  garmentTypeId: string;
+  garmentSubcategoryId: string;
 }
 
 interface SubcategoryModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (name: string, garmentTypeId: string) => void;
-  initialData?: Subcategory;
-  category: string;
+  onSave: (name: string, garmentSubcategoryId: string) => void;
+  initialData?: SubcategoryEditData;
   garmentTypes: GarmentType[];
+  isSaving?: boolean;
 }
 
 export function SubcategoryModal({
@@ -31,11 +29,11 @@ export function SubcategoryModal({
   onClose,
   onSave,
   initialData,
-  category,
   garmentTypes,
+  isSaving = false,
 }: SubcategoryModalProps) {
   const [name, setName] = useState('');
-  const [garmentTypeId, setGarmentTypeId] = useState('');
+  const [garmentSubcategoryId, setGarmentSubcategoryId] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
 
   // Reset state when opened
@@ -43,14 +41,13 @@ export function SubcategoryModal({
     if (open) {
       if (initialData) {
         setName(initialData.name);
-        setGarmentTypeId(initialData.garmentTypeId);
+        setGarmentSubcategoryId(initialData.garmentSubcategoryId);
       } else {
         setName('');
-        const availableGarments = garmentTypes.filter((g) => g.category === category);
-        setGarmentTypeId(availableGarments[0]?.id || '');
+        setGarmentSubcategoryId(garmentTypes[0]?.id || '');
       }
     }
-  }, [open, initialData, category, garmentTypes]);
+  }, [open, initialData, garmentTypes]);
 
   // Escape to close
   useEffect(() => {
@@ -91,14 +88,12 @@ export function SubcategoryModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim() && garmentTypeId) {
-      onSave(name.trim(), garmentTypeId);
+    if (name.trim() && garmentSubcategoryId && !isSaving) {
+      onSave(name.trim(), garmentSubcategoryId);
     }
   };
 
-  const garmentOptions = garmentTypes
-    .filter((g) => g.category === category)
-    .map((g) => ({ value: g.id, label: g.label }));
+  const garmentOptions = garmentTypes.map((g) => ({ value: g.id, label: g.label }));
 
   return (
     <div
@@ -164,8 +159,8 @@ export function SubcategoryModal({
             </label>
             <div style={{ border: `1px solid ${C.border2}`, borderRadius: 8, background: C.field }}>
               <PremiumSelect
-                value={garmentTypeId}
-                onChange={(val) => setGarmentTypeId(val as string)}
+                value={garmentSubcategoryId}
+                onChange={(val) => setGarmentSubcategoryId(val as string)}
                 options={garmentOptions}
                 fullWidth
                 height={40}
@@ -178,6 +173,7 @@ export function SubcategoryModal({
             <button
               type="button"
               onClick={onClose}
+              disabled={isSaving}
               style={{
                 height: 40,
                 padding: '0 18px',
@@ -188,12 +184,15 @@ export function SubcategoryModal({
                 fontFamily: 'inherit',
                 fontSize: 14,
                 fontWeight: 600,
-                cursor: 'pointer',
+                cursor: isSaving ? 'not-allowed' : 'pointer',
+                opacity: isSaving ? 0.7 : 1,
               }}
             >
               Cancel
             </button>
-            <GradBtn type="submit">Save</GradBtn>
+            <GradBtn type="submit" disabled={isSaving}>
+              {isSaving ? 'Saving...' : 'Save'}
+            </GradBtn>
           </div>
         </form>
       </div>
