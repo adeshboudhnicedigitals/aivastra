@@ -685,6 +685,15 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                     Last job
                   </Th>
                   <Th
+                    k="createdAt"
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    style={{ textAlign: 'center' }}
+                  >
+                    Joined
+                  </Th>
+                  <Th
                     k="isBanned"
                     sortKey={sortKey}
                     sortDir={sortDir}
@@ -770,6 +779,9 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                       </span>
                     </td>
                     <td>
+                      <span className="mono">{new Date(u.createdAt).toLocaleDateString()}</span>
+                    </td>
+                    <td>
                       <StatusBadge status={u.isBanned ? 'FAILED' : 'active'} />
                     </td>
                   </tr>
@@ -777,7 +789,7 @@ export default function UsersPage({ onNav: _onNav, toast }: Props) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       style={{
                         padding: 20,
                         color: 'var(--muted)',
