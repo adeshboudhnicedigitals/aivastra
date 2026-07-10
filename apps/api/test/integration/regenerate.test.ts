@@ -334,6 +334,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
 
       const [newJob] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, newJobId));
       expect(newJob.parentJobId).toBe(original.id);
+      expect(newJob.source).toBe('catalog');
     });
   });
 });

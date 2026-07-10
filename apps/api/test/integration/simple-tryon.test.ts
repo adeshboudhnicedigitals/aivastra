@@ -169,6 +169,7 @@ describe('simple tryon (garment from catalog)', () => {
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job.status).toBe('QUEUED');
     expect(job.creditsCharged).toBe(5);
+    expect(job.source).toBe('tryon');
 
     const [bal] = await app.db
       .select()
