@@ -1,6 +1,5 @@
 import { Banner, Page, Select, TextField, Thumbnail } from '@shopify/polaris';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ImagePickerModal } from '../components/ImagePickerModal';
 import { apiFetch } from '../lib/api';
 import { STATUS_BADGE_BG, STATUS_BADGE_TEXT, STATUS_DOT_COLOR } from '../lib/statusColors';
 import type { FunnelTemplateItem, ShopifyProductListItem } from '../types';
@@ -30,19 +29,36 @@ const STATUS_FILTER_OPTIONS = [
   { label: 'Disabled', value: 'disabled' },
 ];
 
-function StatusBadge({ status }: { status: DisplayStatus }) {
+function StatusBadge({
+  status,
+  disabled,
+  title,
+  onClick,
+}: {
+  status: DisplayStatus;
+  disabled?: boolean;
+  title?: string;
+  onClick: () => void;
+}) {
   return (
-    <span
+    <button
+      type="button"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
         gap: '5px',
         padding: '3px 10px',
+        border: 'none',
         borderRadius: 'var(--p-border-radius-full)',
         fontSize: '12px',
         fontWeight: 600,
         background: STATUS_BADGE_BG[status],
         color: STATUS_BADGE_TEXT[status],
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
       }}
     >
       <span
@@ -55,7 +71,7 @@ function StatusBadge({ status }: { status: DisplayStatus }) {
         }}
       />
       {STATUS_LABEL[status]}
-    </span>
+    </button>
   );
 }
 
@@ -63,7 +79,6 @@ export default function ProductsPage() {
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pickerProductId, setPickerProductId] = useState<number | null>(null);
   const [funnelTemplates, setFunnelTemplates] = useState<FunnelTemplateItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -105,24 +120,6 @@ export default function ProductsPage() {
       setItems((prev) => prev.map((p) => (p.shopifyProductId === shopifyProductId ? updated : p)));
     } catch (err) {
       setError((err as Error).message);
-    }
-  }
-
-  async function selectImage(shopifyProductId: number, src: string) {
-    setError(null);
-    try {
-      const updated = await apiFetch<ShopifyProductListItem>(
-        `/v1/shopify/products/${shopifyProductId}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ garmentImageUrl: src }),
-        },
-      );
-      setItems((prev) => prev.map((p) => (p.shopifyProductId === shopifyProductId ? updated : p)));
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setPickerProductId(null);
     }
   }
 
@@ -188,8 +185,7 @@ export default function ProductsPage() {
           }}
         >
           <div style={{ flex: '1 1 auto' }}>Product</div>
-          <div style={{ width: '120px' }}>Status</div>
-          <div style={{ width: '140px' }}>Try-on enabled</div>
+          <div style={{ width: '140px' }}>Status</div>
           <div style={{ width: '220px' }}>Funnel</div>
         </div>
 
@@ -220,33 +216,29 @@ export default function ProductsPage() {
             >
               <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <Thumbnail source={item.thumbnailUrl} alt={item.title ?? ''} size="small" />
-                <div>
-                  <div style={{ fontSize: '13.5px', fontWeight: 500 }}>{item.title}</div>
-                  <button
-                    type="button"
-                    onClick={() => setPickerProductId(item.shopifyProductId)}
-                    style={{ marginTop: '2px', fontSize: '12px' }}
-                  >
-                    Change image
-                  </button>
-                </div>
-              </div>
-              <div style={{ width: '120px' }}>
-                <StatusBadge status={displayStatus(item)} />
+                <div style={{ fontSize: '13.5px', fontWeight: 500 }}>{item.title}</div>
               </div>
               <div style={{ width: '140px' }}>
-                <input
-                  type="checkbox"
-                  checked={item.enabled}
+                <StatusBadge
+                  status={displayStatus(item)}
                   disabled={item.status !== 'active' && !item.enabled}
                   title={item.status !== 'active' ? 'Waiting for product sync' : undefined}
-                  onChange={(e) => toggleEnabled(item.shopifyProductId, e.target.checked)}
+                  onClick={() => toggleEnabled(item.shopifyProductId, !item.enabled)}
                 />
               </div>
               <div style={{ width: '220px' }}>
                 <select
                   value={item.funnelTemplateId ?? ''}
                   onChange={(e) => setFunnel(item.shopifyProductId, e.target.value || null)}
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px',
+                    borderRadius: 'var(--p-border-radius-200)',
+                    border: '1px solid var(--p-color-border)',
+                    background: 'var(--p-color-bg-surface)',
+                    color: 'var(--p-color-text)',
+                    fontSize: '13px',
+                  }}
                 >
                   <option value="">Automated (no manual pin)</option>
                   {funnelTemplates.map((f) => (
@@ -272,14 +264,6 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
-
-      {pickerProductId !== null && (
-        <ImagePickerModal
-          shopifyProductId={pickerProductId}
-          onClose={() => setPickerProductId(null)}
-          onSelect={(src) => selectImage(pickerProductId, src)}
-        />
-      )}
     </Page>
   );
 }
