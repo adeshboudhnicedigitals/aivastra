@@ -7,12 +7,7 @@ import type { Redis } from 'ioredis';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct } from '../credits/ledger.js';
-import {
-  mintAccountLinkCode,
-  resolveAccountLinkCode,
-  signShopifyAccountToken,
-  verifyShopifyAccountToken,
-} from './customer-auth.js';
+import { mintAccountLinkCode } from './customer-auth.js';
 
 // biome-ignore lint/suspicious/noExplicitAny: lazy import avoids circular dependency with service.js
 let _enqueueSync: ((...args: any[]) => Promise<void>) | null = null;
@@ -47,16 +42,28 @@ function writeSseHeaders(reply: FastifyReply): void {
   });
 }
 
-async function requireAccountUserId(
+/**
+ * Resolves which aivastra account bills this store's try-on jobs and confirms
+ * that account can afford one. Throws INSUFFICIENT_CREDITS (402) for both an
+ * unlinked store and a merchant who's actually out of credits — the widget
+ * shows the same generic message either way.
+ */
+async function requireStoreOwnerWithCredits(
   app: FastifyInstance,
-  req: { headers: Record<string, unknown> },
-  storeId: string,
+  store: typeof schema.shopifyStores.$inferSelect,
+  jobCost: number,
 ): Promise<string> {
-  const auth = req.headers.authorization;
-  const token = typeof auth === 'string' && auth.startsWith('Bearer ') ? auth.slice(7) : undefined;
-  if (!token) throw new AppError('UNAUTHORIZED', 401, 'Missing account token');
-  const secret = new TextEncoder().encode(app.env.JWT_SECRET);
-  return verifyShopifyAccountToken(secret, token, storeId);
+  if (!store.ownerUserId) {
+    throw new AppError('INSUFFICIENT_CREDITS', 402, 'Store is not linked to a billing account');
+  }
+  const [credits] = await app.db
+    .select({ balance: schema.userCredits.balance })
+    .from(schema.userCredits)
+    .where(eq(schema.userCredits.userId, store.ownerUserId));
+  if (!credits || credits.balance < jobCost) {
+    throw new AppError('INSUFFICIENT_CREDITS', 402, 'insufficient credits');
+  }
+  return store.ownerUserId;
 }
 
 export async function shopifyCustomerRoutes(app: FastifyInstance) {
@@ -64,21 +71,6 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     const code = await mintAccountLinkCode(app.redis, req.userId);
     return { code };
   });
-
-  app.post(
-    '/v1/shopify/customer/account/exchange',
-    { preHandler: app.requireShopifyStoreKey },
-    async (req) => {
-      const { code } = req.body as { code?: string };
-      if (!code) throw new AppError('VALIDATION', 400, 'code is required');
-      const userId = await resolveAccountLinkCode(app.redis, code);
-      if (!userId) throw new AppError('UNAUTHORIZED', 401, 'Link code invalid or expired');
-      const storeId = req.shopifyStoreId as string;
-      const secret = new TextEncoder().encode(app.env.JWT_SECRET);
-      const token = await signShopifyAccountToken(secret, userId, storeId);
-      return { token };
-    },
-  );
 
   app.post(
     '/v1/shopify/customer/presign',
@@ -115,7 +107,9 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const storeId = req.shopifyStoreId as string;
       const store = req.shopifyStoreRow as typeof schema.shopifyStores.$inferSelect;
-      const userId = await requireAccountUserId(app, req, storeId);
+
+      const jobCost = await getTryonCreditCost(app);
+      const userId = await requireStoreOwnerWithCredits(app, store, jobCost);
 
       const { customerPhotoKey, shopifyProductId } = req.body as {
         customerPhotoKey: string;
@@ -165,7 +159,6 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           .send({ message: 'This product is not available for try-on right now.' });
       }
 
-      const jobCost = await getTryonCreditCost(app);
       const jobId = randomUUID();
 
       await app.db.transaction(async (tx) => {
@@ -215,14 +208,13 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifyStoreKey },
     async (req) => {
       const storeId = req.shopifyStoreId as string;
-      const userId = await requireAccountUserId(app, req, storeId);
       const { id } = req.params as { id: string };
 
       const [job] = await app.db
         .select({
           id: schema.jobs.id,
           status: schema.jobs.status,
-          userId: schema.jobs.userId,
+          shopifyStoreId: schema.jobs.shopifyStoreId,
           resultKey: schema.jobOutputs.resultKey,
           errorCode: schema.jobs.errorCode,
         })
@@ -231,11 +223,13 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         .where(eq(schema.jobs.id, id))
         .limit(1);
 
-      if (!job || job.userId !== userId) {
+      if (!job || job.shopifyStoreId !== storeId) {
         throw new AppError('NOT_FOUND', 404, 'Job not found');
       }
       return {
-        ...job,
+        id: job.id,
+        status: job.status,
+        errorCode: job.errorCode,
         resultUrl: job.resultKey ? app.storage.publicUrl(job.resultKey) : null,
       };
     },
@@ -246,21 +240,24 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
     { preHandler: app.requireShopifyStoreKey },
     async (req, reply) => {
       const storeId = req.shopifyStoreId as string;
-      const userId = await requireAccountUserId(app, req, storeId);
+      const store = req.shopifyStoreRow as typeof schema.shopifyStores.$inferSelect;
       const { id } = req.params as { id: string };
 
       const [job] = await app.db
-        .select({ id: schema.jobs.id, userId: schema.jobs.userId })
+        .select({ id: schema.jobs.id, shopifyStoreId: schema.jobs.shopifyStoreId })
         .from(schema.jobs)
         .where(eq(schema.jobs.id, id))
         .limit(1);
-      if (!job || job.userId !== userId) {
+      if (!job || job.shopifyStoreId !== storeId) {
+        throw new AppError('NOT_FOUND', 404, 'Job not found');
+      }
+      if (!store.ownerUserId) {
         throw new AppError('NOT_FOUND', 404, 'Job not found');
       }
 
       writeSseHeaders(reply);
       const sub: Redis = app.redisSub.duplicate();
-      const channel = `sse:events:${userId}`;
+      const channel = `sse:events:${store.ownerUserId}`;
       sub.on('error', (err) => req.log.warn({ err, channel }, 'sse subscriber error'));
       await sub.subscribe(channel);
       sub.on('message', (_ch, raw) => {
