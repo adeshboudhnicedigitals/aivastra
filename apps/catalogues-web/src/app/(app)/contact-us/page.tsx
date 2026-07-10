@@ -12,7 +12,21 @@ export default function ContactUsPage() {
   const [message, setMessage] = useState('');
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      <style>{`
+        .contact-input::placeholder {
+          color: #E2E8F0 !important;
+          opacity: 1 !important;
+          font-weight: 400 !important;
+        }
+      `}</style>
       <TopBar title="Contact Us" subtitle="" />
       <div
         style={{
@@ -176,8 +190,10 @@ export default function ContactUsPage() {
                 Follow Us On
               </div>
               <div style={{ display: 'flex', gap: 12 }}>
-                <button
-                  type="button"
+                <a
+                  href="https://www.facebook.com/Aivastra/"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   aria-label="Aivastra on Facebook"
                   style={{
                     width: 40,
@@ -188,14 +204,15 @@ export default function ContactUsPage() {
                     justifyContent: 'center',
                     background: '#1877F2',
                     color: '#fff',
-                    border: 'none',
-                    cursor: 'pointer',
+                    textDecoration: 'none',
                   }}
                 >
                   <FaFacebookF size={16} />
-                </button>
-                <button
-                  type="button"
+                </a>
+                <a
+                  href="https://www.instagram.com/ai_vastra/"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   aria-label="Aivastra on Instagram"
                   style={{
                     width: 40,
@@ -206,14 +223,15 @@ export default function ContactUsPage() {
                     justifyContent: 'center',
                     background: '#E4405F',
                     color: '#fff',
-                    border: 'none',
-                    cursor: 'pointer',
+                    textDecoration: 'none',
                   }}
                 >
                   <FaInstagram size={16} />
-                </button>
-                <button
-                  type="button"
+                </a>
+                <a
+                  href="https://www.youtube.com/@ai.vastra_tryon"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   aria-label="Aivastra on YouTube"
                   style={{
                     width: 40,
@@ -224,14 +242,15 @@ export default function ContactUsPage() {
                     justifyContent: 'center',
                     background: '#FF0000',
                     color: '#fff',
-                    border: 'none',
-                    cursor: 'pointer',
+                    textDecoration: 'none',
                   }}
                 >
                   <FaYoutube size={16} />
-                </button>
-                <button
-                  type="button"
+                </a>
+                <a
+                  href="https://www.linkedin.com/company/aivastra/"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   aria-label="Aivastra on LinkedIn"
                   style={{
                     width: 40,
@@ -242,12 +261,11 @@ export default function ContactUsPage() {
                     justifyContent: 'center',
                     background: '#0A66C2',
                     color: '#fff',
-                    border: 'none',
-                    cursor: 'pointer',
+                    textDecoration: 'none',
                   }}
                 >
                   <FaLinkedin size={16} />
-                </button>
+                </a>
               </div>
             </div>
           </div>
@@ -298,6 +316,7 @@ export default function ContactUsPage() {
                 </label>
                 <input
                   id="contact-name"
+                  className="contact-input"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Matt Borris"
@@ -305,7 +324,7 @@ export default function ContactUsPage() {
                     width: '100%',
                     boxSizing: 'border-box',
                     height: 42,
-                    border: '1px solid #EEEEEE',
+                    border: '1px solid #D1D5DB',
                     borderRadius: 8,
                     padding: '0 12px',
                     fontSize: 13,
@@ -333,6 +352,7 @@ export default function ContactUsPage() {
                 </label>
                 <input
                   id="contact-email"
+                  className="contact-input"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="mattborris@email.com"
@@ -340,7 +360,7 @@ export default function ContactUsPage() {
                     width: '100%',
                     boxSizing: 'border-box',
                     height: 42,
-                    border: '1px solid #EEEEEE',
+                    border: '1px solid #D1D5DB',
                     borderRadius: 8,
                     padding: '0 12px',
                     fontSize: 13,
@@ -368,6 +388,7 @@ export default function ContactUsPage() {
                 </label>
                 <input
                   id="contact-phone"
+                  className="contact-input"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   placeholder="9874563210"
@@ -377,7 +398,7 @@ export default function ContactUsPage() {
                     width: '100%',
                     boxSizing: 'border-box',
                     height: 42,
-                    border: '1px solid #EEEEEE',
+                    border: '1px solid #D1D5DB',
                     borderRadius: 8,
                     padding: '0 12px',
                     fontSize: 13,
@@ -405,6 +426,7 @@ export default function ContactUsPage() {
                 </label>
                 <textarea
                   id="contact-message"
+                  className="contact-input"
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Tell us about your requirements, business, or any questions you have..."
@@ -412,7 +434,7 @@ export default function ContactUsPage() {
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
-                    border: '1px solid #EEEEEE',
+                    border: '1px solid #D1D5DB',
                     borderRadius: 8,
                     padding: '10px 12px',
                     fontSize: 13,
