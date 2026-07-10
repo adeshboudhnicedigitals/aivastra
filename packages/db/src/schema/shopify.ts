@@ -10,6 +10,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { workflowTemplates } from './models.js';
+import { users } from './users.js';
 export interface ShopifyStoreSettings {
   buttonText?: string;
   buttonColor?: string;
@@ -25,18 +26,6 @@ export interface FunnelRuleCondition {
   value: string;
 }
 
-export const shopifyPlans = pgTable('shopify_plans', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull(),
-  priceCents: integer('price_cents').notNull(),
-  includedTryons: integer('included_tryons').notNull(),
-  overageCents: integer('overage_cents').notNull(),
-  trialDays: integer('trial_days').notNull().default(7),
-  sortOrder: integer('sort_order').notNull().default(0),
-  isActive: boolean('is_active').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
 export const shopifyStores = pgTable('shopify_stores', {
   id: uuid('id').primaryKey().defaultRandom(),
   storeKey: uuid('store_key').notNull().unique().defaultRandom(),
@@ -45,8 +34,7 @@ export const shopifyStores = pgTable('shopify_stores', {
   shopifyShopId: bigint('shopify_shop_id', { mode: 'number' }).notNull().unique(),
   accessToken: text('access_token').notNull(), // encrypted: iv:authTag:ciphertext
   scope: text('scope').notNull(),
-  billingPlanId: bigint('billing_plan_id', { mode: 'number' }),
-  shopifyPlanId: uuid('shopify_plan_id').references(() => shopifyPlans.id),
+  ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
   installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
   uninstalledAt: timestamp('uninstalled_at', { withTimezone: true }),
   settings: jsonb('settings').$type<ShopifyStoreSettings>().notNull().default({}),
