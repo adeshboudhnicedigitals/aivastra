@@ -14,7 +14,7 @@
     class="aivastra-tryon"
     data-widget-key="{{ widget_key }}"
     data-product-id="{{ product.id }}"
-    data-api-base="{{ block.settings.api_base | default: 'https://api.aivastra.com' }}"
+    data-api-base="{{ block.settings.api_base | default: 'https://app.aivastra.com' }}"
     data-placement-selector="{{ block.settings.placement_selector }}"
     data-block-alignment="{{ block.settings.block_alignment }}"
     style="--aivastra-button-color: {{ block.settings.button_color }}; --aivastra-text-color: {{ block.settings.text_color }}; --aivastra-border-radius: {{ block.settings.border_radius }}px;"
@@ -79,7 +79,7 @@
       "type": "text",
       "id": "api_base",
       "label": "API base URL",
-      "default": "https://api.aivastra.com"
+      "default": "https://app.aivastra.com"
     },
     {
       "type": "text",
