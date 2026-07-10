@@ -624,55 +624,6 @@
       "when": 1783555200000,
       "tag": "0088_pose_garment_configs_is_active",
       "breakpoints": false
-    },
-    {
-      "idx": 89,
-      "version": "7",
-      "when": 1783454921659,
-      "tag": "0089_shopify_tables",
-      "breakpoints": true
-    },
-    {
-      "idx": 90,
-      "version": "7",
-      "when": 1783514059883,
-      "tag": "0090_backfill_migration_history",
-      "breakpoints": true
-    },
-    {
-      "idx": 91,
-      "version": "7",
-      "when": 1783514405883,
-      "tag": "0091_shopify_product_garments_enabled_title",
-      "breakpoints": true
-    },
-    {
-      "idx": 92,
-      "version": "7",
-      "when": 1783585257654,
-      "tag": "0092_slimy_tana_nile",
-      "breakpoints": true
-    },
-    {
-      "idx": 93,
-      "version": "7",
-      "when": 1783617043504,
-      "tag": "0093_shopify_standalone_columns",
-      "breakpoints": true
-    },
-    {
-      "idx": 94,
-      "version": "7",
-      "when": 1783617100000,
-      "tag": "0094_backfill_shopify_store_key",
-      "breakpoints": true
-    },
-    {
-      "idx": 95,
-      "version": "7",
-      "when": 1783621552119,
-      "tag": "0095_drop_shopify_widget_client_id",
-      "breakpoints": true
     }
   ]
 }
