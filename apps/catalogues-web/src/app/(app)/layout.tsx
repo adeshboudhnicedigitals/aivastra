@@ -11,7 +11,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <ProfileGate>{children}</ProfileGate>
         </div>
-        <ChatWidget />
+        {process.env.NODE_ENV === 'development' && <ChatWidget />}
       </div>
     </JobStreamProvider>
   );
