@@ -197,7 +197,7 @@ function LoginFormInner() {
             </div>
           </div>
 
-          <GoogleBtn label="Continue with Google" />
+          <GoogleBtn label="Continue with Google" next={nextPath} />
           <Divider label="Or Continue With" />
 
           <form
