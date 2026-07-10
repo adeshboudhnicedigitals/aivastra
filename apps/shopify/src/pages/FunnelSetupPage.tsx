@@ -120,14 +120,19 @@ export default function FunnelSetupPage() {
       <Layout>
         <Layout.Section>
           {error && (
-            <Banner tone="critical" title="Something went wrong">
-              {error}
-            </Banner>
+            <div style={{ marginBottom: '16px' }}>
+              <Banner tone="critical" title="Something went wrong">
+                {error}
+              </Banner>
+            </div>
           )}
-          <Banner tone="info">
-            Manual funnels: assign products individually from the Products page. Automated funnels:
-            products matching every condition below get assigned automatically whenever they sync.
-          </Banner>
+          <div style={{ marginBottom: '16px' }}>
+            <Banner tone="info">
+              Manual funnels: assign products individually from the Products page. Automated
+              funnels: products matching every condition below get assigned automatically whenever
+              they sync.
+            </Banner>
+          </div>
 
           <BlockStack gap="400">
             {items.map((item) => (
@@ -218,16 +223,18 @@ export default function FunnelSetupPage() {
             ))}
           </BlockStack>
 
-          <Card>
-            <InlineStack align="space-between">
-              <Text as="p">
-                Re-evaluate all non-manually-assigned products against saved rules.
-              </Text>
-              <Button onClick={rerun} loading={rerunning}>
-                Re-run rules
-              </Button>
-            </InlineStack>
-          </Card>
+          <div style={{ marginTop: '16px' }}>
+            <Card>
+              <InlineStack align="space-between">
+                <Text as="p">
+                  Re-evaluate all non-manually-assigned products against saved rules.
+                </Text>
+                <Button onClick={rerun} loading={rerunning}>
+                  Re-run rules
+                </Button>
+              </InlineStack>
+            </Card>
+          </div>
         </Layout.Section>
       </Layout>
     </Page>

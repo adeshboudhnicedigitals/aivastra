@@ -27,7 +27,7 @@ function StatusDotRow({
 }) {
   return (
     <InlineStack align="space-between">
-      <InlineStack gap="200">
+      <InlineStack gap="200" blockAlign="center">
         <span
           style={{
             display: 'inline-block',
@@ -169,7 +169,15 @@ export default function DashboardPage() {
             </BlockStack>
           </Card>
 
-          <InlineStack gap="400">
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: '16px',
+              marginTop: '16px',
+              marginBottom: '16px',
+            }}
+          >
             <Card>
               <Text as="h3" variant="headingSm">
                 Try-Ons
@@ -194,10 +202,25 @@ export default function DashboardPage() {
                 {me?.stats.enabledProductCount ?? 0}
               </Text>
             </Card>
-          </InlineStack>
+          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: '16px' }}>
-            <div style={{ position: 'relative' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1.1fr 1fr',
+              gap: '16px',
+              marginTop: '16px',
+              marginBottom: '16px',
+            }}
+          >
+            <div
+              style={{
+                position: 'relative',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
               <div
                 style={{
                   position: 'absolute',
@@ -212,24 +235,31 @@ export default function DashboardPage() {
                   zIndex: 1,
                 }}
               />
-              <Card>
-                <BlockStack gap="200">
-                  <Text as="h3" variant="headingSm">
-                    Credit Balance
-                  </Text>
-                  <Text as="p" variant="heading2xl">
-                    {me?.creditBalance ?? 0}
-                  </Text>
-                  <Button
-                    variant="primary"
-                    onClick={() =>
-                      window.open('https://app.aivastra.com/pricing', '_blank', 'noopener')
-                    }
+              <div style={{ flex: 1, display: 'grid' }}>
+                <Card>
+                  <BlockStack gap="200">
+                    <Text as="h3" variant="headingSm">
+                      Credit Balance
+                    </Text>
+                    <Text as="p" variant="heading2xl">
+                      {me?.creditBalance ?? 0}
+                    </Text>
+                  </BlockStack>
+                  <div
+                    style={{ position: 'absolute', bottom: '16px', left: '16px', right: '16px' }}
                   >
-                    Top up on aivastra.com
-                  </Button>
-                </BlockStack>
-              </Card>
+                    <Button
+                      variant="primary"
+                      fullWidth
+                      onClick={() =>
+                        window.open('https://app.aivastra.com/pricing', '_blank', 'noopener')
+                      }
+                    >
+                      Top up on aivastra.com
+                    </Button>
+                  </div>
+                </Card>
+              </div>
             </div>
 
             <Card>
