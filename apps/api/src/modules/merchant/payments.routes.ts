@@ -34,10 +34,10 @@ async function createRazorpayOrder(
   return res.json() as Promise<{ id: string }>;
 }
 
-// Idempotent credit grant to a widget client + ledger entry.
-async function grantWidgetCredits(
+// Idempotent credit grant to a merchant + ledger entry.
+async function grantMerchantCredits(
   app: FastifyInstance,
-  widgetClientId: string,
+  merchantId: string,
   razorpayOrderId: string,
   razorpayPaymentId: string,
   credits: number,
@@ -55,18 +55,18 @@ async function grantWidgetCredits(
       .where(eq(schema.merchantPayments.razorpayOrderId, razorpayOrderId));
 
     await tx
-      .insert(schema.widgetClientCredits)
-      .values({ widgetClientId, balance: credits })
+      .insert(schema.merchantCredits)
+      .values({ merchantId, balance: credits })
       .onConflictDoUpdate({
-        target: schema.widgetClientCredits.widgetClientId,
+        target: schema.merchantCredits.merchantId,
         set: {
-          balance: sql`${schema.widgetClientCredits.balance} + ${credits}`,
+          balance: sql`${schema.merchantCredits.balance} + ${credits}`,
           updatedAt: new Date(),
         },
       });
 
-    await tx.insert(schema.widgetCreditLedger).values({
-      widgetClientId,
+    await tx.insert(schema.merchantCreditLedger).values({
+      merchantId,
       delta: credits,
       reason: 'PAYMENT',
       adminId: null,
@@ -103,7 +103,7 @@ export async function merchantPaymentsRoutes(app: FastifyInstance) {
       );
 
       await app.db.insert(schema.merchantPayments).values({
-        widgetClientId: clientId,
+        merchantId: clientId,
         planId: plan.slug,
         razorpayOrderId: rzpOrder.id,
         basePaise,
@@ -158,10 +158,10 @@ export async function merchantPaymentsRoutes(app: FastifyInstance) {
         .where(eq(schema.merchantPayments.razorpayOrderId, razorpayOrderId));
 
       if (!payment) throw new AppError('NOT_FOUND', 404, 'order not found');
-      if (payment.widgetClientId !== clientId) throw new AppError('FORBIDDEN', 403, 'forbidden');
+      if (payment.merchantId !== clientId) throw new AppError('FORBIDDEN', 403, 'forbidden');
       if (payment.status === 'paid') return { ok: true, alreadyCredited: true };
 
-      await grantWidgetCredits(
+      await grantMerchantCredits(
         app,
         clientId,
         razorpayOrderId,
@@ -171,9 +171,9 @@ export async function merchantPaymentsRoutes(app: FastifyInstance) {
       );
 
       const [bal] = await app.db
-        .select({ balance: schema.widgetClientCredits.balance })
-        .from(schema.widgetClientCredits)
-        .where(eq(schema.widgetClientCredits.widgetClientId, clientId));
+        .select({ balance: schema.merchantCredits.balance })
+        .from(schema.merchantCredits)
+        .where(eq(schema.merchantCredits.merchantId, clientId));
 
       return { ok: true, alreadyCredited: false, balance: bal?.balance ?? payment.credits };
     },
@@ -242,15 +242,15 @@ export async function merchantPaymentsRoutes(app: FastifyInstance) {
           return;
         }
 
-        await grantWidgetCredits(
+        await grantMerchantCredits(
           app,
-          payment.widgetClientId,
+          payment.merchantId,
           razorpayOrderId,
           razorpayPaymentId,
           payment.credits,
         );
         app.log.info(
-          { razorpayOrderId, credits: payment.credits, widgetClientId: payment.widgetClientId },
+          { razorpayOrderId, credits: payment.credits, merchantId: payment.merchantId },
           'merchant webhook: credits granted',
         );
       } else if (eventType === 'payment.failed' && razorpayOrderId) {

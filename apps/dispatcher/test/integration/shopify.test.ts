@@ -59,27 +59,9 @@ describe('dispatcher shopify job routing', () => {
     if (!user) throw new Error('failed to seed user');
     await env.db.insert(schema.userCredits).values({ userId: user.id, balance: 5 });
 
-    const [client] = await env.db
-      .insert(schema.widgetClients)
-      .values({
-        companyName: 'Acme',
-        contactName: 'A',
-        email: `shopify-${Date.now()}@test.com`,
-        phone: '1234567890',
-        websiteUrl: 'https://acme.example',
-        companySize: '1-10',
-        purpose: 'test',
-        businessAddress: 'x',
-        passwordHash: 'x',
-        clientType: 'shopify',
-        isActive: true,
-      })
-      .returning();
-
     const [store] = await env.db
       .insert(schema.shopifyStores)
       .values({
-        widgetClientId: client?.id as string,
         shopDomain: `shopify-${Date.now()}.myshopify.com`,
         shopifyShopId: Date.now(),
         accessToken: 'enc',
@@ -113,16 +95,15 @@ describe('dispatcher shopify job routing', () => {
 
     const [job] = await (env.db.insert(schema.jobs).values as any)({
       userId: user.id,
-      widgetClientId: client?.id,
       shopifyStoreId: store.id,
-      customerPhotoKey: `widget-inputs/${client?.id}/photo.jpg`,
+      customerPhotoKey: `widget-inputs/${store.id}/photo.jpg`,
       status: 'QUEUED',
       creditsCharged: 2,
     }).returning();
 
     await (env.db.insert(schema.jobInputs).values as any)({
       jobId: job?.id,
-      upperGarmentKey: `shopify-garments/${client?.id}/garment.jpg`,
+      upperGarmentKey: `shopify-garments/${store.id}/garment.jpg`,
       faceId: null,
       backgroundId: null,
       poseId: null,
@@ -130,8 +111,8 @@ describe('dispatcher shopify job routing', () => {
     });
 
     for (const key of [
-      `widget-inputs/${client?.id}/photo.jpg`,
-      `shopify-garments/${client?.id}/garment.jpg`,
+      `widget-inputs/${store.id}/photo.jpg`,
+      `shopify-garments/${store.id}/garment.jpg`,
     ]) {
       await env.s3.send(
         new PutObjectCommand({
@@ -147,7 +128,6 @@ describe('dispatcher shopify job routing', () => {
       jobId: job?.id as string,
       userId: user.id,
       storeId: store.id,
-      clientId: client?.id as string,
       templateId: template?.id as string,
     };
   }
@@ -160,27 +140,9 @@ describe('dispatcher shopify job routing', () => {
     if (!user) throw new Error('failed to seed user');
     await env.db.insert(schema.userCredits).values({ userId: user.id, balance: 5 });
 
-    const [client] = await env.db
-      .insert(schema.widgetClients)
-      .values({
-        companyName: 'Funnel Acme',
-        contactName: 'A',
-        email: `shopify-funnel-${Date.now()}@test.com`,
-        phone: '1234567890',
-        websiteUrl: 'https://acme.example',
-        companySize: '1-10',
-        purpose: 'test',
-        businessAddress: 'x',
-        passwordHash: 'x',
-        clientType: 'shopify',
-        isActive: true,
-      })
-      .returning();
-
     const [store] = await env.db
       .insert(schema.shopifyStores)
       .values({
-        widgetClientId: client?.id as string,
         shopDomain: `funnel-test-${Date.now()}.myshopify.com`,
         shopifyShopId: Date.now(),
         accessToken: 'iv:tag:enc',
@@ -237,9 +199,8 @@ describe('dispatcher shopify job routing', () => {
 
     const [job] = await (env.db.insert(schema.jobs).values as any)({
       userId: user.id,
-      widgetClientId: client?.id,
       shopifyStoreId: store.id,
-      customerPhotoKey: `widget-inputs/${client?.id}/photo.jpg`,
+      customerPhotoKey: `widget-inputs/${store.id}/photo.jpg`,
       status: 'QUEUED',
       creditsCharged: 2,
     }).returning();
@@ -254,7 +215,7 @@ describe('dispatcher shopify job routing', () => {
       params: { kind: 'shopify' },
     });
 
-    for (const key of [`widget-inputs/${client?.id}/photo.jpg`, garmentKey]) {
+    for (const key of [`widget-inputs/${store.id}/photo.jpg`, garmentKey]) {
       await env.s3.send(
         new PutObjectCommand({
           Bucket: env.r2Bucket,
@@ -302,7 +263,6 @@ describe('dispatcher shopify job routing', () => {
       id: jobId,
       userId: user.id,
       shopifyStoreId: store.id,
-      widgetClientId: null,
       customerPhotoKey: 'widget-inputs/x/photo.jpg',
       status: 'QUEUED',
       creditsCharged: 5,

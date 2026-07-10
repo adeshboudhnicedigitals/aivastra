@@ -5,14 +5,14 @@ import './styles/tokens.css';
 import App from './App.tsx';
 import { AuthProvider } from './context/AuthContext.tsx';
 
-const basename = import.meta.env.PROD ? '/panel' : '/';
-
+// Admin now lives on its own subdomain (admin.aivastra.com), mounted at the
+// domain root — no /panel path prefix needed anymore.
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('#root element not found in index.html');
 
 createRoot(rootEl).render(
   <StrictMode>
-    <BrowserRouter basename={basename}>
+    <BrowserRouter>
       <AuthProvider>
         <App />
       </AuthProvider>

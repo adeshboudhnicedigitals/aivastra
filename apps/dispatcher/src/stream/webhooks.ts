@@ -52,11 +52,11 @@ export async function runWebhooksConsumer(db: DB, redis: Redis, log: Logger): Pr
         }
 
         const jobId = data.jobId;
-        const widgetClientId = data.widgetClientId;
+        const merchantId = data.merchantId;
         const attempt = parseInt(data.attempt || '1', 10);
         const notBefore = parseInt(data.notBefore || '0', 10);
 
-        if (!widgetClientId) {
+        if (!merchantId) {
           await redis.xack(stream, GROUP, messageId);
           continue;
         }
@@ -73,11 +73,11 @@ export async function runWebhooksConsumer(db: DB, redis: Redis, log: Logger): Pr
 
         const [client] = await db
           .select({
-            webhookUrl: schema.widgetClients.webhookUrl,
-            webhookSecret: schema.widgetClients.webhookSecret,
+            webhookUrl: schema.merchants.webhookUrl,
+            webhookSecret: schema.merchants.webhookSecret,
           })
-          .from(schema.widgetClients)
-          .where(eq(schema.widgetClients.id, widgetClientId))
+          .from(schema.merchants)
+          .where(eq(schema.merchants.id, merchantId))
           .limit(1);
 
         if (!client?.webhookUrl) {
@@ -87,7 +87,7 @@ export async function runWebhooksConsumer(db: DB, redis: Redis, log: Logger): Pr
 
         const isSafe = await isSafeUrl(client.webhookUrl);
         if (!isSafe) {
-          log.warn({ widgetClientId, url: client.webhookUrl }, 'unsafe webhook URL rejected');
+          log.warn({ merchantId, url: client.webhookUrl }, 'unsafe webhook URL rejected');
           await redis.xack(stream, GROUP, messageId);
           continue;
         }
@@ -96,7 +96,7 @@ export async function runWebhooksConsumer(db: DB, redis: Redis, log: Logger): Pr
         // (attempt, notBefore) stay in the stream and are never signed or sent.
         const body: Record<string, string> = {
           jobId: jobId ?? '',
-          widgetClientId,
+          merchantId,
           status: data.status ?? '',
         };
         if (data.resultKey) body.resultKey = data.resultKey;
@@ -145,7 +145,7 @@ export async function runWebhooksConsumer(db: DB, redis: Redis, log: Logger): Pr
             };
             await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', ...toFields(next));
           } else {
-            log.warn({ jobId, widgetClientId }, 'webhook delivery failed after 3 attempts');
+            log.warn({ jobId, merchantId }, 'webhook delivery failed after 3 attempts');
           }
           await redis.xack(stream, GROUP, messageId);
         }

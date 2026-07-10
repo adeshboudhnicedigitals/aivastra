@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <RelativeLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:layout_marginTop="@dimen/_3sdp"
+            android:layout_marginBottom="@dimen/_3sdp">
+
+            <LinearLayout
+                android:layout_width="@dimen/_90sdp"
+                android:layout_height="@dimen/_155sdp"
+                android:id="@+id/ll_main_itemview"
+                android:backgroundTint="@color/purple"
+                android:background="@drawable/bg_gradiant_reverse"
+                android:orientation="vertical"/>
+
+            <LinearLayout
+                android:layout_width="@dimen/_90sdp"
+                android:layout_height="@dimen/_155sdp"
+                android:id="@+id/ll_main_bg_border"
+                android:background="@drawable/bg_vastra_item"
+                android:orientation="vertical">
+
+                <RelativeLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:layout_width="@dimen/_90sdp"
+                        android:layout_height="@dimen/_90sdp"
+                        android:src="@drawable/image_model_new"
+                        android:id="@+id/img_vastra_item"
+                        android:scaleType="fitXY"
+                        android:padding="2dp"
+                        app:shapeAppearanceOverlay="@style/SpecificCornerCutImage"/>
+
+                    <LinearLayout
+                        android:layout_width="@dimen/_90sdp"
+                        android:layout_height="@dimen/_90sdp"
+                        android:id="@+id/img_bg_border"
+                        android:orientation="vertical"
+                        android:background="@drawable/bg_vastra_item"/>
+
+                </RelativeLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="3456"
+                    android:textColor="@color/white"
+                    android:fontFamily="@font/popins_medium"
+                    android:textSize="@dimen/_11sdp"
+                    android:layout_gravity="center"
+                    android:singleLine="true"
+                    android:layout_marginLeft="@dimen/_10sdp"
+                    android:layout_marginRight="@dimen/_10sdp"
+                    android:ellipsize="end"
+                    android:id="@+id/txt_vastra_productid"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/white"
+                    android:fontFamily="@font/popins_medium"
+                    android:textSize="@dimen/_11sdp"
+                    android:layout_marginLeft="@dimen/_10sdp"
+                    android:layout_marginRight="@dimen/_10sdp"
+                    android:layout_gravity="center"
+                    android:ellipsize="end"
+                    android:id="@+id/txt_product_offer_price"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/light_gray"
+                    android:fontFamily="@font/popins_regular"
+                    android:textSize="@dimen/_10sdp"
+                    android:layout_gravity="center"
+                    android:ellipsize="end"
+                    android:layout_marginLeft="@dimen/_10sdp"
+                    android:layout_marginRight="@dimen/_10sdp"
+                    android:id="@+id/txt_product_price"/>
+
+            </LinearLayout>
+
+        </RelativeLayout>
+
+    </RelativeLayout>
+
+
+</layout>

@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
+    tools:context=".activity.vastra.VastraTryOnActivity">
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:src="@drawable/screen_bg"
+        android:scaleType="fitXY"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <include layout="@layout/ll_toolbar"
+            android:id="@+id/ll_toolbar"/>
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:id="@+id/rl_tryon_process">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="horizontal">
+
+                <RelativeLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:paddingTop="@dimen/_30sdp"
+                    android:paddingBottom="@dimen/_30sdp"
+                    android:paddingRight="@dimen/_7sdp"
+                    android:clipToPadding="false"
+                    android:layout_weight="0.6">
+
+                    <ImageView
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:adjustViewBounds="true"
+                        android:scaleType="centerCrop"
+                        android:background="@drawable/app_background_corner"
+                        android:backgroundTint="@android:color/transparent"
+                        android:clipToOutline="true"
+                        android:id="@+id/image_captured_photo"/>
+
+                    <include layout="@layout/dialog_vastra_tryon_processing"
+                        android:id="@+id/ll_dress_try_on_process"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+
+                    <LinearLayout
+                        android:layout_width="@dimen/_90sdp"
+                        android:layout_height="@dimen/_70sdp"
+                        android:background="@drawable/bg_gradiant_square"
+                        android:gravity="center"
+                        android:visibility="gone"
+                        android:id="@+id/btn_next_screen"
+                        android:layout_marginBottom="@dimen/_7sdp"
+                        android:layout_alignParentBottom="true"
+                        android:layout_centerHorizontal="true"
+                        android:orientation="vertical">
+
+                        <ImageView
+                            android:layout_width="@dimen/_30sdp"
+                            android:layout_height="@dimen/_30sdp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/ic_proceed"/>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Continue"
+                            android:textAlignment="center"
+                            android:textAllCaps="true"
+                            android:textColor="@color/white"
+                            android:fontFamily="@font/popins_bold"
+                            android:textSize="@dimen/_12sdp"/>
+
+
+                    </LinearLayout>
+
+
+                </RelativeLayout>
+
+                <RelativeLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="0.4">
+
+                    <RelativeLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:id="@+id/rl_main"
+                        android:visibility="gone"
+                        android:layout_marginTop="@dimen/_30sdp"
+                        android:layout_marginBottom="@dimen/_30sdp"
+                        android:background="@drawable/bg_vastra_cat">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:orientation="vertical">
+
+                            <com.google.android.material.textfield.TextInputLayout
+                                android:id="@+id/spinnerLayout"
+                                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="center"
+                                android:layout_marginStart="@dimen/_7sdp"
+                                android:layout_marginEnd="@dimen/_5sdp"
+                                android:layout_marginTop="@dimen/_5sdp"
+                                android:layout_marginBottom="@dimen/_2sdp"
+                                app:endIconMode="dropdown_menu"
+                                app:endIconScaleType="centerCrop"
+                                app:endIconTint="@color/white"
+                                app:endIconMinSize="@dimen/_30sdp">
+
+                                <AutoCompleteTextView
+                                    android:id="@+id/materialSpinner"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:background="@drawable/app_background_gradiant"
+                                    android:textColor="@color/white"
+                                    android:textAlignment="center"
+                                    android:gravity="center"
+                                    android:textSize="@dimen/_12sdp"
+                                    android:fontFamily="@font/popins_bold"
+                                    android:inputType="none"
+                                    android:singleLine="true"
+                                    android:includeFontPadding="false"
+                                    android:ellipsize="end"
+                                    android:paddingVertical="@dimen/_8sdp"
+                                    android:paddingHorizontal="@dimen/_10sdp"
+                                    android:focusable="false"
+                                    android:cursorVisible="false" />
+                            </com.google.android.material.textfield.TextInputLayout>
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="silk saree"
+                                android:textColor="@color/white"
+                                android:textSize="@dimen/_14sdp"
+                                android:visibility="gone"
+                                android:textAlignment="center"
+                                android:paddingLeft="@dimen/_5sdp"
+                                android:paddingRight="@dimen/_5sdp"
+                                android:layout_marginTop="@dimen/_5sdp"
+                                android:layout_marginBottom="@dimen/_2sdp"
+                                android:fontFamily="@font/popins_bold"
+                                android:layout_gravity="center"
+                                android:id="@+id/txt_category_name" />
+
+                            <androidx.recyclerview.widget.RecyclerView
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                                android:orientation="vertical"
+                                android:layout_marginBottom="@dimen/_10sdp"
+                                android:clipToPadding="false"
+                                android:id="@+id/recycler_vastra_items"/>
+
+                        </LinearLayout>
+
+                    </RelativeLayout>
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_centerHorizontal="true"
+                        android:layout_below="@id/rl_main"
+                        android:layout_alignParentEnd="true"
+                        android:layout_marginRight="@dimen/_30sdp"
+                        android:layout_marginTop="@dimen/_minus45sdp"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:id="@+id/btn_up"
+                            android:layout_width="35dp"
+                            android:layout_height="@dimen/_25sdp"
+                            android:src="@drawable/icon_up_arrow" />
+
+                        <ImageView
+                            android:layout_width="@dimen/_25sdp"
+                            android:layout_height="@dimen/_25sdp"
+                            android:src="@drawable/icon_down_arrow"
+                            android:layout_marginLeft="@dimen/_10sdp"
+                            android:id="@+id/btn_down"/>
+
+                    </LinearLayout>
+
+
+                </RelativeLayout>
+
+
+            </LinearLayout>
+
+
+
+        </RelativeLayout>
+
+    </LinearLayout>
+
+
+</RelativeLayout>

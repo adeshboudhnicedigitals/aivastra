@@ -424,7 +424,7 @@ export default function SareePage() {
                 padding: '10px 12px',
               }}
             >
-              Saree try-on is not yet configured by the admin. Check back soon.
+              Saree catalogue generation is not yet configured by the admin. Check back soon.
             </div>
           )}
 
@@ -503,7 +503,7 @@ export default function SareePage() {
               <span
                 style={{ fontSize: 15, fontWeight: 600, color: canGenerate ? '#fff' : C.light }}
               >
-                {generating ? 'Generating…' : 'Generate Saree Try-On'}
+                {generating ? 'Generating…' : 'Generate Catalogue Image'}
               </span>
               {!generating && (
                 /* biome-ignore lint/performance/noImgElement: static SVG asset */
@@ -656,7 +656,7 @@ export default function SareePage() {
                   <span
                     style={{ fontSize: 16, fontWeight: 600, color: C.text, textAlign: 'center' }}
                   >
-                    {generating ? 'Generating your saree try-on…' : 'No saree generated yet'}
+                    {generating ? 'Generating your catalogue image…' : 'No saree generated yet'}
                   </span>
                   <span
                     style={{
@@ -670,7 +670,7 @@ export default function SareePage() {
                   >
                     {generating
                       ? 'This may take a moment. Please wait.'
-                      : 'Upload a flat saree image and click Generate Saree Try-On to preview the result here.'}
+                      : 'Upload a flat saree image and click Generate Catalogue Image to preview the result here.'}
                   </span>
                 </div>
               </div>

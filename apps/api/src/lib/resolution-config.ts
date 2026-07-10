@@ -12,6 +12,8 @@ export const DEFAULT_RESOLUTION_CONFIG: Record<
   '4K': { enabled: true, creditCost: RESOLUTION_COSTS['4K'] },
 };
 
+export const DEFAULT_MAX_OUTPUT_PX = 2048;
+
 export const DEFAULT_TRYON_CONFIG: { creditCost: number } = {
   creditCost: SIMPLE_TRYON_COST,
 };
@@ -34,6 +36,23 @@ export async function getResolutionCreditCost(
     return typeof cost === 'number' ? cost : RESOLUTION_COSTS[resolution];
   } catch {
     return RESOLUTION_COSTS[resolution];
+  }
+}
+
+/**
+ * Reads the admin-configured platform-wide max output resolution (long edge, px)
+ * from the same `config:system` Redis key. Applies once, globally, to every
+ * job-creation path that accepts a custom outputWidth/outputHeight — enforced
+ * here, before enqueue, so the dispatcher never has to reason about it per template.
+ */
+export async function getMaxOutputPx(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const max = cfg.maxOutputPx;
+    return typeof max === 'number' ? max : DEFAULT_MAX_OUTPUT_PX;
+  } catch {
+    return DEFAULT_MAX_OUTPUT_PX;
   }
 }
 

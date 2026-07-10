@@ -41,7 +41,7 @@ function parseMessage(
     const v = fields[i + 1];
     if (k !== undefined && v !== undefined) fieldMap[k] = v;
   }
-  // userId is absent for widget jobs (which use widgetClientId from the DB row instead)
+  // userId is absent for widget jobs (which use merchantId from the DB row instead)
   if (!fieldMap.jobId) return null;
   return { stream, messageId, jobId: fieldMap.jobId, userId: fieldMap.userId ?? '' };
 }

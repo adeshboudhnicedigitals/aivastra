@@ -122,7 +122,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [parsing, setParsing] = useState(false);
   const [showConvention, setShowConvention] = useState(false);
 
-  const [workflowType, setWorkflowType] = useState<'regular' | 'widget' | 'tryon'>('regular');
+  const [workflowType, setWorkflowType] = useState<'regular' | 'tryon'>('regular');
   const [slug, setSlug] = useState('');
   const [label, setLabel] = useState('');
 
@@ -141,11 +141,6 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [latentSizeNodeIds, setLatentSizeNodeIds] = useState<string[]>([]);
   const [outputSizeNodeIds, setOutputSizeNodeIds] = useState<string[]>([]);
   const [resultNodeId, setResultNodeId] = useState('');
-
-  // Widget workflow node IDs
-  const [widgetGarmentNodeId, setWidgetGarmentNodeId] = useState('');
-  const [widgetCustomerPhotoNodeId, setWidgetCustomerPhotoNodeId] = useState('');
-  const [widgetOutputNodeId, setWidgetOutputNodeId] = useState('');
 
   // Tryon workflow node IDs + prompts (auto-detected, overridable)
   const [tryonPersonNodeId, setTryonPersonNodeId] = useState('');
@@ -239,16 +234,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       return;
     }
 
-    if (workflowType === 'widget') {
-      if (
-        !widgetGarmentNodeId.trim() ||
-        !widgetCustomerPhotoNodeId.trim() ||
-        !widgetOutputNodeId.trim()
-      ) {
-        setError('All three widget node IDs are required');
-        return;
-      }
-    } else if (workflowType === 'tryon') {
+    if (workflowType === 'tryon') {
       if (!tryonPersonNodeId.trim() || !tryonGarmentNodeId.trim() || !tryonOutputNodeId.trim()) {
         setError('Person, garment, and output node IDs are required');
         return;
@@ -279,17 +265,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       const jsonContent = JSON.parse(text) as Record<string, unknown>;
 
       let payload: Record<string, unknown>;
-      if (workflowType === 'widget') {
-        payload = {
-          slug: slug.trim(),
-          label: label.trim(),
-          jsonContent,
-          workflowType: 'widget',
-          widgetGarmentNodeId: widgetGarmentNodeId.trim(),
-          widgetCustomerPhotoNodeId: widgetCustomerPhotoNodeId.trim(),
-          widgetOutputNodeId: widgetOutputNodeId.trim(),
-        };
-      } else if (workflowType === 'tryon') {
+      if (workflowType === 'tryon') {
         payload = {
           slug: slug.trim(),
           label: label.trim(),
@@ -365,22 +341,20 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     jsonFile &&
     slug.trim() &&
     label.trim() &&
-    (workflowType === 'widget'
-      ? widgetGarmentNodeId.trim() && widgetCustomerPhotoNodeId.trim() && widgetOutputNodeId.trim()
-      : workflowType === 'tryon'
-        ? parsed &&
-          tryonPersonNodeId &&
-          tryonGarmentNodeId &&
-          tryonOutputNodeId &&
-          positivePromptNode &&
-          negativePromptNode
-        : parsed &&
-          faceNodeId &&
-          poseNodeId &&
-          bgNodeId &&
-          positivePromptNode &&
-          negativePromptNode &&
-          upperNodeIds.filter(Boolean).length > 0);
+    (workflowType === 'tryon'
+      ? parsed &&
+        tryonPersonNodeId &&
+        tryonGarmentNodeId &&
+        tryonOutputNodeId &&
+        positivePromptNode &&
+        negativePromptNode
+      : parsed &&
+        faceNodeId &&
+        poseNodeId &&
+        bgNodeId &&
+        positivePromptNode &&
+        negativePromptNode &&
+        upperNodeIds.filter(Boolean).length > 0);
 
   return (
     <div className="modal-overlay" onClick={saving || parsing ? undefined : onClose}>
@@ -413,7 +387,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         >
           {/* Workflow type selector */}
           <div style={{ display: 'flex', gap: 8 }}>
-            {(['regular', 'widget', 'tryon'] as const).map((t) => (
+            {(['regular', 'tryon'] as const).map((t) => (
               <button
                 key={t}
                 className={`btn sm ${workflowType === t ? 'primary' : 'ghost'}`}
@@ -424,11 +398,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 }}
                 style={{ textTransform: 'capitalize' }}
               >
-                {t === 'widget'
-                  ? 'Widget try-on'
-                  : t === 'tryon'
-                    ? 'Tryon (person + garment)'
-                    : 'Regular (pose-based)'}
+                {t === 'tryon' ? 'Tryon (person + garment)' : 'Catalogue workflows (pose-based)'}
               </button>
             ))}
           </div>
@@ -568,85 +538,6 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               </span>
             )}
           </div>
-
-          {/* Widget workflow form — shown after file is picked */}
-          {workflowType === 'widget' && jsonFile && (
-            <>
-              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div className="field">
-                  <label>
-                    Slug <span style={{ color: 'var(--danger)' }}>*</span>
-                    <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 4 }}>
-                      (snake_case)
-                    </span>
-                  </label>
-                  <input
-                    className="input"
-                    value={slug}
-                    disabled={saving}
-                    onChange={(e) =>
-                      setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
-                    }
-                  />
-                </div>
-                <div className="field">
-                  <label>
-                    Label <span style={{ color: 'var(--danger)' }}>*</span>
-                  </label>
-                  <input
-                    className="input"
-                    value={label}
-                    disabled={saving}
-                    onChange={(e) => setLabel(e.target.value)}
-                  />
-                </div>
-              </div>
-              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
-                <strong>Widget node IDs</strong> — the ComfyUI node numbers for garment input,
-                customer photo input, and output.
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                <div className="field">
-                  <label>
-                    Garment node ID <span style={{ color: 'var(--danger)' }}>*</span>
-                  </label>
-                  <input
-                    className="input"
-                    placeholder="e.g. 31"
-                    value={widgetGarmentNodeId}
-                    disabled={saving}
-                    onChange={(e) => setWidgetGarmentNodeId(e.target.value.trim())}
-                  />
-                </div>
-                <div className="field">
-                  <label>
-                    Customer photo node ID <span style={{ color: 'var(--danger)' }}>*</span>
-                  </label>
-                  <input
-                    className="input"
-                    placeholder="e.g. 139"
-                    value={widgetCustomerPhotoNodeId}
-                    disabled={saving}
-                    onChange={(e) => setWidgetCustomerPhotoNodeId(e.target.value.trim())}
-                  />
-                </div>
-                <div className="field">
-                  <label>
-                    Output node ID <span style={{ color: 'var(--danger)' }}>*</span>
-                  </label>
-                  <input
-                    className="input"
-                    placeholder="e.g. 134"
-                    value={widgetOutputNodeId}
-                    disabled={saving}
-                    onChange={(e) => setWidgetOutputNodeId(e.target.value.trim())}
-                  />
-                </div>
-              </div>
-            </>
-          )}
 
           {workflowType === 'tryon' && parsed && (
             <>

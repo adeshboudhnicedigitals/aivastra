@@ -7,7 +7,7 @@ import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import * as Sentry from '@sentry/node';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, isNull, sql } from 'drizzle-orm';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   serializerCompiler,
@@ -25,6 +25,8 @@ import { adminCreditPlansRoutes } from './modules/admin/creditPlans.routes.js';
 import { adminCreditsRoutes } from './modules/admin/credits.routes.js';
 import { adminJobsRoutes } from './modules/admin/jobs.routes.js';
 import { adminMeRoutes } from './modules/admin/me.routes.js';
+import { adminMerchantCatalogRoutes } from './modules/admin/merchant-catalog.routes.js';
+import { adminMerchantsRoutes } from './modules/admin/merchants.routes.js';
 import { adminAssetsRoutes } from './modules/admin/models.routes.js';
 import { adminSareeRoutes } from './modules/admin/saree.routes.js';
 import { adminShopifyFunnelsRoutes } from './modules/admin/shopify-funnels.routes.js';
@@ -32,7 +34,6 @@ import { adminShopifyPlansRoutes } from './modules/admin/shopify-plans.routes.js
 import { adminGarmentTypesRoutes } from './modules/admin/subcategories.routes.js';
 import { adminTryonRoutes } from './modules/admin/tryon.routes.js';
 import { adminUsersRoutes } from './modules/admin/users.routes.js';
-import { adminWidgetClientsRoutes } from './modules/admin/widget-clients.routes.js';
 import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
@@ -40,6 +41,12 @@ import { authRoutes } from './modules/auth/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
+import { kioskAuthRoutes } from './modules/kiosk/auth.routes.js';
+import { kioskCatalogRoutes } from './modules/kiosk/catalog.routes.js';
+import { kioskJobsRoutes } from './modules/kiosk/jobs.routes.js';
+import { kioskResultsRoutes } from './modules/kiosk/results.routes.js';
+import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
+import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
 import { merchantRoutes } from './modules/merchant/routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
@@ -49,16 +56,15 @@ import { shopifyCustomerRoutes } from './modules/shopify/customer.routes.js';
 import { shopifyRoutes } from './modules/shopify/routes.js';
 import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
-import { widgetRoutes } from './modules/widget/routes.js';
 import { authPlugin } from './plugins/auth.js';
 import { dbPlugin } from './plugins/db.js';
 import { metricsPlugin } from './plugins/metrics.js';
+import { portalAuthPlugin } from './plugins/portal-auth.js';
 import { redisPlugin } from './plugins/redis.js';
 import { sentryPlugin } from './plugins/sentry.js';
 import { shopifyAuthPlugin } from './plugins/shopify-auth.js';
 import { shopifyWidgetAuthPlugin } from './plugins/shopify-widget-auth.js';
 import { storagePlugin } from './plugins/storage.js';
-import { widgetAuthPlugin } from './plugins/widget-auth.js';
 
 export async function buildServer(env: Env) {
   const app = Fastify({ loggerInstance: createLogger('api') }).withTypeProvider<ZodTypeProvider>();
@@ -76,9 +82,9 @@ export async function buildServer(env: Env) {
       },
     },
   });
-  // In-process TTL cache in front of the widgetClients allowed-origins lookup below.
+  // In-process TTL cache in front of the shopifyStores allowed-origins lookup below.
   // Without it, every cross-origin request whose Origin isn't env.CORS_ORIGIN (every
-  // storefront/widget request, every preflight, any attacker-supplied Origin) triggers
+  // Shopify storefront request, every preflight, any attacker-supplied Origin) triggers
   // a full Postgres query. 30s staleness is an accepted tradeoff (see CLAUDE.md task notes);
   // this is not a cache-invalidation-on-write system.
   const originCache = new Map<string, { allowed: boolean; expiresAt: number }>();
@@ -95,12 +101,12 @@ export async function buildServer(env: Env) {
       if (cached && cached.expiresAt > now) return cached.allowed;
 
       const [row] = await app.db
-        .select({ id: schema.widgetClients.id })
-        .from(schema.widgetClients)
+        .select({ id: schema.shopifyStores.id })
+        .from(schema.shopifyStores)
         .where(
           and(
-            eq(schema.widgetClients.isActive, true),
-            sql`${origin} = ANY(${schema.widgetClients.allowedOrigins})`,
+            isNull(schema.shopifyStores.uninstalledAt),
+            sql`${origin} = ANY(${schema.shopifyStores.allowedOrigins})`,
           ),
         )
         .limit(1);
@@ -131,7 +137,7 @@ export async function buildServer(env: Env) {
   await app.register(dbPlugin);
   await app.register(storagePlugin);
   await app.register(authPlugin);
-  await app.register(widgetAuthPlugin);
+  await app.register(portalAuthPlugin);
   await app.register(shopifyAuthPlugin);
   await app.register(shopifyWidgetAuthPlugin);
 
@@ -149,6 +155,18 @@ export async function buildServer(env: Env) {
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
+    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) â€” must come AFTER the
+    // validation branch, which also carries statusCode 400 but has its own contract.
+    const statusCode = (err as { statusCode?: unknown }).statusCode;
+    if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
+      app.log.warn({ err, statusCode, url: _req.url }, 'client error');
+      return reply.code(statusCode).send({
+        error: {
+          code: statusCode === 429 ? 'RATE_LIMIT' : 'HTTP_ERROR',
+          message: (err as Error).message,
+        },
+      });
+    }
     Sentry.captureException(err);
     app.log.error({ err }, 'unhandled');
     return reply.code(500).send({ error: { code: 'INTERNAL', message: 'internal error' } });
@@ -160,9 +178,14 @@ export async function buildServer(env: Env) {
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
   await app.register(jobsRoutes);
+  await app.register(kioskAuthRoutes);
+  await app.register(kioskCatalogRoutes);
+  await app.register(kioskJobsRoutes);
+  await app.register(kioskResultsRoutes);
   await app.register(merchantRoutes);
+  await app.register(merchantCatalogRoutes);
+  await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantPaymentsRoutes);
-  await app.register(widgetRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
   await app.register(modelsRoutes);
@@ -173,6 +196,7 @@ export async function buildServer(env: Env) {
   await app.register(adminCatalogRoutes);
   await app.register(adminChatbotRoutes);
   await app.register(adminJobsRoutes);
+  await app.register(adminMerchantCatalogRoutes);
   await app.register(adminWorkersRoutes);
   await app.register(adminConfigRoutes);
   await app.register(adminMeRoutes);
@@ -184,7 +208,7 @@ export async function buildServer(env: Env) {
   await app.register(adminSareeRoutes);
   await app.register(adminShopifyPlansRoutes);
   await app.register(adminContactRoutes);
-  await app.register(adminWidgetClientsRoutes);
+  await app.register(adminMerchantsRoutes);
   await app.register(resultsRoutes);
   await app.register(supportRoutes);
   await app.register(paymentsRoutes);

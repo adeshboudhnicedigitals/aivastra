@@ -46,6 +46,7 @@ export async function adminAuthRoutes(app: FastifyInstance) {
 
       if (!row || row.expiresAt < new Date() || row.revokedAt) return { kind: 'invalid' } as const;
       if (row.portal !== 'admin') return { kind: 'invalid' } as const;
+      if (!row.userId) return { kind: 'invalid' } as const;
 
       if (row.usedAt) {
         const ageMs = Date.now() - row.usedAt.getTime();
@@ -61,7 +62,7 @@ export async function adminAuthRoutes(app: FastifyInstance) {
           )
           .orderBy(desc(schema.refreshTokens.generation))
           .limit(1);
-        if (successor) {
+        if (successor?.userId) {
           app.log.info(
             { familyId: row.familyId, generation: row.generation, ageMs },
             'admin concurrent refresh: reissuing from active successor',

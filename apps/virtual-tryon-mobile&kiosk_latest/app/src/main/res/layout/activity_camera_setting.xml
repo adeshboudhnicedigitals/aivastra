@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black_90"
+    android:fitsSystemWindows="true"
+    tools:context=".activity.camera.CameraSettingActivity">
+
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <include
+            android:id="@+id/ll_toolbar"
+            layout="@layout/ll_toolbar" />
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <com.otaliastudios.cameraview.CameraView
+                android:id="@+id/camera"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone"
+                app:cameraAudio="off"
+                app:cameraPictureFormat="jpeg"
+                app:cameraPlaySounds="true" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:padding="@dimen/_15sdp">
+
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerInParent="true"
+                    android:paddingBottom="24dp"
+                    android:text="Camera Settings"
+                    android:textColor="#FFFFFF"
+                    android:textSize="28sp"
+                    android:textStyle="bold" />
+
+
+                <!-- ================= BASIC SETTINGS ================= -->
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingBottom="12dp"
+                    android:text="Basic Settings"
+                    android:textColor="#FFFFFF"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <!-- HDR -->
+                <Switch
+                    android:id="@+id/switchHdr"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="12dp"
+                    android:text="HDR Mode"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp" />
+
+                <!-- Flash -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/ll_flash"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="16dp"
+                        android:text="Flash Mode"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20sp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerFlash"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/_40sdp"
+                        android:layout_marginTop="@dimen/_5sdp"
+                        android:background="@drawable/bg_cat_item_border_purple"
+                        android:backgroundTint="#FFFFFF"
+                        android:popupBackground="@color/black" />
+
+                </LinearLayout>
+
+                <!-- Flash -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/ll_supportedcamera"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="16dp"
+                        android:text="Spported Cameras"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20sp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerSupportedCamera"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/_40sdp"
+                        android:layout_marginTop="@dimen/_5sdp"
+                        android:background="@drawable/bg_cat_item_border_purple"
+                        android:backgroundTint="#FFFFFF"
+                        android:popupBackground="@color/black" />
+                </LinearLayout>
+
+                <!-- White Balance -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/ll_whitebalance"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="16dp"
+                        android:text="White Balance"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20sp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerWhiteBalance"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/_40sdp"
+                        android:layout_marginTop="@dimen/_5sdp"
+                        android:background="@drawable/bg_cat_item_border_purple"
+                        android:backgroundTint="#FFFFFF"
+                        android:popupBackground="@color/black" />
+
+                </LinearLayout>
+                <!-- Picture Size -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/ll_pictureresolution"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="16dp"
+                        android:text="Picture Resolution"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20sp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerPictureSize"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/_40sdp"
+                        android:layout_marginTop="@dimen/_5sdp"
+                        android:background="@drawable/bg_cat_item_border_purple"
+                        android:backgroundTint="#FFFFFF"
+                        android:popupBackground="@color/black" />
+                </LinearLayout>
+
+                <!-- ================= ADVANCED SETTINGS ================= -->
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="32dp"
+                    android:paddingBottom="12dp"
+                    android:text="Advanced Settings"
+                    android:textColor="#FFFFFF"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <!-- Engine -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/ll_engine"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="12dp"
+                        android:text="Camera Engine"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20sp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerEngine"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/_40sdp"
+                        android:layout_marginTop="@dimen/_5sdp"
+                        android:background="@drawable/bg_cat_item_border_purple"
+                        android:backgroundTint="#FFFFFF"
+                        android:popupBackground="@color/black" />
+                </LinearLayout>
+
+                <!-- Preview Type -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:id="@+id/ll_preview_type"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingTop="16dp"
+                        android:text="Preview Type"
+                        android:textColor="#FFFFFF"
+                        android:textSize="20sp" />
+
+                    <Spinner
+                        android:id="@+id/spinnerPreviewType"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/_40sdp"
+                        android:layout_marginTop="@dimen/_5sdp"
+                        android:background="@drawable/bg_cat_item_border_purple"
+                        android:backgroundTint="#FFFFFF"
+                        android:popupBackground="@color/black" />
+                </LinearLayout>
+                <!-- Orientation -->
+                <Switch
+                    android:id="@+id/switchOrientation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="16dp"
+                    android:text="Use Device Orientation"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp" />
+
+                <!-- SAVE BUTTON -->
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnSave"
+                    android:layout_width="match_parent"
+                    android:layout_height="60dp"
+                    android:layout_marginTop="32dp"
+                    android:background="@drawable/app_background_corner"
+                    android:text="SAVE SETTINGS"
+                    android:textColor="#000000"
+                    android:textSize="@dimen/_14sdp"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+        </RelativeLayout>
+
+
+    </LinearLayout>
+
+</ScrollView>

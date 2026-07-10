@@ -23,7 +23,15 @@ const Env = z.object({
   R2_PUBLIC_PRESIGN_BASE: z.string().url().optional(),
   ADMIN_BOOTSTRAP_EMAIL: z.string().email().optional(),
   ADMIN_BOOTSTRAP_PASSWORD: z.string().min(8).optional(),
-  CORS_ORIGIN: z.string().default('http://localhost:3000'),
+  CORS_ORIGIN: z
+    .string()
+    .default('http://localhost:3000')
+    .transform((s) =>
+      s
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+    ),
   COOKIE_SECRET: z.string().min(32),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),

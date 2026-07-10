@@ -9,36 +9,40 @@ import { type Containers, startContainers } from './helpers/containers.js';
 
 let c: Containers;
 let app: TestApp;
+let shopId = 1;
+
+function shopifyStore(overrides: {
+  shopDomain: string;
+  allowedOrigins: string[];
+  uninstalledAt?: Date | null;
+}) {
+  shopId += 1;
+  return {
+    shopDomain: overrides.shopDomain,
+    shopifyShopId: shopId,
+    accessToken: 'enc:test',
+    scope: 'read_products',
+    allowedOrigins: overrides.allowedOrigins,
+    uninstalledAt: overrides.uninstalledAt ?? null,
+  };
+}
 
 beforeAll(async () => {
   c = await startContainers();
   app = await buildTestApp(c);
-  await app.db.insert(schema.widgetClients).values({
-    companyName: 'CORS Test Co',
-    contactName: 'Test',
-    email: `cors-test-${randomUUID()}@example.com`,
-    phone: '1',
-    websiteUrl: 'https://allowed.example.com',
-    companySize: 'unknown',
-    purpose: 'test',
-    businessAddress: 'n/a',
-    passwordHash: '',
-    isActive: true,
-    allowedOrigins: ['https://allowed.example.com'],
-  });
-  await app.db.insert(schema.widgetClients).values({
-    companyName: 'Inactive Co',
-    contactName: 'Test',
-    email: `inactive-test-${randomUUID()}@example.com`,
-    phone: '1',
-    websiteUrl: 'https://inactive.example.com',
-    companySize: 'unknown',
-    purpose: 'test',
-    businessAddress: 'n/a',
-    passwordHash: '',
-    isActive: false,
-    allowedOrigins: ['https://inactive.example.com'],
-  });
+  await app.db.insert(schema.shopifyStores).values(
+    shopifyStore({
+      shopDomain: `allowed-${randomUUID()}.myshopify.com`,
+      allowedOrigins: ['https://allowed.example.com'],
+    }),
+  );
+  await app.db.insert(schema.shopifyStores).values(
+    shopifyStore({
+      shopDomain: `uninstalled-${randomUUID()}.myshopify.com`,
+      allowedOrigins: ['https://inactive.example.com'],
+      uninstalledAt: new Date(),
+    }),
+  );
 });
 afterAll(async () => {
   await app?.close();
@@ -55,7 +59,7 @@ describe('dynamic CORS', () => {
     expect(res.headers['access-control-allow-origin']).toBe('http://localhost:3000');
   });
 
-  it('reflects an origin listed in some widgetClients.allowedOrigins', async () => {
+  it('reflects an origin listed in some shopifyStores.allowedOrigins', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/health',
@@ -73,7 +77,7 @@ describe('dynamic CORS', () => {
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 
-  it('does not allow an origin from an inactive widget client', async () => {
+  it('does not allow an origin from an uninstalled store', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/health',
@@ -87,26 +91,20 @@ describe('dynamic CORS', () => {
       vi.restoreAllMocks();
     });
 
-    it('serves a cached allow decision for 30s after a widget client is deactivated, then re-queries after the TTL expires', async () => {
+    it('serves a cached allow decision for 30s after a store uninstalls, then re-queries after the TTL expires', async () => {
       const origin = `https://cache-test-${randomUUID()}.example.com`;
-      await app.db.insert(schema.widgetClients).values({
-        companyName: 'Cache Test Co',
-        contactName: 'Test',
-        email: `cache-test-${randomUUID()}@example.com`,
-        phone: '1',
-        websiteUrl: origin,
-        companySize: 'unknown',
-        purpose: 'test',
-        businessAddress: 'n/a',
-        passwordHash: '',
-        isActive: true,
-        allowedOrigins: [origin],
-      });
+      const shopDomain = `cache-test-${randomUUID()}.myshopify.com`;
+      await app.db.insert(schema.shopifyStores).values(
+        shopifyStore({
+          shopDomain,
+          allowedOrigins: [origin],
+        }),
+      );
 
       const nowSpy = vi.spyOn(Date, 'now');
       nowSpy.mockReturnValue(1_000_000);
 
-      // First call: DB says active -> allowed, gets cached.
+      // First call: DB says installed -> allowed, gets cached.
       const first = await app.inject({
         method: 'GET',
         url: '/health',
@@ -114,11 +112,11 @@ describe('dynamic CORS', () => {
       });
       expect(first.headers['access-control-allow-origin']).toBe(origin);
 
-      // Deactivate directly in the DB, bypassing any cache invalidation (there is none by design).
+      // Uninstall directly in the DB, bypassing any cache invalidation (there is none by design).
       await app.db
-        .update(schema.widgetClients)
-        .set({ isActive: false })
-        .where(eq(schema.widgetClients.websiteUrl, origin));
+        .update(schema.shopifyStores)
+        .set({ uninstalledAt: new Date() })
+        .where(eq(schema.shopifyStores.shopDomain, shopDomain));
 
       // Still within the 30s TTL: must still reflect the stale cached "allowed" answer.
       nowSpy.mockReturnValue(1_000_000 + 29_000);
@@ -129,7 +127,7 @@ describe('dynamic CORS', () => {
       });
       expect(second.headers['access-control-allow-origin']).toBe(origin);
 
-      // Past the TTL: cache entry expired, fresh DB lookup sees the deactivated row -> disallowed.
+      // Past the TTL: cache entry expired, fresh DB lookup sees the uninstalled row -> disallowed.
       nowSpy.mockReturnValue(1_000_000 + 30_001);
       const third = await app.inject({
         method: 'GET',
@@ -147,21 +145,14 @@ describe('dynamic CORS', () => {
       const first = await app.inject({ method: 'GET', url: '/health', headers: { origin } });
       expect(first.headers['access-control-allow-origin']).toBeUndefined();
 
-      // Now register it as an active widget client, but stay within the TTL window: the
+      // Now register it as an installed store, but stay within the TTL window: the
       // cached negative result should still win until the TTL expires.
-      await app.db.insert(schema.widgetClients).values({
-        companyName: 'Late Register Co',
-        contactName: 'Test',
-        email: `late-register-${randomUUID()}@example.com`,
-        phone: '1',
-        websiteUrl: origin,
-        companySize: 'unknown',
-        purpose: 'test',
-        businessAddress: 'n/a',
-        passwordHash: '',
-        isActive: true,
-        allowedOrigins: [origin],
-      });
+      await app.db.insert(schema.shopifyStores).values(
+        shopifyStore({
+          shopDomain: `late-register-${randomUUID()}.myshopify.com`,
+          allowedOrigins: [origin],
+        }),
+      );
 
       nowSpy.mockReturnValue(2_000_000 + 29_000);
       const second = await app.inject({ method: 'GET', url: '/health', headers: { origin } });
