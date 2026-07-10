@@ -13,7 +13,38 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
+import { STATUS_DOT_COLOR } from '../lib/statusColors';
 import type { ShopifyMe, ShopifyOnboardingConfirmResponse } from '../types';
+
+function StatusDotRow({
+  label,
+  count,
+  dotColor,
+}: {
+  label: string;
+  count: number;
+  dotColor: string;
+}) {
+  return (
+    <InlineStack align="space-between">
+      <InlineStack gap="200">
+        <span
+          style={{
+            display: 'inline-block',
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: dotColor,
+          }}
+        />
+        <Text as="p">{label}</Text>
+      </InlineStack>
+      <Text as="p" fontWeight="semibold">
+        {count}
+      </Text>
+    </InlineStack>
+  );
+}
 
 export default function DashboardPage() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
@@ -66,7 +97,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <Page title="AiVastra Try-On">
+      <Page title="Home">
         <Layout>
           <Layout.Section>
             <Card>
@@ -85,7 +116,7 @@ export default function DashboardPage() {
   const doneCount = [synced, enabled, themeBlockDone, funnelConfigured].filter(Boolean).length;
 
   return (
-    <Page title="AiVastra Try-On">
+    <Page title="Home" subtitle={me?.store.shopDomain}>
       <Layout>
         <Layout.Section>
           {error && (
@@ -104,7 +135,7 @@ export default function DashboardPage() {
               </InlineStack>
 
               <InlineStack align="space-between">
-                <Text as="p">{synced ? '\u2705' : '\u2B55'} Sync your products</Text>
+                <Text as="p">{synced ? '✅' : '⭕'} Sync your products</Text>
                 <Button
                   onClick={syncProducts}
                   loading={syncing}
@@ -116,13 +147,13 @@ export default function DashboardPage() {
               </InlineStack>
 
               <InlineStack align="space-between">
-                <Text as="p">{enabled ? '\u2705' : '\u2B55'} Enable try-on on a product</Text>
+                <Text as="p">{enabled ? '✅' : '⭕'} Enable try-on on a product</Text>
                 <Button onClick={() => navigate('/products')}>Go to Products</Button>
               </InlineStack>
 
               <InlineStack align="space-between">
                 <Text as="p">
-                  {themeBlockDone ? '\u2705' : '\u2B55'} Add the Try It On block to your theme
+                  {themeBlockDone ? '✅' : '⭕'} Add the Try It On block to your theme
                 </Text>
                 {!themeBlockDone && (
                   <Button onClick={confirmThemeBlock} loading={confirming}>
@@ -132,9 +163,7 @@ export default function DashboardPage() {
               </InlineStack>
 
               <InlineStack align="space-between">
-                <Text as="p">
-                  {funnelConfigured ? '\u2705' : '\u2B55'} Set up your funnel templates
-                </Text>
+                <Text as="p">{funnelConfigured ? '✅' : '⭕'} Set up your funnel templates</Text>
                 <Button onClick={() => navigate('/funnel-setup')}>Go to Funnel Setup</Button>
               </InlineStack>
             </BlockStack>
@@ -167,71 +196,80 @@ export default function DashboardPage() {
             </Card>
           </InlineStack>
 
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm">
-                Product sync status
-              </Text>
-              <InlineStack align="space-between">
-                <Text as="p">Active</Text>
-                <Text as="p" fontWeight="semibold">
-                  {me?.stats.statusCounts.active ?? 0}
+          <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: '16px' }}>
+            <div style={{ position: 'relative' }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: '3px',
+                  background:
+                    'linear-gradient(90deg, var(--p-color-bg-fill-brand), var(--p-color-bg-fill-brand-hover))',
+                  borderTopLeftRadius: 'var(--p-border-radius-300)',
+                  borderTopRightRadius: 'var(--p-border-radius-300)',
+                  zIndex: 1,
+                }}
+              />
+              <Card>
+                <BlockStack gap="200">
+                  <Text as="h3" variant="headingSm">
+                    Credit Balance
+                  </Text>
+                  <Text as="p" variant="heading2xl">
+                    {me?.creditBalance ?? 0}
+                  </Text>
+                  <Button
+                    variant="primary"
+                    onClick={() =>
+                      window.open('https://app.aivastra.com/pricing', '_blank', 'noopener')
+                    }
+                  >
+                    Top up on aivastra.com
+                  </Button>
+                </BlockStack>
+              </Card>
+            </div>
+
+            <Card>
+              <BlockStack gap="200">
+                <Text as="h3" variant="headingSm">
+                  Product sync status
                 </Text>
-              </InlineStack>
-              <InlineStack align="space-between">
-                <Text as="p">Processing</Text>
-                <Text as="p" fontWeight="semibold">
-                  {me?.stats.statusCounts.processing ?? 0}
-                </Text>
-              </InlineStack>
-              <InlineStack align="space-between">
-                <Text as="p">Failed</Text>
-                <Text as="p" fontWeight="semibold">
-                  {me?.stats.statusCounts.failed ?? 0}
-                </Text>
-              </InlineStack>
-              <InlineStack align="space-between">
-                <Text as="p">Disabled</Text>
-                <Text as="p" fontWeight="semibold">
-                  {me?.stats.statusCounts.disabled ?? 0}
-                </Text>
-              </InlineStack>
-            </BlockStack>
-          </Card>
+                <StatusDotRow
+                  label="Active"
+                  count={me?.stats.statusCounts.active ?? 0}
+                  dotColor={STATUS_DOT_COLOR.active}
+                />
+                <StatusDotRow
+                  label="Processing"
+                  count={me?.stats.statusCounts.processing ?? 0}
+                  dotColor={STATUS_DOT_COLOR.processing}
+                />
+                <StatusDotRow
+                  label="Failed"
+                  count={me?.stats.statusCounts.failed ?? 0}
+                  dotColor={STATUS_DOT_COLOR.failed}
+                />
+                <StatusDotRow
+                  label="Disabled"
+                  count={me?.stats.statusCounts.disabled ?? 0}
+                  dotColor={STATUS_DOT_COLOR.disabled}
+                />
+              </BlockStack>
+            </Card>
+          </div>
 
           <Card>
-            <BlockStack gap="200">
-              <Text as="h3" variant="headingSm">
-                Credit Balance
-              </Text>
-              <Text as="p" variant="heading2xl">
-                {me?.creditBalance ?? 0}
-              </Text>
-              <Button
-                variant="primary"
-                onClick={() =>
-                  window.open('https://app.aivastra.com/pricing', '_blank', 'noopener')
-                }
-              >
-                Top up on aivastra.com
-              </Button>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">
-                {me?.store.shopDomain}
-              </Text>
+            <InlineStack align="space-between">
+              <Button onClick={() => navigate('/products')}>Manage Products</Button>
               {me?.store.connectedSince && (
                 <Text as="p" tone="subdued">
                   Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
                 </Text>
               )}
-              <InlineStack gap="200">
-                <Button onClick={() => navigate('/products')}>Manage Products</Button>
-              </InlineStack>
-            </BlockStack>
+            </InlineStack>
           </Card>
         </Layout.Section>
       </Layout>
