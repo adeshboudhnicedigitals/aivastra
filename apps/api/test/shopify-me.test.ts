@@ -131,3 +131,35 @@ describe('GET /v1/shopify/me stats.funnelConfigured', () => {
     expect(res.json().stats.funnelConfigured).toBe(true);
   });
 });
+
+describe('GET /v1/shopify/me ownerUserId + creditBalance', () => {
+  it('is unlinked by default: ownerUserId null, creditBalance null', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.json().store.ownerUserId).toBeNull();
+    expect(res.json().creditBalance).toBeNull();
+  });
+
+  it("reflects the linked user's credit balance once ownerUserId is set", async () => {
+    const [user] = await app.db
+      .insert(schema.users)
+      .values({ email: `me-owner-${randomUUID()}@test.com`, displayName: 'Owner' })
+      .returning();
+    await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 42 });
+    await app.db
+      .update(schema.shopifyStores)
+      .set({ ownerUserId: user.id })
+      .where(eq(schema.shopifyStores.id, storeId));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.json().store.ownerUserId).toBe(user.id);
+    expect(res.json().creditBalance).toBe(42);
+  });
+});
