@@ -92,7 +92,7 @@ describe('GET /v1/shopify/me stats', () => {
     expect(body.stats).toEqual({
       totalTryOns: 3,
       syncedProductCount: 3,
-      enabledProductCount: 2,
+      enabledProductCount: 1,
       funnelConfigured: false,
       statusCounts: { active: 1, processing: 0, failed: 0, disabled: 2 },
     });

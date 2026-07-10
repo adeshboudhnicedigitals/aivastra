@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { decryptToken } from '../../lib/crypto.js';
@@ -48,10 +48,15 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
       const { page, pageSize } = req.query as z.infer<typeof ProductsQuery>;
 
+      const notDeleted = and(
+        eq(schema.shopifyProductGarments.storeId, store.id),
+        ne(schema.shopifyProductGarments.status, 'deleted'),
+      );
+
       const [{ total }] = await app.db
         .select({ total: count() })
         .from(schema.shopifyProductGarments)
-        .where(eq(schema.shopifyProductGarments.storeId, store.id));
+        .where(notDeleted);
 
       const rows = await app.db
         .select({
@@ -64,7 +69,7 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           funnelAssignmentSource: schema.shopifyProductGarments.funnelAssignmentSource,
         })
         .from(schema.shopifyProductGarments)
-        .where(eq(schema.shopifyProductGarments.storeId, store.id))
+        .where(notDeleted)
         .orderBy(schema.shopifyProductGarments.shopifyProductId)
         .limit(pageSize)
         .offset((page - 1) * pageSize);

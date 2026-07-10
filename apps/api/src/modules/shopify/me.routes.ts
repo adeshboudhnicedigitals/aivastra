@@ -33,6 +33,7 @@ export async function shopifyMeRoutes(app: FastifyInstance) {
         and(
           eq(schema.shopifyProductGarments.storeId, store.id),
           eq(schema.shopifyProductGarments.enabled, true),
+          sql`${schema.shopifyProductGarments.status} <> 'deleted'`,
         ),
       );
 
