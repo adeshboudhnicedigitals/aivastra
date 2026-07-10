@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { UpdateUserBody } from '@aivastra/types';
-import { and, count, desc, eq, ilike, isNotNull, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, exists, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -49,6 +49,17 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           isAdmin: isNotNull(schema.adminUsers.id),
           adminRole: schema.adminUsers.role,
           hasPassword: isNotNull(schema.users.passwordHash),
+          hasShopifyStore: exists(
+            app.db
+              .select()
+              .from(schema.shopifyStores)
+              .where(
+                and(
+                  eq(schema.shopifyStores.ownerUserId, schema.users.id),
+                  isNull(schema.shopifyStores.uninstalledAt),
+                ),
+              ),
+          ),
         })
         .from(schema.users)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
@@ -87,6 +98,17 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           isAdmin: isNotNull(schema.adminUsers.id),
           adminRole: schema.adminUsers.role,
           hasPassword: isNotNull(schema.users.passwordHash),
+          hasShopifyStore: exists(
+            app.db
+              .select()
+              .from(schema.shopifyStores)
+              .where(
+                and(
+                  eq(schema.shopifyStores.ownerUserId, schema.users.id),
+                  isNull(schema.shopifyStores.uninstalledAt),
+                ),
+              ),
+          ),
         })
         .from(schema.users)
         .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))

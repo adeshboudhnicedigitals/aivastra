@@ -37,7 +37,7 @@ const PATH_LABELS: Record<string, string> = {
   settings: 'Settings',
   workers: 'Workers',
   saree: 'Saree',
-  'shopify-funnels': 'Shopify Funnels',
+  'shopify-funnels': 'Shopify',
 };
 
 function readStoredTheme(): Theme {
