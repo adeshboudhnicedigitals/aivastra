@@ -105,6 +105,12 @@ const groups: NavGroup[] = [
         icon: Icon.Trash,
         roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
       },
+      {
+        k: 'credit-analysis',
+        label: 'Credit Analysis',
+        icon: Icon.Coin,
+        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
+      },
     ],
   },
   {
