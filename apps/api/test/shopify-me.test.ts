@@ -54,6 +54,14 @@ beforeAll(async () => {
       status: 'processing',
       enabled: false,
     },
+    {
+      storeId,
+      shopifyProductId: 3,
+      shopifyVariantId: null,
+      r2Key: `shopify-garments/${storeId}/3/garment.jpg`,
+      status: 'deleted',
+      enabled: true,
+    },
   ]);
 
   for (let i = 0; i < 3; i++) {
@@ -83,10 +91,10 @@ describe('GET /v1/shopify/me stats', () => {
     const body = res.json();
     expect(body.stats).toEqual({
       totalTryOns: 3,
-      syncedProductCount: 2,
-      enabledProductCount: 1,
+      syncedProductCount: 3,
+      enabledProductCount: 2,
       funnelConfigured: false,
-      statusCounts: { active: 1, processing: 0, failed: 0, disabled: 1 },
+      statusCounts: { active: 1, processing: 0, failed: 0, disabled: 2 },
     });
   });
 });
