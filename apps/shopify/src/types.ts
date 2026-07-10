@@ -1,15 +1,3 @@
-export interface ShopifyPlan {
-  id: string;
-  name: string;
-  priceCents: number;
-  includedTryons: number;
-  overageCents: number;
-  trialDays: number;
-  sortOrder: number;
-  isActive: boolean;
-  createdAt: string;
-}
-
 export interface ShopifyStoreSettings {
   buttonText?: string;
   buttonColor?: string;
@@ -31,7 +19,6 @@ export interface ShopifyMe {
     shopDomain: string;
     settings: ShopifyStoreSettings;
   };
-  plan: ShopifyPlan | null;
   stats: ShopifyStats;
 }
 

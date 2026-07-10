@@ -1,7 +1,6 @@
 import type { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
 import { shopifyAuthRoutes } from './auth.routes.js';
-import { shopifyBillingRoutes } from './billing.routes.js';
 import { shopifyFunnelRoutes } from './funnel.routes.js';
 import { shopifyMeRoutes } from './me.routes.js';
 import { shopifyOnboardingRoutes } from './onboarding.routes.js';
@@ -18,7 +17,6 @@ export async function shopifyRoutes(app: FastifyInstance) {
   await app.register(registerWebhooksDecorator);
   await app.register(shopifyAuthRoutes);
   await app.register(shopifyMeRoutes);
-  await app.register(shopifyBillingRoutes);
   await app.register(shopifyProductsRoutes);
   await app.register(shopifyOnboardingRoutes);
   await app.register(shopifyFunnelRoutes);
