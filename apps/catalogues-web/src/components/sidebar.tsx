@@ -50,7 +50,15 @@ const NAV: {
     devOnly: true,
   },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
-  { id: 'tutorials', href: '/tutorials', label: 'Tutorials', icon: 'monitor-play' },
+  // Placeholder content (dummy videos) — hidden from the sidebar in production
+  // until real tutorials are recorded. Route itself is also blocked, see middleware.ts.
+  {
+    id: 'tutorials',
+    href: '/tutorials',
+    label: 'Tutorials',
+    icon: 'monitor-play',
+    devOnly: true,
+  },
   { id: 'contact', href: '/contact-us', label: 'Contact Us', icon: 'phone' },
 ];
 
