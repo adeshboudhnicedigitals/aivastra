@@ -28,6 +28,10 @@ export const jobs = pgTable('jobs', {
   creditsCharged: integer('credits_charged').notNull().default(1),
   attempts: integer('attempts').notNull().default(0),
   errorCode: text('error_code'),
+  // Which flow created this job — 'catalog' | 'tryon' | 'saree' | 'shopify'.
+  // Null for kiosk jobs (attributed via merchants.userId instead, see the
+  // admin credit-analysis routes) and for historical rows not yet backfilled.
+  source: text('source'),
   // Nullable self-FK: set only by the regenerate endpoint for traceability.
   parentJobId: uuid('parent_job_id'),
   merchantId: uuid('merchant_id').references(() => merchants.id, {
