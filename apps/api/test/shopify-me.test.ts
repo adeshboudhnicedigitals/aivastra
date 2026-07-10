@@ -73,7 +73,7 @@ afterAll(async () => {
 });
 
 describe('GET /v1/shopify/me stats', () => {
-  it('includes totalTryOns, syncedProductCount, enabledProductCount', async () => {
+  it('includes totalTryOns, syncedProductCount, enabledProductCount, statusCounts', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/shopify/me',
@@ -86,6 +86,7 @@ describe('GET /v1/shopify/me stats', () => {
       syncedProductCount: 2,
       enabledProductCount: 1,
       funnelConfigured: false,
+      statusCounts: { active: 1, processing: 0, failed: 0, disabled: 1 },
     });
   });
 });
@@ -161,5 +162,21 @@ describe('GET /v1/shopify/me ownerUserId + creditBalance', () => {
     });
     expect(res.json().store.ownerUserId).toBe(user.id);
     expect(res.json().creditBalance).toBe(42);
+  });
+});
+
+describe('GET /v1/shopify/me store.connectedSince', () => {
+  it("reflects the store's installedAt timestamp", async () => {
+    const [store] = await app.db
+      .select({ installedAt: schema.shopifyStores.installedAt })
+      .from(schema.shopifyStores)
+      .where(eq(schema.shopifyStores.id, storeId));
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/me',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.json().store.connectedSince).toBe(store.installedAt.toISOString());
   });
 });

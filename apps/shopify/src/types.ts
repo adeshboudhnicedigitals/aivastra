@@ -12,6 +12,7 @@ export interface ShopifyStats {
   syncedProductCount: number;
   enabledProductCount: number;
   funnelConfigured: boolean;
+  statusCounts: { active: number; processing: number; failed: number; disabled: number };
 }
 
 export interface ShopifyMe {
@@ -19,6 +20,7 @@ export interface ShopifyMe {
     shopDomain: string;
     settings: ShopifyStoreSettings;
     ownerUserId: string | null;
+    connectedSince: string;
   };
   creditBalance: number | null;
   stats: ShopifyStats;
