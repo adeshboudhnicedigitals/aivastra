@@ -105,7 +105,12 @@ export default function DashboardPage() {
 
               <InlineStack align="space-between">
                 <Text as="p">{synced ? '\u2705' : '\u2B55'} Sync your products</Text>
-                <Button onClick={syncProducts} loading={syncing} disabled={synced}>
+                <Button
+                  onClick={syncProducts}
+                  loading={syncing}
+                  disabled={synced}
+                  variant="primary"
+                >
                   Sync products now
                 </Button>
               </InlineStack>
@@ -165,12 +170,45 @@ export default function DashboardPage() {
           <Card>
             <BlockStack gap="200">
               <Text as="h3" variant="headingSm">
+                Product sync status
+              </Text>
+              <InlineStack align="space-between">
+                <Text as="p">Active</Text>
+                <Text as="p" fontWeight="semibold">
+                  {me?.stats.statusCounts.active ?? 0}
+                </Text>
+              </InlineStack>
+              <InlineStack align="space-between">
+                <Text as="p">Processing</Text>
+                <Text as="p" fontWeight="semibold">
+                  {me?.stats.statusCounts.processing ?? 0}
+                </Text>
+              </InlineStack>
+              <InlineStack align="space-between">
+                <Text as="p">Failed</Text>
+                <Text as="p" fontWeight="semibold">
+                  {me?.stats.statusCounts.failed ?? 0}
+                </Text>
+              </InlineStack>
+              <InlineStack align="space-between">
+                <Text as="p">Disabled</Text>
+                <Text as="p" fontWeight="semibold">
+                  {me?.stats.statusCounts.disabled ?? 0}
+                </Text>
+              </InlineStack>
+            </BlockStack>
+          </Card>
+
+          <Card>
+            <BlockStack gap="200">
+              <Text as="h3" variant="headingSm">
                 Credit Balance
               </Text>
               <Text as="p" variant="heading2xl">
                 {me?.creditBalance ?? 0}
               </Text>
               <Button
+                variant="primary"
                 onClick={() =>
                   window.open('https://app.aivastra.com/pricing', '_blank', 'noopener')
                 }
@@ -185,6 +223,11 @@ export default function DashboardPage() {
               <Text as="h2" variant="headingMd">
                 {me?.store.shopDomain}
               </Text>
+              {me?.store.connectedSince && (
+                <Text as="p" tone="subdued">
+                  Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
+                </Text>
+              )}
               <InlineStack gap="200">
                 <Button onClick={() => navigate('/products')}>Manage Products</Button>
               </InlineStack>
