@@ -3,7 +3,6 @@ import { Link, useLocation } from 'react-router-dom';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard' },
-  { to: '/billing', label: 'Billing' },
   { to: '/products', label: 'Products' },
   { to: '/funnel-setup', label: 'Funnel Setup' },
 ];

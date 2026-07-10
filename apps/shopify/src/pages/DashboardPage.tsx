@@ -169,7 +169,6 @@ export default function DashboardPage() {
               </Text>
               <InlineStack gap="200">
                 <Button onClick={() => navigate('/products')}>Manage Products</Button>
-                <Button onClick={() => navigate('/billing')}>Manage Billing</Button>
               </InlineStack>
             </BlockStack>
           </Card>
