@@ -66,6 +66,10 @@ New sidebar item **"Credit Analysis"** under the **Operations** group (next to J
 - **Sorted server-side by total spent, descending** — not client-column-sortable like `UsersPage`'s table, because ranking must span the full result set, not just the current page. This is a deliberate deviation from the `Th`-click-to-sort pattern elsewhere in admin-web.
 - Paginated with the existing `Pager` component.
 
+### Kiosk job attribution
+
+Kiosk jobs (`apps/api/src/modules/kiosk/create-job.ts`) set `jobs.userId = null` — they're billed from a separate `merchantCredits` pool via `jobs.merchantId`, not `userCredits`. Since `merchants.userId` is a real 1:1 link (a merchant *is* a user, per `packages/db/src/schema/merchant.ts`), the ranking query groups by `COALESCE(jobs.userId, merchants.userId)` (via a `LEFT JOIN merchants ON merchants.id = jobs.merchant_id`) so kiosk-operating merchants appear as rows and the "Kiosk" filter returns real data instead of always being empty.
+
 ## Per-user detail view
 
 A dedicated view (not the existing Users-page detail — kept separate per this session's earlier decision), showing:
