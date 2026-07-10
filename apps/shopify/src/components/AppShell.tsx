@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { to: '/funnel-setup', label: 'Funnel Setup' },
 ];
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ children, shopDomain }: { children: ReactNode; shopDomain: string }) {
   const location = useLocation();
 
   return (
@@ -57,6 +57,15 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           );
         })}
+        <div
+          style={{
+            marginLeft: 'auto',
+            fontSize: '12px',
+            color: 'var(--p-color-text-secondary)',
+          }}
+        >
+          {shopDomain}
+        </div>
       </nav>
       {children}
     </div>
