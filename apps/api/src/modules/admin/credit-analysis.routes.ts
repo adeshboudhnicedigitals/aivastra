@@ -214,6 +214,18 @@ export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
         .groupBy(sql`to_char(${schema.jobs.createdAt}, 'YYYY-MM-DD')`)
         .orderBy(sql`to_char(${schema.jobs.createdAt}, 'YYYY-MM-DD')`);
 
+      // Ledger entries with no jobId (FREE_TRIAL, PAYMENT, admin grants/deductions)
+      // have no job to attribute a source to — effectiveSource is NULL for those,
+      // and they're correctly dropped when a specific source filter is active
+      // (sourceCondition's checks all evaluate false/NULL against a NULL-joined
+      // job row). Precedence mirrors sourceCondition/the backfill script: a kiosk
+      // job's own `source` column is never set, so kioskDeviceId is checked first.
+      const ledgerConditions = [
+        eq(schema.creditLedger.userId, id),
+        since ? gte(schema.creditLedger.createdAt, since) : undefined,
+        source !== 'all' ? sourceCondition(source) : undefined,
+      ].filter((c): c is NonNullable<typeof c> => c !== undefined);
+
       const ledger = await app.db
         .select({
           id: schema.creditLedger.id,
@@ -221,9 +233,15 @@ export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
           reason: schema.creditLedger.reason,
           jobId: schema.creditLedger.jobId,
           createdAt: schema.creditLedger.createdAt,
+          source: sql<string | null>`CASE
+            WHEN ${schema.jobs.shopifyStoreId} IS NOT NULL THEN 'shopify'
+            WHEN ${schema.jobs.kioskDeviceId} IS NOT NULL THEN 'kiosk'
+            ELSE ${schema.jobs.source}
+          END`,
         })
         .from(schema.creditLedger)
-        .where(eq(schema.creditLedger.userId, id))
+        .leftJoin(schema.jobs, eq(schema.jobs.id, schema.creditLedger.jobId))
+        .where(and(...ledgerConditions))
         .orderBy(desc(schema.creditLedger.createdAt))
         .limit(50);
 
@@ -242,21 +260,31 @@ export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
 
         const rows = await app.db
           .select({
-            shopifyProductId: sql<number>`(${schema.jobInputs.params}->>'shopifyProductId')::int`,
+            shopifyProductId: sql<number>`(${schema.jobInputs.params}->>'shopifyProductId')::bigint`,
             jobCount: sql<number>`COUNT(*)::int`,
             creditsSpent: sql<number>`COALESCE(SUM(CASE WHEN ${schema.jobs.status} = 'COMPLETED' THEN ${schema.jobs.creditsCharged} ELSE 0 END), 0)::int`,
           })
           .from(schema.jobs)
           .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
           .where(and(...productConditions))
-          .groupBy(sql`(${schema.jobInputs.params}->>'shopifyProductId')::int`)
+          .groupBy(sql`(${schema.jobInputs.params}->>'shopifyProductId')::bigint`)
           .orderBy(
             desc(
               sql`COALESCE(SUM(CASE WHEN ${schema.jobs.status} = 'COMPLETED' THEN ${schema.jobs.creditsCharged} ELSE 0 END), 0)`,
             ),
           );
 
-        const productIds = rows.map((r) => r.shopifyProductId).filter((v) => v != null);
+        // postgres.js returns ::bigint values as strings (to avoid silent precision
+        // loss on int8), unlike Drizzle's own bigint({mode:'number'}) column decoding
+        // which only applies to schema-typed columns, not raw sql`` casts. Real
+        // Shopify product IDs (~13 digits) are well within Number.MAX_SAFE_INTEGER,
+        // so converting here is safe and keeps ids consistent with the garments
+        // query below (whose column IS schema-typed and already comes back numeric).
+        const normalizedRows = rows.map((r) => ({
+          ...r,
+          shopifyProductId: Number(r.shopifyProductId),
+        }));
+        const productIds = normalizedRows.map((r) => r.shopifyProductId).filter((v) => v != null);
         const garments = productIds.length
           ? await app.db
               .select({
@@ -273,7 +301,7 @@ export async function adminCreditAnalysisRoutes(app: FastifyInstance) {
           : [];
         const titleMap = new Map(garments.map((g) => [g.shopifyProductId, g.title]));
 
-        topProducts = rows.map((r) => ({
+        topProducts = normalizedRows.map((r) => ({
           shopifyProductId: r.shopifyProductId,
           title: titleMap.get(r.shopifyProductId) ?? null,
           jobCount: r.jobCount,
