@@ -14,17 +14,17 @@
     localStorage.removeItem(ACCOUNT_TOKEN_KEY);
   }
 
-  function linkAccount(_apiBase) {
+  function linkAccount(appBase) {
     return new Promise((resolve, reject) => {
       const nonce = Math.random().toString(36).slice(2);
       const origin = window.location.origin;
       const popup = window.open(
-        `https://app.aivastra.com/login?next=${encodeURIComponent(`/widget-link-complete?origin=${encodeURIComponent(origin)}&nonce=${nonce}`)}`,
+        `${appBase}/login?next=${encodeURIComponent(`/widget-link-complete?origin=${encodeURIComponent(origin)}&nonce=${nonce}`)}`,
         'aivastra-link',
         'width=480,height=640',
       );
       function onMessage(event) {
-        if (event.origin !== 'https://app.aivastra.com') return;
+        if (event.origin !== appBase) return;
         if (event.data?.type !== 'aivastra-widget-link' || event.data.nonce !== nonce) return;
         window.removeEventListener('message', onMessage);
         resolve(event.data.code);
@@ -55,6 +55,7 @@
     const widgetKey = root.dataset.widgetKey;
     const productId = Number(root.dataset.productId);
     const apiBase = root.dataset.apiBase.replace(/\/$/, '');
+    const appBase = root.dataset.appBase.replace(/\/$/, '');
 
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
@@ -138,7 +139,7 @@
         const errorStep = steps.error;
         if (errorStep) {
           errorStep.querySelector('p').innerHTML =
-            'Out of credits — <a href="https://app.aivastra.com/pricing">top up your account</a>';
+            `Out of credits — <a href="${appBase}/pricing">top up your account</a>`;
         }
         throw new Error('insufficient credits');
       }
@@ -260,7 +261,7 @@
     async function doAccountLink() {
       try {
         showStep('progress');
-        const code = await linkAccount(apiBase);
+        const code = await linkAccount(appBase);
         const token = await exchangeCode(apiBase, widgetKey, code);
         setAccountToken(token);
         showStep('upload');
