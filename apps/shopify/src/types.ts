@@ -18,7 +18,9 @@ export interface ShopifyMe {
   store: {
     shopDomain: string;
     settings: ShopifyStoreSettings;
+    ownerUserId: string | null;
   };
+  creditBalance: number | null;
   stats: ShopifyStats;
 }
 
