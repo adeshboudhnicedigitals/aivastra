@@ -701,6 +701,13 @@
       "when": 1783658841608,
       "tag": "0099_melted_franklin_richards",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1783663294443,
+      "tag": "0100_magenta_skullbuster",
+      "breakpoints": true
     }
   ]
 }
