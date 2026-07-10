@@ -15,7 +15,6 @@
     data-widget-key="{{ widget_key }}"
     data-product-id="{{ product.id }}"
     data-api-base="{{ block.settings.api_base | default: 'https://app.aivastra.com' }}"
-    data-app-base="{{ block.settings.app_base | default: 'https://app.aivastra.com' }}"
     data-placement-selector="{{ block.settings.placement_selector }}"
     data-block-alignment="{{ block.settings.block_alignment }}"
     style="--aivastra-button-color: {{ block.settings.button_color }}; --aivastra-text-color: {{ block.settings.text_color }}; --aivastra-border-radius: {{ block.settings.border_radius }}px;"
@@ -31,11 +30,6 @@
     <div class="aivastra-tryon__modal" hidden>
       <div class="aivastra-tryon__modal-content">
         <button type="button" class="aivastra-tryon__close" aria-label="Close">&times;</button>
-
-        <div class="aivastra-tryon__step aivastra-tryon__step--signin">
-          <p>Sign in to try this on with your own credits.</p>
-          <button type="button" class="aivastra-tryon__signin">Sign in to try on</button>
-        </div>
 
         <div class="aivastra-tryon__step aivastra-tryon__step--upload">
           <p>{{ 'tryon.upload_prompt' | t }}</p>
@@ -80,13 +74,6 @@
       "type": "text",
       "id": "api_base",
       "label": "API base URL",
-      "default": "https://app.aivastra.com"
-    },
-    {
-      "type": "text",
-      "id": "app_base",
-      "label": "App base URL",
-      "info": "Where shoppers sign in to link their account (usually the same as the API base URL). Only needs to differ during local development, where the API and web app run on different ports/tunnels.",
       "default": "https://app.aivastra.com"
     },
     {
