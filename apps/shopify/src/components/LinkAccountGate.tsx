@@ -2,12 +2,14 @@ import { Banner, BlockStack, Button, Card, Page, Text } from '@shopify/polaris';
 import { useState } from 'react';
 import { apiFetch } from '../lib/api';
 
+const AIVASTRA_APP_URL = import.meta.env.VITE_AIVASTRA_APP_URL || 'https://app.aivastra.com';
+
 function openLinkPopup(): Promise<string> {
   return new Promise((resolve, reject) => {
     const nonce = Math.random().toString(36).slice(2);
     const origin = window.location.origin;
     const popup = window.open(
-      `https://app.aivastra.com/login?next=${encodeURIComponent(
+      `${AIVASTRA_APP_URL}/login?next=${encodeURIComponent(
         `/widget-link-complete?origin=${encodeURIComponent(origin)}&nonce=${nonce}`,
       )}`,
       'aivastra-link',
@@ -15,7 +17,7 @@ function openLinkPopup(): Promise<string> {
     );
 
     function onMessage(event: MessageEvent) {
-      if (event.origin !== 'https://app.aivastra.com') return;
+      if (event.origin !== AIVASTRA_APP_URL) return;
       if (event.data?.type !== 'aivastra-widget-link' || event.data.nonce !== nonce) return;
       window.removeEventListener('message', onMessage);
       resolve(event.data.code as string);
