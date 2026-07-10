@@ -19,7 +19,7 @@ type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled';
 // toggle) into the single status bucket shown in the UI: a disabled product
 // always reads as "Disabled", regardless of its underlying sync status.
 function displayStatus(item: ShopifyProductListItem): DisplayStatus {
-  if (!item.enabled) return 'disabled';
+  if (!item.enabled || item.status === 'deleted') return 'disabled';
   return item.status as DisplayStatus;
 }
 
