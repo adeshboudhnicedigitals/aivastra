@@ -44,7 +44,7 @@ export default function App() {
 
   return (
     <AppProvider i18n={{}}>
-      <AppShell>
+      <AppShell shopDomain={me.store.shopDomain}>
         <Routes>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/products" element={<ProductsPage />} />
