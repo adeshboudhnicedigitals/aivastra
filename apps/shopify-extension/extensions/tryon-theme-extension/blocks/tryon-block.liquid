@@ -29,33 +29,46 @@
 
     <div class="aivastra-tryon__modal" hidden>
       <div class="aivastra-tryon__modal-content">
-        <button type="button" class="aivastra-tryon__close" aria-label="Close">&times;</button>
+        <div class="aivastra-tryon__modal-inner">
+          <div class="aivastra-tryon__header">
+            <p class="aivastra-tryon__heading">AiVastra Try On</p>
+            <button type="button" class="aivastra-tryon__close" aria-label="Close">&times;</button>
+          </div>
 
-        <div class="aivastra-tryon__step aivastra-tryon__step--upload">
-          <p>{{ 'tryon.upload_prompt' | t }}</p>
-          <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
-        </div>
+          <div class="aivastra-tryon__step aivastra-tryon__step--upload">
+            <label class="aivastra-tryon__upload-btn">
+              <img class="aivastra-tryon__upload-preview" hidden alt="" />
+              <span class="aivastra-tryon__upload-placeholder">
+                <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+                <span>Drag and drop photo, or choose file</span>
+              </span>
+              <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
+            </label>
+          </div>
 
-        <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
-          <p>{{ 'tryon.generating' | t }}</p>
-        </div>
+          <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
+            <div class="aivastra-tryon__progress-canvas">
+              <p>{{ 'tryon.generating' | t }}</p>
+              <div class="aivastra-tryon__progress-bar-track">
+                <div class="aivastra-tryon__progress-bar-fill"></div>
+              </div>
+            </div>
+          </div>
 
-        <div class="aivastra-tryon__step aivastra-tryon__step--pending" hidden>
-          <p>{{ 'tryon.pending' | t }}</p>
-        </div>
+          <div class="aivastra-tryon__step aivastra-tryon__step--pending" hidden>
+            <p>{{ 'tryon.pending' | t }}</p>
+          </div>
 
-        <div class="aivastra-tryon__step aivastra-tryon__step--result" hidden>
-          <img class="aivastra-tryon__result-image" alt="{{ 'tryon.result_alt' | t }}" />
-          <button type="button" class="aivastra-tryon__retry">
-            {{ 'tryon.try_another' | t }}
-          </button>
-        </div>
+          <div class="aivastra-tryon__step aivastra-tryon__step--result" hidden>
+            <img class="aivastra-tryon__result-image" alt="{{ 'tryon.result_alt' | t }}" />
+          </div>
 
-        <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
-          <p>{{ 'tryon.error' | t }}</p>
-          <button type="button" class="aivastra-tryon__retry">
-            {{ 'tryon.try_again' | t }}
-          </button>
+          <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
+            <p>{{ 'tryon.error' | t }}</p>
+            <button type="button" class="aivastra-tryon__retry">
+              {{ 'tryon.try_again' | t }}
+            </button>
+          </div>
         </div>
       </div>
     </div>

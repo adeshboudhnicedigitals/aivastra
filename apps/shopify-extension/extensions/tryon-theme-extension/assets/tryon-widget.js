@@ -12,6 +12,8 @@
     const modal = root.querySelector('.aivastra-tryon__modal');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
+    const uploadPreview = root.querySelector('.aivastra-tryon__upload-preview');
+    const uploadPlaceholder = root.querySelector('.aivastra-tryon__upload-placeholder');
     const steps = {
       upload: root.querySelector('.aivastra-tryon__step--upload'),
       progress: root.querySelector('.aivastra-tryon__step--progress'),
@@ -27,10 +29,20 @@
       }
     }
 
+    function resetUploadPreview() {
+      if (uploadPreview) {
+        if (uploadPreview.src) URL.revokeObjectURL(uploadPreview.src);
+        uploadPreview.src = '';
+        uploadPreview.hidden = true;
+      }
+      if (uploadPlaceholder) uploadPlaceholder.hidden = false;
+    }
+
     function openModal() {
       modal.hidden = false;
       showStep('upload');
       fileInput.value = '';
+      resetUploadPreview();
     }
 
     function closeModal() {
@@ -190,13 +202,21 @@
     closeBtn.addEventListener('click', closeModal);
     fileInput.addEventListener('change', () => {
       const file = fileInput.files?.[0];
-      if (file) handleFile(file);
+      if (!file) return;
+      if (uploadPreview && uploadPlaceholder && file.type.startsWith('image/')) {
+        if (uploadPreview.src) URL.revokeObjectURL(uploadPreview.src);
+        uploadPreview.src = URL.createObjectURL(file);
+        uploadPreview.hidden = false;
+        uploadPlaceholder.hidden = true;
+      }
+      handleFile(file);
     });
     const retryBtns = root.querySelectorAll('.aivastra-tryon__retry');
     for (let k = 0; k < retryBtns.length; k++) {
       retryBtns[k].addEventListener('click', () => {
         showStep('upload');
         fileInput.value = '';
+        resetUploadPreview();
       });
     }
   }
