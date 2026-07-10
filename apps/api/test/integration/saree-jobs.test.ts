@@ -184,6 +184,7 @@ describe('saree jobs', () => {
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job.status).toBe('QUEUED');
     expect(job.creditsCharged).toBe(5);
+    expect(job.source).toBe('saree');
 
     const [bal] = await app.db
       .select()

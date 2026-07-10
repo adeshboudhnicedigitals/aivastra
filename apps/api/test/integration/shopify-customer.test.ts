@@ -141,6 +141,7 @@ describe('shopify customer routes', () => {
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job.userId).toBe(owner.id);
+    expect(job.source).toBe('shopify');
 
     const [credits] = await app.db
       .select()

@@ -170,6 +170,7 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
           customerPhotoKey,
           status: 'QUEUED',
           creditsCharged: jobCost,
+          source: 'shopify',
         });
         // biome-ignore lint/suspicious/noExplicitAny: Drizzle infers non-null for nullable FKs. The plan explicitly notes this is the intended pattern.
         await (tx.insert(schema.jobInputs).values as any)({
