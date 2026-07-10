@@ -1,16 +1,8 @@
-import {
-  Badge,
-  Banner,
-  IndexTable,
-  Page,
-  Select,
-  TextField,
-  Thumbnail,
-  useIndexResourceState,
-} from '@shopify/polaris';
+import { Banner, Page, Select, TextField, Thumbnail } from '@shopify/polaris';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ImagePickerModal } from '../components/ImagePickerModal';
 import { apiFetch } from '../lib/api';
+import { STATUS_BADGE_BG, STATUS_BADGE_TEXT, STATUS_DOT_COLOR } from '../lib/statusColors';
 import type { FunnelTemplateItem, ShopifyProductListItem } from '../types';
 
 type DisplayStatus = 'active' | 'processing' | 'failed' | 'disabled';
@@ -22,13 +14,6 @@ function displayStatus(item: ShopifyProductListItem): DisplayStatus {
   if (!item.enabled || item.status === 'deleted') return 'disabled';
   return item.status as DisplayStatus;
 }
-
-const STATUS_TONE: Record<DisplayStatus, 'success' | 'attention' | 'critical' | 'read-only'> = {
-  active: 'success',
-  processing: 'attention',
-  failed: 'critical',
-  disabled: 'read-only',
-};
 
 const STATUS_LABEL: Record<DisplayStatus, string> = {
   active: 'Active',
@@ -45,6 +30,35 @@ const STATUS_FILTER_OPTIONS = [
   { label: 'Disabled', value: 'disabled' },
 ];
 
+function StatusBadge({ status }: { status: DisplayStatus }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '5px',
+        padding: '3px 10px',
+        borderRadius: 'var(--p-border-radius-full)',
+        fontSize: '12px',
+        fontWeight: 600,
+        background: STATUS_BADGE_BG[status],
+        color: STATUS_BADGE_TEXT[status],
+      }}
+    >
+      <span
+        style={{
+          display: 'inline-block',
+          width: '6px',
+          height: '6px',
+          borderRadius: '50%',
+          background: STATUS_DOT_COLOR[status],
+        }}
+      />
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
 export default function ProductsPage() {
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -59,10 +73,6 @@ export default function ProductsPage() {
       .filter((item) => statusFilter === 'all' || displayStatus(item) === statusFilter)
       .filter((item) => (item.title ?? '').toLowerCase().includes(searchQuery.toLowerCase()));
   }, [items, statusFilter, searchQuery]);
-
-  const { selectedResources } = useIndexResourceState(
-    filteredItems.map((i) => ({ id: String(i.shopifyProductId) })),
-  );
 
   const load = useCallback(() => {
     setLoading(true);
@@ -130,7 +140,7 @@ export default function ProductsPage() {
   }
 
   return (
-    <Page title="Products">
+    <Page title="Products" subtitle="Manage which products show the AiVastra try-on widget.">
       {error && (
         <Banner tone="critical" title="Something went wrong">
           {error}
@@ -157,66 +167,112 @@ export default function ProductsPage() {
           />
         </div>
       </div>
-      <IndexTable
-        resourceName={{ singular: 'product', plural: 'products' }}
-        itemCount={filteredItems.length}
-        selectedItemsCount={selectedResources.length}
-        headings={[
-          { title: 'Image' },
-          { title: 'Title' },
-          { title: 'Status' },
-          { title: 'Try-on enabled' },
-          { title: 'Funnel' },
-        ]}
-        loading={loading}
+
+      <div
+        style={{
+          background: 'var(--p-color-bg-surface)',
+          borderRadius: 'var(--p-border-radius-300)',
+          boxShadow: 'var(--p-shadow-100)',
+          overflow: 'hidden',
+        }}
       >
-        {filteredItems.map((item, index) => (
-          <IndexTable.Row
-            id={String(item.shopifyProductId)}
-            key={item.shopifyProductId}
-            position={index}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            padding: '10px 16px',
+            borderBottom: '1px solid var(--p-color-border-secondary)',
+            color: 'var(--p-color-text-secondary)',
+            fontSize: '12px',
+            fontWeight: 600,
+          }}
+        >
+          <div style={{ flex: '1 1 auto' }}>Product</div>
+          <div style={{ width: '120px' }}>Status</div>
+          <div style={{ width: '140px' }}>Try-on enabled</div>
+          <div style={{ width: '220px' }}>Funnel</div>
+        </div>
+
+        {loading && (
+          <div
+            style={{
+              padding: '24px 16px',
+              textAlign: 'center',
+              color: 'var(--p-color-text-secondary)',
+              fontSize: '13px',
+            }}
           >
-            <IndexTable.Cell>
-              <Thumbnail source={item.thumbnailUrl} alt={item.title ?? ''} size="small" />
-              <button
-                type="button"
-                onClick={() => setPickerProductId(item.shopifyProductId)}
-                style={{ display: 'block', marginTop: '4px' }}
-              >
-                Change image
-              </button>
-            </IndexTable.Cell>
-            <IndexTable.Cell>{item.title}</IndexTable.Cell>
-            <IndexTable.Cell>
-              <Badge tone={STATUS_TONE[displayStatus(item)]}>
-                {STATUS_LABEL[displayStatus(item)]}
-              </Badge>
-            </IndexTable.Cell>
-            <IndexTable.Cell>
-              <input
-                type="checkbox"
-                checked={item.enabled}
-                disabled={item.status !== 'active' && !item.enabled}
-                title={item.status !== 'active' ? 'Waiting for product sync' : undefined}
-                onChange={(e) => toggleEnabled(item.shopifyProductId, e.target.checked)}
-              />
-            </IndexTable.Cell>
-            <IndexTable.Cell>
-              <select
-                value={item.funnelTemplateId ?? ''}
-                onChange={(e) => setFunnel(item.shopifyProductId, e.target.value || null)}
-              >
-                <option value="">Automated (no manual pin)</option>
-                {funnelTemplates.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.label}
-                  </option>
-                ))}
-              </select>
-            </IndexTable.Cell>
-          </IndexTable.Row>
-        ))}
-      </IndexTable>
+            Loading products…
+          </div>
+        )}
+
+        {!loading &&
+          filteredItems.map((item) => (
+            <div
+              key={item.shopifyProductId}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '10px 16px',
+                borderBottom: '1px solid var(--p-color-border-secondary)',
+                gap: '12px',
+              }}
+            >
+              <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <Thumbnail source={item.thumbnailUrl} alt={item.title ?? ''} size="small" />
+                <div>
+                  <div style={{ fontSize: '13.5px', fontWeight: 500 }}>{item.title}</div>
+                  <button
+                    type="button"
+                    onClick={() => setPickerProductId(item.shopifyProductId)}
+                    style={{ marginTop: '2px', fontSize: '12px' }}
+                  >
+                    Change image
+                  </button>
+                </div>
+              </div>
+              <div style={{ width: '120px' }}>
+                <StatusBadge status={displayStatus(item)} />
+              </div>
+              <div style={{ width: '140px' }}>
+                <input
+                  type="checkbox"
+                  checked={item.enabled}
+                  disabled={item.status !== 'active' && !item.enabled}
+                  title={item.status !== 'active' ? 'Waiting for product sync' : undefined}
+                  onChange={(e) => toggleEnabled(item.shopifyProductId, e.target.checked)}
+                />
+              </div>
+              <div style={{ width: '220px' }}>
+                <select
+                  value={item.funnelTemplateId ?? ''}
+                  onChange={(e) => setFunnel(item.shopifyProductId, e.target.value || null)}
+                >
+                  <option value="">Automated (no manual pin)</option>
+                  {funnelTemplates.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ))}
+
+        {!loading && filteredItems.length === 0 && (
+          <div
+            style={{
+              padding: '28px',
+              textAlign: 'center',
+              color: 'var(--p-color-text-secondary)',
+              fontSize: '13px',
+            }}
+          >
+            No products match your search.
+          </div>
+        )}
+      </div>
+
       {pickerProductId !== null && (
         <ImagePickerModal
           shopifyProductId={pickerProductId}
