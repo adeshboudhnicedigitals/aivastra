@@ -58,6 +58,23 @@ interface PoseItem {
   hasLower: boolean;
   hasShoes: boolean;
 }
+interface TemplateLook {
+  id: string;
+  poseId: string;
+  poseLabel: string;
+  poseThumbnailUrl: string;
+  backgroundId: string;
+  backgroundLabel: string;
+  backgroundThumbnailUrl: string;
+  hasLower: boolean;
+  hasShoes: boolean;
+}
+interface CatalogueTemplateItem {
+  id: string;
+  label: string;
+  thumbnailUrl: string | null;
+  looks: TemplateLook[];
+}
 interface CatalogItem {
   id: string;
   label: string;
@@ -417,6 +434,7 @@ function SelCard({
   h = 170,
   ratio,
   badges,
+  emptyContent,
 }: {
   selected: boolean;
   onClick: () => void;
@@ -426,6 +444,7 @@ function SelCard({
   h?: number;
   ratio?: number;
   badges?: React.ReactNode;
+  emptyContent?: React.ReactNode;
 }) {
   const fluid = typeof w === 'string';
   return (
@@ -481,6 +500,8 @@ function SelCard({
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             </div>
+          ) : emptyContent ? (
+            emptyContent
           ) : (
             <span
               style={{
@@ -685,12 +706,16 @@ export default function StudioPage(): React.ReactElement {
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [backgroundItemFilter, setBackgroundItemFilter] = useState<number | ''>('');
   const [backgroundTagFilter, setBackgroundTagFilter] = useState<string>('');
+  const templateVisibleCount = 5;
+  const [catalogueTemplateId, setCatalogueTemplateId] = useState('custom');
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const poseVisibleCount = 5;
   const [poseModalOpen, setPoseModalOpen] = useState(false);
 
   const [faceId, setFaceId] = useState('');
   const [backgroundId, setBackgroundId] = useState('');
   const [poseIds, setPoseIds] = useState<string[]>([]);
+  const [selectedLookIds, setSelectedLookIds] = useState<string[]>([]);
   const [lowerCatalogId, setLowerCatalogId] = useState('');
   const [shoeCatalogId, setShoeCatalogId] = useState('');
   const [lowerItemsOpen, setLowerItemsOpen] = useState(false);
@@ -799,6 +824,34 @@ export default function StudioPage(): React.ReactElement {
     }
     return nodes;
   }, [backgrounds, backgroundCategories]);
+  const { data: catalogueTemplatesData } = useQuery<{ items: CatalogueTemplateItem[] }>({
+    queryKey: ['catalogue-templates', gender, garmentTypeId],
+    queryFn: () =>
+      api.get(
+        `/v1/models/catalogue-templates?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+      ),
+    enabled: !!gender,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+  const catalogueTemplates = useMemo(
+    () => [
+      { id: 'custom', label: 'Custom', thumbnailUrl: null, looks: [] as TemplateLook[] },
+      ...(catalogueTemplatesData?.items ?? []),
+    ],
+    [catalogueTemplatesData],
+  );
+  const activeTemplate = catalogueTemplates.find((t) => t.id === catalogueTemplateId);
+  const selectedLooks = (activeTemplate?.looks ?? []).filter((l) => selectedLookIds.includes(l.id));
+  useEffect(() => {
+    if (
+      catalogueTemplateId !== 'custom' &&
+      !(catalogueTemplatesData?.items ?? []).some((t) => t.id === catalogueTemplateId)
+    ) {
+      setCatalogueTemplateId('custom');
+      setSelectedLookIds([]);
+    }
+  }, [catalogueTemplateId, catalogueTemplatesData]);
   const bgTagsById = useMemo(() => {
     const m = new Map<string, string[]>();
     for (const b of backgrounds?.items ?? []) m.set(b.id, b.tags ?? []);
@@ -830,8 +883,15 @@ export default function StudioPage(): React.ReactElement {
   });
 
   const selectedPoses = poses?.items.filter((p) => poseIds.includes(p.id)) ?? [];
-  const needsLower = selectedPoses.some((p) => p.hasLower);
-  const needsShoes = selectedPoses.some((p) => p.hasShoes);
+  const needsLower =
+    catalogueTemplateId === 'custom'
+      ? selectedPoses.some((p) => p.hasLower)
+      : selectedLooks.some((l) => l.hasLower);
+  const needsShoes =
+    catalogueTemplateId === 'custom'
+      ? selectedPoses.some((p) => p.hasShoes)
+      : selectedLooks.some((l) => l.hasShoes);
+  const selectedCount = catalogueTemplateId === 'custom' ? poseIds.length : selectedLookIds.length;
 
   // Find the white background (tagged for Amazon) from loaded backgrounds
   const whiteBg = backgrounds?.items.find((b) => b.isWhiteBg);
@@ -990,14 +1050,32 @@ export default function StudioPage(): React.ReactElement {
 
   function handleFaceSelect(id: string) {
     setFaceId(id);
+    setCatalogueTemplateId('custom');
+    setSelectedLookIds([]);
     setBackgroundId('');
     setPoseIds([]);
     setLowerCatalogId('');
     setShoeCatalogId('');
   }
   function handleBackgroundSelect(id: string) {
+    setCatalogueTemplateId('custom');
     setBackgroundId(id);
     setPoseIds([]);
+    setLowerCatalogId('');
+    setShoeCatalogId('');
+  }
+  function handleCatalogueTemplateSelect(id: string) {
+    setCatalogueTemplateId(id);
+    setSelectedLookIds([]);
+    setBackgroundId('');
+    setPoseIds([]);
+    setLowerCatalogId('');
+    setShoeCatalogId('');
+  }
+  function handleLookToggle(id: string) {
+    setSelectedLookIds((prev) =>
+      prev.includes(id) ? prev.filter((l) => l !== id) : [...prev, id],
+    );
     setLowerCatalogId('');
     setShoeCatalogId('');
   }
@@ -1245,6 +1323,7 @@ export default function StudioPage(): React.ReactElement {
                     onClick={() => {
                       setGender(g.value);
                       setGarmentTypeId('');
+                      setCatalogueTemplateId('custom');
                       setGarmentModalOpen(false);
                     }}
                   />
@@ -1363,6 +1442,7 @@ export default function StudioPage(): React.ReactElement {
                             setGarmentTypeId(next);
                             if (next && next !== garmentTypeId) {
                               setFaceId('');
+                              setCatalogueTemplateId('custom');
                               setBackgroundId('');
                               setPoseIds([]);
                               setLowerCatalogId('');
@@ -1921,7 +2001,7 @@ export default function StudioPage(): React.ReactElement {
               )}
             </section>
 
-            {/* ── Background ── */}
+            {/* ── Ready-made catalogue templates ── */}
             <section>
               <div
                 style={{
@@ -1931,15 +2011,11 @@ export default function StudioPage(): React.ReactElement {
                   marginBottom: 14,
                 }}
               >
-                <SectionHead title="Select Background" />
-                {(backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
+                <SectionHead title="Select a Ready-Made Catalogue Template" />
+                {catalogueTemplates.length > templateVisibleCount && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setBackgroundItemFilter('');
-                      setBackgroundTagFilter('');
-                      setBackgroundModalOpen(true);
-                    }}
+                    onClick={() => setTemplateModalOpen(true)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -1957,324 +2033,485 @@ export default function StudioPage(): React.ReactElement {
                   </button>
                 )}
               </div>
-              {backgroundsError ? (
-                <ErrorState
-                  compact
-                  title="Couldn't load backgrounds"
-                  message="There was a problem fetching backgrounds. Please try again."
-                  onRetry={() => refetchBackgrounds()}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                {(() => {
+                  const firstN = catalogueTemplates.slice(0, templateVisibleCount);
+                  const selected = catalogueTemplates.find(
+                    (template) => template.id === catalogueTemplateId,
+                  );
+                  const visibleTemplates =
+                    selected && !firstN.some((template) => template.id === selected.id)
+                      ? [selected, ...firstN].slice(0, templateVisibleCount)
+                      : firstN;
+                  return visibleTemplates.map((template) => (
+                    <SelCard
+                      key={template.id}
+                      selected={catalogueTemplateId === template.id}
+                      onClick={() => handleCatalogueTemplateSelect(template.id)}
+                      imageUrl={template.thumbnailUrl}
+                      label={template.label}
+                      w="100%"
+                      ratio={215.2 / 282}
+                      emptyContent={
+                        template.id === 'custom' ? (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 10,
+                              padding: 16,
+                              color: C.text,
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 44,
+                                height: 44,
+                                borderRadius: 10,
+                                display: 'grid',
+                                placeItems: 'center',
+                                background: C.white,
+                                border: `1px solid ${C.border}`,
+                                color: C.pink,
+                              }}
+                            >
+                              <ImagePlusIcon size={22} />
+                            </span>
+                            <span
+                              style={{
+                                maxWidth: 110,
+                                fontSize: 12,
+                                fontWeight: 600,
+                                lineHeight: 1.35,
+                              }}
+                            >
+                              Create your own look
+                            </span>
+                          </div>
+                        ) : undefined
+                      }
+                    />
+                  ));
+                })()}
+              </div>
+              {templateModalOpen && (
+                <SelectGridModal
+                  title="Select a Ready-Made Catalogue Template"
+                  items={catalogueTemplates}
+                  selectedIds={[catalogueTemplateId]}
+                  aspect={215.2 / 282}
+                  columns={5}
+                  onSelect={(id) => {
+                    handleCatalogueTemplateSelect(id);
+                    setTemplateModalOpen(false);
+                  }}
+                  onClose={() => setTemplateModalOpen(false)}
                 />
-              ) : !backgrounds ? (
+              )}
+            </section>
+
+            {/* ── Background (custom mode only) ── */}
+            {catalogueTemplateId === 'custom' && (
+              <section>
                 <div
                   style={{
                     display: 'flex',
-                    justifyContent: 'center',
-                    padding: '32px 0',
-                    color: C.mid,
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 14,
                   }}
                 >
-                  <SpinnerIcon />
-                </div>
-              ) : backgrounds.items.length === 0 ? (
-                <p style={{ fontSize: 14, color: C.mid }}>
-                  No backgrounds available for this model yet. Try a different model.
-                </p>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
-                  {(() => {
-                    const frontIds = new Set(
-                      backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
-                    );
-                    const allItems = [...backgrounds.items].sort(
-                      (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
-                    );
-                    const firstN = allItems.slice(0, backgroundVisibleCount);
-                    const inFirstN = firstN.some((b) => b.id === backgroundId);
-                    const selected = allItems.find((b) => b.id === backgroundId);
-                    const visibleItems =
-                      selected && !inFirstN
-                        ? [selected, ...firstN].slice(0, backgroundVisibleCount)
-                        : firstN;
-                    return visibleItems.map((b) => (
-                      <SelCard
-                        key={b.id}
-                        selected={backgroundId === b.id}
-                        onClick={() => handleBackgroundSelect(b.id)}
-                        imageUrl={b.thumbnailUrl}
-                        label={b.label}
-                        w="100%"
-                        ratio={1}
-                        badges={<TagBadge tag={b.specialTag} />}
-                      />
-                    ));
-                  })()}
-                </div>
-              )}
-              {backgroundModalOpen &&
-                (() => {
-                  const byCategory =
-                    backgroundItemFilter === ''
-                      ? bgNodes.flatMap(flattenNode)
-                      : flattenNode(
-                          bgNodes.find((n) => n.id === backgroundItemFilter) ?? {
-                            id: 0,
-                            slug: '',
-                            label: '',
-                            thumbnailUrl: null,
-                            children: [],
-                            items: [],
-                          },
-                        );
-                  const filteredItems =
-                    backgroundTagFilter === ''
-                      ? byCategory
-                      : byCategory.filter((i) =>
-                          (bgTagsById.get(i.id) ?? []).includes(backgroundTagFilter),
-                        );
-                  return (
-                    // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
-                    <div
-                      role="presentation"
+                  <SectionHead title="Select Background" />
+                  {(backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBackgroundItemFilter('');
+                        setBackgroundTagFilter('');
+                        setBackgroundModalOpen(true);
+                      }}
                       style={{
-                        position: 'fixed',
-                        inset: 0,
-                        background: 'rgba(0,0,0,0.4)',
-                        zIndex: 1000,
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                      onClick={() => setBackgroundModalOpen(false)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') setBackgroundModalOpen(false);
+                        gap: 4,
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        height: 16,
                       }}
                     >
-                      {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
+                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                        View more
+                      </span>
+                    </button>
+                  )}
+                </div>
+                {backgroundsError ? (
+                  <ErrorState
+                    compact
+                    title="Couldn't load backgrounds"
+                    message="There was a problem fetching backgrounds. Please try again."
+                    onRetry={() => refetchBackgrounds()}
+                  />
+                ) : !backgrounds ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      padding: '32px 0',
+                      color: C.mid,
+                    }}
+                  >
+                    <SpinnerIcon />
+                  </div>
+                ) : backgrounds.items.length === 0 ? (
+                  <p style={{ fontSize: 14, color: C.mid }}>
+                    No backgrounds available for this model yet. Try a different model.
+                  </p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                    {(() => {
+                      const frontIds = new Set(
+                        backgrounds.items.filter((b) => b.specialTag).map((b) => b.id),
+                      );
+                      const allItems = [...backgrounds.items].sort(
+                        (a, b) => (frontIds.has(a.id) ? 0 : 1) - (frontIds.has(b.id) ? 0 : 1),
+                      );
+                      const firstN = allItems.slice(0, backgroundVisibleCount);
+                      const inFirstN = firstN.some((b) => b.id === backgroundId);
+                      const selected = allItems.find((b) => b.id === backgroundId);
+                      const visibleItems =
+                        selected && !inFirstN
+                          ? [selected, ...firstN].slice(0, backgroundVisibleCount)
+                          : firstN;
+                      return visibleItems.map((b) => (
+                        <SelCard
+                          key={b.id}
+                          selected={backgroundId === b.id}
+                          onClick={() => handleBackgroundSelect(b.id)}
+                          imageUrl={b.thumbnailUrl}
+                          label={b.label}
+                          w="100%"
+                          ratio={1}
+                          badges={<TagBadge tag={b.specialTag} />}
+                        />
+                      ));
+                    })()}
+                  </div>
+                )}
+                {backgroundModalOpen &&
+                  (() => {
+                    const byCategory =
+                      backgroundItemFilter === ''
+                        ? bgNodes.flatMap(flattenNode)
+                        : flattenNode(
+                            bgNodes.find((n) => n.id === backgroundItemFilter) ?? {
+                              id: 0,
+                              slug: '',
+                              label: '',
+                              thumbnailUrl: null,
+                              children: [],
+                              items: [],
+                            },
+                          );
+                    const filteredItems =
+                      backgroundTagFilter === ''
+                        ? byCategory
+                        : byCategory.filter((i) =>
+                            (bgTagsById.get(i.id) ?? []).includes(backgroundTagFilter),
+                          );
+                    return (
+                      // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
                       <div
+                        role="presentation"
                         style={{
-                          background: C.white,
-                          borderRadius: 12,
-                          padding: 24,
-                          width: 1180,
-                          height: 857,
-                          maxWidth: '90vw',
-                          maxHeight: '90vh',
-                          overflowY: 'auto',
-                          boxSizing: 'border-box',
-                          boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                          position: 'fixed',
+                          inset: 0,
+                          background: 'rgba(0,0,0,0.4)',
+                          zIndex: 1000,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                         }}
-                        onClick={(e) => e.stopPropagation()}
-                        onKeyDown={() => {}}
+                        onClick={() => setBackgroundModalOpen(false)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setBackgroundModalOpen(false);
+                        }}
                       >
+                        {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
                         <div
                           style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            marginBottom: 16,
+                            background: C.white,
+                            borderRadius: 12,
+                            padding: 24,
+                            width: 1180,
+                            height: 857,
+                            maxWidth: '90vw',
+                            maxHeight: '90vh',
+                            overflowY: 'auto',
+                            boxSizing: 'border-box',
+                            boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
                           }}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={() => {}}
                         >
-                          <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
-                            Select Background
-                          </h2>
-                          <button
-                            type="button"
-                            onClick={() => setBackgroundModalOpen(false)}
+                          <div
                             style={{
-                              background: 'none',
-                              border: 'none',
-                              cursor: 'pointer',
                               display: 'flex',
+                              justifyContent: 'space-between',
                               alignItems: 'center',
-                              justifyContent: 'center',
-                              color: C.mid,
+                              marginBottom: 16,
                             }}
                           >
-                            <XIcon size={20} />
-                          </button>
-                        </div>
-                        <div
-                          style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => setBackgroundItemFilter('')}
-                            style={pill(backgroundItemFilter === '')}
-                          >
-                            All
-                          </button>
-                          {bgNodes.map((node) => (
+                            <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                              Select Background
+                            </h2>
                             <button
                               type="button"
-                              key={node.id}
-                              onClick={() => setBackgroundItemFilter(node.id)}
-                              style={pill(backgroundItemFilter === node.id)}
+                              onClick={() => setBackgroundModalOpen(false)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: C.mid,
+                              }}
                             >
-                              {node.label}
+                              <XIcon size={20} />
                             </button>
-                          ))}
-                        </div>
-                        {bgTags.length > 0 && (
+                          </div>
                           <div
                             style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}
                           >
                             <button
                               type="button"
-                              onClick={() => setBackgroundTagFilter('')}
-                              style={pill(backgroundTagFilter === '')}
+                              onClick={() => setBackgroundItemFilter('')}
+                              style={pill(backgroundItemFilter === '')}
                             >
-                              All tags
+                              All
                             </button>
-                            {bgTags.map((tag) => (
+                            {bgNodes.map((node) => (
                               <button
                                 type="button"
-                                key={tag}
-                                onClick={() => setBackgroundTagFilter(tag)}
-                                style={pill(backgroundTagFilter === tag)}
+                                key={node.id}
+                                onClick={() => setBackgroundItemFilter(node.id)}
+                                style={pill(backgroundItemFilter === node.id)}
                               >
-                                {tag}
+                                {node.label}
                               </button>
                             ))}
                           </div>
-                        )}
-                        {filteredItems.length === 0 ? (
-                          <p style={{ fontSize: 14, color: C.mid }}>
-                            No backgrounds in this category yet.
-                          </p>
-                        ) : (
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: 'repeat(5, 1fr)',
-                              gap: 12,
-                            }}
-                          >
-                            {filteredItems.map((i) => (
-                              <SelCard
-                                key={i.id}
-                                selected={backgroundId === i.id}
-                                onClick={() => {
-                                  handleBackgroundSelect(i.id);
-                                  setBackgroundModalOpen(false);
-                                }}
-                                imageUrl={i.thumbnailUrl}
-                                label={i.label}
-                                w="100%"
-                                ratio={1}
-                                badges={<TagBadge tag={bgSpecialTagById.get(i.id)} />}
-                              />
-                            ))}
-                          </div>
-                        )}
+                          {bgTags.length > 0 && (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: 8,
+                                marginBottom: 20,
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setBackgroundTagFilter('')}
+                                style={pill(backgroundTagFilter === '')}
+                              >
+                                All tags
+                              </button>
+                              {bgTags.map((tag) => (
+                                <button
+                                  type="button"
+                                  key={tag}
+                                  onClick={() => setBackgroundTagFilter(tag)}
+                                  style={pill(backgroundTagFilter === tag)}
+                                >
+                                  {tag}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {filteredItems.length === 0 ? (
+                            <p style={{ fontSize: 14, color: C.mid }}>
+                              No backgrounds in this category yet.
+                            </p>
+                          ) : (
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(5, 1fr)',
+                                gap: 12,
+                              }}
+                            >
+                              {filteredItems.map((i) => (
+                                <SelCard
+                                  key={i.id}
+                                  selected={backgroundId === i.id}
+                                  onClick={() => {
+                                    handleBackgroundSelect(i.id);
+                                    setBackgroundModalOpen(false);
+                                  }}
+                                  imageUrl={i.thumbnailUrl}
+                                  label={i.label}
+                                  w="100%"
+                                  ratio={1}
+                                  badges={<TagBadge tag={bgSpecialTagById.get(i.id)} />}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })()}
-            </section>
+                    );
+                  })()}
+              </section>
+            )}
 
-            {/* ── Poses ── */}
-            <section>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 14,
-                }}
-              >
+            {/* ── Poses (custom mode only) ── */}
+            {catalogueTemplateId === 'custom' && (
+              <section>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 14,
+                  }}
+                >
+                  <SectionHead
+                    title="Choose Poses"
+                    titleSuffix={
+                      poseIds.length > 0 && (
+                        <span
+                          style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}
+                        >
+                          ({poseIds.length} selected)
+                        </span>
+                      )
+                    }
+                  />
+                  {(poses?.items.length ?? 0) > poseVisibleCount && (
+                    <button
+                      type="button"
+                      onClick={() => setPoseModalOpen(true)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        height: 16,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                        View more
+                      </span>
+                    </button>
+                  )}
+                </div>
+                {posesError ? (
+                  <ErrorState
+                    compact
+                    title="Couldn't load poses"
+                    message="There was a problem fetching poses. Please try again."
+                    onRetry={() => refetchPoses()}
+                  />
+                ) : !poses ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      padding: '32px 0',
+                      color: C.mid,
+                    }}
+                  >
+                    <SpinnerIcon />
+                  </div>
+                ) : poses.items.length === 0 ? (
+                  <p style={{ fontSize: 14, color: C.mid }}>
+                    No poses for this combination. Go back and try a different background.
+                  </p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                    {(() => {
+                      const firstN = poses.items.slice(0, poseVisibleCount);
+                      const offScreenSelected = poseIds
+                        .filter((id) => !firstN.some((p) => p.id === id))
+                        .map((id) => poses.items.find((p) => p.id === id))
+                        .filter((p): p is PoseItem => !!p);
+                      const visiblePoses = [...offScreenSelected, ...firstN].slice(
+                        0,
+                        poseVisibleCount,
+                      );
+                      return visiblePoses.map((p) => (
+                        <SelCard
+                          key={p.id}
+                          selected={poseIds.includes(p.id)}
+                          onClick={() => handlePoseSelect(p.id)}
+                          imageUrl={p.thumbnailUrl}
+                          label={p.label}
+                          w="100%"
+                          ratio={215.2 / 282}
+                        />
+                      ));
+                    })()}
+                  </div>
+                )}
+                {poseModalOpen && poses && (
+                  <SelectGridModal
+                    title="Choose Poses"
+                    items={poses.items}
+                    selectedIds={poseIds}
+                    multiSelect
+                    aspect={3 / 4}
+                    columns={5}
+                    onSelect={(id) => handlePoseSelect(id)}
+                    onClose={() => setPoseModalOpen(false)}
+                    continueLabel="Continue with {count} poses"
+                  />
+                )}
+              </section>
+            )}
+
+            {/* ── Choose Looks (template mode only) ── */}
+            {catalogueTemplateId !== 'custom' && (
+              <section>
                 <SectionHead
-                  title="Choose Poses"
+                  title="Choose Looks"
                   titleSuffix={
-                    poseIds.length > 0 && (
+                    selectedLookIds.length > 0 && (
                       <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
-                        ({poseIds.length} selected)
+                        ({selectedLookIds.length} selected)
                       </span>
                     )
                   }
                 />
-                {(poses?.items.length ?? 0) > poseVisibleCount && (
-                  <button
-                    type="button"
-                    onClick={() => setPoseModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      height: 16,
-                    }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                      View more
-                    </span>
-                  </button>
-                )}
-              </div>
-              {posesError ? (
-                <ErrorState
-                  compact
-                  title="Couldn't load poses"
-                  message="There was a problem fetching poses. Please try again."
-                  onRetry={() => refetchPoses()}
-                />
-              ) : !poses ? (
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    padding: '32px 0',
-                    color: C.mid,
-                  }}
-                >
-                  <SpinnerIcon />
-                </div>
-              ) : poses.items.length === 0 ? (
-                <p style={{ fontSize: 14, color: C.mid }}>
-                  No poses for this combination. Go back and try a different background.
-                </p>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-                  {(() => {
-                    const firstN = poses.items.slice(0, poseVisibleCount);
-                    const offScreenSelected = poseIds
-                      .filter((id) => !firstN.some((p) => p.id === id))
-                      .map((id) => poses.items.find((p) => p.id === id))
-                      .filter((p): p is PoseItem => !!p);
-                    const visiblePoses = [...offScreenSelected, ...firstN].slice(
-                      0,
-                      poseVisibleCount,
-                    );
-                    return visiblePoses.map((p) => (
+                {(activeTemplate?.looks.length ?? 0) === 0 ? (
+                  <p style={{ fontSize: 14, color: C.mid }}>
+                    No looks available for this garment type yet.
+                  </p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                    {(activeTemplate?.looks ?? []).map((look) => (
                       <SelCard
-                        key={p.id}
-                        selected={poseIds.includes(p.id)}
-                        onClick={() => handlePoseSelect(p.id)}
-                        imageUrl={p.thumbnailUrl}
-                        label={p.label}
+                        key={look.id}
+                        selected={selectedLookIds.includes(look.id)}
+                        onClick={() => handleLookToggle(look.id)}
+                        imageUrl={look.poseThumbnailUrl}
+                        label={`${look.poseLabel} · ${look.backgroundLabel}`}
                         w="100%"
                         ratio={215.2 / 282}
                       />
-                    ));
-                  })()}
-                </div>
-              )}
-              {poseModalOpen && poses && (
-                <SelectGridModal
-                  title="Choose Poses"
-                  items={poses.items}
-                  selectedIds={poseIds}
-                  multiSelect
-                  aspect={3 / 4}
-                  columns={5}
-                  onSelect={(id) => handlePoseSelect(id)}
-                  onClose={() => setPoseModalOpen(false)}
-                  continueLabel="Continue with {count} poses"
-                />
-              )}
-            </section>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
 
             {needsLower &&
               !requiresLowerUpload &&
@@ -2797,6 +3034,7 @@ export default function StudioPage(): React.ReactElement {
             setGarmentModalOpen(false);
             if (changed) {
               setFaceId('');
+              setCatalogueTemplateId('custom');
               setBackgroundId('');
               setPoseIds([]);
               setLowerCatalogId('');
