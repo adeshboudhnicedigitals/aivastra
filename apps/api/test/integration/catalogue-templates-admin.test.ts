@@ -98,6 +98,14 @@ describe('admin catalogue-templates CRUD', () => {
     });
     expect(putRes.statusCode).toBe(200);
 
+    const getLooksRes = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/catalogue-templates/${templateId}/looks`,
+      headers,
+    });
+    expect(getLooksRes.statusCode).toBe(200);
+    expect(getLooksRes.json().items).toHaveLength(1);
+
     const looksRows = await app.db
       .select()
       .from(schema.catalogueTemplateLooks)

@@ -180,4 +180,18 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
       return { ok: true, count: looks.length };
     },
   );
+
+  app.get(
+    '/admin/assets/catalogue-templates/:id/looks',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const rows = await app.db
+        .select()
+        .from(schema.catalogueTemplateLooks)
+        .where(eq(schema.catalogueTemplateLooks.templateId, id))
+        .orderBy(asc(schema.catalogueTemplateLooks.sortOrder));
+      return { items: rows };
+    },
+  );
 }
