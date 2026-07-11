@@ -144,13 +144,14 @@ import { useLocation } from 'react-router-dom';
 
 export default function JobsPage({ onNav: _onNav, toast }: Props) {
   const location = useLocation();
+  const requestedJobId = (location.state as { jobId?: string })?.jobId;
   const [filter, setFilter] = useState<FilterKey>(
     (location.state as { filter?: FilterKey })?.filter || 'all',
   );
   const [dateFilter, setDateFilter] = useState<string | null>(
     (location.state as { date?: string })?.date || null,
   );
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState((location.state as { search?: string })?.search || '');
   const [page, setPage] = useState(0);
   const [sortKey, setSortKey] = useState<keyof Job>('createdAt');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -187,6 +188,25 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!requestedJobId) return;
+    let cancelled = false;
+    setDetailLoading(true);
+    apiFetch<JobDetail>(`/admin/jobs/${requestedJobId}`)
+      .then((job) => {
+        if (!cancelled) setDetail(job);
+      })
+      .catch(() => {
+        if (!cancelled) toast({ kind: 'error', title: 'Failed to load job detail' });
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedJobId, toast]);
 
   const flushQueue = useCallback(async () => {
     setFlushing(true);

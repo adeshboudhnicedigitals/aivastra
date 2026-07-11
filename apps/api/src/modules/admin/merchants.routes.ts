@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { AdminMerchantUpdateBody, MerchantSignup } from '@aivastra/types';
+import { AdminMerchantUpdateBody } from '@aivastra/types';
 import { and, count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -9,7 +9,12 @@ import { merchantAdminGrant } from '../merchant/ledger.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
 import { requireAdmin } from './guard.js';
 
-const AdminCreateClient = MerchantSignup.extend({
+const AdminCreateClient = z.object({
+  email: z.string().email(),
+  companyName: z.string().min(1),
+  contactName: z.string().min(1).optional(),
+  phone: z.string().min(1).optional(),
+  businessAddress: z.string().min(1).optional(),
   initialCredits: z.number().int().min(0).optional(),
 });
 
@@ -71,7 +76,7 @@ function assertWebhookUrlShape(urlStr: string): void {
 
 export async function adminMerchantsRoutes(app: FastifyInstance) {
   app.get(
-    '/v1/admin/merchants',
+    '/admin/merchants',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
     async (req) => {
       const {
@@ -108,9 +113,6 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           contactName: schema.merchants.contactName,
           email: schema.users.email,
           phone: schema.merchants.phone,
-          websiteUrl: schema.merchants.websiteUrl,
-          companySize: schema.merchants.companySize,
-          purpose: schema.merchants.purpose,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
           kioskEnabled: schema.merchants.kioskEnabled,
@@ -141,7 +143,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    '/v1/admin/merchants',
+    '/admin/merchants',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminCreateClient },
@@ -152,9 +154,9 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       const client = await app.db.transaction(async (tx) => {
         const { user } = await findOrCreateUserForMerchant(tx, {
           email: body.email,
-          password: body.password,
-          displayName: body.contactName,
-          phone: body.phone,
+          password: crypto.randomUUID(),
+          displayName: body.contactName || body.companyName,
+          phone: body.phone || '0000000000',
         });
 
         const [alreadyMerchant] = await tx
@@ -170,13 +172,14 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           .insert(schema.merchants)
           .values({
             companyName: body.companyName,
-            contactName: body.contactName,
-            phone: body.phone,
-            websiteUrl: body.websiteUrl,
-            companySize: body.companySize,
-            purpose: body.purpose,
-            businessAddress: body.businessAddress,
+            contactName: body.contactName || user.displayName || 'Admin Granted',
+            phone: body.phone || user.phone || '0000000000',
+            businessAddress: body.businessAddress || 'Not Provided',
             userId: user.id,
+            // Unlike self-serve /v1/merchant/signup (pending approval by default),
+            // an admin creating this record here IS the approval — no separate
+            // activation step needed.
+            isActive: true,
           })
           .returning();
 
@@ -204,7 +207,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   );
 
   app.get(
-    '/v1/admin/merchants/:id',
+    '/admin/merchants/:id',
     { preHandler: requireAdmin(['SUPER_ADMIN', 'ADMIN']) },
     async (req) => {
       const { id } = req.params as { id: string };
@@ -216,9 +219,6 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
           contactName: schema.merchants.contactName,
           email: schema.users.email,
           phone: schema.merchants.phone,
-          websiteUrl: schema.merchants.websiteUrl,
-          companySize: schema.merchants.companySize,
-          purpose: schema.merchants.purpose,
           businessAddress: schema.merchants.businessAddress,
           isActive: schema.merchants.isActive,
           kioskEnabled: schema.merchants.kioskEnabled,
@@ -288,7 +288,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   );
 
   app.patch(
-    '/v1/admin/merchants/:id',
+    '/admin/merchants/:id',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminMerchantUpdateBody },
@@ -300,6 +300,9 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       const updates: Record<string, unknown> = { updatedAt: new Date() };
       if (body.isActive !== undefined) updates.isActive = body.isActive;
       if (body.companyName !== undefined) updates.companyName = body.companyName;
+      if (body.contactName !== undefined) updates.contactName = body.contactName;
+      if (body.phone !== undefined) updates.phone = body.phone;
+      if (body.businessAddress !== undefined) updates.businessAddress = body.businessAddress;
       if (body.kioskEnabled !== undefined) updates.kioskEnabled = body.kioskEnabled;
       if (body.maxKioskDevices !== undefined) updates.maxKioskDevices = body.maxKioskDevices;
       if (body.webhookUrl !== undefined) {
@@ -322,7 +325,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    '/v1/admin/merchants/:id/credits',
+    '/admin/merchants/:id/credits',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminCreditBody },
@@ -350,7 +353,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
     },
   );
   app.post(
-    '/v1/admin/merchants/:id/kiosk-devices',
+    '/admin/merchants/:id/kiosk-devices',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminKioskDeviceBody },
@@ -372,7 +375,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   );
 
   app.patch(
-    '/v1/admin/merchants/:id/kiosk-devices/:deviceId',
+    '/admin/merchants/:id/kiosk-devices/:deviceId',
     {
       preHandler: requireAdmin(['SUPER_ADMIN']),
       schema: { body: AdminPatchKioskDeviceBody },
@@ -396,7 +399,7 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
   );
 
   app.post(
-    '/v1/admin/merchants/:id/kiosk-devices/:deviceId/pairing-code',
+    '/admin/merchants/:id/kiosk-devices/:deviceId/pairing-code',
     { preHandler: requireAdmin(['SUPER_ADMIN']) },
     async (req) => {
       const { id, deviceId } = req.params as { id: string; deviceId: string };

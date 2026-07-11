@@ -1,6 +1,6 @@
 # Phase 1 — Admin Subdomain Infra
 
-> Part of the [Multi-App Ecosystem Plan](../multi-app-ecosystem-plan.md) (`docs/multi-app-ecosystem-plan.md`, §6). This document is self-contained — implement from this file directly.
+> Part of the [Multi-App Ecosystem Plan](../multi-app-ecosystem-plan.md) (`docs/multi-app-ecosystem-plan.md`, §6). This document is self-contained — implement from this file directly. Status: **Done and accurate** — `admin.aivastra.com` is real and unaffected by anything below. One note: the "Phase 2 has its own, separate CORS/MinIO addition" reference in the line below is moot — Phase 2 (`apps/merchant-web`) was deleted on 2026-07-10, see `phase-2-merchant-portal.md`'s banner.
 
 **Depends on:** nothing. **Blocks:** nothing (Phase 2 has its own, separate CORS/MinIO addition — don't wait for it). **User-facing surface:** admin panel moves to a new host; zero feature change.
 

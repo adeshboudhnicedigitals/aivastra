@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -112,6 +113,93 @@ describe('jobs-create', () => {
     expect(bal.balance).toBe(4);
     const len = await app.redis.xlen('jobs:normal');
     expect(len).toBeGreaterThanOrEqual(1);
+  });
+
+  it('lists only studio and saree catalogues, excluding virtual try-on outputs', async () => {
+    const { token, userId } = await registerUser('catalogue-filter@x.com');
+    const [studioCatalogueId, sareeCatalogueId, tryonCatalogueId] = [
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+    ];
+
+    const insertedJobs = await app.db
+      .insert(schema.jobs)
+      .values([
+        { userId, catalogueId: studioCatalogueId, status: 'COMPLETED', creditsCharged: 1 },
+        { userId, catalogueId: sareeCatalogueId, status: 'COMPLETED', creditsCharged: 1 },
+        { userId, catalogueId: tryonCatalogueId, status: 'COMPLETED', creditsCharged: 1 },
+      ])
+      .returning();
+
+    await app.db.insert(schema.jobInputs).values([
+      { jobId: insertedJobs[0]!.id, upperGarmentKey: 'inputs/studio/garment.jpg', params: {} },
+      {
+        jobId: insertedJobs[1]!.id,
+        upperGarmentKey: 'inputs/saree/garment.jpg',
+        params: { kind: 'saree' },
+      },
+      {
+        jobId: insertedJobs[2]!.id,
+        upperGarmentKey: 'outputs/source-job.jpg',
+        params: { sourceJobId: randomUUID(), personKey: 'inputs/person.jpg' },
+      },
+    ]);
+
+    const list = await app.inject({
+      method: 'GET',
+      url: '/v1/catalogues',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(list.statusCode).toBe(200);
+    const catalogueIds = (list.json() as Array<{ catalogueId: string }>).map((c) => c.catalogueId);
+    expect(catalogueIds).toContain(studioCatalogueId);
+    expect(catalogueIds).toContain(sareeCatalogueId);
+    expect(catalogueIds).not.toContain(tryonCatalogueId);
+
+    const tryonDetail = await app.inject({
+      method: 'GET',
+      url: `/v1/catalogues/${tryonCatalogueId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(tryonDetail.statusCode).toBe(404);
+  });
+
+  it('assets list excludes try-on jobs whose "garment" is really a prior job output', async () => {
+    const { token, userId } = await registerUser('assets-filter@x.com');
+
+    const insertedJobs = await app.db
+      .insert(schema.jobs)
+      .values([
+        { userId, status: 'COMPLETED', creditsCharged: 1 },
+        { userId, status: 'COMPLETED', creditsCharged: 1 },
+      ])
+      .returning();
+
+    await app.db.insert(schema.jobInputs).values([
+      {
+        jobId: insertedJobs[0]!.id,
+        upperGarmentKey: 'inputs/real-upload/garment.jpg',
+        params: {},
+      },
+      {
+        // Try-on jobs set upperGarmentKey = keys.output(sourceJobId) — a
+        // generated result, not an uploaded product photo.
+        jobId: insertedJobs[1]!.id,
+        upperGarmentKey: 'outputs/some-source-job/result.png',
+        params: { sourceJobId: randomUUID(), personKey: 'inputs/person.jpg' },
+      },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/assets',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const keys = (res.json() as Array<{ r2Key: string }>).map((a) => a.r2Key);
+    expect(keys).toContain('inputs/real-upload/garment.jpg');
+    expect(keys).not.toContain('outputs/some-source-job/result.png');
   });
 
   it('returns 402 when balance is 0', async () => {

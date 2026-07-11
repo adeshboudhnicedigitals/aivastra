@@ -1,6 +1,6 @@
 # Multi-App Ecosystem Plan — Merchant Portal, Kiosk Migration, Admin Subdomain
 
-> **Status:** Approved for phased implementation — not yet started.
+> **Status:** Partially superseded — see per-phase status in [`docs/multi-app-ecosystem/README.md`](multi-app-ecosystem/README.md). Phase 0 and Phase 1 shipped and are accurate. **Phase 2 (Merchant Portal, §7) and Phase 5 (E-commerce Plugins, §10) describe `apps/merchant-web` and a `widget_clients`-based merchant identity — that app was deleted entirely on 2026-07-10, and the identity model was replaced by a `users`→`merchants` table link with admin-granted access (no self-serve signup, no separate subdomain).** Phase 3/3b were separately abandoned on 2026-07-07 (unrelated kiosk-app plan change). Treat §7, §10, and any Phase 3/3b references below as historical design rationale only, not a current or future implementation target.
 > **Date:** 2026-07-04
 > **Scope:** Phases 0–5 below. Each phase is independently shippable and testable.
 > **Related:** `docs/virtual-tryon-system-design.md` (current system), `legacy_ecosystem/` (legacy PHP source being replaced), `apps/virtual-tryon-mobile&kiosk/` (Android kiosk app being migrated).
