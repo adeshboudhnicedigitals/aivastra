@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'test/**/*.test.ts'],
     // Integration tests in test/integration/ require a live Postgres+Redis via testcontainers.
     // They are excluded here (unit test run) but should be run in a separate CI job
     // that provisions those services.

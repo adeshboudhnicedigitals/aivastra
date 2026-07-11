@@ -65,6 +65,12 @@ const groups: NavGroup[] = [
         icon: Icon.Workflow,
         roles: ['SUPER_ADMIN', 'MODERATOR'],
       },
+      {
+        k: 'shopify-funnels',
+        label: 'Shopify',
+        icon: Icon.Workflow,
+        roles: ['SUPER_ADMIN', 'MODERATOR'],
+      },
     ],
   },
   {
@@ -98,6 +104,12 @@ const groups: NavGroup[] = [
         label: 'Recycle bin',
         icon: Icon.Trash,
         roles: ['SUPER_ADMIN', 'MODERATOR', 'ADMIN'],
+      },
+      {
+        k: 'credit-analysis',
+        label: 'Credit Analysis',
+        icon: Icon.Coin,
+        roles: ['SUPER_ADMIN', 'SUPPORT', 'ADMIN'],
       },
     ],
   },

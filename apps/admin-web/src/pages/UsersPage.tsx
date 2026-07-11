@@ -396,6 +396,7 @@ export default function UsersPage({ onNav, toast }: Props) {
             <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
               {u.isAdmin && <span className="badge accent">{adminRoleLabel(u.adminRole)}</span>}
               {u.isMerchant && <span className="badge success">Merchant</span>}
+              {u.hasShopifyStore && <span className="badge success">Shopify</span>}
               {!u.hasPassword && <span className="badge info">Google account</span>}
               {u.isBanned ? (
                 <span className="badge danger dot">Suspended</span>
@@ -1175,6 +1176,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                           </span>
                         )}
                         {u.isMerchant && <span className="badge success">Merchant</span>}
+                        {u.hasShopifyStore && <span className="badge success">Shopify</span>}
                         {!u.hasPassword && <span className="badge info">Google</span>}
                         {!u.isAdmin && !u.isMerchant && u.hasPassword && (
                           <span className="sub">Standard</span>
