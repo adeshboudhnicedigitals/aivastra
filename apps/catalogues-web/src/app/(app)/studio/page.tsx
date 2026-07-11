@@ -1100,7 +1100,12 @@ export default function StudioPage(): React.ReactElement {
 
   async function handleSubmit() {
     if (isSubmittingRef.current) return;
-    if (!garmentKey || !faceId || !backgroundId || poseIds.length === 0 || !resolution) return;
+    if (!garmentKey || !faceId || !resolution) return;
+    if (catalogueTemplateId === 'custom') {
+      if (!backgroundId || poseIds.length === 0) return;
+    } else {
+      if (selectedLookIds.length === 0) return;
+    }
 
     // Amazon main listing + multiple poses → show picker modal to choose main image.
     // Lifestyle mode or single pose → submit directly.
@@ -1125,19 +1130,25 @@ export default function StudioPage(): React.ReactElement {
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
+      const inputsBase = {
+        upperGarmentKey: garmentKey,
+        faceId,
+        garmentTypeId: garmentTypeId || undefined,
+        lowerCatalogId: effectiveLowerId,
+        lowerGarmentKey: lowerGarmentKey || undefined,
+        shoeCatalogId: effectiveShoesId,
+      };
+      const inputs =
+        catalogueTemplateId === 'custom'
+          ? { ...inputsBase, backgroundId, poseIds }
+          : {
+              ...inputsBase,
+              looks: selectedLooks.map((l) => ({ poseId: l.poseId, backgroundId: l.backgroundId })),
+            };
       const { catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(
         '/v1/jobs/tryon',
         {
-          inputs: {
-            upperGarmentKey: garmentKey,
-            faceId,
-            backgroundId,
-            poseIds,
-            garmentTypeId: garmentTypeId || undefined,
-            lowerCatalogId: effectiveLowerId,
-            lowerGarmentKey: lowerGarmentKey || undefined,
-            shoeCatalogId: effectiveShoesId,
-          },
+          inputs,
           aspectRatio: effectiveAspect,
           resolution,
           ...(Object.keys(customParams).length ? { params: customParams } : {}),
@@ -1147,18 +1158,29 @@ export default function StudioPage(): React.ReactElement {
       // Credits were deducted server-side — refresh balance + catalogues list.
       qc.invalidateQueries({ queryKey: ['credits'] });
       qc.invalidateQueries({ queryKey: ['catalogues'] });
+      const submittedLooks =
+        catalogueTemplateId === 'custom'
+          ? poseIds.map((poseId) => {
+              const pose = poses?.items.find((p) => p.id === poseId);
+              return {
+                poseId,
+                label: pose?.label ?? 'Pose',
+                thumbnailUrl: pose?.thumbnailUrl ?? '',
+              };
+            })
+          : selectedLooks.map((l) => ({
+              poseId: l.poseId,
+              label: l.poseLabel,
+              thumbnailUrl: l.poseThumbnailUrl,
+            }));
       setActiveGeneration({
         catalogueId,
-        jobs: poseIds.map((poseId, i) => {
-          const pose = poses?.items.find((p) => p.id === poseId);
-          return {
-            // biome-ignore lint/style/noNonNullAssertion: jobIds and poseIds are the same length by construction
-            id: jobIds[i]!,
-            poseId,
-            label: pose?.label ?? `Pose ${i + 1}`,
-            thumbnailUrl: pose?.thumbnailUrl ?? '',
-          };
-        }),
+        jobs: jobIds.map((id, i) => ({
+          id,
+          poseId: submittedLooks[i]?.poseId ?? '',
+          label: submittedLooks[i]?.label ?? `Look ${i + 1}`,
+          thumbnailUrl: submittedLooks[i]?.thumbnailUrl ?? '',
+        })),
       });
       setGenerationInProgress(true);
       isSubmittingRef.current = false;
