@@ -12,6 +12,9 @@ export interface ComfyMockOptions {
 export interface ComfyMock {
   url: string;
   lastPromptId: () => string | null;
+  /** The full `{ prompt, client_id }` body of the most recent POST /prompt — lets
+   *  tests assert on the actual patched workflow JSON rather than network I/O. */
+  lastPrompt: () => { prompt: Record<string, { inputs?: Record<string, unknown> }> } | null;
   setOptions: (opts: ComfyMockOptions) => void;
   close: () => Promise<void>;
 }
@@ -20,6 +23,10 @@ export function startComfyMock(): Promise<ComfyMock> {
   return new Promise((resolve) => {
     let opts: ComfyMockOptions = {};
     let lastPromptId: string | null = null;
+    let lastPrompt: { prompt: Record<string, { inputs?: Record<string, unknown> }> } | null = null;
+    // Monotonic counter (not Date.now()) so two uploads racing in the same
+    // Promise.all in the same millisecond still get distinguishable filenames.
+    let uploadSeq = 0;
 
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = new URL(req.url ?? '/', 'http://localhost');
@@ -31,8 +38,14 @@ export function startComfyMock(): Promise<ComfyMock> {
       }
 
       if (req.method === 'POST' && url.pathname === '/prompt') {
-        req.on('data', () => {});
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk) => chunks.push(chunk));
         req.on('end', () => {
+          try {
+            lastPrompt = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          } catch {
+            lastPrompt = null;
+          }
           const promptId = `mock-prompt-${Date.now()}`;
           lastPromptId = promptId;
           res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -69,11 +82,21 @@ export function startComfyMock(): Promise<ComfyMock> {
       }
 
       if (req.method === 'POST' && url.pathname === '/upload/image') {
-        // Drain the multipart body; contents aren't inspected by the mock.
-        req.on('data', () => {});
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk) => chunks.push(chunk));
         req.on('end', () => {
+          // Echo the incoming multipart field's original filename (e.g.
+          // "shopify_customer_<jobId>.jpg") back into the assigned name so
+          // tests can trace the returned name to its source upload instead of
+          // getting an arbitrary counter-only string. `uploadSeq` is still
+          // appended to preserve collision-avoidance for callers that upload
+          // multiple files with the same prefix/name in one job.
+          const body = Buffer.concat(chunks).toString('utf8');
+          const match = body.match(/filename="([^"]*)"/);
+          const originalName = match?.[1] ?? 'unknown';
+          const stem = originalName.replace(/\.[^./]+$/, '') || 'unknown';
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ name: `uploaded-${Date.now()}.jpg` }));
+          res.end(JSON.stringify({ name: `uploaded-${stem}-${uploadSeq++}.jpg` }));
         });
         return;
       }
@@ -96,6 +119,7 @@ export function startComfyMock(): Promise<ComfyMock> {
       resolve({
         url: `http://127.0.0.1:${port}`,
         lastPromptId: () => lastPromptId,
+        lastPrompt: () => lastPrompt,
         setOptions: (newOpts) => {
           opts = newOpts;
         },

@@ -15,6 +15,7 @@ function getWebOrigin(req: NextRequest): string {
 export async function GET(req: NextRequest) {
   const webOrigin = getWebOrigin(req);
   const code = req.nextUrl.searchParams.get('code');
+  const next = req.nextUrl.searchParams.get('next');
 
   if (!code) {
     const url = new URL(`${BASE_PATH}/login`, webOrigin);
@@ -55,7 +56,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const response = NextResponse.redirect(new URL(`${BASE_PATH}/studio`, webOrigin));
+  const target = next ? `${BASE_PATH}${next}` : `${BASE_PATH}/studio`;
+  const response = NextResponse.redirect(new URL(target, webOrigin));
   setAuthCookies(response, data.accessToken, setCookieHeader);
   return response;
 }

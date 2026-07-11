@@ -309,6 +309,7 @@ export async function createJob(
           queueStream,
           watermark,
           creditsCharged: COST,
+          source: 'catalog',
         })
         .returning();
       await atomicDeduct(tx as unknown as DB, userId, COST, job.id);
@@ -481,6 +482,7 @@ export async function createSimpleTryonJob(
         queueStream,
         watermark,
         creditsCharged: COST,
+        source: 'tryon',
       })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);

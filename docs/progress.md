@@ -137,6 +137,121 @@
 ### Open Questions / Decisions
 - None.
 
+## 2026-07-08 - Shopify Embedded Admin (billing, product enable, image picker)
+
+### Done
+Built the embedded Polaris admin app for the Shopify plugin via subagent-driven development (8 tasks + a final whole-branch review), following brainstorming -> spec -> plan. This gives merchants control over three things that had no UI before: subscription plan selection, per-product try-on enablement, and which Shopify image is used as the garment input.
+
+**Backend** (Tasks 1-5, full TDD):
+- `shopify_product_garments` gains `enabled` (boolean, default `false` -- opt-in per product, never opt-out) and `title` (cached at sync time).
+- `GET /v1/shopify/products` -- paginated list (page/pageSize convention matching `admin/users.routes.ts`).
+- `GET /v1/shopify/products/:id/images` -- live proxy to Shopify's current image list for a product (no caching, by design).
+- `PATCH /v1/shopify/products/:id` -- enable/disable toggle (enabling requires `status==='active'`; disabling always allowed) and garment-image swap (cross-checked against the product's live Shopify image list before download; hardened fetch matching `products.sync.ts`'s existing SSRF guard; write-then-swap into a new R2 key).
+- `POST /v1/widget/jobs`'s Shopify branch now also gates on `enabled` (separate from the existing `status==='active'` check) -- a synced-but-disabled product returns a distinct 202 with no resync trigger.
+
+**Frontend** (Tasks 6-8, no automated test harness -- matches `apps/admin-web`'s own precedent): new `apps/shopify/` -- Vite + React 18 (workspace-forced to React 19) + Polaris SPA, authenticating via Shopify App Bridge's `shopify.idToken()` loaded via CDN script tag (deliberately not the `@shopify/app-bridge-react` npm package, avoiding its React 19 peer-dependency mismatch). Dashboard, Billing (plan list + select, redirects the top-level window for Shopify's confirmation screen), and Products (list + enable toggle + image-picker modal) screens.
+
+**Real bugs found and fixed along the way:**
+- **Major, unplanned infra detour (Task 1):** `packages/db/src/migrations/meta/` was missing 84 of 89 snapshot json files (pre-existing repo-wide gap, not caused by this plan). `drizzle-kit generate` had no accurate baseline and, when forced to reconstruct one, produced a migration that would have dropped 4 real, live columns on an unrelated table (`model_pose_assets`). Caught before being applied via direct psql verification at every step (the harness's auto-mode safety classifier correctly blocked two attempts at unattended/unsafe automation of this reconstruction -- the user drove the interactive `drizzle-kit generate` prompts themselves both times). Two reconstruction attempts were themselves flawed and corrected in turn (a stale `dist/` build falsely baked in not-yet-real columns; the literal generated DDL broke the test harness's fresh-DB migration replay) before landing on the final fix: a backfill migration whose SQL body is a genuine no-op (`SELECT 1;`), paired with an accurate snapshot so `drizzle-kit generate` has a correct baseline going forward.
+- **Task 4 review**: the `fetchLiveProductImages` helper (shared by the images-proxy and patch endpoints) dropped a field-stripping step, leaking Shopify's full raw image objects instead of just `{id, src}`. Fixed and re-verified.
+- **Final whole-branch review**: a real cross-task defect the per-task reviews structurally couldn't catch -- `upsertGarment`'s `onConflictDoUpdate` still included `r2Key`, so any routine product edit (webhook-triggered re-sync) silently reverted a merchant's chosen garment image back to Shopify's default, quietly defeating the whole point of the image-picker feature. Fixed by excluding `r2Key` from the conflict-update (verified: a never-overridden row's `r2Key` already equals the deterministic sync path from its initial insert, so this is a true no-op for the common case while correctly preserving an override). Also fixed a missing `ORDER BY` on the paginated products list (Postgres gives no row-order guarantee without one).
+
+Full API suite: 101/101 passing, typecheck clean throughout. Frontend: `pnpm --filter @aivastra/shopify-admin build` passes.
+
+### Failed / Not Done
+- Live manual verification of the embedded admin against the real Shopify dev store (theme/App Bridge session, click-through of enable/disable + image picker + billing flow) -- needs the human + browser, not done this session.
+- The new `apps/shopify/` app's App URL is not yet registered in the Partners dashboard -- not reachable inside the Shopify admin until that's done.
+
+### Open Questions / Decisions
+- Not fixed, flagged as follow-ups by the final review: ORDER BY relies on `shopifyProductId` being a total order per store (holds today under the existing unique constraint + sentinel-variant-only writes; would need an `id` tiebreaker if per-variant rows are ever introduced); no regression test locks in the "re-sync after an override" fix end-to-end; orphaned R2 objects accumulate on every image swap (old key never deleted); `ProductsPage` hardcodes `pageSize=100` with no pagination UI.
+- `allowedOrigins` duplicate-entry edge case and billing `trial_days`/tier configuration -- still open/deferred from earlier sessions, unrelated to this plan, not touched.
+
+### Commits
+`42a0d9c`, `cc8103d` (migration-history backfill infra fix) -- `be42909`, `59347c6` (Task 1: enabled/title columns) -- `5feb07f` (Task 2: products list) -- `78aca6c` (Task 3: images proxy) -- `94499ac`, `a0ed060` (Task 4: enable + image swap) -- `c1b7b5f` (Task 5: widget job gate) -- `6118268` (Task 6: scaffold) -- `1ac5909` (Task 7: billing) -- `d85abb4` (Task 8: products screen) -- `cb305fa` (final-review fixes)
+
+---
+
+## 2026-07-08 - Shopify Storefront Try-On Widget + Live-Test Hotfixes + Final Branch Review
+
+### Done
+Live end-to-end tested the Shopify backend slice against 2 real Shopify Partners dev stores (first-time setup: Partners app creation, ngrok tunnel, legacy install flow toggle), fixing real bugs found along the way, then built and shipped the storefront-facing widget via subagent-driven development (4 tasks + a final whole-branch review):
+
+**Live-testing hotfixes (found + fixed during real OAuth install/billing runs, not part of either formal plan):**
+- Centralized `SHOPIFY_API_VERSION = '2026-07'` (`apps/api/src/modules/shopify/service.ts`) — was hardcoded `2024-01` (10 quarters stale) across 5 call sites, causing `502 shop fetch failed`.
+- Added `expiring: 1` to the OAuth token-exchange body (`auth.routes.ts`) — Shopify now rejects non-expiring offline tokens outright.
+- Removed the 3 GDPR webhook topics (`customers/data_request`, `customers/redact`, `shop/redact`) from the auto-register loop (`webhook.routes.ts`) — Shopify's `webhooks.json` API 404s on them; they're configured once, app-wide, via Partners → Compliance webhooks. Also fixed the loop silently swallowing non-2xx registration failures (`.catch()`-only → explicit `res.ok` check + log).
+- Rewrote `GET /v1/shopify/billing/callback` (`billing.routes.ts`) — Shopify's `recurring_application_charge` return_url carries **no HMAC**, so the original naive query-string trust was a free-credit-minting exploit. Fixed with server-to-server verification: fetch the charge via the store's own access token, require `status === 'active'` and price/name match the plan.
+- Note: no formal token-refresh/rotation logic exists yet even though tokens now expire in ~1hr (`expiring: 1`) — flagged as a real, unscheduled follow-up.
+
+**Storefront try-on widget** (plan: `docs/superpowers/plans/2026-07-08-shopify-storefront-tryon.md`, spec: `docs/superpowers/specs/2026-07-08-shopify-storefront-tryon-design.md`), all 4 tasks reviewed clean:
+- Task 1 — Dynamic CORS: `apps/api/src/server.ts`'s `origin` option is now an async function trusting `env.CORS_ORIGIN` or any origin in some `widgetClients.allowedOrigins` (`isActive` filtered — fixed a review-found gap where a deactivated merchant stayed CORS-trusted).
+- Task 2 — `resultUrl` added to `GET /v1/widget/jobs/:id` (`widget/routes.ts`), computed from `resultKey` via `storage.publicUrl()`.
+- Task 3 — `writeWidgetKeyMetafield()` (new `shopify/metafields.ts`) writes each store's `widgetClients.widgetKey` to the `aivastra.widget_key` shop metafield right after OAuth install, tolerant of failure (never blocks install).
+- Task 4 — `apps/shopify-extension/` theme app extension: Liquid block (`tryon-block.liquid`) reading the metafield + `product.id`, vanilla JS modal (upload → presign → PUT → create job → poll → result), CSS, locale strings. Request/response shapes verified twice (implementer + independent reviewer) against the real widget API routes — no corrections needed.
+  - **Not yet done**: Shopify CLI scaffold (`shopify app generate extension`)/`shopify app deploy`/live manual verification against the real dev store — all need interactive CLI login + a browser, deferred to a session with the user directly.
+
+**Final whole-branch review** (ae17c96..86b22da, 30 commits, opus): verdict "Ready to merge — With fixes." 2 Important findings, both fixed + re-reviewed clean (commit `81ed3a2`):
+- Dynamic CORS origin check had no caching (DB hit on every cross-origin request) → added a 30s in-process TTL cache (positive + negative results, capped at 10k entries).
+- Product-sync image fetch's CDN allowlist (`assertShopifyCdn`) was defeated by redirects (fetch follows 3xx by default) and had no timeout/size cap → added `redirect: 'error'`, a 10s `AbortController` timeout, and a 10MB cap (content-length + byteLength checks), matching the existing widget-route precedent.
+
+Full test suite: 92/92 passing (14 files), typecheck clean throughout.
+
+### Failed / Not Done
+- Theme extension CLI scaffold, deploy, and live-store manual verification (Task 4 Steps 1/6/7) — needs the user + browser, not done this session.
+- No refresh-token storage/rotation logic — tokens now expire ~1hr (`expiring: 1` fix), nothing renews them yet.
+
+### Open Questions / Decisions
+- `allowedOrigins` duplicate-entry edge case (`upsertShopifyStore`, when `primaryDomain === myshopifyDomain`) — asked twice, never answered by the user; still open, not fixed.
+- Billing plan `trial_days`/tier configuration — explicitly deferred by the user ("we will check the tier later").
+- Final review's Minor findings, not fixed (follow-ups, see `.superpowers/sdd/progress.md` for full detail): `products.sync.ts` full-resync fallback on a malformed `products/update` webhook missing a product id; CORS trust widened app-wide via merchant-editable `allowedOrigins` (currently safe — `sameSite: 'lax'` cookies + header-based auth — but not scoped to widget routes only); billing idempotency keyed on last `chargeId` only, not a full processed-charges set; `shopify:sync` consumer not wired into graceful shutdown; `SHOPIFY_*` env vars are `optional()` but unguarded in redirect URLs (would interpolate literal `"undefined"`).
+
+### Commits
+`18e0a77`, `af5d229`, `e979711`, `fe2159d` (live-testing hotfixes) — `49c0f39`, `0330252` (spec + plan docs) — `2183f65`, `95df801`, `374bb6c`, `a9598b0`, `86b22da` (4 storefront tasks) — `81ed3a2` (final-review fixes)
+
+---
+
+## 2026-07-08 - Shopify Try-On Backend Slice (12-task vertical) + Full-Suite Verification
+
+### Done
+Backend vertical slice for the Shopify plugin, landed across 12 tasks on `feat/shopify-tryon-backend`:
+- **DB schema**: `shopify_stores`, `shopify_product_garments`, `shopify_plans` (plus `widget_clients.client_type` and supporting columns/indexes) in `packages/db/src/schema/`, with migrations.
+- **Crypto + HMAC/session-token service** (`apps/api/src/modules/shopify/service.ts`): AES-256-GCM token encryption at rest, webhook HMAC verification, session-token style helpers.
+- **Admin plan CRUD**: `/admin/shopify-plans` (create/list/patch/delete/activeOnly filter).
+- **Auth plugin + OAuth install/callback**: `apps/api/src/modules/shopify/auth.routes.ts` — `upsertShopifyStore`, install redirect, OAuth callback, webhook auto-registration (`shopifyRegisterWebhooks`, wrapped in `fp()` so the decoration is visible across encapsulated plugin contexts).
+- **Webhooks + GDPR topics**: `apps/api/src/modules/shopify/webhook.routes.ts` — raw-body HMAC verification (scoped content-type parser, doesn't leak to sibling JSON routes), `app_uninstalled`, `app_subscriptions_update`, `products_update`, `products_delete`, `customers_data_request`, `customers_redact`, `shop_redact`.
+- **Product sync**: `apps/api/src/modules/shopify/products.sync.ts` — download + R2 upload, SSRF-guarded fetch.
+- **Widget-job extension**: `POST /v1/widget/jobs` now accepts `shopifyProductId`, resolves the garment from R2, tags `params.kind`; non-Shopify jobs persist `params` as `NULL` (not `{}`).
+- **Dispatcher branch**: `processShopifyJob` in `apps/dispatcher/src/job/processor.ts` + `shopify:sync` Redis-stream consumer for product-sync jobs.
+- **Billing**: Shopify plan selection + charge activation (`apps/api/src/modules/shopify/billing.routes.ts`), made credit-grant additive and replay-safe, and store-row-locked to prevent concurrent double-credit on repeated activation callbacks.
+
+**Full-suite verification (this entry's own task, Task 12):**
+- `pnpm --filter @aivastra/api test`: **78/78 passing**, all 11 shopify-*.test.ts files green. `test/integration/**` (containing `jobs-create.test.ts`, `catalog.test.ts`, `e2e.test.ts` — the three pre-existing failures documented in `apps/api/vitest.config.ts`) stays excluded from this run per that config, so none of those three were even hit.
+- Along the way, this task's initial run surfaced a genuine new regression: `test/shopify-webhooks.test.ts` > "processes app/uninstalled" intermittently failed under full-suite load (reproduced twice in full-suite runs, never in 3 isolated single-file runs) because `webhook.routes.ts` sent `reply.code(200).send(...)` before its DB side effects (`shopifyStores.uninstalledAt`, `widgetClients.isActive`) were awaited — a real race with a production reliability gap (crash between send and continuation would silently drop the uninstall-deactivation, and Shopify wouldn't retry since it already got a 200). Fixed in `2607ed6` ("fix(api): shopify webhooks must complete DB writes before responding 200") by moving `reply.send()` to after the try/catch. Re-verified independently: 78/78 passing across two full-suite reruns post-fix.
+- `pnpm --filter @aivastra/api typecheck`, `pnpm --filter @aivastra/dispatcher build`, `pnpm --filter @aivastra/db typecheck`, `pnpm --filter @aivastra/types build`: all PASS.
+- `pnpm biome check apps/api apps/dispatcher packages/db packages/types --diagnostic-level=error`: PASS (184 files, 0 errors).
+- Added `SHOPIFY_*` vars to `.env.production.example`.
+
+### Failed / Not Done
+- Full workspace-wide `pnpm typecheck` (root) is not used as this task's gate: `apps/catalogues-web`'s `pricing/page.tsx` can hit `TS6053: File '.../.next/types/...' not found` when that app's `.next/types` build artifacts haven't been generated yet (only produced by `next build`/`next dev`, not by `tsc --noEmit` alone). This is environment/build-order state, not a real type error in any code this plan touches — `apps/catalogues-web` is the still-unfinished Phase 3 frontend (per `CLAUDE.md`) and this Shopify backend slice never touches it. Note: re-running `pnpm typecheck` at the workspace root in this session actually passed cleanly both times (the `.next/types` directory already existed at check time), consistent with this being a transient, generation-order artifact rather than a deterministic failure — scoped per-package typecheck/build (listed above) is what this task actually gates on.
+
+### Open Questions / Decisions
+- **Deferred to follow-on plans** (per the Task 12 brief, out of scope for this backend slice):
+  - `apps/shopify/` — Polaris embedded admin (Dashboard, Product Mapping, Appearance, Billing) consuming `/v1/shopify/me|products|analytics|settings`.
+  - `apps/shopify-extension/` — Shopify CLI theme app extension (`tryon-block.liquid`, `tryon-widget.js`).
+  - `apps/admin-web` + `apps/admin-mobile` internal admin views for Shopify plans + store data (Admin Parity Rule applies once this lands).
+  - ComfyUI workflow template for Shopify try-on (`workflow_templates` row) + the customer-photo face-detectability 400 path — needs the real workflow JSON, own task.
+  - Overage/top-up usage charges (`POST /usage_charges`) — add once base billing ships.
+  - `GET /v1/shopify/analytics`, `PATCH /settings`, `DELETE`/`POST /products/:id` admin endpoints — thin, land with the embedded-admin plan.
+- **Test-coverage / CI gaps found during this verification session** (real, currently-true facts about repo state, not fixed here):
+  - `apps/dispatcher`'s `test/integration/` suite (happy-path, recovery, retry, watermark-*) is entirely orphaned from any `package.json` script or CI job — nothing currently runs it.
+  - `happy-path.test.ts`, `recovery.test.ts`, and `retry.test.ts` in that same orphaned suite independently fail due to `catalog_items.type` NOT NULL schema drift — confirmed pre-existing (via `git stash` against a clean checkout in an earlier task on this branch), unrelated to the Shopify work.
+  - No test exists for the non-Shopify garment-URL success path in `POST /v1/widget/jobs` (`apps/api/src/modules/widget/routes.ts`) — a pre-existing gap, found while extending that route for Shopify jobs.
+
+### Commit
+`2607ed6` — fix(api): shopify webhooks must complete DB writes before responding 200
+
+---
+
 ## 2026-07-07 - Multi-App Phase 3 & 3b Abandoned
 
 ### Done
