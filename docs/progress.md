@@ -1,3 +1,41 @@
+## 2026-07-11 - Catalogue Templates (real feature, replaces placeholder)
+
+### Done
+Implemented via brainstorming → writing-plans → subagent-driven-development (spec: `docs/superpowers/specs/2026-07-11-catalogue-templates-design.md`, plan: `docs/superpowers/plans/2026-07-11-catalogue-templates.md`), 15 tasks, each implemented by a fresh subagent and independently spec/quality-reviewed by a second subagent before being marked done.
+
+- **DB**: new `catalogue_templates` + `catalogue_template_looks` tables (admin-curated sets of (pose, background) "looks"). Pose/background FKs are `NO ACTION` (soft-deleted rows, filtered at read time); `template_id` FK is `ON DELETE CASCADE`. Along the way, fixed a pre-existing broken migration-snapshot chain link (`0100_snapshot.json`'s `prevId` pointed at the wrong parent from an earlier renumbering commit) that was blocking `drizzle-kit generate` entirely.
+- **API**: `createJob` (`apps/api/src/modules/jobs/create.ts`) generalized from "N poses share one background" to "N (pose, background) pairs, one atomic transaction" — a new `CreateTryOnJobRequest.inputs.looks[]` form sits alongside the legacy `backgroundId`+`poseIds` form (exactly one required, enforced by zod). The Amazon white-background override is structurally unreachable for the `looks` form — per-look backgrounds are admin-curated and must never be silently overridden. Full admin CRUD (`/admin/assets/catalogue-templates*`, including a full-replace `PUT .../looks`) and a public `GET /v1/models/catalogue-templates` (dead-look filtering, empty-template dropping, `hasLower`/`hasShoes` computed identically to the existing `/v1/models/poses` endpoint).
+- **Admin-web**: new "Templates" tab under Assets (`CatalogueTemplatesTab.tsx` + `EditCatalogueTemplateModal.tsx`) — grid of template cards, create/edit modal with a looks builder (pose+background dropdown pairs), cover-thumbnail upload.
+- **Studio (catalogues-web)**: the placeholder "Ready-Made Catalogue Template" (background-category shortcut, see the entry below) is fully replaced. Selecting "Custom" behaves exactly as before (pick background, then poses). Selecting a real template hides Background/Poses and shows a new "Choose Looks" section — the user checks a subset of the template's looks, each already bound to its own background; submission sends one atomic `looks[]` request instead of the naive (and non-atomic) per-background HTTP-call-loop pattern the dormant Amazon flow used.
+
+Test suite: 3 new integration test files (`jobs-create-looks`, `catalogue-templates-admin`, `catalogue-templates-public`), 10 tests, all passing in isolation. Full monorepo typecheck, lint, and build all clean. Full API integration suite has pre-existing rate-limiter/registration-race flakiness across ~17 unrelated files when run all together in a short window (confirmed via `git stash` comparisons by multiple task implementers) — not a regression from this feature.
+
+### Failed / Not Done
+- No browser smoke test was performed for either the admin Templates tab or the studio "Choose Looks" flow — no browser available in the implementing environment. Typecheck/lint/build all pass, but this is not a substitute for clicking through the actual UI.
+
+### Open Questions / Decisions
+- Per-look lower garment / shoe selection was explicitly NOT built — one shared pick (lower + shoe) is applied to every selected look that needs it, matching the existing single-background-batch behavior. Decided during brainstorming as the simpler, sufficient option; per-look extras would need per-look UI and a bigger submission-grouping change.
+- The studio page's `handleSubmit` commit (`249f3a6`) also absorbed an earlier, previously-uncommitted placeholder-template implementation (see the entry below) that had been sitting in the working tree since before this plan started — the file's final state is correct and fully reviewed, but that one commit's message undersells its full diff. Not worth unwinding retroactively.
+
+---
+
+## 2026-07-11 - Studio Ready-Made Catalogue Templates
+
+### Done
+- Added a Select a Ready-Made Catalogue Template section immediately above Choose Poses in Studio.
+- Reused the pose card grid, dimensions, selected border/checkmark treatment, and View more modal behavior.
+- Added a Custom card with a Create your own look placeholder and made it the default selection.
+- Derived ready-made cards from active background categories and their existing thumbnails because the application has no separate catalogue-template entity or API.
+- Wired ready-made selection to the category's first active background through the existing background handler, including dependent pose/lower/shoe resets.
+- Reset template selection to Custom when gender, model, garment type, or a background is changed manually.
+- Verified Biome, catalogue-web typecheck, production build, and scoped whitespace checks.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- A future dedicated template model would be required if templates need to bundle model, background, poses, and garment settings instead of selecting a background category preset.
+
 ## 2026-07-11 - Admin User Recent Activity Cleanup
 
 ### Done
@@ -2687,4 +2725,3 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
-
