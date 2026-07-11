@@ -148,6 +148,7 @@ export interface User {
   isAdmin: boolean;
   adminRole: string | null;
   hasPassword: boolean;
+  hasShopifyStore: boolean;
   isMerchant?: boolean;
   balance: number;
   totalJobs: number;

@@ -701,6 +701,34 @@
       "when": 1783685809498,
       "tag": "0099_broad_betty_ross",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1783658841608,
+      "tag": "0100_melted_franklin_richards",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1783663294443,
+      "tag": "0101_magenta_skullbuster",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1783683720701,
+      "tag": "0102_violet_lilandra",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1783750877623,
+      "tag": "0103_damp_killmonger",
+      "breakpoints": true
     }
   ]
 }

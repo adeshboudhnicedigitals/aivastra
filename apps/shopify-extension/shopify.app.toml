@@ -1,0 +1,20 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "771a0258b180063d6015e4f5f8f1f586"
+name = "AiVastra"
+application_url = "https://wispy-plaza-mullets.ngrok-free.dev"
+embedded = true
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_products"
+optional_scopes = [ ]
+use_legacy_install_flow = true
+
+[auth]
+redirect_urls = [
+  "https://wispy-plaza-mullets.ngrok-free.dev/v1/shopify/auth/callback"
+]
+
+[webhooks]
+api_version = "2026-07"

@@ -2,11 +2,14 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { hashPassword } from './modules/auth/service.js';
+import { startSyncConsumer } from './modules/shopify/sync-consumer.js';
 import { buildServer } from './server.js';
 
 const env = loadEnv();
 const app = await buildServer(env);
 await app.listen({ port: env.API_PORT, host: '0.0.0.0' });
+
+startSyncConsumer(app);
 
 if (env.ADMIN_BOOTSTRAP_EMAIL && env.ADMIN_BOOTSTRAP_PASSWORD) {
   const [existing] = await app.db

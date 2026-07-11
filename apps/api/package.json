@@ -40,8 +40,10 @@
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1048.0",
     "@types/adm-zip": "^0.5.8",
+    "@types/ioredis-mock": "^8.2.7",
     "@types/node": "^22.7.5",
     "dotenv": "^17.4.2",
+    "ioredis-mock": "^8.13.1",
     "postgres": "^3.4.4",
     "testcontainers": "^10.13.2",
     "tsx": "^4.19.1",

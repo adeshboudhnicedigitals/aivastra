@@ -65,7 +65,9 @@ export async function processJob(
     .select({
       id: schema.jobs.id,
       status: schema.jobs.status,
+      userId: schema.jobs.userId,
       merchantId: schema.jobs.merchantId,
+      shopifyStoreId: schema.jobs.shopifyStoreId,
       customerPhotoKey: schema.jobs.customerPhotoKey,
       creditsCharged: schema.jobs.creditsCharged,
       attempts: schema.jobs.attempts,
@@ -117,8 +119,8 @@ export async function processJob(
     return;
   }
 
-  // Widget jobs: merchantId set, faceId/bgId/poseId are null — route to dedicated processor.
-  if (job.merchantId) {
+  // Widget jobs: merchantId/shopifyStoreId set, faceId/bgId/poseId are null — route to dedicated processor.
+  if (job.merchantId || job.shopifyStoreId) {
     await processWidgetJob(cfg, job, inputs, stream, messageId, jobLog, startedAt);
     return;
   }
@@ -920,9 +922,13 @@ async function processSareeJob(
 
 type WidgetJob = {
   id: string;
+  userId: string | null;
   merchantId: string | null;
+  shopifyStoreId: string | null;
   customerPhotoKey: string | null;
   creditsCharged: number;
+  createdAt: Date;
+  watermark: boolean;
 };
 
 async function processWidgetJob(
@@ -939,6 +945,19 @@ async function processWidgetJob(
   // biome-ignore lint/style/noNonNullAssertion: merchantId is guaranteed non-null for widget jobs
   const merchantId = job.merchantId!;
   const { creditsCharged } = job;
+
+  // Shopify widget jobs: job_inputs.params.kind === 'shopify' — route to the dedicated
+  // shared-worker-pool processor instead of the widget-VPS flow below. Shopify jobs still
+  // carry shopifyStoreId (so they enter this function), but they don't use the fixed
+  // widgetComfyUrl/widgetComfyBasicAuth VPS at all, so this branch runs before that check.
+  const rawParams =
+    typeof inputs.params === 'string'
+      ? (JSON.parse(inputs.params) as Record<string, unknown>)
+      : ((inputs.params ?? {}) as Record<string, unknown>);
+  if (rawParams.kind === 'shopify') {
+    await processShopifyJob(cfg, job, inputs, rawParams, stream, messageId, jobLog, startedAt);
+    return;
+  }
 
   if (!widgetComfyUrl || !widgetComfyBasicAuth) {
     jobLog.error('WIDGET_COMFYUI_URL / WIDGET_COMFYUI_BASIC_AUTH not configured');
@@ -976,10 +995,6 @@ async function processWidgetJob(
   // time via garment type -> tryon_categories -> workflow_templates, the SAME mechanism
   // the studio Try-On feature uses (see createSimpleTryonJob). Not "any active widget
   // template" — the widget workflow category was retired in favor of tryon workflows.
-  const rawParams =
-    typeof inputs.params === 'string'
-      ? (JSON.parse(inputs.params) as Record<string, unknown>)
-      : ((inputs.params ?? {}) as Record<string, unknown>);
   const workflowTemplateId = rawParams.workflowTemplateId as string | undefined;
   if (!workflowTemplateId) {
     jobLog.error(
@@ -1218,6 +1233,267 @@ async function processWidgetJob(
   }
 }
 
+// ── Shopify job processor ──────────────────────────────────────────────────
+//
+// Shopify jobs are widget jobs (shopifyStoreId set, real userId set, routed
+// through processWidgetJob) but they use the shared GPU worker pool — the exact
+// ComfyUI/patcher/upload helpers imported at the top of this file — instead of
+// the dedicated widget ComfyUI VPS. Structurally this mirrors processSareeJob:
+// load one workflow_templates row by ID and reuse its tryon*_node_id columns
+// (tryonPersonNodeId = customer photo node, tryonGarmentNodeId = garment node,
+// tryonOutputNodeId = output node) — the same "reuse the generic tryon* columns
+// for a non-tryon job kind" precedent saree established. Failure handling
+// follows the same pattern: no MAX_ATTEMPTS retry-then-terminate —
+// any terminal failure goes straight to markShopifyFailed (user credit refund).
+
+async function processShopifyJob(
+  cfg: ProcessorConfig,
+  job: WidgetJob,
+  inputs: typeof schema.jobInputs.$inferSelect,
+  params: Record<string, unknown>,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const jobId = job.id;
+  // biome-ignore lint/style/noNonNullAssertion: userId/shopifyStoreId guaranteed non-null for shopify jobs routed through this path
+  const userId = job.userId!;
+  // biome-ignore lint/style/noNonNullAssertion: userId/shopifyStoreId guaranteed non-null for shopify jobs routed through this path
+  const shopifyStoreId = job.shopifyStoreId!;
+  const { creditsCharged } = job;
+
+  const garmentKey = inputs.upperGarmentKey;
+  const customerPhotoKey = job.customerPhotoKey;
+
+  const [garmentRow] = await db
+    .select({
+      funnelTemplateId: schema.shopifyProductGarments.funnelTemplateId,
+    })
+    .from(schema.shopifyProductGarments)
+    .where(eq(schema.shopifyProductGarments.r2Key, garmentKey ?? ''))
+    .limit(1);
+
+  let workflowTemplateId: string | undefined;
+  if (garmentRow?.funnelTemplateId) {
+    const [funnelTemplate] = await db
+      .select({ workflowTemplateId: schema.shopifyFunnelTemplates.workflowTemplateId })
+      .from(schema.shopifyFunnelTemplates)
+      .where(eq(schema.shopifyFunnelTemplates.id, garmentRow.funnelTemplateId));
+    workflowTemplateId = funnelTemplate?.workflowTemplateId;
+  }
+  if (!workflowTemplateId) {
+    workflowTemplateId = params.workflowTemplateId as string | undefined;
+  }
+
+  if (!workflowTemplateId || !garmentKey || !customerPhotoKey) {
+    await markShopifyFailed(
+      cfg,
+      jobId,
+      userId,
+      shopifyStoreId,
+      creditsCharged,
+      stream,
+      messageId,
+      !workflowTemplateId ? 'NO_WORKFLOW_CONFIGURED' : 'SHOPIFY_INPUTS_MISSING',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  // Load Shopify workflow template. Shopify flows reuse the tryon*_node_id columns
+  // on workflow_templates (same precedent processSareeJob established).
+  const [template] = await db
+    .select({
+      jsonContent: schema.workflowTemplates.jsonContent,
+      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
+      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
+    })
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+
+  if (!template) {
+    await markShopifyFailed(
+      cfg,
+      jobId,
+      userId,
+      shopifyStoreId,
+      creditsCharged,
+      stream,
+      messageId,
+      'WORKFLOW_NOT_FOUND',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const personNodeId = template.tryonPersonNodeId;
+  const garmentNodeId = template.tryonGarmentNodeId;
+  const outputNodeId = template.tryonOutputNodeId;
+
+  if (!personNodeId || !garmentNodeId || !outputNodeId) {
+    await markShopifyFailed(
+      cfg,
+      jobId,
+      userId,
+      shopifyStoreId,
+      creditsCharged,
+      stream,
+      messageId,
+      'SHOPIFY_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  await transitionJob(db, pub, jobId, '', 'PREPROCESSING', {}, jobLog);
+
+  // Shopify jobs route to workers with 'shopify' in their allowedJobTypes. An admin
+  // must configure at least one such worker (or one with an empty allowedJobTypes,
+  // i.e. "accepts any") for these jobs to ever be picked up — see selectWorker.
+  const worker = await selectWorker(redis, 'shopify');
+  if (!worker) {
+    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+      jobLog.warn(
+        'no idle shopify worker — job exceeded max queue wait, terminating with widget refund',
+      );
+      await markShopifyFailed(
+        cfg,
+        jobId,
+        userId,
+        shopifyStoreId,
+        creditsCharged,
+        stream,
+        messageId,
+        'NO_WORKER',
+        jobLog,
+        startedAt,
+      );
+    } else {
+      jobLog.warn('no idle shopify worker — re-enqueuing with backoff');
+      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId);
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      recordJobOutcome('retried', startedAt);
+    }
+    return;
+  }
+  const w = worker;
+  jobLog.info({ workerId: w.id }, 'worker claimed for shopify');
+
+  try {
+    async function r2Download(key: string): Promise<Uint8Array> {
+      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
+      return res.Body.transformToByteArray();
+    }
+
+    async function uploadToComfy(key: string, prefix: string): Promise<string> {
+      const bytes = await r2Download(key);
+      const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
+      const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+    }
+
+    jobLog.info('uploading shopify inputs to ComfyUI');
+    const [customerPhotoFile, garmentFile] = await Promise.all([
+      uploadToComfy(customerPhotoKey, 'shopify_customer'),
+      uploadToComfy(garmentKey, 'shopify_garment'),
+    ]);
+    jobLog.info({ customerPhotoFile, garmentFile }, 'shopify inputs uploaded');
+
+    // Clone and patch workflow
+    const workflow = structuredClone(template.jsonContent) as Record<
+      string,
+      { inputs?: Record<string, unknown> }
+    >;
+    if (workflow[personNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[personNodeId].inputs!.image = customerPhotoFile;
+    }
+    if (workflow[garmentNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[garmentNodeId].inputs!.image = garmentFile;
+    }
+
+    await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog);
+    const clientUuid = randomUUID();
+    const comfyStartedAt = Date.now();
+    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    jobLog.info({ promptId }, 'shopify prompt submitted');
+
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'COMFY_DISPATCH',
+      payload: {
+        promptId,
+        workerId: w.id,
+        workerUrl: w.url,
+        workflowTemplateId,
+        inputs: { customerPhotoKey, garmentKey, customerPhotoFile, garmentFile },
+      },
+    });
+
+    await waitForCompletion(
+      w.url,
+      w.apiKey,
+      clientUuid,
+      promptId,
+      300_000,
+      (update) => jobLog.debug(update, 'comfyui progress'),
+      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+    );
+    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+
+    await transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog);
+    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const [firstImage] = outputImages;
+    if (!firstImage) throw new Error('ComfyUI returned no output images for shopify job');
+
+    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+
+    const { resultKey } = await finalizeOutput({
+      imageBytes,
+      jobId,
+      userId,
+      jobWatermark: job.watermark,
+      db,
+      pub,
+      s3,
+      r2Bucket,
+      jobLog,
+    });
+
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    recordJobOutcome('success', startedAt);
+    jobLog.info({ resultKey }, 'shopify job completed successfully');
+  } catch (err) {
+    jobLog.error({ err }, 'shopify job processing error');
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await markShopifyFailed(
+      cfg,
+      jobId,
+      userId,
+      shopifyStoreId,
+      creditsCharged,
+      stream,
+      messageId,
+      errMsg.slice(0, 1000),
+      jobLog,
+      startedAt,
+    );
+  }
+}
+
 async function markWidgetFailed(
   cfg: ProcessorConfig,
   jobId: string,
@@ -1275,6 +1551,46 @@ async function markWidgetFailed(
   await redis.xack(stream, 'dispatcher-cg', messageId);
   recordJobOutcome('failed', startedAt);
   log.warn({ jobId, errorCode }, 'widget job FAILED — widget credits refunded');
+}
+
+async function markShopifyFailed(
+  cfg: ProcessorConfig,
+  jobId: string,
+  userId: string,
+  shopifyStoreId: string,
+  creditsCharged: number,
+  stream: string,
+  messageId: string,
+  errorCode: string,
+  log: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub } = cfg;
+
+  await db.transaction(async (tx) => {
+    const existing = await tx
+      .select()
+      .from(schema.creditLedger)
+      .where(
+        and(
+          eq(schema.creditLedger.jobId, jobId),
+          eq(schema.creditLedger.reason, 'JOB_FAIL_REFUND'),
+        ),
+      );
+    if (existing.length) return;
+    await tx
+      .update(schema.userCredits)
+      .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+      .where(eq(schema.userCredits.userId, userId));
+    await tx
+      .insert(schema.creditLedger)
+      .values({ userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId });
+  });
+
+  await transitionJob(db, pub, jobId, userId, 'FAILED', { errorCode }, log);
+  await redis.xack(stream, 'dispatcher-cg', messageId);
+  recordJobOutcome('failed', startedAt);
+  log.warn({ jobId, shopifyStoreId, errorCode }, 'shopify job FAILED — user credits refunded');
 }
 
 // ── Regular job failure handling ───────────────────────────────────────────

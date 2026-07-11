@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { LoginBody, RegisterBody } from '@aivastra/types';
-import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -463,7 +463,26 @@ export async function authRoutes(app: FastifyInstance) {
       .where(eq(schema.users.id, req.userId));
     if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
     const { passwordHash, ...rest } = user;
-    return { ...rest, hasPassword: passwordHash !== null };
+
+    const [{ hasShopifyStore }] = await app.db
+      .select({
+        hasShopifyStore: exists(
+          app.db
+            .select()
+            .from(schema.shopifyStores)
+            .where(
+              and(
+                eq(schema.shopifyStores.ownerUserId, req.userId),
+                isNull(schema.shopifyStores.uninstalledAt),
+              ),
+            ),
+        ),
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.userId))
+      .limit(1);
+
+    return { ...rest, hasPassword: passwordHash !== null, hasShopifyStore };
   });
 
   app.patch(

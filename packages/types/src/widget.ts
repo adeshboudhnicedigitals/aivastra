@@ -299,3 +299,19 @@ export const AdminMerchantUpdateBody = z
     message: 'at least one field is required',
   });
 export type AdminMerchantUpdateBody = z.infer<typeof AdminMerchantUpdateBody>;
+
+export const ShopifyCustomerPresignRequest = z.object({
+  contentType: z.string(),
+  contentLength: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024),
+});
+export type ShopifyCustomerPresignRequest = z.infer<typeof ShopifyCustomerPresignRequest>;
+
+export const ShopifyCustomerJobRequest = z.object({
+  customerPhotoKey: z.string(),
+  shopifyProductId: z.number().int().positive(),
+});
+export type ShopifyCustomerJobRequest = z.infer<typeof ShopifyCustomerJobRequest>;
