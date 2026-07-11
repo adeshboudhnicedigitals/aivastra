@@ -290,4 +290,155 @@ export async function modelsRoutes(app: FastifyInstance) {
       };
     },
   );
+
+  app.get(
+    '/v1/models/catalogue-templates',
+    {
+      preHandler: app.requireUser,
+      schema: {
+        querystring: z.object({
+          gender: z.enum(['men', 'women', 'boys', 'girls']),
+          garmentTypeId: z.string().uuid().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { gender, garmentTypeId } = req.query as { gender: string; garmentTypeId?: string };
+
+      const templates = await app.db
+        .select({
+          id: schema.catalogueTemplates.id,
+          label: schema.catalogueTemplates.label,
+          thumbnailKey: schema.catalogueTemplates.thumbnailKey,
+        })
+        .from(schema.catalogueTemplates)
+        .where(
+          and(
+            eq(schema.catalogueTemplates.genderSlug, gender),
+            eq(schema.catalogueTemplates.isActive, true),
+            isNull(schema.catalogueTemplates.deletedAt),
+          ),
+        )
+        .orderBy(asc(schema.catalogueTemplates.sortOrder));
+
+      if (templates.length === 0) return { items: [] };
+      const templateIds = templates.map((t) => t.id);
+
+      const lookRows = await app.db
+        .select({
+          lookId: schema.catalogueTemplateLooks.id,
+          templateId: schema.catalogueTemplateLooks.templateId,
+          poseId: schema.modelPoseAssets.id,
+          poseLabel: schema.modelPoseAssets.label,
+          poseDisplayName: schema.modelPoseAssets.displayName,
+          poseThumbnailKey: schema.modelPoseAssets.thumbnailKey,
+          lowerNodeId: schema.workflowTemplates.lowerNodeId,
+          shoeNodeId: schema.workflowTemplates.shoeNodeId,
+          backgroundId: schema.modelBackgrounds.id,
+          backgroundLabel: schema.modelBackgrounds.label,
+          backgroundThumbnailKey: schema.modelBackgrounds.thumbnailKey,
+        })
+        .from(schema.catalogueTemplateLooks)
+        .innerJoin(
+          schema.modelPoseAssets,
+          and(
+            eq(schema.catalogueTemplateLooks.poseAssetId, schema.modelPoseAssets.id),
+            eq(schema.modelPoseAssets.isActive, true),
+            isNull(schema.modelPoseAssets.deletedAt),
+          ),
+        )
+        .innerJoin(
+          schema.modelBackgrounds,
+          and(
+            eq(schema.catalogueTemplateLooks.backgroundId, schema.modelBackgrounds.id),
+            eq(schema.modelBackgrounds.isActive, true),
+            isNull(schema.modelBackgrounds.deletedAt),
+          ),
+        )
+        .leftJoin(
+          schema.workflowTemplates,
+          eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
+        )
+        .where(inArray(schema.catalogueTemplateLooks.templateId, templateIds))
+        .orderBy(asc(schema.catalogueTemplateLooks.sortOrder));
+
+      // Same per-garmentType override overlay as /v1/models/poses: a config row with
+      // a workflowTemplateId set overrides hasLower/hasShoes; configIsActive:false
+      // hides the look for this garmentType specifically.
+      let configMap = new Map<string, { lowerNodeId: string | null; shoeNodeId: string | null }>();
+      let inactiveForType = new Set<string>();
+      if (garmentTypeId && lookRows.length > 0) {
+        const poseIds = Array.from(new Set(lookRows.map((r) => r.poseId)));
+        const configs = await app.db
+          .select({
+            poseAssetId: schema.poseGarmentConfigs.poseAssetId,
+            workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+            isActive: schema.poseGarmentConfigs.isActive,
+            lowerNodeId: schema.workflowTemplates.lowerNodeId,
+            shoeNodeId: schema.workflowTemplates.shoeNodeId,
+          })
+          .from(schema.poseGarmentConfigs)
+          .leftJoin(
+            schema.workflowTemplates,
+            eq(schema.poseGarmentConfigs.workflowTemplateId, schema.workflowTemplates.id),
+          )
+          .where(
+            and(
+              inArray(schema.poseGarmentConfigs.poseAssetId, poseIds),
+              eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId),
+            ),
+          );
+        configMap = new Map(
+          configs
+            .filter((c) => c.workflowTemplateId != null)
+            .map((c) => [
+              c.poseAssetId,
+              { lowerNodeId: c.lowerNodeId ?? null, shoeNodeId: c.shoeNodeId ?? null },
+            ]),
+        );
+        inactiveForType = new Set(
+          configs.filter((c) => c.isActive === false).map((c) => c.poseAssetId),
+        );
+      }
+
+      const looksByTemplate = new Map<string, typeof lookRows>();
+      for (const row of lookRows) {
+        if (inactiveForType.has(row.poseId)) continue;
+        if (!looksByTemplate.has(row.templateId)) looksByTemplate.set(row.templateId, []);
+        looksByTemplate.get(row.templateId)?.push(row);
+      }
+
+      const items = templates
+        .map((t) => {
+          const rows = looksByTemplate.get(t.id) ?? [];
+          const looks = rows.map((r) => {
+            const cfg = configMap.get(r.poseId);
+            const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : r.lowerNodeId;
+            const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : r.shoeNodeId;
+            return {
+              id: r.lookId,
+              poseId: r.poseId,
+              poseLabel: r.poseDisplayName ?? r.poseLabel,
+              poseThumbnailUrl: app.storage.publicUrl(r.poseThumbnailKey),
+              backgroundId: r.backgroundId,
+              backgroundLabel: r.backgroundLabel,
+              backgroundThumbnailUrl: app.storage.publicUrl(r.backgroundThumbnailKey),
+              hasLower: lowerNodeId != null,
+              hasShoes: shoeNodeId != null,
+            };
+          });
+          return {
+            id: t.id,
+            label: t.label,
+            thumbnailUrl: t.thumbnailKey
+              ? app.storage.publicUrl(t.thumbnailKey)
+              : (looks[0]?.poseThumbnailUrl ?? null),
+            looks,
+          };
+        })
+        .filter((t) => t.looks.length > 0);
+
+      return { items };
+    },
+  );
 }
