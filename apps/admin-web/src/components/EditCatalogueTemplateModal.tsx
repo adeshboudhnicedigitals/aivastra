@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
 import type { CatalogueTemplate, GenderSlug, ModelBackground, ModelPoseAsset } from '../types';
 import { BackgroundUploadModal } from './BackgroundUploadModal';
 import { Icon } from './Icons';
 import { PoseUploadModal } from './PoseUploadModal';
-
-const UPLOAD_NEW = '__upload_new__';
 
 async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -27,6 +26,85 @@ interface LookRow {
   backgroundId: string;
 }
 
+/** Click-to-upload tile — no picking from existing assets, every look uploads fresh. */
+function UploadTile({
+  label,
+  thumbnailKey,
+  storageBase,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  thumbnailKey: string | undefined;
+  storageBase: string | null;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: 72,
+        height: 90,
+        borderRadius: 6,
+        border: `1.5px dashed ${src ? 'transparent' : 'var(--border-strong, var(--border))'}`,
+        background: src ? 'transparent' : 'var(--surface-2)',
+        padding: 0,
+        overflow: 'hidden',
+        position: 'relative',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        flexShrink: 0,
+      }}
+    >
+      {src ? (
+        // biome-ignore lint/performance/noImgElement: admin panel thumbnail
+        <img
+          src={src}
+          alt={label}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
+      ) : (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            color: 'var(--muted)',
+          }}
+        >
+          <Icon.Add />
+          <span style={{ fontSize: 10, fontWeight: 600 }}>{label}</span>
+        </div>
+      )}
+      {src && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            padding: '2px 0',
+            fontSize: 9,
+            fontWeight: 600,
+            textAlign: 'center',
+            color: '#fff',
+            background: 'rgba(0,0,0,0.55)',
+          }}
+        >
+          Change
+        </div>
+      )}
+    </button>
+  );
+}
+
 interface Props {
   template: CatalogueTemplate | null; // null = creating a new template
   defaultGenderSlug: GenderSlug;
@@ -46,6 +124,7 @@ export function EditCatalogueTemplateModal({
   onClose,
   toast,
 }: Props) {
+  const { storagePublicUrl } = useAuth();
   const isEditing = template !== null;
   const [label, setLabel] = useState(template?.label ?? '');
   const [genderSlug, setGenderSlug] = useState<GenderSlug>(
@@ -59,8 +138,8 @@ export function EditCatalogueTemplateModal({
   const thumbInputRef = useRef<HTMLInputElement>(null);
 
   // Local, appendable copies — new pose/background rows uploaded from within
-  // the looks builder are added here immediately so they show up in the
-  // dropdowns without waiting for the parent tab to refetch.
+  // the looks builder are added here immediately so their thumbnails render
+  // in the look tiles without waiting for the parent tab to refetch.
   const [localPoseAssets, setLocalPoseAssets] = useState(poseAssets);
   const [localBackgrounds, setLocalBackgrounds] = useState(backgrounds);
   useEffect(() => setLocalPoseAssets(poseAssets), [poseAssets]);
@@ -88,19 +167,11 @@ export function EditCatalogueTemplateModal({
       .finally(() => setLooksLoaded(true));
   }, [isEditing, template]);
 
-  const genderPoseAssets = localPoseAssets.filter(
-    (p) => p.genderSlug === genderSlug || !p.genderSlug,
-  );
+  const poseAssetById = new Map(localPoseAssets.map((p) => [p.id, p]));
+  const backgroundById = new Map(localBackgrounds.map((b) => [b.id, b]));
 
   function addLookRow() {
-    setLooks((prev) => [
-      ...prev,
-      {
-        key: crypto.randomUUID(),
-        poseAssetId: genderPoseAssets[0]?.id ?? '',
-        backgroundId: localBackgrounds[0]?.id ?? '',
-      },
-    ]);
+    setLooks((prev) => [...prev, { key: crypto.randomUUID(), poseAssetId: '', backgroundId: '' }]);
   }
 
   function updateLookRow(key: string, patch: Partial<LookRow>) {
@@ -293,8 +364,8 @@ export function EditCatalogueTemplateModal({
               <label>
                 Looks{' '}
                 <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
-                  (pose + background pairs — falls back to the first look's pose thumbnail if no
-                  cover is set)
+                  (upload a pose + background per look — falls back to the first look's pose
+                  thumbnail if no cover is set)
                 </span>
               </label>
               {!looksLoaded ? (
@@ -304,54 +375,22 @@ export function EditCatalogueTemplateModal({
                   {looks.map((row) => (
                     <div
                       key={row.key}
-                      style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}
+                      style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}
                     >
-                      <select
-                        className="select"
-                        style={{ flex: 1 }}
-                        value={row.poseAssetId}
+                      <UploadTile
+                        label="Pose"
+                        thumbnailKey={poseAssetById.get(row.poseAssetId)?.thumbnailKey}
+                        storageBase={storagePublicUrl}
                         disabled={saving}
-                        onChange={(e) => {
-                          if (e.target.value === UPLOAD_NEW) {
-                            setUploadPoseForRow(row.key);
-                            return;
-                          }
-                          updateLookRow(row.key, { poseAssetId: e.target.value });
-                        }}
-                      >
-                        <option value="" disabled>
-                          — select pose —
-                        </option>
-                        {genderPoseAssets.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.displayName ?? p.label}
-                          </option>
-                        ))}
-                        <option value={UPLOAD_NEW}>+ Upload new pose…</option>
-                      </select>
-                      <select
-                        className="select"
-                        style={{ flex: 1 }}
-                        value={row.backgroundId}
+                        onClick={() => setUploadPoseForRow(row.key)}
+                      />
+                      <UploadTile
+                        label="Background"
+                        thumbnailKey={backgroundById.get(row.backgroundId)?.thumbnailKey}
+                        storageBase={storagePublicUrl}
                         disabled={saving}
-                        onChange={(e) => {
-                          if (e.target.value === UPLOAD_NEW) {
-                            setUploadBackgroundForRow(row.key);
-                            return;
-                          }
-                          updateLookRow(row.key, { backgroundId: e.target.value });
-                        }}
-                      >
-                        <option value="" disabled>
-                          — select background —
-                        </option>
-                        {localBackgrounds.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.label}
-                          </option>
-                        ))}
-                        <option value={UPLOAD_NEW}>+ Upload new background…</option>
-                      </select>
+                        onClick={() => setUploadBackgroundForRow(row.key)}
+                      />
                       <button
                         type="button"
                         className="btn sm danger"
