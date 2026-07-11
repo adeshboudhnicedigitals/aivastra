@@ -95,10 +95,11 @@ export async function createJob(
   await assertOwnsUploadKey(app, userId, upperGarmentKey);
   if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
 
-  // Normalize to a single per-look list. Exactly one of (backgroundId + poseIds) or
-  // looks is present — enforced by CreateTryOnJobInputs's zod .refine() — but the
-  // check is repeated here since TS can't see that constraint through the optional
-  // fields on body.inputs.
+  // Normalize to a single per-look list. This only rejects "neither form present" —
+  // it does not independently re-enforce "not both", since CreateTryOnJobInputs's
+  // zod .refine() (a true XOR via !==) already guarantees that upstream of every
+  // route that calls createJob. This guard exists because TS can't see the refine's
+  // constraint through the optional fields on body.inputs.
   const legacyBackgroundId = body.inputs.backgroundId;
   const legacyPoseIds = body.inputs.poseIds;
   const templateLooks = body.inputs.looks;
@@ -150,6 +151,9 @@ export async function createJob(
     }));
   }
 
+  // Only exact (poseId, backgroundId) duplicates are rejected. Same pose with two
+  // DIFFERENT backgrounds is allowed by design — a template can legitimately offer
+  // "Pose A @ Background 1" and "Pose A @ Background 2" as two distinct looks.
   const dedupeKeys = new Set(looks.map((l) => `${l.poseId}::${l.backgroundId}`));
   if (dedupeKeys.size !== looks.length) {
     throw new AppError('VALIDATION', 400, 'duplicate pose+background combination in looks');
