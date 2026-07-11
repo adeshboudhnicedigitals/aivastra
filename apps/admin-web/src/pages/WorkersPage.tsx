@@ -3,7 +3,7 @@ import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
 import { apiFetch } from '../lib/data';
 
-type JobType = 'catalogue' | 'tryon' | 'saree';
+type JobType = 'catalogue' | 'tryon' | 'saree' | 'shopify';
 
 interface Worker {
   id: string;
@@ -24,11 +24,12 @@ interface Props {
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
-const JOB_TYPES: JobType[] = ['catalogue', 'tryon', 'saree'];
+const JOB_TYPES: JobType[] = ['catalogue', 'tryon', 'saree', 'shopify'];
 const JOB_TYPE_LABELS: Record<JobType, string> = {
   catalogue: 'Catalogue',
   tryon: 'Tryon',
   saree: 'Saree',
+  shopify: 'Shopify',
 };
 
 const EMPTY_FORM = { id: '', label: '', url: '', apiKey: '', allowedJobTypes: [] as JobType[] };
@@ -253,13 +254,17 @@ export default function WorkersPage({ toast }: Props) {
                                   ? 'color-mix(in srgb, var(--accent) 15%, transparent)'
                                   : t === 'saree'
                                     ? 'color-mix(in srgb, var(--pink, #ec4899) 15%, transparent)'
-                                    : 'color-mix(in srgb, var(--success) 15%, transparent)',
+                                    : t === 'shopify'
+                                      ? 'color-mix(in srgb, #8b5cf6 15%, transparent)'
+                                      : 'color-mix(in srgb, var(--success) 15%, transparent)',
                               color:
                                 t === 'tryon'
                                   ? 'var(--accent)'
                                   : t === 'saree'
                                     ? 'var(--pink, #ec4899)'
-                                    : 'var(--success)',
+                                    : t === 'shopify'
+                                      ? '#8b5cf6'
+                                      : 'var(--success)',
                             }}
                           >
                             {JOB_TYPE_LABELS[t]}

@@ -1,0 +1,144 @@
+{% comment %}
+  Renders a "Try It On" button + upload modal for the current product.
+  App-embed target: injected on every page by Shopify once the merchant
+  toggles it on under Theme editor -> App embeds (no per-template block
+  placement needed). Only renders on product pages (`product` is blank
+  everywhere else) and only once the widget_key metafield exists (install
+  incomplete, or metafield write failed) — a missing/broken button is
+  safer on a live storefront than one that always errors.
+{% endcomment %}
+
+{%- assign widget_key = shop.metafields.aivastra.widget_key -%}
+{%- if product != blank and widget_key != blank -%}
+  <div
+    class="aivastra-tryon"
+    data-widget-key="{{ widget_key }}"
+    data-product-id="{{ product.id }}"
+    data-api-base="{{ block.settings.api_base | default: 'https://app.aivastra.com' }}"
+    data-placement-selector="{{ block.settings.placement_selector }}"
+    data-block-alignment="{{ block.settings.block_alignment }}"
+    style="--aivastra-button-color: {{ block.settings.button_color }}; --aivastra-text-color: {{ block.settings.text_color }}; --aivastra-border-radius: {{ block.settings.border_radius }}px;"
+  >
+    {%- if block.settings.promo_text != blank -%}
+      <p class="aivastra-tryon__promo">{{ block.settings.promo_text | escape }}</p>
+    {%- endif -%}
+
+    <button type="button" class="aivastra-tryon__button">
+      {{ block.settings.button_text | default: 'Try It On' | escape }}
+    </button>
+
+    <div class="aivastra-tryon__modal" hidden>
+      <div class="aivastra-tryon__modal-content">
+        <div class="aivastra-tryon__modal-inner">
+          <div class="aivastra-tryon__header">
+            <p class="aivastra-tryon__heading">AiVastra Try On</p>
+            <button type="button" class="aivastra-tryon__close" aria-label="Close">&times;</button>
+          </div>
+
+          <div class="aivastra-tryon__step aivastra-tryon__step--upload">
+            <label class="aivastra-tryon__upload-btn">
+              <img class="aivastra-tryon__upload-preview" hidden alt="" />
+              <span class="aivastra-tryon__upload-placeholder">
+                <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+                <span>Drag and drop photo, or choose file</span>
+              </span>
+              <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
+            </label>
+          </div>
+
+          <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
+            <div class="aivastra-tryon__progress-canvas">
+              <p>{{ 'tryon.generating' | t }}</p>
+              <div class="aivastra-tryon__progress-bar-track">
+                <div class="aivastra-tryon__progress-bar-fill"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="aivastra-tryon__step aivastra-tryon__step--pending" hidden>
+            <p>{{ 'tryon.pending' | t }}</p>
+          </div>
+
+          <div class="aivastra-tryon__step aivastra-tryon__step--result" hidden>
+            <img class="aivastra-tryon__result-image" alt="{{ 'tryon.result_alt' | t }}" />
+          </div>
+
+          <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
+            <p>{{ 'tryon.error' | t }}</p>
+            <button type="button" class="aivastra-tryon__retry">
+              {{ 'tryon.try_again' | t }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{ 'tryon-widget.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'tryon-widget.js' | asset_url }}" defer></script>
+{%- endif -%}
+
+{% schema %}
+{
+  "name": "Try It On",
+  "target": "body",
+  "settings": [
+    {
+      "type": "text",
+      "id": "api_base",
+      "label": "API base URL",
+      "default": "https://app.aivastra.com"
+    },
+    {
+      "type": "text",
+      "id": "promo_text",
+      "label": "Promotional text above button"
+    },
+    {
+      "type": "text",
+      "id": "button_text",
+      "label": "Button text",
+      "default": "Try It On"
+    },
+    {
+      "type": "color",
+      "id": "text_color",
+      "label": "Text color",
+      "default": "#FFFFFF"
+    },
+    {
+      "type": "color",
+      "id": "button_color",
+      "label": "Button color",
+      "default": "#000000"
+    },
+    {
+      "type": "range",
+      "id": "border_radius",
+      "label": "Border radius",
+      "min": 0,
+      "max": 20,
+      "step": 1,
+      "unit": "px",
+      "default": 4
+    },
+    {
+      "type": "text",
+      "id": "placement_selector",
+      "label": "Insert button at CSS selector",
+      "info": "By default the button is placed near the Buy button. If it doesn't appear in the right spot on your theme, enter a different CSS selector here.",
+      "default": ".product-form"
+    },
+    {
+      "type": "select",
+      "id": "block_alignment",
+      "label": "Position within that element",
+      "options": [
+        { "value": "start", "label": "Start" },
+        { "value": "end", "label": "End" }
+      ],
+      "default": "start"
+    }
+  ]
+}
+{% endschema %}

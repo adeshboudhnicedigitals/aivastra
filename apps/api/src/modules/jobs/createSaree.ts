@@ -75,6 +75,7 @@ export async function createSareeJob(
         queueStream,
         watermark,
         creditsCharged: COST,
+        source: 'saree',
       })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, COST, newJob.id);
