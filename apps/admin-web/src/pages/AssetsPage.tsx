@@ -2,6 +2,7 @@ import type { Toast } from './assets/AssetsContext';
 import { AssetsProvider, useAssetsContext } from './assets/AssetsContext';
 import { BackgroundsTab } from './assets/BackgroundsTab';
 import { CatalogTab } from './assets/CatalogTab';
+import { CatalogueTemplatesTab } from './assets/CatalogueTemplatesTab';
 import { FacesTab } from './assets/FacesTab';
 import { GarmentTypesTab } from './assets/GarmentTypesTab';
 import { PoseAssetsTab } from './assets/PoseAssetsTab';
@@ -47,7 +48,7 @@ function AssetsShell() {
       {activeTab === 'garment-types' && <GarmentTypesTab />}
       {activeTab === 'pose-assets' && <PoseAssetsTab />}
       {(activeTab === 'lower' || activeTab === 'shoe') && <CatalogTab />}
-      {activeTab === 'catalogue-templates' && <div>Templates</div>}
+      {activeTab === 'catalogue-templates' && <CatalogueTemplatesTab />}
 
       {previewUrl && (
         <div
