@@ -85,19 +85,7 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
       mc mb --ignore-existing local/${R2_BUCKET} &&
-      OLD_IFS=\"$$IFS\" &&
-      IFS=',' &&
-      set -- ${CORS_ORIGIN} &&
-      IFS=\"$$OLD_IFS\" &&
-      ORIGINS_JSON='' &&
-      for origin in \"$$@\"; do
-        while [ \"$${origin# }\" != \"$$origin\" ]; do origin=\"$${origin# }\"; done;
-        while [ \"$${origin% }\" != \"$$origin\" ]; do origin=\"$${origin% }\"; done;
-        [ -n \"$$origin\" ] || continue;
-        if [ -n \"$$ORIGINS_JSON\" ]; then ORIGINS_JSON=\"$$ORIGINS_JSON,\"; fi;
-        ORIGINS_JSON=\"$$ORIGINS_JSON\\\"$$origin\\\"\";
-      done &&
-      printf '{\"CORSRules\":[{\"AllowedOrigin\":[%s],\"AllowedMethod\":[\"GET\",\"PUT\",\"POST\",\"HEAD\"],\"AllowedHeader\":[\"*\"],\"ExposeHeader\":[\"ETag\"],\"MaxAgeSeconds\":3000}]}' \"$$ORIGINS_JSON\" > /tmp/cors.json &&
+      printf '{\"CORSRules\":[{\"AllowedOrigin\":[\"*\"],\"AllowedMethod\":[\"GET\",\"PUT\",\"POST\",\"HEAD\"],\"AllowedHeader\":[\"*\"],\"ExposeHeader\":[\"ETag\"],\"MaxAgeSeconds\":3000}]}' > /tmp/cors.json &&
       mc cors set local/${R2_BUCKET} /tmp/cors.json &&
       echo 'minio bucket ready: ${R2_BUCKET}'
       "
