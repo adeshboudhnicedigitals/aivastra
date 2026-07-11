@@ -23,16 +23,6 @@ export function AppShell({ children, shopDomain }: { children: ReactNode; shopDo
           background: 'var(--p-color-bg-surface)',
         }}
       >
-        <div
-          style={{
-            width: '22px',
-            height: '22px',
-            borderRadius: '6px',
-            marginRight: '16px',
-            background:
-              'linear-gradient(135deg, var(--p-color-bg-fill-brand), var(--p-color-bg-fill-brand-hover))',
-          }}
-        />
         {NAV_ITEMS.map((item) => {
           const active = location.pathname === item.to;
           return (

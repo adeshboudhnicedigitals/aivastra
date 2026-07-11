@@ -351,4 +351,43 @@ describe('syncProduct', () => {
     expect(after.funnelTemplateId).toBe(manualTemplate.id);
     expect(after.funnelAssignmentSource).toBe('manual');
   });
+
+  it('persists collections and auto-assigns a funnel via a collections rule', async () => {
+    const [template] = await app.db
+      .insert(schema.shopifyFunnelTemplates)
+      .values({ slug: 'collections-test', label: 'Collections', workflowTemplateId })
+      .returning();
+    await app.db.insert(schema.shopifyFunnelRules).values({
+      storeId,
+      funnelTemplateId: template.id,
+      mode: 'automated',
+      conditions: [{ field: 'collections', operator: 'equals', value: 'Summer Sale' }],
+      priority: 0,
+    });
+
+    await syncProduct(
+      app,
+      storeId,
+      {
+        id: 504,
+        title: 'Summer Shirt',
+        image: { src: 'https://cdn.shopify.com/shirt4.jpg' },
+        collections: ['Summer Sale', 'New Arrivals'],
+      },
+      mockFetch,
+    );
+
+    const [row] = await app.db
+      .select()
+      .from(schema.shopifyProductGarments)
+      .where(
+        and(
+          eq(schema.shopifyProductGarments.storeId, storeId),
+          eq(schema.shopifyProductGarments.shopifyProductId, 504),
+        ),
+      );
+    expect(row.collections).toEqual(['Summer Sale', 'New Arrivals']);
+    expect(row.funnelTemplateId).toBe(template.id);
+    expect(row.funnelAssignmentSource).toBe('automated');
+  });
 });

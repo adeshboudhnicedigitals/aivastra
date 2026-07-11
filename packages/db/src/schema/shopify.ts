@@ -21,7 +21,7 @@ export interface ShopifyStoreSettings {
 }
 
 export interface FunnelRuleCondition {
-  field: 'product_type' | 'tags' | 'vendor';
+  field: 'product_type' | 'tags' | 'vendor' | 'collections';
   operator: 'equals' | 'contains';
   value: string;
 }
@@ -96,6 +96,7 @@ export const shopifyProductGarments = pgTable(
     productType: text('product_type'),
     tags: text('tags').array(),
     vendor: text('vendor'),
+    collections: text('collections').array(),
     syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { resolveFunnelTemplateId } from './funnel-rules.js';
 
 const ConditionSchema = z.object({
-  field: z.enum(['product_type', 'tags', 'vendor']),
+  field: z.enum(['product_type', 'tags', 'vendor', 'collections']),
   operator: z.enum(['equals', 'contains']),
   value: z.string().min(1),
 });
@@ -108,6 +108,7 @@ export async function shopifyFunnelRoutes(app: FastifyInstance) {
           productType: existing.productType,
           tags: existing.tags,
           vendor: existing.vendor,
+          collections: existing.collections,
         });
         await app.db
           .update(schema.shopifyProductGarments)
@@ -145,6 +146,7 @@ export async function shopifyFunnelRoutes(app: FastifyInstance) {
           productType: p.productType,
           tags: p.tags,
           vendor: p.vendor,
+          collections: p.collections,
         });
         await app.db
           .update(schema.shopifyProductGarments)

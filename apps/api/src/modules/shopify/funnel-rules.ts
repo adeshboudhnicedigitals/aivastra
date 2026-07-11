@@ -6,6 +6,7 @@ export interface ProductAttributes {
   productType: string | null;
   tags: string[] | null;
   vendor: string | null;
+  collections: string[] | null;
 }
 
 export function matchesConditions(
@@ -16,6 +17,9 @@ export function matchesConditions(
   return conditions.every((cond) => {
     if (cond.field === 'tags') {
       return (product.tags ?? []).includes(cond.value);
+    }
+    if (cond.field === 'collections') {
+      return (product.collections ?? []).includes(cond.value);
     }
     const fieldValue = cond.field === 'product_type' ? product.productType : product.vendor;
     if (fieldValue == null) return false;

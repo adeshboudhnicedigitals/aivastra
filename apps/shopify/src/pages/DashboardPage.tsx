@@ -16,6 +16,45 @@ import { apiFetch } from '../lib/api';
 import { STATUS_DOT_COLOR } from '../lib/statusColors';
 import type { ShopifyMe, ShopifyOnboardingConfirmResponse } from '../types';
 
+function ChevronDownIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+        transition: 'transform 150ms ease',
+      }}
+      aria-hidden="true"
+    >
+      <title>{expanded ? 'Collapse' : 'Expand'}</title>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function StepDot({ done }: { done: boolean }) {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        width: '8px',
+        height: '8px',
+        borderRadius: '50%',
+        background: done ? STATUS_DOT_COLOR.active : STATUS_DOT_COLOR.disabled,
+        flexShrink: 0,
+      }}
+    />
+  );
+}
+
 function StatusDotRow({
   label,
   count,
@@ -52,6 +91,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -114,9 +154,11 @@ export default function DashboardPage() {
   const themeBlockDone = me?.store.settings.themeBlockConfirmed ?? false;
   const funnelConfigured = me?.stats.funnelConfigured ?? false;
   const doneCount = [synced, enabled, themeBlockDone, funnelConfigured].filter(Boolean).length;
+  const allDone = doneCount === 4;
+  const collapsed = allDone && !expanded;
 
   return (
-    <Page title="Home" subtitle={me?.store.shopDomain}>
+    <Page title="Home" subtitle="Your AiVastra try-on overview">
       <Layout>
         <Layout.Section>
           {error && (
@@ -127,45 +169,92 @@ export default function DashboardPage() {
 
           <Card>
             <BlockStack gap="300">
-              <InlineStack align="space-between">
+              <InlineStack align="space-between" blockAlign="center">
                 <Text as="h2" variant="headingMd">
                   Getting Started
                 </Text>
-                <Badge tone={doneCount === 4 ? 'success' : 'info'}>{`${doneCount}/4`}</Badge>
+                <InlineStack gap="200" blockAlign="center">
+                  <Badge tone={allDone ? 'success' : 'info'}>{`${doneCount}/4`}</Badge>
+                  {allDone && (
+                    <button
+                      type="button"
+                      onClick={() => setExpanded((v) => !v)}
+                      aria-label={expanded ? 'Hide details' : 'Show details'}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        border: 'none',
+                        background: 'transparent',
+                        padding: '2px',
+                        cursor: 'pointer',
+                        color: 'var(--p-color-text-secondary)',
+                      }}
+                    >
+                      <ChevronDownIcon expanded={expanded} />
+                    </button>
+                  )}
+                </InlineStack>
               </InlineStack>
 
-              <InlineStack align="space-between">
-                <Text as="p">{synced ? '✅' : '⭕'} Sync your products</Text>
-                <Button
-                  onClick={syncProducts}
-                  loading={syncing}
-                  disabled={synced}
-                  variant="primary"
-                >
-                  Sync products now
-                </Button>
-              </InlineStack>
+              {!collapsed && (
+                <>
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="200" blockAlign="center">
+                      <StepDot done={synced} />
+                      <Text as="p">Sync your products</Text>
+                    </InlineStack>
+                    <div style={{ width: '180px', flexShrink: 0 }}>
+                      <Button
+                        onClick={syncProducts}
+                        loading={syncing}
+                        disabled={synced}
+                        variant="primary"
+                        fullWidth
+                      >
+                        Sync products now
+                      </Button>
+                    </div>
+                  </InlineStack>
 
-              <InlineStack align="space-between">
-                <Text as="p">{enabled ? '✅' : '⭕'} Enable try-on on a product</Text>
-                <Button onClick={() => navigate('/products')}>Go to Products</Button>
-              </InlineStack>
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="200" blockAlign="center">
+                      <StepDot done={enabled} />
+                      <Text as="p">Enable try-on on a product</Text>
+                    </InlineStack>
+                    <div style={{ width: '180px', flexShrink: 0 }}>
+                      <Button onClick={() => navigate('/products')} fullWidth>
+                        Go to Products
+                      </Button>
+                    </div>
+                  </InlineStack>
 
-              <InlineStack align="space-between">
-                <Text as="p">
-                  {themeBlockDone ? '✅' : '⭕'} Add the Try It On block to your theme
-                </Text>
-                {!themeBlockDone && (
-                  <Button onClick={confirmThemeBlock} loading={confirming}>
-                    I've added it
-                  </Button>
-                )}
-              </InlineStack>
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="200" blockAlign="center">
+                      <StepDot done={themeBlockDone} />
+                      <Text as="p">Add the Try It On block to your theme</Text>
+                    </InlineStack>
+                    {!themeBlockDone && (
+                      <div style={{ width: '180px', flexShrink: 0 }}>
+                        <Button onClick={confirmThemeBlock} loading={confirming} fullWidth>
+                          I've added it
+                        </Button>
+                      </div>
+                    )}
+                  </InlineStack>
 
-              <InlineStack align="space-between">
-                <Text as="p">{funnelConfigured ? '✅' : '⭕'} Set up your funnel templates</Text>
-                <Button onClick={() => navigate('/funnel-setup')}>Go to Funnel Setup</Button>
-              </InlineStack>
+                  <InlineStack align="space-between" blockAlign="center">
+                    <InlineStack gap="200" blockAlign="center">
+                      <StepDot done={funnelConfigured} />
+                      <Text as="p">Set up your funnel templates</Text>
+                    </InlineStack>
+                    <div style={{ width: '180px', flexShrink: 0 }}>
+                      <Button onClick={() => navigate('/funnel-setup')} fullWidth>
+                        Go to Funnel Setup
+                      </Button>
+                    </div>
+                  </InlineStack>
+                </>
+              )}
             </BlockStack>
           </Card>
 
@@ -221,20 +310,6 @@ export default function DashboardPage() {
                 flexDirection: 'column',
               }}
             >
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: '3px',
-                  background:
-                    'linear-gradient(90deg, var(--p-color-bg-fill-brand), var(--p-color-bg-fill-brand-hover))',
-                  borderTopLeftRadius: 'var(--p-border-radius-300)',
-                  borderTopRightRadius: 'var(--p-border-radius-300)',
-                  zIndex: 1,
-                }}
-              />
               <div style={{ flex: 1, display: 'grid' }}>
                 <Card>
                   <BlockStack gap="200">

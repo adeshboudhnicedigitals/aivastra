@@ -19,6 +19,7 @@ const FIELD_OPTIONS = [
   { label: 'Product type', value: 'product_type' },
   { label: 'Tags', value: 'tags' },
   { label: 'Vendor', value: 'vendor' },
+  { label: 'Collections', value: 'collections' },
 ];
 const OPERATOR_OPTIONS = [
   { label: 'Equals', value: 'equals' },
@@ -142,49 +143,55 @@ export default function FunnelSetupPage() {
                     <Text as="h2" variant="headingMd">
                       {item.label}
                     </Text>
-                    <Select
-                      label="Mode"
-                      labelHidden
-                      options={[
-                        { label: 'Manual', value: 'manual' },
-                        { label: 'Automated', value: 'automated' },
-                      ]}
-                      value={item.rule.mode}
-                      onChange={(mode) =>
-                        updateLocalRule(item.id, {
-                          ...item.rule,
-                          mode: mode as 'manual' | 'automated',
-                        })
-                      }
-                    />
+                    <div style={{ width: '160px' }}>
+                      <Select
+                        label="Mode"
+                        labelHidden
+                        options={[
+                          { label: 'Manual', value: 'manual' },
+                          { label: 'Automated', value: 'automated' },
+                        ]}
+                        value={item.rule.mode}
+                        onChange={(mode) =>
+                          updateLocalRule(item.id, {
+                            ...item.rule,
+                            mode: mode as 'manual' | 'automated',
+                          })
+                        }
+                      />
+                    </div>
                   </InlineStack>
 
                   {item.rule.mode === 'automated' && (
                     <BlockStack gap="200">
                       {item.rule.conditions.map((cond, index) => (
                         <InlineStack key={index} gap="200">
-                          <Select
-                            label="Field"
-                            labelHidden
-                            options={FIELD_OPTIONS}
-                            value={cond.field}
-                            onChange={(field) =>
-                              updateCondition(item, index, {
-                                field: field as FunnelRuleCondition['field'],
-                              })
-                            }
-                          />
-                          <Select
-                            label="Operator"
-                            labelHidden
-                            options={OPERATOR_OPTIONS}
-                            value={cond.operator}
-                            onChange={(operator) =>
-                              updateCondition(item, index, {
-                                operator: operator as FunnelRuleCondition['operator'],
-                              })
-                            }
-                          />
+                          <div style={{ width: '180px' }}>
+                            <Select
+                              label="Field"
+                              labelHidden
+                              options={FIELD_OPTIONS}
+                              value={cond.field}
+                              onChange={(field) =>
+                                updateCondition(item, index, {
+                                  field: field as FunnelRuleCondition['field'],
+                                })
+                              }
+                            />
+                          </div>
+                          <div style={{ width: '140px' }}>
+                            <Select
+                              label="Operator"
+                              labelHidden
+                              options={OPERATOR_OPTIONS}
+                              value={cond.operator}
+                              onChange={(operator) =>
+                                updateCondition(item, index, {
+                                  operator: operator as FunnelRuleCondition['operator'],
+                                })
+                              }
+                            />
+                          </div>
                           <TextField
                             label="Value"
                             labelHidden
