@@ -214,7 +214,7 @@ services:
     container_name: aivastra-prod-shopify-admin
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3002:80"
+      - "127.0.0.1:3003:80"
     networks:
       - aivastra-net
 
