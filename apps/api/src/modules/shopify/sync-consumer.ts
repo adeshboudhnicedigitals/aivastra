@@ -17,7 +17,7 @@ type XReadGroupResult = Array<[string, Array<[string, string[]]>]> | null;
 
 async function ensureGroup(app: FastifyInstance): Promise<void> {
   try {
-    await app.redis.xgroup('CREATE', STREAM, GROUP, '$', 'MKSTREAM');
+    await app.redisBlocking.xgroup('CREATE', STREAM, GROUP, '$', 'MKSTREAM');
     app.log.info({ stream: STREAM, group: GROUP }, 'shopify:sync consumer group created');
   } catch (err: unknown) {
     // BUSYGROUP = group already exists, safe to ignore
@@ -48,7 +48,7 @@ export function startSyncConsumer(app: FastifyInstance): () => void {
     await ensureGroup(app);
     while (running) {
       try {
-        const result = (await app.redis.xreadgroup(
+        const result = (await app.redisBlocking.xreadgroup(
           'GROUP',
           GROUP,
           consumer,
@@ -69,7 +69,7 @@ export function startSyncConsumer(app: FastifyInstance): () => void {
         const raw = taskIdx !== -1 ? fields[taskIdx + 1] : undefined;
         if (!raw) {
           app.log.warn({ messageId }, 'shopify:sync message missing task field — acking, skipping');
-          await app.redis.xack(STREAM, GROUP, messageId);
+          await app.redisBlocking.xack(STREAM, GROUP, messageId);
           continue;
         }
 
@@ -83,7 +83,7 @@ export function startSyncConsumer(app: FastifyInstance): () => void {
           app.log.error({ err, messageId, raw }, 'shopify:sync task failed');
         }
 
-        await app.redis.xack(STREAM, GROUP, messageId);
+        await app.redisBlocking.xack(STREAM, GROUP, messageId);
       } catch (err) {
         app.log.error({ err }, 'shopify:sync consumer loop error — resuming');
         await new Promise((resolve) => setTimeout(resolve, 1000));
