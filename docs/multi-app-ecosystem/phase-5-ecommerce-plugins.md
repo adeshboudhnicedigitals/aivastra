@@ -1,3 +1,5 @@
+> ⚠️ **SUPERSEDED — depends on Phase 2's merchant portal, which no longer exists.** `apps/merchant-web` was deleted entirely on 2026-07-10 (see `phase-2-merchant-portal.md`'s banner and `docs/multi-app-ecosystem/README.md`). This phase's Integrations page and Connect/Disconnect flow assumed that portal as their host. Never implemented. Kept as historical record only — **do not hand this file to Codex.** If Shopify/Wix plugins are revisited, the design needs re-deriving against the current `merchants`-table identity model, not this file.
+
 # Phase 5 — E-commerce Platform Plugins (Shopify, Wix)
 
 > Part of the [Multi-App Ecosystem Plan](../multi-app-ecosystem-plan.md) (`docs/multi-app-ecosystem-plan.md`, §10). This document is self-contained — implement from this file directly.

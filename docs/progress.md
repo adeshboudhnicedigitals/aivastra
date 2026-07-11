@@ -1,3 +1,100 @@
+## 2026-07-11 - Admin User Recent Activity Cleanup
+
+### Done
+- Replaced the static recent-jobs table with a compact latest-five activity list showing job type, status, credits, creation time, and duration.
+- Made each activity row open its job directly on the Jobs page and added a View all jobs action filtered by user email.
+- Extended admin navigation state and Jobs page loading to support opening a requested job ID.
+- Fixed the user-detail API's totalJobs value so it uses an independent count query instead of the limited recent-jobs array length.
+- Reduced the user-detail recent-jobs query from 20 rows to the five rows rendered by the UI.
+- Verified API typecheck, admin production build, Biome, and scoped whitespace checks.
+
+### Failed / Not Done
+- Database-backed integration tests were not run because local PostgreSQL is unavailable on 127.0.0.1:5433.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-11 - Admin User Plan and Device Card Actions
+
+### Done
+- Removed the duplicated Plan & usage limits section from the admin user detail page.
+- Made the Current plan and Device limit summary cards actionable, matching the existing Credit balance card interaction pattern.
+- Removed the duplicate header-level Adjust credits button and added the same explicit action affordance directly to the Credit balance card.
+- Added focused edit dialogs that reuse the existing user PATCH handlers, tier options, device validation, loading states, and list/detail state synchronization.
+- Allowed Account details to occupy the full row after removing the settings card.
+- Verified the updated page with Biome, git diff whitespace checks, and a successful admin production build.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-10 - Merchant Legacy Field/App Cleanup
+
+### Done
+- Confirmed via grep across `apps/dispatcher` and all kiosk/widget job-processing code that `merchants.websiteUrl`, `companySize`, and `purpose` have zero operational usage anywhere — purely cosmetic admin/profile fields. Removed all three: dropped the DB columns (migration `0099_broad_betty_ross.sql`, applied to dev), removed from `packages/types/src/widget.ts` (`MerchantSignup`, `MerchantProfileUpdate`, `AdminMerchantUpdateBody`), and removed every reference in `apps/api/src/modules/merchant/routes.ts`, `apps/api/src/modules/admin/merchants.routes.ts`, `apps/api/src/modules/admin/users.routes.ts`, `apps/admin-web/src/types.ts`, and `apps/admin-web/src/pages/UsersPage.tsx`.
+- Deleted `apps/merchant-web` entirely (whole app directory) — its self-serve signup/login/portal model was superseded by the admin-granted `merchants`-table identity now in use, and it had no remaining production deployment (already dropped from `infra/docker-compose.prod.yml` earlier). Had to stop its locally-running `next dev` process first (still ran under `pnpm dev` despite not being containerized).
+- Regenerated `pnpm-lock.yaml` (`pnpm install`) and confirmed the full workspace (10 remaining projects, `admin-mobile` excluded) typechecks clean, `apps/admin-web` builds clean.
+- Found and fixed a genuine migration gap while applying `0099`: it got recorded as "applied" without actually running, because an unrelated statement earlier in the same transaction (`pose_garment_configs.is_active`, pre-existing pending drift from an earlier commit, unrelated to this work) hit an "already exists" error and silently aborted the rest of the transaction. Manually applied the `merchants` column drops directly, then confirmed `drizzle-kit generate` reports zero remaining schema drift.
+- Deleted `apps/admin-web/src/pages/UsersPage.bak.tsx` — an unused leftover backup file that was breaking the build with stale type references to the removed columns.
+- Removed `MerchantCatalogGender` (`packages/types/src/widget.ts`) — a zod enum kept exported for one reason only ("so `apps/merchant-web`'s dead-but-compiling code has nothing broken to point at", per `docs/superpowers/plans/2026-07-09-merchant-catalogue-manager-backend.md`); confirmed zero remaining usages anywhere now that the app is gone.
+- Marked `docs/multi-app-ecosystem/phase-2-merchant-portal.md` and `phase-5-ecommerce-plugins.md` as superseded (banner + status table + master-plan doc updates), following the same historical-record treatment already used for the abandoned Phase 3/3b docs. Phase 1 (admin subdomain) is unaffected and stays `Done`.
+- Removed the now-orphaned self-serve merchant auth routes entirely: deleted `apps/api/src/modules/merchant/routes.ts` (`POST /v1/merchant/signup`/`login`/`refresh`/`logout`, `GET/PATCH /v1/merchant/me`, `GET /v1/merchant/jobs`, and the `createMerchantSessionTokens` helper) — confirmed zero frontend consumers anywhere (catalogues-web, admin-web, kiosk/mobile app) for every route in the file, including `/me` and `/jobs` despite those being gated by the still-live `requireMerchant`. Unregistered `merchantRoutes` from `apps/api/src/server.ts`. Removed the now-dead `MerchantSignup`, `MerchantLogin`, `MerchantProfileUpdate`, `MerchantRefreshBody` zod schemas from `packages/types/src/widget.ts` (confirmed no other consumers). Left `apps/api/src/modules/merchant/user-link.ts` (`findOrCreateUserForMerchant`) in place — still actively used by the admin-grant flow in `merchants.routes.ts`. Left the generic `RefreshOwnerType = 'user' | 'kioskDevice' | 'merchant'` union and `refreshTokens.merchantId` DB column alone — shared infrastructure, inert now but not worth the blast radius of touching for this cleanup.
+- Stripped the stale `https://merchant.aivastra.com` entry from `.env.production.example`'s `CORS_ORIGIN`.
+
+### Failed / Not Done
+- Killing merchant-web's locally-running `next dev` process (to unlock the directory for deletion) brought down the user's entire `pnpm dev` process group as a side effect — they had to restart it themselves.
+- Did not touch the real (non-example) production `.env` on the VPS — that's the user's own file to update; `.env.production.example` is just the template.
+
+## 2026-07-10 - Admin Users UI Screenshot Corrections
+
+### Done
+- Reworked the users directory into a compact account table with clearer access, plan, credits, activity, and status columns.
+- Rebuilt the user profile hierarchy with a restrained identity header, four aligned summary metrics, purpose-based account controls, merchant access, account facts, and recent activity.
+- Corrected issues found in the rendered screenshot: custom-styled select controls, container-aware responsive stacking, a compact merchant empty state, stable user-ID presentation, and removal of unavailable OAuth admin actions.
+- Fixed the users-page root flex item to explicitly occupy the full admin content width; the previous auto-margin sizing shrink-wrapped the page and pushed the table off-canvas.
+- Preserved user search, merchant filtering, sorting, pagination, credit adjustment, plan/device updates, admin and suspension actions, merchant management, and recent-job data.
+- Verified the page with Biome and a full production build using pnpm --filter @aivastra/admin build.
+
+### Failed / Not Done
+- No browser automation is configured in this workspace, so final visual verification depends on reloading the active admin dev page.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-10 - Admin-web Users Page Redesign
+
+### Done
+- Redesigned the `apps/admin-web/src/pages/UsersPage.tsx` UI from scratch to achieve an "ultra-premium, simple, and clean" aesthetic.
+- Introduced scoped CSS via an injected `<style>` block to elevate the visual execution without disrupting the shared `tokens.css` design system.
+- Replaced the card-heavy list and detail views with highly refined styling: removed heavy table borders, used tabular numerals for stats, implemented a sleek "Hero" header, and rebuilt form controls to be much more minimalist and cohesive.
+- Verified that all existing functionality (list searching/filtering, pagination, detailed user view, tier/device limit updates, adjusting credits, granting/revoking admin access, suspending users, and merchant access toggles) is fully preserved.
+- Resolved all linter formatting errors with `npx biome check --write` and safely persisted the existing `autoFocus` property.
+- Verified `pnpm --filter @aivastra/admin build` passes cleanly.
+
+### Failed / Not Done
+- Did not modify `apps/admin-web/src/styles/tokens.css` to avoid unverified regressions across other admin pages; the redesign strictly scopes enhancements to `UsersPage.tsx`.
+
+### Open Questions / Decisions
+- The list-view sorting remains client-side only (within the current 20-row page limit), preserving the pre-existing limitation as extending the backend for global sorting was out of scope for a presentation-layer redesign.
+- Opted to build custom, highly-polished `.clean-card` and `.premium-table` styling locally to achieve an ultra-modern aesthetic, as generic `tokens.css` utility classes alone were insufficient to meet the "premium" requirement.
+
+## 2026-07-10 - Migration State Check
+
+### Done
+- Checked the active local Docker Postgres database at 127.0.0.1:5433 against packages/db/src/migrations/meta/_journal.json.
+- Confirmed latest expected migration 0098_drop_widget_workflow_type is recorded as applied.
+- Found two current migration hashes missing from drizzle.__drizzle_migrations: 0088_pose_garment_configs_is_active and 0094_merchant_identity_unification.
+- Verified 0088 has an active schema gap: pose_garment_configs.is_active is absent even though current code references it.
+- Verified 0094 targets widget_clients, which is absent in the current DB, so it appears superseded/moot for this local schema.
+
+### Failed / Not Done
+- Did not run pnpm db:migrate; this was a check-only pass.
+
+### Open Questions / Decisions
+- Run pnpm db:migrate to apply 0088 and record the superseded 0094 hash when ready.
+
 ## 2026-07-10 - Catalogue Manager Backend Wiring + Try-On Filtering Follow-ups
 
 ### Done
@@ -2475,9 +2572,4 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
-
-
-
-
-
 
