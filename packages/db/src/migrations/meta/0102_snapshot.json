@@ -1,6 +1,6 @@
 {
-  "id": "1068610f-b024-43ed-8829-e50913353418",
-  "prevId": "90451be1-96b0-4fbd-aa11-0bd34d285bac",
+  "id": "90451be1-96b0-4fbd-aa11-0bd34d285bac",
+  "prevId": "92e1ca34-711a-4718-8887-36a560aecfd2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3753,12 +3753,6 @@
         "vendor": {
           "name": "vendor",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "collections": {
-          "name": "collections",
-          "type": "text[]",
           "primaryKey": false,
           "notNull": false
         },
