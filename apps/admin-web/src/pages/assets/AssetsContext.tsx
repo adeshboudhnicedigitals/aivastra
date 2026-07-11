@@ -11,7 +11,14 @@ import type {
   WorkflowOption,
 } from '../../types';
 
-export type AssetTab = 'garment-types' | 'faces' | 'backgrounds' | 'lower' | 'shoe' | 'pose-assets';
+export type AssetTab =
+  | 'garment-types'
+  | 'faces'
+  | 'backgrounds'
+  | 'lower'
+  | 'shoe'
+  | 'pose-assets'
+  | 'catalogue-templates';
 export type GenderFilter = 'all' | GenderSlug;
 
 const VALID_TABS: AssetTab[] = [
@@ -21,6 +28,7 @@ const VALID_TABS: AssetTab[] = [
   'lower',
   'shoe',
   'pose-assets',
+  'catalogue-templates',
 ];
 
 export type Toast = (t: { kind?: 'error'; title: string; body?: string }) => void;

@@ -18,6 +18,7 @@ const TABS = [
   { k: 'pose-assets' as const, l: 'Pose Assets' },
   { k: 'lower' as const, l: 'Lower garments' },
   { k: 'shoe' as const, l: 'Shoes' },
+  { k: 'catalogue-templates' as const, l: 'Templates' },
 ];
 
 function AssetsShell() {
@@ -46,6 +47,7 @@ function AssetsShell() {
       {activeTab === 'garment-types' && <GarmentTypesTab />}
       {activeTab === 'pose-assets' && <PoseAssetsTab />}
       {(activeTab === 'lower' || activeTab === 'shoe') && <CatalogTab />}
+      {activeTab === 'catalogue-templates' && <div>Templates</div>}
 
       {previewUrl && (
         <div
