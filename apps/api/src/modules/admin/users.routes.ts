@@ -10,6 +10,7 @@ const PaginatedSearch = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
+  merchant: z.coerce.boolean().optional(),
 });
 
 export async function adminUsersRoutes(app: FastifyInstance) {
@@ -20,16 +21,22 @@ export async function adminUsersRoutes(app: FastifyInstance) {
     '/admin/users',
     { preHandler: ALL, schema: { querystring: PaginatedSearch } },
     async (req) => {
-      const { page, pageSize, search } = req.query as z.infer<typeof PaginatedSearch>;
+      const { page, pageSize, search, merchant } = req.query as z.infer<typeof PaginatedSearch>;
 
-      const where = search
+      const searchWhere = search
         ? or(
             ilike(schema.users.email, `%${search}%`),
             ilike(schema.users.displayName, `%${search}%`),
           )
         : undefined;
+      const where =
+        merchant === true ? and(searchWhere, isNotNull(schema.merchants.id)) : searchWhere;
 
-      const [{ total }] = await app.db.select({ total: count() }).from(schema.users).where(where);
+      const [{ total }] = await app.db
+        .select({ total: count() })
+        .from(schema.users)
+        .leftJoin(schema.merchants, eq(schema.merchants.userId, schema.users.id))
+        .where(where);
 
       const rows = await app.db
         .select({
@@ -49,13 +56,20 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           isAdmin: isNotNull(schema.adminUsers.id),
           adminRole: schema.adminUsers.role,
           hasPassword: isNotNull(schema.users.passwordHash),
+          isMerchant: isNotNull(schema.merchants.id),
         })
         .from(schema.users)
         .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.users.id))
         .leftJoin(schema.jobs, eq(schema.jobs.userId, schema.users.id))
         .leftJoin(schema.adminUsers, eq(schema.adminUsers.userId, schema.users.id))
+        .leftJoin(schema.merchants, eq(schema.merchants.userId, schema.users.id))
         .where(where)
-        .groupBy(schema.users.id, schema.userCredits.balance, schema.adminUsers.id)
+        .groupBy(
+          schema.users.id,
+          schema.userCredits.balance,
+          schema.adminUsers.id,
+          schema.merchants.id,
+        )
         .orderBy(desc(schema.users.createdAt))
         .limit(pageSize)
         .offset((page - 1) * pageSize);
@@ -95,20 +109,51 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .select()
         .from(schema.userCredits)
         .where(eq(schema.userCredits.userId, id));
-      const jobs = await app.db
+      const [merchantRow] = await app.db
         .select({
-          id: schema.jobs.id,
-          status: schema.jobs.status,
-          createdAt: schema.jobs.createdAt,
-          startedAt: schema.jobs.startedAt,
-          completedAt: schema.jobs.completedAt,
-          creditsCharged: schema.jobs.creditsCharged,
+          id: schema.merchants.id,
+          companyName: schema.merchants.companyName,
+          contactName: schema.merchants.contactName,
+          phone: schema.merchants.phone,
+          businessAddress: schema.merchants.businessAddress,
+          isActive: schema.merchants.isActive,
+          kioskEnabled: schema.merchants.kioskEnabled,
+          maxKioskDevices: schema.merchants.maxKioskDevices,
+          creditBalance: schema.merchantCredits.balance,
         })
-        .from(schema.jobs)
-        .where(eq(schema.jobs.userId, id))
-        .orderBy(desc(schema.jobs.createdAt))
-        .limit(20);
-      return { ...user, balance: credits?.balance ?? 0, totalJobs: jobs.length, recentJobs: jobs };
+        .from(schema.merchants)
+        .leftJoin(
+          schema.merchantCredits,
+          eq(schema.merchantCredits.merchantId, schema.merchants.id),
+        )
+        .where(eq(schema.merchants.userId, id));
+      const [[jobsCount], jobs] = await Promise.all([
+        app.db.select({ total: count() }).from(schema.jobs).where(eq(schema.jobs.userId, id)),
+        app.db
+          .select({
+            id: schema.jobs.id,
+            status: schema.jobs.status,
+            createdAt: schema.jobs.createdAt,
+            startedAt: schema.jobs.startedAt,
+            completedAt: schema.jobs.completedAt,
+            creditsCharged: schema.jobs.creditsCharged,
+            jobType: sql<
+              'catalogue' | 'tryon' | 'widget'
+            >`CASE WHEN ${schema.jobs.merchantId} IS NOT NULL THEN 'widget' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
+          })
+          .from(schema.jobs)
+          .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+          .where(eq(schema.jobs.userId, id))
+          .orderBy(desc(schema.jobs.createdAt))
+          .limit(5),
+      ]);
+      return {
+        ...user,
+        balance: credits?.balance ?? 0,
+        totalJobs: jobsCount?.total ?? 0,
+        recentJobs: jobs,
+        merchant: merchantRow ?? null,
+      };
     },
   );
 
