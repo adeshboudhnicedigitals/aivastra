@@ -55,16 +55,8 @@ export async function createJob(
   userId: string,
   body: z.infer<typeof CreateTryOnJobRequest>,
 ) {
-  const {
-    faceId,
-    backgroundId,
-    poseIds,
-    garmentTypeId,
-    upperGarmentKey,
-    lowerCatalogId,
-    lowerGarmentKey,
-    shoeCatalogId,
-  } = body.inputs;
+  const { faceId, garmentTypeId, upperGarmentKey, lowerCatalogId, lowerGarmentKey, shoeCatalogId } =
+    body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
   const platform: string | undefined = body.platform;
 
@@ -103,35 +95,70 @@ export async function createJob(
   await assertOwnsUploadKey(app, userId, upperGarmentKey);
   if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
 
-  // Amazon platform requires a white background — override user selection with the
-  // background tagged as isWhiteBg in the admin panel.
-  let effectiveBackgroundId = backgroundId;
-  if (platform === 'Amazon') {
-    const [whiteBg] = await app.db
-      .select({ id: schema.modelBackgrounds.id })
-      .from(schema.modelBackgrounds)
-      .where(
-        and(
-          eq(schema.modelBackgrounds.isActive, true),
-          eq(schema.modelBackgrounds.isWhiteBg, true),
-        ),
-      )
-      .limit(1);
-    if (!whiteBg) {
-      throw new AppError(
-        'VALIDATION',
-        400,
-        'Amazon platform requires a white background to be configured',
-      );
-    }
-    effectiveBackgroundId = whiteBg.id;
-    app.log.info(
-      { originalBg: backgroundId, amazonBg: effectiveBackgroundId, platform },
-      'amazon bg override',
+  // Normalize to a single per-look list. Exactly one of (backgroundId + poseIds) or
+  // looks is present — enforced by CreateTryOnJobInputs's zod .refine() — but the
+  // check is repeated here since TS can't see that constraint through the optional
+  // fields on body.inputs.
+  const legacyBackgroundId = body.inputs.backgroundId;
+  const legacyPoseIds = body.inputs.poseIds;
+  const templateLooks = body.inputs.looks;
+  if (!templateLooks && !(legacyBackgroundId && legacyPoseIds)) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      'inputs must include either backgroundId+poseIds or looks',
     );
   }
 
-  const [face, background, poses] = await Promise.all([
+  let looks: Array<{ poseId: string; backgroundId: string }>;
+  if (templateLooks) {
+    // Per-look backgrounds are authoritative for templates — the Amazon white-bg
+    // override below must never run for this form.
+    looks = templateLooks;
+  } else {
+    // Amazon platform requires a white background — override the single shared
+    // background with the one tagged isWhiteBg in the admin panel. Only applies
+    // to the legacy form; template backgrounds are never overridden.
+    let effectiveBackgroundId = legacyBackgroundId as string;
+    if (platform === 'Amazon') {
+      const [whiteBg] = await app.db
+        .select({ id: schema.modelBackgrounds.id })
+        .from(schema.modelBackgrounds)
+        .where(
+          and(
+            eq(schema.modelBackgrounds.isActive, true),
+            eq(schema.modelBackgrounds.isWhiteBg, true),
+          ),
+        )
+        .limit(1);
+      if (!whiteBg) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          'Amazon platform requires a white background to be configured',
+        );
+      }
+      effectiveBackgroundId = whiteBg.id;
+      app.log.info(
+        { originalBg: legacyBackgroundId, amazonBg: effectiveBackgroundId, platform },
+        'amazon bg override',
+      );
+    }
+    looks = (legacyPoseIds as string[]).map((poseId) => ({
+      poseId,
+      backgroundId: effectiveBackgroundId,
+    }));
+  }
+
+  const dedupeKeys = new Set(looks.map((l) => `${l.poseId}::${l.backgroundId}`));
+  if (dedupeKeys.size !== looks.length) {
+    throw new AppError('VALIDATION', 400, 'duplicate pose+background combination in looks');
+  }
+
+  const distinctPoseIds = Array.from(new Set(looks.map((l) => l.poseId)));
+  const distinctBackgroundIds = Array.from(new Set(looks.map((l) => l.backgroundId)));
+
+  const [face, backgroundRows, poses] = await Promise.all([
     app.db
       .select({ id: schema.modelFaces.id })
       .from(schema.modelFaces)
@@ -141,7 +168,7 @@ export async function createJob(
       .from(schema.modelBackgrounds)
       .where(
         and(
-          eq(schema.modelBackgrounds.id, effectiveBackgroundId),
+          inArray(schema.modelBackgrounds.id, distinctBackgroundIds),
           eq(schema.modelBackgrounds.isActive, true),
         ),
       ),
@@ -150,7 +177,7 @@ export async function createJob(
       .from(schema.modelPoseAssets)
       .where(
         and(
-          inArray(schema.modelPoseAssets.id, poseIds),
+          inArray(schema.modelPoseAssets.id, distinctPoseIds),
           eq(schema.modelPoseAssets.isActive, true),
           isNull(schema.modelPoseAssets.deletedAt),
         ),
@@ -158,8 +185,9 @@ export async function createJob(
   ]);
 
   if (!face[0]) throw new AppError('BAD_CATALOG', 400, 'face not found or inactive');
-  if (!background[0]) throw new AppError('BAD_CATALOG', 400, 'background not found or inactive');
-  if (poses.length !== poseIds.length)
+  if (backgroundRows.length !== distinctBackgroundIds.length)
+    throw new AppError('BAD_CATALOG', 400, 'one or more backgrounds not found or inactive');
+  if (poses.length !== distinctPoseIds.length)
     throw new AppError('BAD_CATALOG', 400, 'one or more poses not found or inactive');
 
   // S6: validate optional catalog IDs so the dispatcher never silently falls back
@@ -236,7 +264,7 @@ export async function createJob(
       overrideWorkflow,
       eq(schema.poseGarmentConfigs.workflowTemplateId, overrideWorkflow.id),
     )
-    .where(inArray(schema.modelPoseAssets.id, poseIds));
+    .where(inArray(schema.modelPoseAssets.id, distinctPoseIds));
 
   // A per-garment-type active override can hide a pose for this garment type
   // specifically (see /v1/models/poses) — reject here too so a stale client can't
@@ -287,8 +315,8 @@ export async function createJob(
   const catalogueId = body.catalogueId ?? randomUUID();
   const jobIds = await app.db.transaction(async (tx) => {
     const created: string[] = [];
-    for (const poseId of poseIds) {
-      const pw = poseWorkflowMap.get(poseId);
+    for (const look of looks) {
+      const pw = poseWorkflowMap.get(look.poseId);
 
       // Only store inputs the workflow actually supports — strips irrelevant fields
       // so the dispatcher never receives/resolves data it won't use.
@@ -317,8 +345,8 @@ export async function createJob(
         jobId: job.id,
         upperGarmentKey,
         faceId,
-        backgroundId: effectiveBackgroundId,
-        poseId,
+        backgroundId: look.backgroundId,
+        poseId: look.poseId,
         garmentTypeId: garmentTypeId ?? null,
         lowerCatalogId: effectiveLowerCatalogId,
         lowerGarmentKey: effectiveLowerGarmentKey,
