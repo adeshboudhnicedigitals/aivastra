@@ -188,3 +188,39 @@ export const catalogItemSubcategories = pgTable(
     pk: primaryKey({ columns: [table.catalogItemId, table.subcategoryId] }),
   }),
 );
+
+export const catalogueTemplates = pgTable('catalogue_templates', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  genderSlug: text('gender_slug').notNull(), // 'men' | 'women' | 'boys' | 'girls'
+  label: text('label').notNull(),
+  thumbnailKey: text('thumbnail_key'),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// One (pose, background) pairing — a "look" — within a catalogue template. Pose/background
+// FKs are NO ACTION: both are soft-deleted (deletedAt / isActive=false), never hard-deleted,
+// so a look can never dangle from an actual row removal. A look whose pose or background has
+// been deactivated is filtered out at read time (GET /v1/models/catalogue-templates), not here.
+export const catalogueTemplateLooks = pgTable(
+  'catalogue_template_looks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => catalogueTemplates.id, { onDelete: 'cascade' }),
+    poseAssetId: uuid('pose_asset_id')
+      .notNull()
+      .references(() => modelPoseAssets.id),
+    backgroundId: uuid('background_id')
+      .notNull()
+      .references(() => modelBackgrounds.id),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (table) => ({
+    templateIdx: index('catalogue_template_looks_template_id_idx').on(table.templateId),
+  }),
+);
