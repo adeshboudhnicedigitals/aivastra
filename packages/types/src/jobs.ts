@@ -33,18 +33,37 @@ export function resolutionFromDims(width: number, height: number): Resolution {
 export const INPUT_GARMENT_KEY =
   /^inputs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/garment\.jpg$/;
 
-export const CreateTryOnJobRequest = z.object({
-  catalogueId: z.string().uuid().optional(),
-  inputs: z.object({
+export const CreateTryOnJobInputs = z
+  .object({
     upperGarmentKey: z.string().regex(INPUT_GARMENT_KEY),
     faceId: z.string().uuid(),
-    backgroundId: z.string().uuid(),
-    poseIds: z.array(z.string().uuid()).min(1).max(6),
+    // Legacy/custom form: a single shared background applied to every pose.
+    backgroundId: z.string().uuid().optional(),
+    poseIds: z.array(z.string().uuid()).min(1).max(6).optional(),
+    // Template form: each pose carries its own background. Exactly one of
+    // (backgroundId + poseIds) or looks must be provided — enforced below.
+    looks: z
+      .array(
+        z.object({
+          poseId: z.string().uuid(),
+          backgroundId: z.string().uuid(),
+        }),
+      )
+      .min(1)
+      .max(12)
+      .optional(),
     garmentTypeId: z.string().uuid().optional(),
     lowerCatalogId: z.string().uuid().optional(),
     lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
     shoeCatalogId: z.string().uuid().optional(),
-  }),
+  })
+  .refine((d) => Boolean(d.backgroundId && d.poseIds) !== Boolean(d.looks), {
+    message: 'Provide either (backgroundId + poseIds) or looks, not both',
+  });
+
+export const CreateTryOnJobRequest = z.object({
+  catalogueId: z.string().uuid().optional(),
+  inputs: CreateTryOnJobInputs,
   params: z
     .object({
       seedStage1: z.number().int().optional(),
