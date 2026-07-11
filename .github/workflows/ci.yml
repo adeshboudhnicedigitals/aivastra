@@ -89,6 +89,14 @@ jobs:
           pnpm --filter @aivastra/storage build
           pnpm --filter @aivastra/observability build
 
+      # Despite the "unit" name, apps/api's test:unit suite (everything outside
+      # test/integration/**) still hits real Postgres/Redis/MinIO via
+      # apps/api/test/helpers/containers.ts — same infra `pnpm docker:up` provides
+      # locally. No .env needed: every var here has a default baked into
+      # infra/docker-compose.yml matching containers.ts's own hardcoded defaults.
+      - name: Start test infra (Postgres, Redis, MinIO)
+        run: docker compose -f infra/docker-compose.yml up -d --wait postgres redis minio
+
       - name: Run dispatcher unit tests
         run: pnpm --filter @aivastra/dispatcher test:unit
 
