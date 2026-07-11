@@ -180,14 +180,19 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           genderSlug: z.string().optional(),
           categoryId: z.coerce.number().int().optional(),
           uncategorized: z.coerce.boolean().optional(),
+          // Default excludes template-scoped rows (they're managed only via the
+          // catalogue template that owns them) — pass scope=all to include them,
+          // e.g. for the Catalogue Templates tab's look-thumbnail lookups.
+          scope: z.enum(['general', 'template', 'all']).optional(),
         }),
       },
     },
     async (req) => {
-      const { genderSlug, categoryId, uncategorized } = req.query as {
+      const { genderSlug, categoryId, uncategorized, scope } = req.query as {
         genderSlug?: string;
         categoryId?: number;
         uncategorized?: boolean;
+        scope?: 'general' | 'template' | 'all';
       };
       const rows = await app.db
         .select()
@@ -198,6 +203,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             genderSlug ? eq(schema.modelBackgrounds.genderSlug, genderSlug) : undefined,
             categoryId ? eq(schema.modelBackgrounds.categoryId, categoryId) : undefined,
             uncategorized ? isNull(schema.modelBackgrounds.categoryId) : undefined,
+            scope === 'all' ? undefined : eq(schema.modelBackgrounds.scope, scope ?? 'general'),
           ),
         );
       return { items: rows };
@@ -239,6 +245,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         categoryId?: number | null;
         tags?: string[];
         specialTag?: string | null;
+        scope?: 'general' | 'template';
       };
       // If marking this background as white, unset all other backgrounds' isWhiteBg first
       if (body.isWhiteBg) {
@@ -266,6 +273,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           categoryId: body.categoryId ?? null,
           tags: body.tags ?? [],
           specialTag: body.specialTag ?? null,
+          scope: body.scope ?? 'general',
         })
         .returning();
       return row;
@@ -387,28 +395,48 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   // ── Pose Assets (centralised R2 object management) ───────────────────────
 
-  app.get('/admin/assets/pose-assets', { preHandler: RW }, async () => {
-    const rows = await app.db
-      .select({
-        id: schema.modelPoseAssets.id,
-        label: schema.modelPoseAssets.label,
-        r2Key: schema.modelPoseAssets.r2Key,
-        thumbnailKey: schema.modelPoseAssets.thumbnailKey,
-        genderSlug: schema.modelPoseAssets.genderSlug,
-        workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
-        promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
-        promptFacePhase: schema.modelPoseAssets.promptFacePhase,
-        poseVariant: schema.modelPoseAssets.poseVariant,
-        displayName: schema.modelPoseAssets.displayName,
-        isActive: schema.modelPoseAssets.isActive,
-        sortOrder: schema.modelPoseAssets.sortOrder,
-        createdAt: schema.modelPoseAssets.createdAt,
-      })
-      .from(schema.modelPoseAssets)
-      .where(isNull(schema.modelPoseAssets.deletedAt))
-      .orderBy(schema.modelPoseAssets.sortOrder, schema.modelPoseAssets.label);
-    return { items: rows };
-  });
+  app.get(
+    '/admin/assets/pose-assets',
+    {
+      preHandler: RW,
+      schema: {
+        querystring: z.object({
+          // Default excludes template-scoped rows (they're managed only via the
+          // catalogue template that owns them) — pass scope=all to include them,
+          // e.g. for the Catalogue Templates tab's look-thumbnail lookups.
+          scope: z.enum(['general', 'template', 'all']).optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { scope } = req.query as { scope?: 'general' | 'template' | 'all' };
+      const rows = await app.db
+        .select({
+          id: schema.modelPoseAssets.id,
+          label: schema.modelPoseAssets.label,
+          r2Key: schema.modelPoseAssets.r2Key,
+          thumbnailKey: schema.modelPoseAssets.thumbnailKey,
+          genderSlug: schema.modelPoseAssets.genderSlug,
+          workflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+          promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
+          promptFacePhase: schema.modelPoseAssets.promptFacePhase,
+          poseVariant: schema.modelPoseAssets.poseVariant,
+          displayName: schema.modelPoseAssets.displayName,
+          isActive: schema.modelPoseAssets.isActive,
+          sortOrder: schema.modelPoseAssets.sortOrder,
+          createdAt: schema.modelPoseAssets.createdAt,
+        })
+        .from(schema.modelPoseAssets)
+        .where(
+          and(
+            isNull(schema.modelPoseAssets.deletedAt),
+            scope === 'all' ? undefined : eq(schema.modelPoseAssets.scope, scope ?? 'general'),
+          ),
+        )
+        .orderBy(schema.modelPoseAssets.sortOrder, schema.modelPoseAssets.label);
+      return { items: rows };
+    },
+  );
 
   // Presign for a new pose asset image upload
   app.post(
@@ -458,6 +486,9 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           promptFacePhase: z.string().optional(),
           isActive: z.boolean().optional(),
           sortOrder: z.number().int().optional(),
+          // 'template' = uploaded from a catalogue template's looks builder — hidden
+          // from the admin Pose Assets tab and studio "create your own look".
+          scope: z.enum(['general', 'template']).optional(),
         }),
       },
     },
@@ -473,6 +504,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         promptFacePhase?: string;
         isActive?: boolean;
         sortOrder?: number;
+        scope?: 'general' | 'template';
       };
 
       const [inserted] = await app.db
@@ -488,6 +520,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           promptFacePhase: body.promptFacePhase ?? null,
           isActive: body.isActive ?? true,
           sortOrder: body.sortOrder ?? 0,
+          scope: body.scope ?? 'general',
         })
         .returning();
 

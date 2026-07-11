@@ -136,6 +136,9 @@ export const ConfirmModelBackgroundBody = z.object({
   categoryId: CoercedPositiveInt.nullable().optional(),
   tags: z.array(z.string().min(1).max(40)).max(20).optional(),
   specialTag: CategoryTag.nullable().optional(),
+  // 'template' = uploaded from a catalogue template's looks builder — hidden from the
+  // admin Backgrounds tab and studio "create your own look". Defaults to 'general'.
+  scope: z.enum(['general', 'template']).optional(),
 });
 export const PatchModelBackgroundBody = z.object({
   label: z.string().min(1).max(120).optional(),

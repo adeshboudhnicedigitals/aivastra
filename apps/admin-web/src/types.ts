@@ -27,6 +27,7 @@ export interface ModelBackground {
   isWhiteBg: boolean;
   sortOrder: number;
   genderSlug: string | null;
+  scope: 'general' | 'template';
   deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -283,6 +284,7 @@ export interface ModelPoseAsset {
   promptGarmentPhase: string | null;
   promptFacePhase: string | null;
   poseVariant: string | null;
+  scope: 'general' | 'template';
   isActive: boolean;
   sortOrder: number;
   deletedAt: string | null;

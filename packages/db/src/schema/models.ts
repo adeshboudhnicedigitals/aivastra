@@ -38,6 +38,10 @@ export const modelBackgrounds = pgTable('model_backgrounds', {
   tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`), // free-form entity tags, independent of category (e.g. "warm tone")
   specialTag: text('special_tag'), // 'featured' | 'trending' | 'popular' | null — per-asset, moved off category level
   genderSlug: text('gender_slug'), // nullable — null means shown for all genders
+  // 'general' = visible in the admin Backgrounds tab and studio "create your own look";
+  // 'template' = uploaded from within a catalogue template's looks builder, hidden from
+  // both (managed only via the template that owns it). See scope column on modelPoseAssets.
+  scope: text('scope').notNull().default('general'),
   isActive: boolean('is_active').notNull().default(true),
   isWhiteBg: boolean('is_white_bg').notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
@@ -135,6 +139,10 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   }),
   promptGarmentPhase: text('prompt_garment_phase'),
   promptFacePhase: text('prompt_face_phase'),
+  // 'general' = visible in the admin Pose Assets tab and studio "create your own look";
+  // 'template' = uploaded from within a catalogue template's looks builder, hidden from
+  // both (managed only via the template that owns it).
+  scope: text('scope').notNull().default('general'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

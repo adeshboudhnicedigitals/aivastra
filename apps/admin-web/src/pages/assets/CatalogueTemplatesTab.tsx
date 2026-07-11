@@ -3,7 +3,7 @@ import { EditCatalogueTemplateModal } from '../../components/EditCatalogueTempla
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
 import { apiFetch } from '../../lib/data';
-import type { CatalogueTemplate, ModelPoseAsset } from '../../types';
+import type { CatalogueTemplate, ModelBackground, ModelPoseAsset } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
 const GENDER_TABS = [
@@ -15,30 +15,28 @@ const GENDER_TABS = [
 ];
 
 export function CatalogueTemplatesTab() {
-  const {
-    genderFilter,
-    setGenderFilter,
-    allBackgrounds,
-    loadAllBackgrounds,
-    loading,
-    setLoading,
-    toast,
-  } = useAssetsContext();
+  const { genderFilter, setGenderFilter, loading, setLoading, toast } = useAssetsContext();
 
   const [templates, setTemplates] = useState<CatalogueTemplate[]>([]);
   const [poseAssets, setPoseAssets] = useState<ModelPoseAsset[]>([]);
+  // Own copy, fetched with scope=all — the shared AssetsContext.allBackgrounds is
+  // scope-filtered (general only) for the Backgrounds tab, but this tab needs
+  // template-scoped assets too, to resolve thumbnails for a template's own looks.
+  const [backgrounds, setBackgrounds] = useState<ModelBackground[]>([]);
   const [editingTemplate, setEditingTemplate] = useState<CatalogueTemplate | null | 'new'>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [templatesRes, poseAssetsRes] = await Promise.all([
+      const [templatesRes, poseAssetsRes, backgroundsRes] = await Promise.all([
         apiFetch<{ items: CatalogueTemplate[] }>('/admin/assets/catalogue-templates'),
-        apiFetch<{ items: ModelPoseAsset[] }>('/admin/assets/pose-assets'),
+        apiFetch<{ items: ModelPoseAsset[] }>('/admin/assets/pose-assets?scope=all'),
+        apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds?scope=all'),
       ]);
       setTemplates(templatesRes.items);
       setPoseAssets(poseAssetsRes.items);
+      setBackgrounds(backgroundsRes.items);
     } catch {
       toast({ kind: 'error', title: 'Failed to load catalogue templates' });
     } finally {
@@ -48,8 +46,7 @@ export function CatalogueTemplatesTab() {
 
   useEffect(() => {
     void load();
-    if (allBackgrounds.length === 0) void loadAllBackgrounds();
-  }, [load, allBackgrounds.length, loadAllBackgrounds]);
+  }, [load]);
 
   const toggleActive = async (t: CatalogueTemplate) => {
     const next = !t.isActive;
@@ -227,7 +224,7 @@ export function CatalogueTemplatesTab() {
           template={editingTemplate === 'new' ? null : editingTemplate}
           defaultGenderSlug={genderFilter === 'all' ? 'men' : genderFilter}
           poseAssets={poseAssets}
-          backgrounds={allBackgrounds}
+          backgrounds={backgrounds}
           onSaved={() => void load()}
           onClose={() => setEditingTemplate(null)}
           toast={toast}

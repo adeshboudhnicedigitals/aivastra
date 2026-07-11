@@ -16,6 +16,8 @@ interface Props {
   onDone: (added: ModelPoseAsset) => void;
   onClose: () => void;
   toast: (t: { kind?: 'error'; title: string; body?: string }) => void;
+  /** 'template' hides this pose from the admin Pose Assets tab and studio "create your own look" — managed only via the owning catalogue template. Defaults to 'general'. */
+  scope?: 'general' | 'template';
 }
 
 interface FileEntry {
@@ -62,7 +64,13 @@ function SectionHead({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function PoseUploadModal({ garmentTypeGenderSlug, onDone, onClose, toast }: Props) {
+export function PoseUploadModal({
+  garmentTypeGenderSlug,
+  onDone,
+  onClose,
+  toast,
+  scope = 'general',
+}: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
   const [genderSlug, setGenderSlug] = useState(garmentTypeGenderSlug);
@@ -161,6 +169,7 @@ export function PoseUploadModal({ garmentTypeGenderSlug, onDone, onClose, toast 
             workflowTemplateId,
             promptGarmentPhase: promptGarmentPhase.trim() || null,
             genderSlug,
+            scope,
           }),
         });
 
