@@ -1258,12 +1258,12 @@ export default function StudioPage(): React.ReactElement {
   const selectedGarmentType = garmentTypes?.items.find((g) => g.id === garmentTypeId);
   const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
 
-  const creditCost = resolution ? RESOLUTION_COSTS[resolution] * poseIds.length : 0;
+  const creditCost = resolution ? RESOLUTION_COSTS[resolution] * selectedCount : 0;
   const canGenerate =
-    poseIds.length > 0 &&
+    selectedCount > 0 &&
     !!garmentKey &&
     !!faceId &&
-    !!backgroundId &&
+    (catalogueTemplateId === 'custom' ? !!backgroundId : true) &&
     customDimsReady &&
     !!resolution &&
     !isUploading &&
@@ -1277,8 +1277,10 @@ export default function StudioPage(): React.ReactElement {
       ? 'Waiting for upload to finish…'
       : !garmentKey
         ? 'Upload a garment image first'
-        : poseIds.length === 0
-          ? 'Select at least one pose'
+        : selectedCount === 0
+          ? catalogueTemplateId === 'custom'
+            ? 'Select at least one pose'
+            : 'Select at least one look'
           : !customDimsReady
             ? 'Enter valid width and height for custom size'
             : '';
