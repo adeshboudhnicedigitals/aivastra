@@ -18,6 +18,7 @@ import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
 import { adminAuthRoutes } from './modules/admin/auth.routes.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
+import { adminCatalogueTemplatesRoutes } from './modules/admin/catalogue-templates.routes.js';
 import { adminChatbotRoutes } from './modules/admin/chatbot.routes.js';
 import { adminConfigRoutes } from './modules/admin/config.routes.js';
 import { adminContactRoutes } from './modules/admin/contact.routes.js';
@@ -201,6 +202,7 @@ export async function buildServer(env: Env) {
   await app.register(adminMeRoutes);
   await app.register(adminAssetsRoutes);
   await app.register(adminGarmentTypesRoutes);
+  await app.register(adminCatalogueTemplatesRoutes);
   await app.register(adminShopifyFunnelsRoutes);
   await app.register(adminWorkflowsRoutes);
   await app.register(adminTryonRoutes);
