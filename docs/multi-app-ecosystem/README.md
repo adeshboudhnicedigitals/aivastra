@@ -17,13 +17,13 @@ Only Phase 0 → Phase 2 → Phase 3 is a hard chain. Phase 1 is independent (pa
 |---|---|---|---|
 | 0 - Auth Foundation | [`phase-0-auth-foundation.md`](phase-0-auth-foundation.md) | Done | - |
 | 1 - Admin Subdomain | [`phase-1-admin-subdomain.md`](phase-1-admin-subdomain.md) | Done | - (parallel with 0/2) |
-| 2 - Merchant Portal | [`phase-2-merchant-portal.md`](phase-2-merchant-portal.md) | Done | Phase 0 |
+| 2 - Merchant Portal | [`phase-2-merchant-portal.md`](phase-2-merchant-portal.md) | Superseded - app deleted 2026-07-10 | Phase 0 |
 | 3 - Kiosk Migration | [`phase-3-kiosk-migration.md`](phase-3-kiosk-migration.md) | Abandoned - plan changed | Phase 0, Phase 2 |
 | 3b - Kiosk UI Redesign | [`phase-3b-ui-redesign.md`](phase-3b-ui-redesign.md) | Abandoned - plan changed | Phase 3 |
 | 4 - Process Note | [`phase-4-process-note.md`](phase-4-process-note.md) | Not started | - (any time) |
-| 5 - Shopify/Wix Plugins | [`phase-5-ecommerce-plugins.md`](phase-5-ecommerce-plugins.md) | Not started | Phase 2 |
+| 5 - Shopify/Wix Plugins | [`phase-5-ecommerce-plugins.md`](phase-5-ecommerce-plugins.md) | Superseded - depended on Phase 2 | Phase 2 |
 
-Current note: Phase 0, Phase 1, and Phase 2 are all closed `Done` as of 2026-07-07 (see `docs/progress.md`). Phase 3 (Kiosk Migration) and Phase 3b (Kiosk UI Redesign) are **abandoned as of 2026-07-07** — the plan for the kiosk app has changed; their spec files are left in place as historical record only and should not be handed to Codex or used as a reference for new kiosk work. A replacement plan/phase doc will be added separately when the new direction is written up. Phase 4 (one-line doc change) and Phase 5 (Shopify/Wix plugins) remain unstarted and are unaffected by this change.
+Current note: Phase 0 and Phase 1 remain `Done` and accurate. Phase 2 (Merchant Portal) was closed `Done` on 2026-07-07 but has since been **superseded — `apps/merchant-web` was deleted entirely on 2026-07-10**. The `widget_clients`-based merchant identity this phase (and Phase 5, which depends on it) was built around was itself later replaced by a different, unrelated unification: a merchant is now a `users` row with a `merchants` profile attached (`merchants.userId`), managed via admin-granted access from `apps/admin-web`'s Users page — no self-serve signup, no separate `merchant.aivastra.com` subdomain, no separate merchant login/JWT audience. That newer model is not itself one of these tracked phases; it happened as ad-hoc follow-on work (see `docs/progress.md`, entries around 2026-07-10). `phase-2-merchant-portal.md` and `phase-5-ecommerce-plugins.md` are left in place as historical record only — **do not hand either to Codex or use as a reference for new merchant work.** Phase 3 (Kiosk Migration) and Phase 3b (Kiosk UI Redesign) remain **abandoned as of 2026-07-07** for the separate reason noted below. Phase 4 (one-line doc change) remains unstarted and is unaffected by any of this.
 
 Update the Status column as phases move through: `Not started` -> `In progress` -> `Implemented, awaiting review` -> `Reviewed - changes requested` -> `Done`.
 
