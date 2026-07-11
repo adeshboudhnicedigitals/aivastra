@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/data';
-import type { CatalogueTemplate, GenderSlug, ModelBackground, ModelPoseAsset } from '../types';
+import { makeThumbnail } from '../lib/thumbnail';
+import type {
+  CatalogueTemplate,
+  GenderSlug,
+  ModelBackground,
+  ModelPoseAsset,
+  WorkflowOption,
+} from '../types';
 import { BackgroundUploadModal } from './BackgroundUploadModal';
 import { Icon } from './Icons';
-import { PoseUploadModal } from './PoseUploadModal';
 
 async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -24,6 +30,7 @@ interface LookRow {
   key: string; // stable React key — random per row, independent of the eventual saved id
   poseAssetId: string;
   backgroundId: string;
+  workflowTemplateId: string;
 }
 
 /** Click-to-upload tile — no picking from existing assets, every look uploads fresh. */
@@ -32,12 +39,14 @@ function UploadTile({
   thumbnailKey,
   storageBase,
   disabled,
+  loading = false,
   onClick,
 }: {
   label: string;
   thumbnailKey: string | undefined;
   storageBase: string | null;
   disabled: boolean;
+  loading?: boolean;
   onClick: () => void;
 }) {
   const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
@@ -59,7 +68,23 @@ function UploadTile({
         flexShrink: 0,
       }}
     >
-      {src ? (
+      {loading ? (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 10,
+            fontWeight: 600,
+            color: 'var(--muted)',
+            textAlign: 'center',
+          }}
+        >
+          Uploading…
+        </div>
+      ) : src ? (
         // biome-ignore lint/performance/noImgElement: admin panel thumbnail
         <img
           src={src}
@@ -83,7 +108,7 @@ function UploadTile({
           <span style={{ fontSize: 10, fontWeight: 600 }}>{label}</span>
         </div>
       )}
-      {src && (
+      {src && !loading && (
         <div
           style={{
             position: 'absolute',
@@ -145,10 +170,22 @@ export function EditCatalogueTemplateModal({
   useEffect(() => setLocalPoseAssets(poseAssets), [poseAssets]);
   useEffect(() => setLocalBackgrounds(backgrounds), [backgrounds]);
 
-  // Which look row triggered an inline upload, if any — null means no upload modal open.
-  const [uploadPoseForRow, setUploadPoseForRow] = useState<string | null>(null);
+  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
+  useEffect(() => {
+    apiFetch<WorkflowOption[]>('/admin/workflows')
+      .then((wfs) => setWorkflows(wfs.filter((w) => w.isActive)))
+      .catch(() => toast({ kind: 'error', title: 'Failed to load workflows' }));
+  }, [toast]);
+
+  // Which look row's pose tile is currently uploading, if any (disables that tile).
+  const [uploadingPoseForRow, setUploadingPoseForRow] = useState<string | null>(null);
+  const poseFileInputRef = useRef<HTMLInputElement>(null);
+  const poseUploadRowKeyRef = useRef<string | null>(null);
+
+  // Which look row triggered a background upload, if any — null means modal closed.
   const [uploadBackgroundForRow, setUploadBackgroundForRow] = useState<string | null>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: poseAssets intentionally omitted — only used for the one-time initial mapping below, re-running this fetch on every poseAssets update (e.g. after an in-modal pose upload) would clobber in-progress row edits
   useEffect(() => {
     if (!isEditing || !template) return;
     apiFetch<{ items: { id: string; poseAssetId: string; backgroundId: string }[] }>(
@@ -160,6 +197,8 @@ export function EditCatalogueTemplateModal({
             key: l.id,
             poseAssetId: l.poseAssetId,
             backgroundId: l.backgroundId,
+            workflowTemplateId:
+              poseAssets.find((p) => p.id === l.poseAssetId)?.workflowTemplateId ?? '',
           })),
         );
       })
@@ -171,7 +210,15 @@ export function EditCatalogueTemplateModal({
   const backgroundById = new Map(localBackgrounds.map((b) => [b.id, b]));
 
   function addLookRow() {
-    setLooks((prev) => [...prev, { key: crypto.randomUUID(), poseAssetId: '', backgroundId: '' }]);
+    setLooks((prev) => [
+      ...prev,
+      {
+        key: crypto.randomUUID(),
+        poseAssetId: '',
+        backgroundId: '',
+        workflowTemplateId: workflows[0]?.id ?? '',
+      },
+    ]);
   }
 
   function updateLookRow(key: string, patch: Partial<LookRow>) {
@@ -180,6 +227,74 @@ export function EditCatalogueTemplateModal({
 
   function removeLookRow(key: string) {
     setLooks((prev) => prev.filter((l) => l.key !== key));
+  }
+
+  function openPoseUpload(rowKey: string) {
+    poseUploadRowKeyRef.current = rowKey;
+    poseFileInputRef.current?.click();
+  }
+
+  async function handlePoseFileSelected(file: File) {
+    const rowKey = poseUploadRowKeyRef.current;
+    if (!rowKey) return;
+    const row = looks.find((l) => l.key === rowKey);
+    setUploadingPoseForRow(rowKey);
+    try {
+      const presign = await apiFetch<{
+        r2Key: string;
+        uploadUrl: string;
+        thumbnailKey: string;
+        thumbnailUploadUrl: string;
+      }>('/admin/assets/pose-assets/presign', {
+        method: 'POST',
+        body: JSON.stringify({ contentType: file.type }),
+      });
+      await Promise.all([
+        putFile(presign.uploadUrl, file),
+        makeThumbnail(file).then((t) => putFile(presign.thumbnailUploadUrl, t)),
+      ]);
+      const created = await apiFetch<ModelPoseAsset>('/admin/assets/pose-assets', {
+        method: 'POST',
+        body: JSON.stringify({
+          label: file.name.replace(/\.[^.]+$/, ''),
+          r2Key: presign.r2Key,
+          thumbnailKey: presign.thumbnailKey,
+          genderSlug,
+          workflowTemplateId: row?.workflowTemplateId || undefined,
+          scope: 'template',
+        }),
+      });
+      setLocalPoseAssets((prev) => [...prev, created]);
+      updateLookRow(rowKey, { poseAssetId: created.id });
+    } catch (err: unknown) {
+      toast({
+        kind: 'error',
+        title: 'Pose upload failed',
+        body: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setUploadingPoseForRow(null);
+      poseUploadRowKeyRef.current = null;
+    }
+  }
+
+  async function handleWorkflowChange(rowKey: string, workflowTemplateId: string) {
+    updateLookRow(rowKey, { workflowTemplateId });
+    const row = looks.find((l) => l.key === rowKey);
+    if (!row?.poseAssetId) return;
+    // Pose's workflow lives on the pose asset itself — keep it in sync so the
+    // dispatcher patches the workflow this row's admin actually chose.
+    try {
+      await apiFetch(`/admin/assets/pose-assets/${row.poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ workflowTemplateId: workflowTemplateId || null }),
+      });
+      setLocalPoseAssets((prev) =>
+        prev.map((p) => (p.id === row.poseAssetId ? { ...p, workflowTemplateId } : p)),
+      );
+    } catch {
+      toast({ kind: 'error', title: 'Failed to update workflow for this look' });
+    }
   }
 
   const handleSave = async () => {
@@ -381,8 +496,9 @@ export function EditCatalogueTemplateModal({
                         label="Pose"
                         thumbnailKey={poseAssetById.get(row.poseAssetId)?.thumbnailKey}
                         storageBase={storagePublicUrl}
-                        disabled={saving}
-                        onClick={() => setUploadPoseForRow(row.key)}
+                        disabled={saving || uploadingPoseForRow === row.key}
+                        loading={uploadingPoseForRow === row.key}
+                        onClick={() => openPoseUpload(row.key)}
                       />
                       <UploadTile
                         label="Background"
@@ -391,6 +507,27 @@ export function EditCatalogueTemplateModal({
                         disabled={saving}
                         onClick={() => setUploadBackgroundForRow(row.key)}
                       />
+                      <label
+                        className="field"
+                        style={{ flex: 1, minWidth: 0, gap: 4, marginBottom: 0 }}
+                      >
+                        <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>
+                          Workflow
+                        </span>
+                        <select
+                          className="select"
+                          value={row.workflowTemplateId}
+                          disabled={saving}
+                          onChange={(e) => void handleWorkflowChange(row.key, e.target.value)}
+                        >
+                          <option value="">— none —</option>
+                          {workflows.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {w.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <button
                         type="button"
                         className="btn sm danger"
@@ -426,19 +563,17 @@ export function EditCatalogueTemplateModal({
         </div>
       </div>
 
-      {uploadPoseForRow && (
-        <PoseUploadModal
-          garmentTypeGenderSlug={genderSlug}
-          scope="template"
-          onDone={(added) => {
-            setLocalPoseAssets((prev) => [...prev, added]);
-            updateLookRow(uploadPoseForRow, { poseAssetId: added.id });
-            setUploadPoseForRow(null);
-          }}
-          onClose={() => setUploadPoseForRow(null)}
-          toast={toast}
-        />
-      )}
+      <input
+        ref={poseFileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void handlePoseFileSelected(file);
+        }}
+      />
 
       {uploadBackgroundForRow && (
         <BackgroundUploadModal
