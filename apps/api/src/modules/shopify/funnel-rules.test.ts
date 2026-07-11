@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { matchesConditions } from './funnel-rules.js';
 
 describe('matchesConditions', () => {
-  const product = { productType: 'Shirts', tags: ['Sale', 'Cotton'], vendor: 'Acme Co' };
+  const product = {
+    productType: 'Shirts',
+    tags: ['Sale', 'Cotton'],
+    vendor: 'Acme Co',
+    collections: ['Summer', 'New Arrivals'],
+  };
 
   it('returns false for an empty conditions array', () => {
     expect(matchesConditions(product, [])).toBe(false);
@@ -61,8 +66,30 @@ describe('matchesConditions', () => {
 
   it('returns false when the product field is null', () => {
     expect(
-      matchesConditions({ productType: null, tags: null, vendor: null }, [
+      matchesConditions({ productType: null, tags: null, vendor: null, collections: null }, [
         { field: 'product_type', operator: 'equals', value: 'Shirts' },
+      ]),
+    ).toBe(false);
+  });
+
+  it('matches collections by array membership, ignoring operator', () => {
+    expect(
+      matchesConditions(product, [{ field: 'collections', operator: 'equals', value: 'Summer' }]),
+    ).toBe(true);
+    expect(
+      matchesConditions(product, [
+        { field: 'collections', operator: 'contains', value: 'New Arrivals' },
+      ]),
+    ).toBe(true);
+    expect(
+      matchesConditions(product, [{ field: 'collections', operator: 'equals', value: 'Winter' }]),
+    ).toBe(false);
+  });
+
+  it('returns false for collections when the product has no collections', () => {
+    expect(
+      matchesConditions({ productType: 'Shirts', tags: null, vendor: null, collections: null }, [
+        { field: 'collections', operator: 'equals', value: 'Summer' },
       ]),
     ).toBe(false);
   });

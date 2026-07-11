@@ -46,7 +46,7 @@ export interface ShopifyProductImage {
 }
 
 export interface FunnelRuleCondition {
-  field: 'product_type' | 'tags' | 'vendor';
+  field: 'product_type' | 'tags' | 'vendor' | 'collections';
   operator: 'equals' | 'contains';
   value: string;
 }

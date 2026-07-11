@@ -11,6 +11,9 @@ interface ShopifyProduct {
   product_type?: string;
   tags?: string;
   vendor?: string;
+  /** Collection titles this product belongs to — resolved by the caller (syncOneTask)
+   *  via collects.json, since Shopify's product resource doesn't include collections. */
+  collections?: string[];
 }
 
 /** Minimal shape we need from a fetch Response — lets tests pass a plain object
@@ -51,6 +54,7 @@ async function upsertGarment(
   productType: string | null,
   tags: string[] | null,
   vendor: string | null,
+  collections: string[] | null,
   failedReason?: string,
 ) {
   const [row] = await app.db
@@ -65,6 +69,7 @@ async function upsertGarment(
       productType,
       tags,
       vendor,
+      collections,
       failedReason,
     })
     .onConflictDoUpdate({
@@ -79,6 +84,7 @@ async function upsertGarment(
         productType,
         tags,
         vendor,
+        collections,
         failedReason: failedReason ?? null,
         syncedAt: sql`now()`,
       },
@@ -102,6 +108,7 @@ export async function syncProduct(
         .filter(Boolean)
     : null;
   const vendor = product.vendor ?? null;
+  const collections = product.collections ?? null;
   const src = product.image?.src;
   if (!src) {
     const row = await upsertGarment(
@@ -114,10 +121,11 @@ export async function syncProduct(
       productType,
       tags,
       vendor,
+      collections,
       'no product image',
     );
     if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor });
+      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
     }
     return;
   }
@@ -153,9 +161,10 @@ export async function syncProduct(
       productType,
       tags,
       vendor,
+      collections,
     );
     if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor });
+      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
     }
   } catch (err) {
     app.log.warn({ err, storeId, productId: product.id }, 'product sync failed');
@@ -169,12 +178,60 @@ export async function syncProduct(
       productType,
       tags,
       vendor,
+      collections,
       (err as Error).message,
     );
     if (row.funnelAssignmentSource !== 'manual') {
-      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor });
+      await assignFunnelFromRules(app, row.id, storeId, { productType, tags, vendor, collections });
     }
   }
+}
+
+function nextPageUrl(res: { headers: { get(name: string): string | null } }): string | null {
+  const link = res.headers.get('link') ?? '';
+  const next = link.match(/<([^>]+)>;\s*rel="next"/);
+  return next ? next[1] : null;
+}
+
+/** Shopify's product resource has no `collections` field — the id→title map is
+ *  fetched once per sync run from custom/smart collections, then joined against
+ *  each product's `collects.json` membership. */
+async function fetchCollectionTitleMap(shop: string, token: string): Promise<Map<number, string>> {
+  const titleById = new Map<number, string>();
+  for (const resource of ['custom_collections', 'smart_collections'] as const) {
+    let url: string | null =
+      `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/${resource}.json?limit=250`;
+    while (url) {
+      const res = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
+      if (!res.ok) break;
+      const body = (await res.json()) as Record<string, Array<{ id: number; title: string }>>;
+      for (const c of body[resource] ?? []) titleById.set(c.id, c.title);
+      url = nextPageUrl(res);
+    }
+  }
+  return titleById;
+}
+
+async function fetchProductCollectionTitles(
+  shop: string,
+  token: string,
+  productId: number,
+  titleById: Map<number, string>,
+): Promise<string[]> {
+  const titles: string[] = [];
+  let url: string | null =
+    `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/collects.json?product_id=${productId}&limit=250`;
+  while (url) {
+    const res = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
+    if (!res.ok) break;
+    const { collects } = (await res.json()) as { collects: Array<{ collection_id: number }> };
+    for (const c of collects) {
+      const title = titleById.get(c.collection_id);
+      if (title) titles.push(title);
+    }
+    url = nextPageUrl(res);
+  }
+  return titles;
 }
 
 export async function syncOneTask(
@@ -200,22 +257,28 @@ export async function syncOneTask(
     );
     if (res.ok) {
       const { product } = (await res.json()) as { product: ShopifyProduct };
-      await syncProduct(app, store.id, product);
+      const titleById = await fetchCollectionTitleMap(shop, token);
+      const collections = await fetchProductCollectionTitles(shop, token, product.id, titleById);
+      await syncProduct(app, store.id, { ...product, collections });
     }
     return;
   }
 
-  // full sync: paginate (250/page). Respect ~2 req/s.
+  // full sync: paginate (250/page). Respect ~2 req/s. One extra collects.json
+  // call per product (plus one-off collection title map) roughly doubles
+  // outbound REST calls — each round-trip's own latency provides de-facto spacing.
+  const titleById = await fetchCollectionTitleMap(shop, token);
   let url: string | null =
     `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250`;
   while (url) {
     const res: Response = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
     if (!res.ok) break;
     const { products } = (await res.json()) as { products: ShopifyProduct[] };
-    for (const p of products) await syncProduct(app, store.id, p);
-    const link = res.headers.get('link') ?? '';
-    const next = link.match(/<([^>]+)>;\s*rel="next"/);
-    url = next ? next[1] : null;
+    for (const p of products) {
+      const collections = await fetchProductCollectionTitles(shop, token, p.id, titleById);
+      await syncProduct(app, store.id, { ...p, collections });
+    }
+    url = nextPageUrl(res);
     if (url) await new Promise((r) => setTimeout(r, 500)); // throttle
   }
 }
