@@ -135,7 +135,16 @@ export default function App() {
   );
 
   const handleNavWithFilter = useCallback(
-    (_page: string, _filter?: { page: string; filter?: string }) => {
+    (
+      _page: string,
+      _filter?: {
+        page: string;
+        filter?: string;
+        search?: string;
+        date?: string;
+        jobId?: string;
+      },
+    ) => {
       navigate(`/${_page}`, { state: _filter });
     },
     [navigate],

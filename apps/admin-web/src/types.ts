@@ -124,6 +124,18 @@ export interface CatalogItem {
   updatedAt: string;
 }
 
+export interface UserMerchant {
+  id: string;
+  companyName: string;
+  contactName: string;
+  phone: string;
+  businessAddress: string;
+  isActive: boolean;
+  kioskEnabled: boolean;
+  maxKioskDevices: number;
+  creditBalance: number | null;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -136,6 +148,7 @@ export interface User {
   isAdmin: boolean;
   adminRole: string | null;
   hasPassword: boolean;
+  isMerchant?: boolean;
   balance: number;
   totalJobs: number;
   lastJobAt: string | null;
@@ -148,7 +161,9 @@ export interface User {
     startedAt?: string | null;
     completedAt?: string | null;
     creditsCharged: number;
+    jobType: 'catalogue' | 'tryon' | 'widget';
   }[];
+  merchant?: UserMerchant | null;
 }
 
 export type JobStatus =
