@@ -1,6 +1,6 @@
 {
-  "id": "92e1ca34-711a-4718-8887-36a560aecfd2",
-  "prevId": "be97d2e7-8f44-42ef-baf1-b2d722cb20c1",
+  "id": "1068610f-b024-43ed-8829-e50913353418",
+  "prevId": "90451be1-96b0-4fbd-aa11-0bd34d285bac",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1567,6 +1567,12 @@
         },
         "error_code": {
           "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -3747,6 +3753,12 @@
         "vendor": {
           "name": "vendor",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "collections": {
+          "name": "collections",
+          "type": "text[]",
           "primaryKey": false,
           "notNull": false
         },

@@ -1,6 +1,6 @@
 {
-  "id": "92e1ca34-711a-4718-8887-36a560aecfd2",
-  "prevId": "be97d2e7-8f44-42ef-baf1-b2d722cb20c1",
+  "id": "be97d2e7-8f44-42ef-baf1-b2d722cb20c1",
+  "prevId": "814aa606-5d21-4d9f-ac6b-b73eef02a459",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3659,6 +3659,78 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.shopify_plans": {
+      "name": "shopify_plans",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "price_cents": {
+          "name": "price_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "included_tryons": {
+          "name": "included_tryons",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "overage_cents": {
+          "name": "overage_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trial_days": {
+          "name": "trial_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 7
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.shopify_product_garments": {
       "name": "shopify_product_garments",
       "schema": "",
@@ -3840,8 +3912,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "owner_user_id": {
-          "name": "owner_user_id",
+        "billing_plan_id": {
+          "name": "billing_plan_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shopify_plan_id": {
+          "name": "shopify_plan_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -3889,13 +3967,13 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "shopify_stores_owner_user_id_users_id_fk": {
-          "name": "shopify_stores_owner_user_id_users_id_fk",
+        "shopify_stores_shopify_plan_id_shopify_plans_id_fk": {
+          "name": "shopify_stores_shopify_plan_id_shopify_plans_id_fk",
           "tableFrom": "shopify_stores",
-          "tableTo": "users",
-          "columnsFrom": ["owner_user_id"],
+          "tableTo": "shopify_plans",
+          "columnsFrom": ["shopify_plan_id"],
           "columnsTo": ["id"],
-          "onDelete": "set null",
+          "onDelete": "no action",
           "onUpdate": "no action"
         }
       },
