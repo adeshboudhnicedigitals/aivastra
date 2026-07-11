@@ -70,6 +70,27 @@ export interface WorkflowOption {
   createdAt: string;
 }
 
+export interface CatalogueTemplate {
+  id: string;
+  genderSlug: GenderSlug;
+  label: string;
+  thumbnailKey: string | null;
+  thumbnailUrl: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  lookCount: number;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CatalogueTemplateLook {
+  id: string;
+  poseAssetId: string;
+  backgroundId: string;
+  sortOrder: number;
+}
+
 // Poses are per (garment type × face × background) combo
 export interface ModelPose {
   id: string;
