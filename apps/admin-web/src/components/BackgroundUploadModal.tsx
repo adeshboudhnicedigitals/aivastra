@@ -26,6 +26,8 @@ interface Props {
   categoryId?: number | null;
   /** When uploading inside a category locked to a gender, force that gender. */
   lockedGenderSlug?: string | null;
+  /** 'template' hides this background from the admin Backgrounds tab and studio "create your own look" — managed only via the owning catalogue template. Defaults to 'general'. */
+  scope?: 'general' | 'template';
 }
 
 function uploadFile(url: string, file: Blob): Promise<void> {
@@ -49,6 +51,7 @@ export function BackgroundUploadModal({
   defaultGenderSlug = '',
   categoryId = null,
   lockedGenderSlug = null,
+  scope = 'general',
 }: Props) {
   const [genderSlug, setGenderSlug] = useState(lockedGenderSlug ?? defaultGenderSlug);
   const [sortStart, setSortStart] = useState(0);
@@ -109,6 +112,7 @@ export function BackgroundUploadModal({
             sortOrder: sortStart + i,
             genderSlug: genderSlug || undefined,
             categoryId,
+            scope,
           }),
         });
         added.push(row);

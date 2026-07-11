@@ -429,6 +429,7 @@ export function EditCatalogueTemplateModal({
       {uploadPoseForRow && (
         <PoseUploadModal
           garmentTypeGenderSlug={genderSlug}
+          scope="template"
           onDone={(added) => {
             setLocalPoseAssets((prev) => [...prev, added]);
             updateLookRow(uploadPoseForRow, { poseAssetId: added.id });
@@ -442,6 +443,7 @@ export function EditCatalogueTemplateModal({
       {uploadBackgroundForRow && (
         <BackgroundUploadModal
           lockedGenderSlug={genderSlug}
+          scope="template"
           onDone={(rows) => {
             setLocalBackgrounds((prev) => [...prev, ...rows]);
             const first = rows[0];

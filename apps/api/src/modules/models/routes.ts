@@ -106,6 +106,9 @@ export async function modelsRoutes(app: FastifyInstance) {
           and(
             eq(schema.modelBackgrounds.isActive, true),
             isNull(schema.modelBackgrounds.deletedAt),
+            // Template-scoped backgrounds are managed only via their owning
+            // catalogue template — never offered in "create your own look".
+            eq(schema.modelBackgrounds.scope, 'general'),
             gender
               ? or(
                   isNull(schema.modelBackgrounds.genderSlug),
@@ -216,6 +219,9 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.modelPoseAssets.genderSlug, gender),
             eq(schema.modelPoseAssets.isActive, true),
             isNull(schema.modelPoseAssets.deletedAt),
+            // Template-scoped poses are managed only via their owning catalogue
+            // template — never offered in "create your own look".
+            eq(schema.modelPoseAssets.scope, 'general'),
           ),
         )
         .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
