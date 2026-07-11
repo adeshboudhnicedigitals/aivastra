@@ -123,7 +123,13 @@ export async function buildServer(env: Env) {
   await app.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
-    redis: app.redis,
+    redis: app.redisRateLimit,
+    // A brief Redis blip should never itself turn into a wall of 500s across the
+    // whole API — rate-limiting is a safety net, not a critical path. Paired with
+    // redisRateLimit's bounded maxRetriesPerRequest so a blip fails fast (and
+    // therefore open) instead of the previous shared-client behavior of hanging
+    // every in-flight request for ~10s.
+    skipOnError: true,
     allowList: (req) =>
       (req.url.startsWith('/admin/') && !req.url.startsWith('/admin/auth/')) ||
       req.url === '/v1/payments/webhook',
