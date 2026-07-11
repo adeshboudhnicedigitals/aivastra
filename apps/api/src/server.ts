@@ -44,7 +44,6 @@ import { kioskResultsRoutes } from './modules/kiosk/results.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
-import { merchantRoutes } from './modules/merchant/routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
@@ -136,7 +135,6 @@ export async function buildServer(env: Env) {
   await app.register(kioskCatalogRoutes);
   await app.register(kioskJobsRoutes);
   await app.register(kioskResultsRoutes);
-  await app.register(merchantRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantPaymentsRoutes);
