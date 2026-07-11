@@ -149,7 +149,11 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     await app.shopifyRegisterWebhooks?.(q.shop, access_token);
 
     req.log.info({ storeId: store.id, shop: q.shop }, 'shopify store installed');
-    return reply.redirect(`${app.env.SHOPIFY_APP_URL}/embedded?shop=${q.shop}`);
+    // Matches apps/shopify's own prod-only basename (main.tsx, vite.config.ts) — the
+    // embedded admin SPA is served under this subpath in production but at the
+    // domain root in dev (ngrok tunnels straight to the Vite dev server).
+    const adminBasePath = process.env.NODE_ENV === 'production' ? '/shopify-admin' : '';
+    return reply.redirect(`${app.env.SHOPIFY_APP_URL}${adminBasePath}/embedded?shop=${q.shop}`);
   });
 
   app.post(
