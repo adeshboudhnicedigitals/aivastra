@@ -1104,7 +1104,7 @@ export default function StudioPage(): React.ReactElement {
     if (catalogueTemplateId === 'custom') {
       if (!backgroundId || poseIds.length === 0) return;
     } else {
-      if (selectedLookIds.length === 0) return;
+      if (selectedLooks.length === 0) return;
     }
 
     // Amazon main listing + multiple poses → show picker modal to choose main image.
