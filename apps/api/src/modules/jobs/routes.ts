@@ -235,7 +235,10 @@ export async function jobsRoutes(app: FastifyInstance) {
 
     const merged = [...studioRows, ...sareeRows]
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, 50);
+      // 200 matches the cap already used by GET /v1/catalogues — was 50, which
+      // silently dropped older eligible images once a user's combined
+      // studio+saree catalogue grew past it (no pagination in the picker UI).
+      .slice(0, 200);
 
     return Promise.all(
       merged.map(async (r) => {
@@ -271,7 +274,12 @@ export async function jobsRoutes(app: FastifyInstance) {
       .from(schema.jobs)
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
       .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
-      .where(eq(schema.jobs.userId, req.userId))
+      .where(
+        and(
+          eq(schema.jobs.userId, req.userId),
+          sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+        ),
+      )
       .orderBy(desc(schema.jobs.createdAt))
       .limit(200);
 
@@ -338,8 +346,15 @@ export async function jobsRoutes(app: FastifyInstance) {
           watermarkVersion: schema.jobOutputs.watermarkVersion,
         })
         .from(schema.jobs)
+        .innerJoin(schema.jobInputs, eq(schema.jobs.id, schema.jobInputs.jobId))
         .leftJoin(schema.jobOutputs, eq(schema.jobs.id, schema.jobOutputs.jobId))
-        .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
+        .where(
+          and(
+            eq(schema.jobs.catalogueId, id),
+            eq(schema.jobs.userId, req.userId),
+            sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+          ),
+        )
         .orderBy(schema.jobs.createdAt);
       if (rows.length === 0) throw new AppError('NOT_FOUND', 404, 'catalogue not found');
 
@@ -399,7 +414,16 @@ export async function jobsRoutes(app: FastifyInstance) {
       })
       .from(schema.jobInputs)
       .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
-      .where(eq(schema.jobs.userId, req.userId))
+      .where(
+        and(
+          eq(schema.jobs.userId, req.userId),
+          // Try-on jobs set upperGarmentKey to keys.output(sourceJobId) — a prior
+          // job's GENERATED result reused as the "garment" input, not a real
+          // upload. Exclude those (identified by params.sourceJobId) so this page
+          // only lists actual product photos.
+          sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+        ),
+      )
       .groupBy(schema.jobInputs.upperGarmentKey)
       .orderBy(desc(sql`MAX(${schema.jobs.createdAt})`));
 

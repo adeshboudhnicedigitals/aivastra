@@ -3,31 +3,47 @@ import { useEffect, useRef, useState } from 'react';
 import { SpinnerIcon, TrashIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
-import type { Product } from './ProductModal';
+import { api } from '@/lib/api';
+import {
+  deleteProduct,
+  finalizeGeneratedProduct,
+  pollGenerateBatch,
+  presignAndUpload,
+} from './api';
 
 interface QueueItem {
   id: string;
+  file: File;
   fileUrl: string;
-  status: 'queued' | 'generating' | 'generated';
+  status: 'queued' | 'uploading' | 'generating' | 'generated' | 'failed';
+  jobId?: string;
+  itemId?: string;
   sku: string;
   actualPrice: string;
   offerPrice: string;
   hasError: boolean;
+  errorMessage?: string;
 }
 
 interface BulkUploadModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (products: Omit<Product, 'id' | 'subcategoryId'>[]) => void;
+  onSaved: () => void;
+  subcategoryId: string | null;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps) {
+export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkUploadModalProps) {
   const [items, setItems] = useState<QueueItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const itemsRef = useRef<QueueItem[]>([]);
+  itemsRef.current = items;
+  const finalizingJobIds = useRef<Set<string>>(new Set());
 
   const [globalActual, setGlobalActual] = useState('');
   const [globalOffer, setGlobalOffer] = useState('');
@@ -39,6 +55,18 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
       setGlobalActual('');
       setGlobalOffer('');
       setIsDragging(false);
+      setIsGeneratingAll(false);
+      setIsSaving(false);
+      finalizingJobIds.current = new Set();
+    }
+  }, [open]);
+
+  // Clean up local previews + any generated-but-unsaved products on close.
+  useEffect(() => {
+    if (open) return;
+    for (const item of itemsRef.current) {
+      URL.revokeObjectURL(item.fileUrl);
+      if (item.status === 'generated' && item.itemId) void deleteProduct(item.itemId);
     }
   }, [open]);
 
@@ -79,59 +107,174 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
 
   if (!open) return null;
 
+  const busy = isGeneratingAll || isSaving;
+
   const processFiles = (files: FileList | File[]) => {
-    const _newItems: QueueItem[] = [];
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      const id = generateId();
-      reader.onloadend = () => {
-        setItems((prev) => [
-          ...prev,
-          {
-            id,
-            fileUrl: reader.result as string,
-            status: 'queued',
-            sku: '',
-            actualPrice: '',
-            offerPrice: '',
-            hasError: false,
-          },
-        ]);
-      };
-      reader.readAsDataURL(file);
-    });
+    const newItems: QueueItem[] = Array.from(files)
+      .filter((file) => file.type.startsWith('image/'))
+      .map((file) => ({
+        id: generateId(),
+        file,
+        fileUrl: URL.createObjectURL(file),
+        status: 'queued',
+        sku: '',
+        actualPrice: '',
+        offerPrice: '',
+        hasError: false,
+      }));
+    setItems((prev) => [...prev, ...newItems]);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      processFiles(e.target.files);
-    }
+    if (e.target.files) processFiles(e.target.files);
     e.target.value = '';
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files) {
-      processFiles(e.dataTransfer.files);
+    if (e.dataTransfer.files) processFiles(e.dataTransfer.files);
+  };
+
+  const finalizeCompletedJob = async (jobId: string) => {
+    if (finalizingJobIds.current.has(jobId) || !subcategoryId) return;
+    finalizingJobIds.current.add(jobId);
+    try {
+      const item = await finalizeGeneratedProduct(jobId, subcategoryId);
+      setItems((prev) =>
+        prev.map((p) =>
+          p.jobId === jobId
+            ? { ...p, status: 'generated', itemId: item.id, fileUrl: item.imageUrl ?? p.fileUrl }
+            : p,
+        ),
+      );
+    } catch (err) {
+      setItems((prev) =>
+        prev.map((p) =>
+          p.jobId === jobId
+            ? {
+                ...p,
+                status: 'failed',
+                hasError: true,
+                errorMessage: err instanceof Error ? err.message : 'Import failed',
+              }
+            : p,
+        ),
+      );
     }
   };
 
-  const handleGenerateAll = () => {
-    const queuedItems = items.filter((i) => i.status === 'queued');
-    if (queuedItems.length === 0) return;
-
+  const handleGenerateAll = async () => {
+    const queued = items.filter((i) => i.status === 'queued');
+    if (queued.length === 0 || !subcategoryId) return;
+    setIsGeneratingAll(true);
     setItems((prev) =>
-      prev.map((item) => (item.status === 'queued' ? { ...item, status: 'generating' } : item)),
+      prev.map((i) => (i.status === 'queued' ? { ...i, status: 'uploading' } : i)),
     );
 
-    queuedItems.forEach((item) => {
-      const delay = 1500 + Math.random() * 1000; // 1.5s - 2.5s staggering
-      setTimeout(() => {
-        setItems((prev) => prev.map((p) => (p.id === item.id ? { ...p, status: 'generated' } : p)));
-      }, delay);
-    });
+    const uploaded: { id: string; flatImageKey: string }[] = [];
+    for (const item of queued) {
+      try {
+        const { r2Key } = await presignAndUpload(item.file, 'flat');
+        uploaded.push({ id: item.id, flatImageKey: r2Key });
+      } catch (err) {
+        setItems((prev) =>
+          prev.map((p) =>
+            p.id === item.id
+              ? {
+                  ...p,
+                  status: 'failed',
+                  hasError: true,
+                  errorMessage: err instanceof Error ? err.message : 'Upload failed',
+                }
+              : p,
+          ),
+        );
+      }
+    }
+
+    if (uploaded.length === 0) {
+      setIsGeneratingAll(false);
+      return;
+    }
+
+    setItems((prev) =>
+      prev.map((p) => (uploaded.some((u) => u.id === p.id) ? { ...p, status: 'generating' } : p)),
+    );
+
+    let jobIds: string[] = [];
+    let failures: Array<{ flatImageKey: string; error: string }> = [];
+    try {
+      const res = await api.post<{
+        jobIds: string[];
+        failures: Array<{ flatImageKey: string; error: string }>;
+      }>('/v1/merchant/catalog/generate-bulk', {
+        subcategoryId,
+        flatImageKeys: uploaded.map((u) => u.flatImageKey),
+      });
+      jobIds = res.jobIds;
+      failures = res.failures;
+    } catch (err) {
+      setItems((prev) =>
+        prev.map((p) =>
+          uploaded.some((u) => u.id === p.id)
+            ? {
+                ...p,
+                status: 'failed',
+                hasError: true,
+                errorMessage: err instanceof Error ? err.message : 'Failed to enqueue',
+              }
+            : p,
+        ),
+      );
+      setIsGeneratingAll(false);
+      return;
+    }
+
+    const failedKeys = new Map(failures.map((f) => [f.flatImageKey, f.error]));
+    const succeeded = uploaded.filter((u) => !failedKeys.has(u.flatImageKey));
+    // generate-bulk returns jobIds in the same order as the flatImageKeys that succeeded.
+    const jobIdByLocalId = new Map(succeeded.map((u, idx) => [u.id, jobIds[idx]]));
+
+    setItems((prev) =>
+      prev.map((p) => {
+        const jobId = jobIdByLocalId.get(p.id);
+        if (jobId) return { ...p, jobId };
+        const uploadedEntry = uploaded.find((u) => u.id === p.id);
+        const error = uploadedEntry ? failedKeys.get(uploadedEntry.flatImageKey) : undefined;
+        if (error) return { ...p, status: 'failed', hasError: true, errorMessage: error };
+        return p;
+      }),
+    );
+
+    if (jobIds.length > 0) {
+      try {
+        await pollGenerateBatch(jobIds, (statuses) => {
+          for (const s of statuses) {
+            if (s.status === 'COMPLETED') {
+              void finalizeCompletedJob(s.jobId);
+            } else if (s.status === 'FAILED' || s.status === 'CANCELLED') {
+              setItems((prev) =>
+                prev.map((p) =>
+                  p.jobId === s.jobId && p.status !== 'generated'
+                    ? {
+                        ...p,
+                        status: 'failed',
+                        hasError: true,
+                        errorMessage: s.errorCode ?? 'Generation failed',
+                      }
+                    : p,
+                ),
+              );
+            }
+          }
+        });
+      } catch {
+        // Timed out — items left mid-flight stay 'generating'; remove & retry.
+      }
+    }
+
+    setIsGeneratingAll(false);
   };
 
   const handleApplyGlobalPrice = () => {
@@ -158,12 +301,17 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
   };
 
   const handleRemoveItem = (id: string) => {
-    setItems((prev) => prev.filter((item) => item.id !== id));
+    const item = items.find((i) => i.id === id);
+    if (item) {
+      URL.revokeObjectURL(item.fileUrl);
+      if (item.status === 'generated' && item.itemId) void deleteProduct(item.itemId);
+    }
+    setItems((prev) => prev.filter((i) => i.id !== id));
   };
 
-  const handleAddCatalogue = () => {
+  const handleAddCatalogue = async () => {
     let hasValidationError = false;
-    const validatedItems = items.map((item) => {
+    const validated = items.map((item) => {
       if (item.status !== 'generated') return item;
       const act = parseInt(item.actualPrice, 10) || 0;
       const off = parseInt(item.offerPrice, 10) || 0;
@@ -172,33 +320,41 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
       if (!isValid) hasValidationError = true;
       return { ...item, hasError: !isValid };
     });
-
-    setItems(validatedItems);
-
+    setItems(validated);
     if (hasValidationError) return;
 
-    const readyItems = validatedItems.filter((i) => i.status === 'generated');
-    const productsToAdd: Omit<Product, 'id' | 'subcategoryId'>[] = readyItems.map((item) => ({
-      label: `Product ${item.sku.toUpperCase()}`,
-      sku: item.sku.trim(),
-      actualPrice: parseInt(item.actualPrice, 10),
-      offerPrice: parseInt(item.offerPrice, 10),
-      imageDataUrl: item.fileUrl,
-      imageSource: 'flat',
-    }));
+    const ready = validated.filter(
+      (i): i is QueueItem & { itemId: string } => i.status === 'generated' && !!i.itemId,
+    );
+    if (ready.length === 0) return;
 
-    onSave(productsToAdd);
+    setIsSaving(true);
+    try {
+      await Promise.all(
+        ready.map((item) =>
+          api.patch(`/v1/merchant/catalog/${item.itemId}`, {
+            label: `Product ${item.sku.toUpperCase()}`,
+            sku: item.sku.trim(),
+            actualPrice: parseInt(item.actualPrice, 10),
+            offerPrice: parseInt(item.offerPrice, 10),
+          }),
+        ),
+      );
+      onSaved();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const hasQueued = items.some((i) => i.status === 'queued');
   const hasGenerated = items.some((i) => i.status === 'generated');
   const generatedCount = items.filter((i) => i.status === 'generated').length;
-  const isAnyGenerating = items.some((i) => i.status === 'generating');
+  const isAnyGenerating = items.some((i) => i.status === 'uploading' || i.status === 'generating');
 
   return (
     <div
       role="presentation"
-      onClick={onClose}
+      onClick={busy ? undefined : onClose}
       style={{
         position: 'fixed',
         inset: 0,
@@ -242,12 +398,13 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
             style={{
               background: 'none',
               border: 'none',
               fontSize: 24,
               color: C.mid,
-              cursor: 'pointer',
+              cursor: busy ? 'not-allowed' : 'pointer',
               lineHeight: 1,
             }}
           >
@@ -292,7 +449,7 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
             multiple
             ref={fileInputRef}
             onChange={handleFileChange}
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
             style={{ display: 'none' }}
             tabIndex={-1}
           />
@@ -312,12 +469,9 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
             }}
           >
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-              <GradBtn
-                type="button"
-                onClick={handleGenerateAll}
-                disabled={!hasQueued || isAnyGenerating}
-              >
-                Generate All
+              <GradBtn type="button" onClick={handleGenerateAll} disabled={!hasQueued || busy}>
+                {isGeneratingAll && <SpinnerIcon size={14} />}
+                {isGeneratingAll ? 'Generating...' : 'Generate All'}
               </GradBtn>
               <span style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
                 {items.length} item{items.length !== 1 && 's'} ({generatedCount} ready)
@@ -405,9 +559,10 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
             <div
               key={item.id}
               style={{
-                border: `1px solid ${item.hasError ? C.pink : C.border}`,
+                border: `1px solid ${item.hasError || item.status === 'failed' ? C.pink : C.border}`,
                 borderRadius: 12,
-                background: item.hasError ? 'rgba(245,92,122,0.03)' : C.card,
+                background:
+                  item.hasError || item.status === 'failed' ? 'rgba(245,92,122,0.03)' : C.card,
                 overflow: 'hidden',
                 position: 'relative',
                 display: 'flex',
@@ -417,6 +572,7 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
               <button
                 type="button"
                 onClick={() => handleRemoveItem(item.id)}
+                disabled={item.status === 'uploading' || item.status === 'generating'}
                 style={{
                   position: 'absolute',
                   top: 6,
@@ -440,7 +596,7 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
 
               <div style={{ aspectRatio: '3/4', background: C.lighter, position: 'relative' }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                {/* biome-ignore lint/performance/noImgElement: local data url */}
+                {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
                 <img
                   src={item.fileUrl}
                   alt="Upload preview"
@@ -464,7 +620,7 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
                       Queued
                     </div>
                   )}
-                  {item.status === 'generating' && (
+                  {(item.status === 'uploading' || item.status === 'generating') && (
                     <div
                       style={{
                         background: C.card,
@@ -481,7 +637,8 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
                         boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                       }}
                     >
-                      <SpinnerIcon size={10} /> Generating
+                      <SpinnerIcon size={10} />{' '}
+                      {item.status === 'uploading' ? 'Uploading' : 'Generating'}
                     </div>
                   )}
                   {item.status === 'generated' && (
@@ -500,6 +657,21 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
                       }}
                     >
                       ✓ Generated
+                    </div>
+                  )}
+                  {item.status === 'failed' && (
+                    <div
+                      style={{
+                        background: C.pink,
+                        color: C.white,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Failed
                     </div>
                   )}
                 </div>
@@ -593,6 +765,12 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
                   )}
                 </div>
               )}
+
+              {item.status === 'failed' && item.errorMessage && (
+                <div style={{ padding: 12, fontSize: 10, color: C.pink, lineHeight: 1.3 }}>
+                  {item.errorMessage}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -611,6 +789,7 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
             style={{
               height: 40,
               padding: '0 18px',
@@ -621,17 +800,17 @@ export function BulkUploadModal({ open, onClose, onSave }: BulkUploadModalProps)
               fontFamily: 'inherit',
               fontSize: 14,
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: busy ? 'not-allowed' : 'pointer',
             }}
           >
             Cancel
           </button>
           <GradBtn
             type="button"
-            disabled={generatedCount === 0 || isAnyGenerating}
+            disabled={generatedCount === 0 || isAnyGenerating || isSaving}
             onClick={handleAddCatalogue}
           >
-            Add {generatedCount} to Catalogue
+            {isSaving ? 'Saving...' : `Add ${generatedCount} to Catalogue`}
           </GradBtn>
         </div>
       </div>

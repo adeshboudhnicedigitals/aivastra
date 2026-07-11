@@ -122,7 +122,7 @@ export default function WorkflowsPage({ toast }: Props) {
         }),
       );
       toast({
-        title: `${reassigning.poseCount} pose${reassigning.poseCount === 1 ? '' : 's'} reassigned from "${reassigning.label}"`,
+        title: `Poses reassigned from "${reassigning.label}"`,
       });
       setReassigning(null);
       setReassignTargetId('');
@@ -245,7 +245,6 @@ export default function WorkflowsPage({ toast }: Props) {
                 <th>Slug</th>
                 <th>Type</th>
                 <th>Status</th>
-                <th style={{ textAlign: 'right' }}>Poses</th>
                 <th style={{ textAlign: 'right' }}>Created</th>
                 <th style={{ textAlign: 'right' }}>Actions</th>
               </tr>
@@ -299,14 +298,6 @@ export default function WorkflowsPage({ toast }: Props) {
                       {wf.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td
-                    style={{
-                      textAlign: 'right',
-                      color: wf.poseCount > 0 ? 'inherit' : 'var(--muted)',
-                    }}
-                  >
-                    {wf.poseCount}
-                  </td>
                   <td style={{ textAlign: 'right', color: 'var(--muted)', fontSize: 12 }}>
                     {new Date(wf.createdAt).toLocaleDateString()}
                   </td>
@@ -353,7 +344,7 @@ export default function WorkflowsPage({ toast }: Props) {
                           title={
                             workflows.length <= 1
                               ? 'No other workflows to reassign to'
-                              : `Reassign ${wf.poseCount} pose${wf.poseCount === 1 ? '' : 's'} to another workflow`
+                              : 'Reassign poses to another workflow'
                           }
                         >
                           <Icon.Replace /> Reassign
@@ -365,9 +356,7 @@ export default function WorkflowsPage({ toast }: Props) {
                         disabled={wf.poseCount > 0}
                         onClick={() => setDeleting(wf.id)}
                         title={
-                          wf.poseCount > 0
-                            ? `Cannot delete — ${wf.poseCount} pose${wf.poseCount === 1 ? '' : 's'} use this workflow`
-                            : 'Delete workflow'
+                          wf.poseCount > 0 ? 'Cannot delete — in use by poses' : 'Delete workflow'
                         }
                       >
                         <Icon.Trash />
@@ -766,8 +755,8 @@ export default function WorkflowsPage({ toast }: Props) {
               style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
             >
               <p style={{ margin: 0 }}>
-                {reassigning.poseCount} pose{reassigning.poseCount === 1 ? '' : 's'} use{' '}
-                <strong>{reassigning.label}</strong>. Choose a target workflow to move them to.
+                Poses use <strong>{reassigning.label}</strong>. Choose a target workflow to move
+                them to.
               </p>
               <div className="field">
                 <label>Target workflow</label>

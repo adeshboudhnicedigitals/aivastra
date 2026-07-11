@@ -12,6 +12,9 @@ const PUBLIC_PATHS = [
   '/forgot-password',
   '/reset-password',
 ];
+// Features not ready for real users — hidden from the sidebar (see sidebar.tsx
+// devOnly) and blocked here so direct navigation can't reach them either.
+const DEV_ONLY_PATHS = ['/tutorials', '/catalogue-manager'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -24,6 +27,14 @@ export async function middleware(request: NextRequest) {
       : pathname;
 
   if (path.startsWith('/api/auth')) return NextResponse.next();
+
+  if (
+    process.env.NODE_ENV === 'production' &&
+    DEV_ONLY_PATHS.some((p) => path === p || path.startsWith(`${p}/`))
+  ) {
+    return NextResponse.redirect(new URL(`${BASE_PATH}/studio`, request.url));
+  }
+
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
   if (isPublic) return NextResponse.next();
   if (path === '/') return NextResponse.next();

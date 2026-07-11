@@ -1,32 +1,5 @@
 import { z } from 'zod';
 
-export const MerchantSignup = z.object({
-  companyName: z.string().min(1),
-  contactName: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string().min(1),
-  websiteUrl: z.string().url(),
-  companySize: z.enum(['1-10', '11-50', '51-200', '200+']),
-  purpose: z.enum(['ecommerce', 'fashion_brand', 'tailoring', 'marketplace', 'enterprise']),
-  businessAddress: z.string().min(1),
-  password: z.string().min(8),
-});
-export type MerchantSignup = z.infer<typeof MerchantSignup>;
-
-export const MerchantLogin = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
-export type MerchantLogin = z.infer<typeof MerchantLogin>;
-
-export const MerchantProfileUpdate = z.object({
-  contactName: z.string().min(1).max(120),
-  phone: z.string().min(1).max(40),
-  companyName: z.string().min(1).max(160),
-  websiteUrl: z.string().url(),
-});
-export type MerchantProfileUpdate = z.infer<typeof MerchantProfileUpdate>;
-
 /**
  * Authoritative merchant plan billing data — the single source of truth for
  * money. The API computes order amounts from THIS, never from client input.
@@ -61,9 +34,6 @@ export const MerchantPaymentVerify = z.object({
   razorpaySignature: z.string().min(1),
 });
 export type MerchantPaymentVerify = z.infer<typeof MerchantPaymentVerify>;
-
-export const MerchantCatalogGender = z.enum(['men', 'women', 'boy', 'girl']);
-export type MerchantCatalogGender = z.infer<typeof MerchantCatalogGender>;
 
 export const MerchantCatalogModerationStatus = z.enum(['approved', 'rejected']);
 export type MerchantCatalogModerationStatus = z.infer<typeof MerchantCatalogModerationStatus>;
@@ -297,10 +267,6 @@ export const KioskJobDetailResponse = z.object({
   completedAt: z.string().nullable(),
 });
 export type KioskJobDetailResponse = z.infer<typeof KioskJobDetailResponse>;
-export const MerchantRefreshBody = z.object({
-  refreshToken: z.string().min(1),
-});
-export type MerchantRefreshBody = z.infer<typeof MerchantRefreshBody>;
 
 export const AdminMerchantCatalogUpdateBody = z
   .object({
@@ -321,21 +287,17 @@ export const AdminMerchantUpdateBody = z
   .object({
     isActive: z.boolean().optional(),
     companyName: z.string().min(1).max(160).optional(),
+    contactName: z.string().min(1).max(120).optional(),
+    phone: z.string().min(1).max(40).optional(),
+    businessAddress: z.string().min(1).optional(),
     webhookUrl: z.string().url().nullable().optional(),
     webhookSecret: z.string().max(512).nullable().optional(),
     kioskEnabled: z.boolean().optional(),
     maxKioskDevices: z.number().int().min(1).max(100).optional(),
   })
-  .refine(
-    (body) =>
-      body.isActive !== undefined ||
-      body.companyName !== undefined ||
-      body.webhookUrl !== undefined ||
-      body.webhookSecret !== undefined ||
-      body.kioskEnabled !== undefined ||
-      body.maxKioskDevices !== undefined,
-    { message: 'at least one field is required' },
-  );
+  .refine((body) => Object.values(body).some((v) => v !== undefined), {
+    message: 'at least one field is required',
+  });
 export type AdminMerchantUpdateBody = z.infer<typeof AdminMerchantUpdateBody>;
 
 export const ShopifyCustomerPresignRequest = z.object({
