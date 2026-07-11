@@ -381,3 +381,31 @@ export const PresignGarmentTypeBody = z.object({
 export const PresignGarmentTypeInstructionBody = z.object({
   contentType: AssetContentType,
 });
+
+// ── Catalogue template schemas ────────────────────────────────────────────
+
+export const CreateCatalogueTemplateBody = z.object({
+  genderSlug: GenderEnum,
+  label: z.string().min(1).max(120),
+  thumbnailKey: z.string().optional(),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchCatalogueTemplateBody = z.object({
+  label: z.string().min(1).max(120).optional(),
+  thumbnailKey: z.string().nullable().optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
+});
+export const PutCatalogueTemplateLooksBody = z.object({
+  looks: z
+    .array(
+      z.object({
+        poseAssetId: z.string().uuid(),
+        backgroundId: z.string().uuid(),
+      }),
+    )
+    .max(20),
+});
+export const PresignCatalogueTemplateThumbnailBody = z.object({
+  contentType: AssetContentType,
+});
