@@ -17,6 +17,7 @@ import { TopBar } from '@/components/topbar';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
+import { downloadErrorMessage } from '@/lib/errors';
 
 async function concurrentPool<T>(
   fns: Array<() => Promise<T>>,
@@ -514,7 +515,7 @@ function ImageCard({
                     setDownloading(true);
                     try {
                       const res = await fetch(result.url);
-                      if (!res.ok) throw new Error(`${res.status}`);
+                      if (!res.ok) throw new Error(downloadErrorMessage(res.status));
                       const blob = await res.blob();
                       const objectUrl = URL.createObjectURL(blob);
                       const a = document.createElement('a');
@@ -525,11 +526,10 @@ function ImageCard({
                       a.remove();
                       URL.revokeObjectURL(objectUrl);
                     } catch (e) {
-                      const msg = (e as Error).message ?? '';
                       alert(
-                        msg.includes('403')
-                          ? 'Download link expired. Please refresh the page and try again.'
-                          : 'Download failed. Please try again.',
+                        e instanceof Error
+                          ? e.message
+                          : 'The image could not be downloaded. Try again.',
                       );
                     } finally {
                       setDownloading(false);
@@ -713,7 +713,7 @@ export default function CataloguePage({
       const blobResults = await concurrentPool(
         validEntries.map(({ jobId, url }) => async () => {
           const res = await fetch(url);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) throw new Error(downloadErrorMessage(res.status));
           const blob = await res.blob();
           return { jobId, blob };
         }),

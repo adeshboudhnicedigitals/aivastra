@@ -1,3 +1,5 @@
+import { responseError } from './errors';
+
 /**
  * Fetch-based SSE client.
  *
@@ -105,9 +107,8 @@ export function createSSEConnection<T = unknown>(
         });
       }
 
-      if (!res.ok || !res.body) {
-        throw new Error(`SSE ${res.status}`);
-      }
+      if (!res.ok) throw await responseError(res);
+      if (!res.body) throw new Error('The live update connection returned no data.');
 
       // Successful connection — if we received data recently, reset the backoff
       if (Date.now() - lastDataAt < RESET_DELAY_AFTER_MS) retryDelay = INITIAL_DELAY_MS;

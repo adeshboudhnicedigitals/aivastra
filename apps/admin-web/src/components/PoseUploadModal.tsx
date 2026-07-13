@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiFetch } from '../lib/data';
+import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelPoseAsset, WorkflowOption } from '../types';
 import { Icon } from './Icons';
@@ -34,8 +34,10 @@ async function putFile(url: string, file: Blob): Promise<void> {
     xhr.open('PUT', url);
     xhr.setRequestHeader('Content-Type', file.type);
     xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`));
-    xhr.onerror = () => reject(new Error('Network error'));
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(uploadErrorMessage(xhr.status)));
+    xhr.onerror = () => reject(new Error(UPLOAD_NETWORK_ERROR));
     xhr.send(file);
   });
 }

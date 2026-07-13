@@ -23,6 +23,7 @@ import { PremiumDateRangePicker } from '@/components/ui/premium-date-range';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
+import { downloadErrorMessage } from '@/lib/errors';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -518,7 +519,7 @@ export default function CataloguesPage(): React.ReactElement {
       const blobResults = await concurrentPool(
         validEntries.map(({ catalogueId, url }) => async () => {
           const res = await fetch(url, { signal: abort.signal });
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          if (!res.ok) throw new Error(downloadErrorMessage(res.status));
           const blob = await res.blob();
           done++;
           if (!abort.signal.aborted) {

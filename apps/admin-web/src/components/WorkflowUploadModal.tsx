@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
 import { Icon } from './Icons';
 
@@ -221,7 +221,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       setOutputSizeNodeIds(d.outputSizeNodeIds ?? []);
       setResultNodeId(d.resultNodeId ?? '');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to parse workflow');
+      setError(apiErrorMessage(e, 'Failed to parse workflow'));
     } finally {
       setParsing(false);
     }
@@ -308,7 +308,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       toast({ title: `Workflow "${created.label}" created` });
       onCreated(created);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create workflow');
+      setError(apiErrorMessage(e, 'Failed to create workflow'));
     } finally {
       setSaving(false);
     }

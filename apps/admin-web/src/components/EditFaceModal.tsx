@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { apiFetch } from '../lib/data';
+import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelFace } from '../types';
 import { Icon } from './Icons';
@@ -70,8 +70,9 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
               const xhr = new XMLHttpRequest();
               xhr.open('PUT', url as string);
               xhr.setRequestHeader('Content-Type', (body as Blob).type);
-              xhr.onload = () => (xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`)));
-              xhr.onerror = () => rej(new Error('Network error'));
+              xhr.onload = () =>
+                xhr.status < 300 ? res() : rej(new Error(uploadErrorMessage(xhr.status)));
+              xhr.onerror = () => rej(new Error(UPLOAD_NETWORK_ERROR));
               xhr.send(body as Blob);
             }),
         ),
@@ -103,8 +104,9 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', presign.uploadUrl);
         xhr.setRequestHeader('Content-Type', sideFile.type);
-        xhr.onload = () => (xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`)));
-        xhr.onerror = () => rej(new Error('Network error'));
+        xhr.onload = () =>
+          xhr.status < 300 ? res() : rej(new Error(uploadErrorMessage(xhr.status)));
+        xhr.onerror = () => rej(new Error(UPLOAD_NETWORK_ERROR));
         xhr.send(sideFile);
       });
       await apiFetch(`/admin/assets/faces/${face.id}`, {

@@ -3,7 +3,7 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { BatchCatalogUploadModal } from '../../components/BatchCatalogUploadModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
-import { apiFetch } from '../../lib/data';
+import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type { CatalogCategory, CatalogItem, GenderSlug } from '../../types';
 import { useAssetsContext } from './AssetsContext';
@@ -1281,8 +1281,10 @@ export function CatalogTab() {
                                 xhr.open('PUT', presign.uploadUrl);
                                 xhr.setRequestHeader('Content-Type', catalogReplaceFile.type);
                                 xhr.onload = () =>
-                                  xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`));
-                                xhr.onerror = () => rej(new Error('Network error'));
+                                  xhr.status < 300
+                                    ? res()
+                                    : rej(new Error(uploadErrorMessage(xhr.status)));
+                                xhr.onerror = () => rej(new Error(UPLOAD_NETWORK_ERROR));
                                 xhr.send(catalogReplaceFile);
                               }),
                               new Promise<void>((res, rej) => {
@@ -1290,8 +1292,10 @@ export function CatalogTab() {
                                 xhr.open('PUT', presign.thumbnailUploadUrl);
                                 xhr.setRequestHeader('Content-Type', catThumb.type);
                                 xhr.onload = () =>
-                                  xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`));
-                                xhr.onerror = () => rej(new Error('Network error'));
+                                  xhr.status < 300
+                                    ? res()
+                                    : rej(new Error(uploadErrorMessage(xhr.status)));
+                                xhr.onerror = () => rej(new Error(UPLOAD_NETWORK_ERROR));
                                 xhr.send(catThumb);
                               }),
                             ]);

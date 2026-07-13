@@ -1,3 +1,11 @@
+import {
+  ApiError,
+  httpStatusMessage,
+  networkError,
+  readResponseBody,
+  responseError,
+} from './errors';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -51,9 +59,17 @@ function tryRefresh(): Promise<string | null> {
   return refreshInFlight;
 }
 
-async function extractError(res: Response): Promise<Error> {
-  const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-  return new Error(body.error?.message ?? `HTTP ${res.status}`);
+async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    throw networkError(err);
+  }
+}
+
+async function readApiResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) throw await responseError(res);
+  return (await readResponseBody(res)) as T;
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -66,30 +82,42 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  let res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+  let res = await fetchApi(`${API_URL}${path}`, {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
 
   if (res.status === 401) {
     const refreshed = await tryRefresh();
     if (refreshed) {
       headers.Authorization = `Bearer ${refreshed}`;
-      res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+      res = await fetchApi(`${API_URL}${path}`, {
+        ...options,
+        headers,
+        credentials: 'include',
+      });
     } else {
       // Refresh failed — another tab may have already rotated the token and
       // broadcast it. Check the in-memory store one more time before giving up.
       const fallback = _memToken;
       if (fallback) {
         headers.Authorization = `Bearer ${fallback}`;
-        res = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' });
+        res = await fetchApi(`${API_URL}${path}`, {
+          ...options,
+          headers,
+          credentials: 'include',
+        });
       } else {
         if (typeof window !== 'undefined') window.location.href = `${BASE}/login`;
-        throw new Error('Unauthorized');
+        throw new ApiError(401, {
+          error: { code: 'SESSION_EXPIRED', message: 'Your session has expired. Sign in again.' },
+        });
       }
     }
   }
 
-  if (!res.ok) throw await extractError(res);
-  if (res.status === 204) return undefined as T;
-  return res.json() as T;
+  return readApiResponse<T>(res);
 }
 
 export const api = {
@@ -107,8 +135,9 @@ export const api = {
       xhr.onload = () =>
         xhr.status >= 200 && xhr.status < 300
           ? resolve()
-          : reject(new Error(`Upload failed: ${xhr.status}`));
-      xhr.onerror = () => reject(new Error('Upload failed'));
+          : reject(new Error(httpStatusMessage(xhr.status)));
+      xhr.onerror = () =>
+        reject(new Error('Unable to upload the file. Check your connection and try again.'));
       xhr.send(file);
     });
   },
@@ -128,8 +157,9 @@ export const api = {
       xhr.onload = () =>
         xhr.status >= 200 && xhr.status < 300
           ? resolve()
-          : reject(new Error(`Upload failed: ${xhr.status}`));
-      xhr.onerror = () => reject(new Error('Upload failed'));
+          : reject(new Error(httpStatusMessage(xhr.status)));
+      xhr.onerror = () =>
+        reject(new Error('Unable to upload the file. Check your connection and try again.'));
       xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
       if (signal) {
         if (signal.aborted) {

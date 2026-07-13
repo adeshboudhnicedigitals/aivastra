@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { apiFetch } from '../lib/data';
+import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import type { CatalogCategory, CategoryTag, ModelBackground } from '../types';
 import { Icon } from './Icons';
 
@@ -93,8 +93,9 @@ export function EditBackgroundModal({
         const xhr = new XMLHttpRequest();
         xhr.open('PUT', presign.uploadUrl);
         xhr.setRequestHeader('Content-Type', replaceFile.type);
-        xhr.onload = () => (xhr.status < 300 ? res() : rej(new Error(`${xhr.status}`)));
-        xhr.onerror = () => rej(new Error('Network error'));
+        xhr.onload = () =>
+          xhr.status < 300 ? res() : rej(new Error(uploadErrorMessage(xhr.status)));
+        xhr.onerror = () => rej(new Error(UPLOAD_NETWORK_ERROR));
         xhr.send(replaceFile);
       });
       // Server regenerates the thumbnail from the new image on PATCH, deriving the
