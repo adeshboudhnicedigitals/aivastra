@@ -36,11 +36,21 @@
           </div>
 
           <div class="aivastra-tryon__step aivastra-tryon__step--upload">
+            <div class="aivastra-tryon__reuse-panel" hidden>
+              <div class="aivastra-tryon__reuse-info">
+                <img class="aivastra-tryon__reuse-thumb" alt="" />
+                <button type="button" class="aivastra-tryon__reuse-use">Use this photo</button>
+              </div>
+              <button type="button" class="aivastra-tryon__reuse-remove">Not you? Remove</button>
+            </div>
+            <p class="aivastra-tryon__reuse-expired-note" hidden>
+              Your previous photo expired — please upload a new one.
+            </p>
             <label class="aivastra-tryon__upload-btn">
               <img class="aivastra-tryon__upload-preview" hidden alt="" />
               <span class="aivastra-tryon__upload-placeholder">
                 <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
-                <span>Drag and drop photo, or choose file</span>
+                <span class="aivastra-tryon__upload-label-text">Drag and drop photo, or choose file</span>
               </span>
               <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
             </label>
