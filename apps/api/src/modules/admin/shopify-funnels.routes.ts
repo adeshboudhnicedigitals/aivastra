@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { asc, eq } from 'drizzle-orm';
+import { asc, count, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -23,6 +23,10 @@ const PatchFunnelTemplateBody = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+const ReassignFunnelTemplateBody = z.object({
+  targetId: z.string().uuid(),
+});
+
 export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
   const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
   const uuidParam = z.object({ id: z.string().uuid() });
@@ -40,8 +44,15 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
     { preHandler: RW, schema: { body: CreateFunnelTemplateBody } },
     async (req) => {
       const body = req.body as z.infer<typeof CreateFunnelTemplateBody>;
-      const [row] = await app.db.insert(schema.shopifyFunnelTemplates).values(body).returning();
-      return row;
+      try {
+        const [row] = await app.db.insert(schema.shopifyFunnelTemplates).values(body).returning();
+        return row;
+      } catch (err) {
+        if ((err as { code?: string }).code === '23505') {
+          throw new AppError('CONFLICT', 409, `slug "${body.slug}" already exists`);
+        }
+        throw err;
+      }
     },
   );
 
@@ -57,6 +68,67 @@ export async function adminShopifyFunnelsRoutes(app: FastifyInstance) {
         .where(eq(schema.shopifyFunnelTemplates.id, id))
         .returning({ id: schema.shopifyFunnelTemplates.id });
       if (!updated) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
+      return { ok: true };
+    },
+  );
+
+  app.post(
+    '/admin/shopify/funnel-templates/:id/reassign',
+    { preHandler: RW, schema: { params: uuidParam, body: ReassignFunnelTemplateBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { targetId } = req.body as z.infer<typeof ReassignFunnelTemplateBody>;
+      if (targetId === id) {
+        throw new AppError('VALIDATION', 400, 'target must be a different funnel template');
+      }
+
+      const [target] = await app.db
+        .select({ id: schema.shopifyFunnelTemplates.id })
+        .from(schema.shopifyFunnelTemplates)
+        .where(eq(schema.shopifyFunnelTemplates.id, targetId))
+        .limit(1);
+      if (!target) throw new AppError('NOT_FOUND', 404, 'target funnel template not found');
+
+      // Marked 'manual' since this is an explicit admin-driven move, not the
+      // rule-matching engine's own resolution — re-run should leave these alone.
+      const reassigned = await app.db
+        .update(schema.shopifyProductGarments)
+        .set({ funnelTemplateId: targetId, funnelAssignmentSource: 'manual' })
+        .where(eq(schema.shopifyProductGarments.funnelTemplateId, id))
+        .returning({ id: schema.shopifyProductGarments.id });
+
+      return { ok: true, reassigned: reassigned.length };
+    },
+  );
+
+  app.delete(
+    '/admin/shopify/funnel-templates/:id',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+
+      // shopifyProductGarments.funnelTemplateId has no onDelete cascade (unlike
+      // shopifyFunnelRules, which cascades per-merchant rule configs) — a bare
+      // delete would either 500 on the FK violation or, if it somehow succeeded,
+      // silently orphan whichever merchants' products were assigned to this
+      // global, admin-owned template. Block with a clear message instead.
+      const [{ value: inUse }] = await app.db
+        .select({ value: count() })
+        .from(schema.shopifyProductGarments)
+        .where(eq(schema.shopifyProductGarments.funnelTemplateId, id));
+      if (inUse > 0) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          `Cannot delete: ${inUse} product(s) across merchant stores are still assigned to this funnel template. Reassign or deactivate it instead.`,
+        );
+      }
+
+      const [deleted] = await app.db
+        .delete(schema.shopifyFunnelTemplates)
+        .where(eq(schema.shopifyFunnelTemplates.id, id))
+        .returning({ id: schema.shopifyFunnelTemplates.id });
+      if (!deleted) throw new AppError('NOT_FOUND', 404, 'funnel template not found');
       return { ok: true };
     },
   );
