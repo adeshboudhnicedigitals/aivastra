@@ -351,7 +351,7 @@ export function PoseAssetsTab() {
             />
             <select
               className="select"
-              style={{ minWidth: 140 }}
+              style={{ minWidth: 140, width: 'auto' }}
               value={paFilterWorkflow}
               onChange={(e) => setPaFilterWorkflow(e.target.value)}
             >
@@ -364,7 +364,7 @@ export function PoseAssetsTab() {
             </select>
             <select
               className="select"
-              style={{ minWidth: 130 }}
+              style={{ minWidth: 130, width: 'auto' }}
               value={paFilterPose}
               onChange={(e) => setPaFilterPose(e.target.value)}
             >
@@ -377,7 +377,7 @@ export function PoseAssetsTab() {
             </select>
             <select
               className="select"
-              style={{ minWidth: 110 }}
+              style={{ minWidth: 110, width: 'auto' }}
               value={paSortKey}
               onChange={(e) => setPaSortKey(e.target.value as 'label' | 'sortOrder' | 'createdAt')}
             >
