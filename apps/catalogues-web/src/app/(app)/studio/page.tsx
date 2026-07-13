@@ -140,7 +140,7 @@ interface BrandConfig {
   default: string;
 }
 const BRAND_CONFIG: Record<string, BrandConfig> = {
-  Amazon: { ratios: ['1:1', '2:3'], default: '1:1' },
+  Amazon: { ratios: ['1:1', '2:3', '3:4'], default: '1:1' },
   Flipkart: { ratios: ['1:1', '2:3', '3:4'], default: '1:1' },
   Myntra: { ratios: ['2:3', '3:4'], default: '3:4' },
   AJIO: { ratios: ['1:1', '2:3', '3:4'], default: '3:4' },
