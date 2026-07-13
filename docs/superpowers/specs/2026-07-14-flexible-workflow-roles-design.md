@@ -45,7 +45,7 @@ Replace the fixed required-field list for `workflowType: 'regular'` with a floor
 
 Guard the face and background `requireNode` calls (`patcher.ts:81-83`) behind `if (tmpl.faceNodeId)` / `if (tmpl.bgNodeId)` — pose's call stays unconditional. The upper-node loop already handles an empty `upperNodeIds` array correctly with zero changes (a `for...of` over `[]` just does nothing). Guard the lower/shoe fallback-to-upper logic (`patcher.ts:96,114`, `?? inputs.upperGarmentFile`) so it never injects `undefined` when there's no upper file — fall back to leaving the node's existing value untouched (skip the patch, log a warning) instead. `WorkflowInputs.upperGarmentFile` becomes optional; `faceSideFile`/`backgroundFile`/`poseFile` stay required (matches "always resolved" above).
 
-### 5. Dispatcher processor (`processTryonJob`, the `job_inputs.source === 'catalog'` handler around `processor.ts:180-460`)
+### 5. Dispatcher processor (the regular catalog-flow logic inline in `processJob`, `processor.ts:180-460` — not a separately named function; `processJob` branches internally to `processSareeJob`/`processWidgetJob`/etc. for other job types, but this path stays inline)
 
 Face/background/pose resolution (`processor.ts:165-206`) is **unchanged** — always queried, `CATALOG_NOT_FOUND` on missing. Only the upload step (`processor.ts:350-361`) changes: upload `upperGarmentKey` to ComfyUI only when present; skip uploading the face/background images when the resolved workflow template has no `faceNodeId`/`bgNodeId` (nothing would use them — a real, if minor, waste to upload otherwise). `WorkflowInputs` construction updates to match the now-optional fields.
 
