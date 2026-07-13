@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 export function AssetThumb({
   thumbnailKey,
   r2Key,
@@ -17,7 +19,8 @@ export function AssetThumb({
   onPreview?: (url: string) => void;
   cursor?: string;
 }) {
-  const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
+  const [broken, setBroken] = useState(false);
+  const src = thumbnailKey && storageBase && !broken ? `${storageBase}/${thumbnailKey}` : null;
   const fullUrl = r2Key && storageBase ? `${storageBase}/${r2Key}` : null;
   if (src) {
     const img = (
@@ -35,9 +38,7 @@ export function AssetThumb({
           display: 'block',
           cursor: cursor ?? (fullUrl ? 'zoom-in' : undefined),
         }}
-        onError={(e) => {
-          (e.target as HTMLImageElement).style.display = 'none';
-        }}
+        onError={() => setBroken(true)}
       />
     );
     return fullUrl ? (
