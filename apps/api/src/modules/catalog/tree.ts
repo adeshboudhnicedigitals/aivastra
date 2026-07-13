@@ -4,9 +4,13 @@ type Cat = typeof schema.catalogCategories.$inferSelect;
 type Item = typeof schema.catalogItems.$inferSelect & { thumbnailUrl: string };
 
 export function buildTree(cats: Cat[], items: Item[], getUrl?: (key: string) => string) {
+  const catIds = new Set(cats.map((c) => c.id));
   const byParent = new Map<number | null, Cat[]>();
   for (const c of cats) {
-    const k = c.parentId ?? null;
+    // A category whose parent wasn't fetched (dangling parent_id, deleted parent,
+    // or an inactive parent filtered out upstream) must still surface as a root —
+    // otherwise its entire subtree of items silently disappears from the tree.
+    const k = c.parentId != null && catIds.has(c.parentId) ? c.parentId : null;
     if (!byParent.has(k)) byParent.set(k, []);
     byParent.get(k)?.push(c);
   }

@@ -892,13 +892,18 @@ export default function StudioPage(): React.ReactElement {
       ? selectedPoses.some((p) => p.hasShoes)
       : selectedLooks.some((l) => l.hasShoes);
   const selectedCount = catalogueTemplateId === 'custom' ? poseIds.length : selectedLookIds.length;
+  // Lower/shoe catalog fetch needs the pose IDs behind whatever is currently selected —
+  // `poseIds` only ever holds the custom-mode picker's selection, template mode's poses
+  // live on the selected looks instead.
+  const effectivePoseIds =
+    catalogueTemplateId === 'custom' ? poseIds : selectedLooks.map((l) => l.poseId);
 
   // Find the white background (tagged for Amazon) from loaded backgrounds
   const whiteBg = backgrounds?.items.find((b) => b.isWhiteBg);
 
-  const poseIdsParam = poseIds.length > 0 ? `poseIds=${poseIds.join(',')}` : '';
+  const poseIdsParam = effectivePoseIds.length > 0 ? `poseIds=${effectivePoseIds.join(',')}` : '';
   const { data: lowerCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
-    queryKey: ['catalog', 'lower', gender, garmentTypeId, poseIds.join(',')],
+    queryKey: ['catalog', 'lower', gender, garmentTypeId, effectivePoseIds.join(',')],
     queryFn: () => {
       const params = [
         poseIdsParam,
@@ -918,7 +923,7 @@ export default function StudioPage(): React.ReactElement {
     return [...allItems].sort(() => Math.random() - 0.5).slice(0, lowerVisibleCount);
   }, [lowerCatalog]);
   const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
-    queryKey: ['catalog', 'shoe', gender, garmentTypeId, poseIds.join(',')],
+    queryKey: ['catalog', 'shoe', gender, garmentTypeId, effectivePoseIds.join(',')],
     queryFn: () => {
       const params = [
         poseIdsParam,
