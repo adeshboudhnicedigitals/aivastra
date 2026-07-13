@@ -91,6 +91,7 @@ describe('admin shopify funnel templates CRUD', () => {
       headers: adminHeaders,
       payload: { slug: 'dup-slug', label: 'Second', workflowTemplateId, sortOrder: 0 },
     });
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toContain('dup-slug');
   });
 });
