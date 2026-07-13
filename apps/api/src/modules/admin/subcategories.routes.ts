@@ -291,4 +291,90 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       return { ok: true, action: 'upserted' };
     },
   );
+
+  // ── Per-garment-type catalogue-template mapping ───────────────────────────
+  // Which catalogue templates are offered for this garment type — pure
+  // enablement, no override data (per-pose workflow variance is handled
+  // separately and already, by pose_garment_configs above).
+
+  // GET /admin/assets/garment-types/:id/templates
+  // Returns every SAME-GENDER catalogue template, each flagged mapped:true/false.
+  app.get(
+    '/admin/assets/garment-types/:id/templates',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [sub] = await app.db
+        .select({ genderSlug: schema.garmentSubcategories.genderSlug })
+        .from(schema.garmentSubcategories)
+        .where(eq(schema.garmentSubcategories.id, id));
+      if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+      const templates = await app.db
+        .select({
+          id: schema.catalogueTemplates.id,
+          label: schema.catalogueTemplates.label,
+          thumbnailKey: schema.catalogueTemplates.thumbnailKey,
+        })
+        .from(schema.catalogueTemplates)
+        .where(
+          and(
+            eq(schema.catalogueTemplates.genderSlug, sub.genderSlug ?? ''),
+            isNull(schema.catalogueTemplates.deletedAt),
+          ),
+        )
+        .orderBy(asc(schema.catalogueTemplates.sortOrder), asc(schema.catalogueTemplates.label));
+
+      const mappedRows = await app.db
+        .select({ templateId: schema.catalogueTemplateSubcategories.templateId })
+        .from(schema.catalogueTemplateSubcategories)
+        .where(eq(schema.catalogueTemplateSubcategories.subcategoryId, id));
+      const mappedSet = new Set(mappedRows.map((r) => r.templateId));
+
+      return {
+        items: templates.map((t) => ({
+          id: t.id,
+          label: t.label,
+          thumbnailUrl: t.thumbnailKey ? app.storage.publicUrl(t.thumbnailKey) : null,
+          mapped: mappedSet.has(t.id),
+        })),
+      };
+    },
+  );
+
+  // PATCH /admin/assets/garment-types/:id/templates/:templateId
+  // mapped:true inserts the mapping row (no-op if already present), mapped:false
+  // deletes it. No override data to upsert — plain membership toggle.
+  app.patch(
+    '/admin/assets/garment-types/:id/templates/:templateId',
+    {
+      preHandler: RW,
+      schema: {
+        params: z.object({ id: z.string().uuid(), templateId: z.string().uuid() }),
+        body: z.object({ mapped: z.boolean() }),
+      },
+    },
+    async (req) => {
+      const { id, templateId } = req.params as { id: string; templateId: string };
+      const { mapped } = req.body as { mapped: boolean };
+
+      if (mapped) {
+        await app.db
+          .insert(schema.catalogueTemplateSubcategories)
+          .values({ templateId, subcategoryId: id })
+          .onConflictDoNothing();
+      } else {
+        await app.db
+          .delete(schema.catalogueTemplateSubcategories)
+          .where(
+            and(
+              eq(schema.catalogueTemplateSubcategories.templateId, templateId),
+              eq(schema.catalogueTemplateSubcategories.subcategoryId, id),
+            ),
+          );
+      }
+
+      return { ok: true };
+    },
+  );
 }
