@@ -1,3 +1,19 @@
+## 2026-07-14 - Catalogue Template Garment-Type Mapping
+
+### Done
+- New `catalogue_template_subcategories` table (pure many-to-many, no override columns) records which garment types a catalogue template is offered for. No rows = offered for no garment types — strict opt-in, not a backward-compatible "shows everywhere" default (confirmed safe: zero production templates existed at implementation time).
+- `GET /v1/models/catalogue-templates` now requires a matching mapping row for the given `garmentTypeId`; a request with no `garmentTypeId` returns an empty list rather than everything.
+- New admin endpoints mirroring the existing per-garment-type pose-override pattern (`GET`/`PATCH .../garment-types/:id/pose-configs`): `GET /admin/assets/garment-types/:id/templates` (list same-gender templates with `mapped` flags) and `PATCH .../templates/:templateId` (toggle one mapping).
+- New "Garment Type Mapping" sub-view inside the existing Catalogue Templates admin tab — deliberately not merged into the separate Garment Types tab (which already has its own per-garment-type sub-view for a different concept, pose overrides) and not a new top-level tab.
+- Confirmed and left untouched: per-pose, per-garment-type workflow resolution already works end-to-end via the existing `pose_garment_configs` mechanism, both at job-creation validation and dispatcher generation time — this feature only gates which templates are visible at all, not how their looks render.
+- Spec: `docs/superpowers/specs/2026-07-14-catalogue-template-garment-type-mapping-design.md`. Plan: `docs/superpowers/plans/2026-07-14-catalogue-template-garment-type-mapping.md`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-13 - Background Recycle-Bin Delete Fix
 
 ### Done
