@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { ShopifyCustomerJobRequest, ShopifyCustomerPresignRequest } from '@aivastra/types';
+import {
+  ShopifyCustomerJobRequest,
+  ShopifyCustomerPhotoPreviewRequest,
+  ShopifyCustomerPresignRequest,
+} from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
@@ -99,6 +103,34 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
   );
 
   app.post(
+    '/v1/shopify/customer/photo/preview',
+    {
+      preHandler: [
+        app.requireShopifyStoreKey,
+        async (req, reply) => checkRateLimit(app.redis, req.shopifyStoreId as string, reply),
+      ],
+      schema: { body: ShopifyCustomerPhotoPreviewRequest },
+    },
+    async (req) => {
+      const storeId = req.shopifyStoreId as string;
+      const { r2Key } = req.body as ShopifyCustomerPhotoPreviewRequest;
+
+      // Same two checks that gate reuse in /v1/shopify/customer/jobs — one
+      // source of truth for "is this photo still reusable."
+      if (!r2Key.startsWith(`shopify-inputs/${storeId}/`)) {
+        throw new AppError('NOT_FOUND', 404, 'photo not available');
+      }
+      const owner = await app.redis.get(`shopify:upload:${r2Key}`);
+      if (owner !== storeId) {
+        throw new AppError('NOT_FOUND', 404, 'photo not available');
+      }
+
+      const { url, expiresIn } = await app.storage.presignGet(r2Key, 300);
+      return { previewUrl: url, expiresIn };
+    },
+  );
+
+  app.post(
     '/v1/shopify/customer/jobs',
     {
       preHandler: [
@@ -190,6 +222,12 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
         });
         await atomicDeduct(tx as never, userId, jobCost, jobId);
       });
+
+      // Extends the presign-time ownership marker (originally EX 600, matching the
+      // presigned URL's own expiry) to 24h now that the photo has proven itself real
+      // and usable — this is what lets a returning shopper reuse it for a different
+      // product without re-uploading. Idempotent: re-extends on every reuse too.
+      await app.redis.set(`shopify:upload:${customerPhotoKey}`, storeId, 'EX', 86400);
 
       await app.redis.xadd(
         'jobs:normal',
