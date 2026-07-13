@@ -167,11 +167,15 @@ export function SupportModal({
               id="support-modal-title"
               style={{ fontSize: 17, fontWeight: 700, color: C.text, lineHeight: 1.3 }}
             >
-              Have a question? We&apos;re here to help
+              {stage === 'done'
+                ? 'Thank you for reaching out to us!'
+                : "Have a question? We're here to help"}
             </div>
-            <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>
-              Share your concern and our team will get back to you shortly.
-            </div>
+            {stage !== 'done' && (
+              <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>
+                Share your concern and our team will get back to you shortly.
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -204,7 +208,9 @@ export function SupportModal({
             }}
           >
             <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>Message sent!</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: C.text }}>
+              Your message has been sent!
+            </div>
             <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>
               We&apos;ll get back to you as soon as possible.
             </div>
