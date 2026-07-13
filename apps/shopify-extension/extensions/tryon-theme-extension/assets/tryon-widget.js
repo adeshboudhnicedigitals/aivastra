@@ -23,6 +23,88 @@
     };
     const resultImage = root.querySelector('.aivastra-tryon__result-image');
 
+    const reusePanel = root.querySelector('.aivastra-tryon__reuse-panel');
+    const reuseThumb = root.querySelector('.aivastra-tryon__reuse-thumb');
+    const reuseUseBtn = root.querySelector('.aivastra-tryon__reuse-use');
+    const reuseRemoveBtn = root.querySelector('.aivastra-tryon__reuse-remove');
+    const reuseExpiredNote = root.querySelector('.aivastra-tryon__reuse-expired-note');
+    const uploadLabelText = root.querySelector('.aivastra-tryon__upload-label-text');
+    const REUSE_STORAGE_KEY = 'aivastra_last_photo';
+    const REUSE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+    function getRememberedPhoto() {
+      let raw;
+      try {
+        raw = localStorage.getItem(REUSE_STORAGE_KEY);
+      } catch (_err) {
+        return null;
+      }
+      if (!raw) return null;
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (_err) {
+        return null;
+      }
+      if (!parsed || typeof parsed.r2Key !== 'string' || typeof parsed.uploadedAt !== 'number') {
+        return null;
+      }
+      if (Date.now() - parsed.uploadedAt > REUSE_MAX_AGE_MS) return null;
+      return { r2Key: parsed.r2Key };
+    }
+
+    function rememberPhoto(r2Key) {
+      try {
+        localStorage.setItem(REUSE_STORAGE_KEY, JSON.stringify({ r2Key, uploadedAt: Date.now() }));
+      } catch (_err) {
+        /* private-browsing / storage-full — reuse just won't be offered next time */
+      }
+    }
+
+    function hideReusePanel() {
+      if (reusePanel) reusePanel.hidden = true;
+      if (uploadLabelText) uploadLabelText.textContent = 'Drag and drop photo, or choose file';
+    }
+
+    function showReusePanel(previewUrl) {
+      if (!reusePanel || !reuseThumb) return;
+      reuseThumb.src = previewUrl;
+      reusePanel.hidden = false;
+      if (uploadLabelText) uploadLabelText.textContent = 'Or upload a new photo';
+    }
+
+    function forgetPhoto() {
+      try {
+        localStorage.removeItem(REUSE_STORAGE_KEY);
+      } catch (_err) {
+        /* ignore */
+      }
+      hideReusePanel();
+    }
+
+    async function tryShowReusePanel() {
+      const remembered = getRememberedPhoto();
+      if (!remembered) {
+        hideReusePanel();
+        return;
+      }
+      try {
+        const res = await fetch(`${apiBase}/v1/shopify/customer/photo/preview`, {
+          method: 'POST',
+          headers: { 'x-widget-key': widgetKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ r2Key: remembered.r2Key }),
+        });
+        if (!res.ok) {
+          forgetPhoto();
+          return;
+        }
+        const body = await res.json();
+        showReusePanel(body.previewUrl);
+      } catch (_err) {
+        hideReusePanel();
+      }
+    }
+
     function showStep(name) {
       for (const key in steps) {
         if (steps[key]) steps[key].hidden = key !== name;
@@ -43,6 +125,8 @@
       showStep('upload');
       fileInput.value = '';
       resetUploadPreview();
+      if (reuseExpiredNote) reuseExpiredNote.hidden = true;
+      tryShowReusePanel();
     }
 
     function closeModal() {
@@ -86,6 +170,11 @@
             'Try-on is temporarily unavailable, please check back later.';
         }
         throw new Error('try-on unavailable');
+      }
+      if (res.status === 403) {
+        const err = new Error('upload session expired or not owned');
+        err.expiredReuse = true;
+        throw err;
       }
       if (res.status === 202) return { pending: true };
       if (!res.ok) throw new Error(`job create failed: ${res.status}`);
@@ -172,6 +261,28 @@
       throw new Error('sse timed out');
     }
 
+    async function proceedWithPhoto(customerPhotoKey, isReuse) {
+      try {
+        rememberPhoto(customerPhotoKey);
+        const jobResult = await createJob(customerPhotoKey);
+        if (jobResult.pending) {
+          showStep('pending');
+          return;
+        }
+        const resultUrl = await waitForResult(jobResult.jobId);
+        resultImage.src = resultUrl;
+        showStep('result');
+      } catch (err) {
+        if (isReuse && err && err.expiredReuse) {
+          forgetPhoto();
+          showStep('upload');
+          if (reuseExpiredNote) reuseExpiredNote.hidden = false;
+          return;
+        }
+        showStep('error');
+      }
+    }
+
     async function handleFile(file) {
       if (!file.type.startsWith('image/')) {
         showStep('error');
@@ -185,14 +296,7 @@
       showStep('progress');
       try {
         const customerPhotoKey = await uploadPhoto(file);
-        const jobResult = await createJob(customerPhotoKey);
-        if (jobResult.pending) {
-          showStep('pending');
-          return;
-        }
-        const resultUrl = await waitForResult(jobResult.jobId);
-        resultImage.src = resultUrl;
-        showStep('result');
+        await proceedWithPhoto(customerPhotoKey, false);
       } catch (_err) {
         showStep('error');
       }
@@ -200,6 +304,20 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
+    if (reuseUseBtn) {
+      reuseUseBtn.addEventListener('click', () => {
+        const remembered = getRememberedPhoto();
+        if (!remembered) {
+          hideReusePanel();
+          return;
+        }
+        showStep('progress');
+        proceedWithPhoto(remembered.r2Key, true);
+      });
+    }
+    if (reuseRemoveBtn) {
+      reuseRemoveBtn.addEventListener('click', forgetPhoto);
+    }
     fileInput.addEventListener('change', () => {
       const file = fileInput.files?.[0];
       if (!file) return;
