@@ -315,3 +315,8 @@ export const ShopifyCustomerJobRequest = z.object({
   shopifyProductId: z.number().int().positive(),
 });
 export type ShopifyCustomerJobRequest = z.infer<typeof ShopifyCustomerJobRequest>;
+
+export const ShopifyCustomerPhotoPreviewRequest = z.object({
+  r2Key: z.string().min(1),
+});
+export type ShopifyCustomerPhotoPreviewRequest = z.infer<typeof ShopifyCustomerPhotoPreviewRequest>;
