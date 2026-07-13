@@ -601,6 +601,22 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         );
       }
 
+      // shopify_funnel_templates.workflow_template_id is NOT NULL with no onDelete —
+      // an unguarded delete would hit a raw FK violation and surface as a generic
+      // 500 instead of an actionable message.
+      const [funnelCountRow] = await app.db
+        .select({ cnt: count() })
+        .from(schema.shopifyFunnelTemplates)
+        .where(eq(schema.shopifyFunnelTemplates.workflowTemplateId, id));
+      const funnelCount = Number(funnelCountRow?.cnt ?? 0);
+      if (funnelCount > 0) {
+        throw new AppError(
+          'CONFLICT',
+          409,
+          `Cannot delete: ${funnelCount} Shopify funnel template${funnelCount === 1 ? '' : 's'} use this workflow. Reassign those funnel templates first.`,
+        );
+      }
+
       await app.db.delete(schema.workflowTemplates).where(eq(schema.workflowTemplates.id, id));
 
       return { ok: true };
