@@ -3,11 +3,18 @@ import { eq } from 'drizzle-orm';
 import fp from 'fastify-plugin';
 import { AppError } from '../lib/errors.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const shopifyWidgetAuthPlugin = fp(async (app) => {
   app.decorate('requireShopifyStoreKey', async (req, _reply) => {
     const key = req.headers['x-widget-key'];
     if (!key || typeof key !== 'string') {
       throw new AppError('UNAUTHORIZED', 401, 'Missing X-Widget-Key header');
+    }
+    // storeKey is a uuid column — a malformed value would otherwise reach Postgres
+    // as an invalid input syntax error (unhandled, 500) instead of the intended 401.
+    if (!UUID_RE.test(key)) {
+      throw new AppError('UNAUTHORIZED', 401, 'Invalid or inactive store key');
     }
     const [store] = await app.db
       .select()

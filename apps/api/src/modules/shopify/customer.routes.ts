@@ -87,8 +87,11 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       if (!contentType.startsWith('image/')) {
         throw new AppError('VALIDATION', 400, 'Content type must be image/*');
       }
-      const ext = contentType.split('/')[1] ?? 'jpg';
-      const key = `shopify-inputs/${storeId}/${randomUUID()}/photo.${ext}`;
+      // No image extension on the key — Cloudflare's Hotlink Protection pattern-matches
+      // image extensions in the path regardless of method and false-positives this
+      // presigned PUT/OPTIONS as an image hotlink. Content-Type is passed separately
+      // to presignPut and stored as the object's actual Content-Type header.
+      const key = `shopify-inputs/${storeId}/${randomUUID()}/photo`;
       const { url, expiresIn } = await app.storage.presignPut(key, contentType, contentLength, 600);
       await app.redis.set(`shopify:upload:${key}`, storeId, 'EX', 600);
       return { uploadUrl: url, r2Key: key, expiresIn };
