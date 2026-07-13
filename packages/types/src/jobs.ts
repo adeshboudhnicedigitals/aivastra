@@ -39,7 +39,7 @@ export const CreateTryOnJobInputs = z
     faceId: z.string().uuid(),
     // Legacy/custom form: a single shared background applied to every pose.
     backgroundId: z.string().uuid().optional(),
-    poseIds: z.array(z.string().uuid()).min(1).max(6).optional(),
+    poseIds: z.array(z.string().uuid()).min(1).optional(),
     // Template form: each pose carries its own background. Exactly one of
     // (backgroundId + poseIds) or looks must be provided — enforced below.
     looks: z
