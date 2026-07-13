@@ -125,6 +125,11 @@ export async function buildServer(env: Env) {
     max: 200,
     timeWindow: '1 minute',
     redis: app.redis,
+    // A brief Redis blip should never itself turn into a wall of 500s across the
+    // whole API — rate-limiting is a safety net, not a critical path. Paired with
+    // app.redis's bounded maxRetriesPerRequest (see plugins/redis.ts) so a blip
+    // fails fast (and therefore open) instead of hanging.
+    skipOnError: true,
     allowList: (req) =>
       (req.url.startsWith('/admin/') && !req.url.startsWith('/admin/auth/')) ||
       req.url === '/v1/payments/webhook',

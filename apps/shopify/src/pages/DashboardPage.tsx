@@ -91,6 +91,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [openingEditor, setOpeningEditor] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const navigate = useNavigate();
 
@@ -116,6 +117,19 @@ export default function DashboardPage() {
       setError((err as Error).message);
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function openThemeEditor() {
+    setOpeningEditor(true);
+    setError(null);
+    try {
+      const { url } = await apiFetch<{ url: string }>('/v1/shopify/onboarding/theme-editor-url');
+      window.open(url, '_blank', 'noopener');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setOpeningEditor(false);
     }
   }
 
@@ -234,11 +248,23 @@ export default function DashboardPage() {
                       <Text as="p">Add the Try It On block to your theme</Text>
                     </InlineStack>
                     {!themeBlockDone && (
-                      <div style={{ width: '180px', flexShrink: 0 }}>
-                        <Button onClick={confirmThemeBlock} loading={confirming} fullWidth>
-                          I've added it
-                        </Button>
-                      </div>
+                      <InlineStack gap="200">
+                        <div style={{ width: '170px', flexShrink: 0 }}>
+                          <Button onClick={openThemeEditor} loading={openingEditor} fullWidth>
+                            Open theme editor
+                          </Button>
+                        </div>
+                        <div style={{ width: '130px', flexShrink: 0 }}>
+                          <Button
+                            variant="primary"
+                            onClick={confirmThemeBlock}
+                            loading={confirming}
+                            fullWidth
+                          >
+                            I've added it
+                          </Button>
+                        </div>
+                      </InlineStack>
                     )}
                   </InlineStack>
 
