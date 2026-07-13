@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../lib/data';
+import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type {
   CatalogueTemplate,
@@ -9,7 +9,6 @@ import type {
   ModelPoseAsset,
   WorkflowOption,
 } from '../types';
-import { BackgroundUploadModal } from './BackgroundUploadModal';
 import { Icon } from './Icons';
 
 async function putFile(url: string, file: Blob): Promise<void> {
@@ -20,8 +19,8 @@ async function putFile(url: string, file: Blob): Promise<void> {
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
-        : reject(new Error(`Upload failed: HTTP ${xhr.status}`));
-    xhr.onerror = () => reject(new Error('Network error during upload'));
+        : reject(new Error(uploadErrorMessage(xhr.status)));
+    xhr.onerror = () => reject(new Error(UPLOAD_NETWORK_ERROR));
     xhr.send(file);
   });
 }
@@ -37,28 +36,35 @@ interface LookRow {
 function UploadTile({
   label,
   thumbnailKey,
+  previewUrl,
   storageBase,
   disabled,
   loading = false,
+  w = 72,
+  h = 90,
   onClick,
 }: {
   label: string;
-  thumbnailKey: string | undefined;
+  thumbnailKey?: string;
+  /** Local blob preview, for deferred (not-yet-uploaded) selections — takes priority. */
+  previewUrl?: string | null;
   storageBase: string | null;
   disabled: boolean;
   loading?: boolean;
+  w?: number;
+  h?: number;
   onClick: () => void;
 }) {
-  const src = thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null;
+  const src = previewUrl ?? (thumbnailKey && storageBase ? `${storageBase}/${thumbnailKey}` : null);
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       style={{
-        width: 72,
-        height: 90,
-        borderRadius: 6,
+        width: w,
+        height: h,
+        borderRadius: 'var(--r-lg)',
         border: `1.5px dashed ${src ? 'transparent' : 'var(--border-strong, var(--border))'}`,
         background: src ? 'transparent' : 'var(--surface-2)',
         padding: 0,
@@ -182,8 +188,10 @@ export function EditCatalogueTemplateModal({
   const poseFileInputRef = useRef<HTMLInputElement>(null);
   const poseUploadRowKeyRef = useRef<string | null>(null);
 
-  // Which look row triggered a background upload, if any — null means modal closed.
-  const [uploadBackgroundForRow, setUploadBackgroundForRow] = useState<string | null>(null);
+  // Which look row's background tile is currently uploading, if any (disables that tile).
+  const [uploadingBackgroundForRow, setUploadingBackgroundForRow] = useState<string | null>(null);
+  const backgroundFileInputRef = useRef<HTMLInputElement>(null);
+  const backgroundUploadRowKeyRef = useRef<string | null>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: poseAssets intentionally omitted — only used for the one-time initial mapping below, re-running this fetch on every poseAssets update (e.g. after an in-modal pose upload) would clobber in-progress row edits
   useEffect(() => {
@@ -278,6 +286,45 @@ export function EditCatalogueTemplateModal({
     }
   }
 
+  function openBackgroundUpload(rowKey: string) {
+    backgroundUploadRowKeyRef.current = rowKey;
+    backgroundFileInputRef.current?.click();
+  }
+
+  async function handleBackgroundFileSelected(file: File) {
+    const rowKey = backgroundUploadRowKeyRef.current;
+    if (!rowKey) return;
+    setUploadingBackgroundForRow(rowKey);
+    try {
+      const presign = await apiFetch<{ r2Key: string; uploadUrl: string }>(
+        '/admin/assets/backgrounds/presign',
+        { method: 'POST', body: JSON.stringify({ contentType: file.type }) },
+      );
+      await putFile(presign.uploadUrl, file);
+      const created = await apiFetch<ModelBackground>('/admin/assets/backgrounds/confirm', {
+        method: 'POST',
+        body: JSON.stringify({
+          label: file.name.replace(/\.[^.]+$/, ''),
+          r2Key: presign.r2Key,
+          sortOrder: 0,
+          genderSlug,
+          scope: 'template',
+        }),
+      });
+      setLocalBackgrounds((prev) => [...prev, created]);
+      updateLookRow(rowKey, { backgroundId: created.id });
+    } catch (err: unknown) {
+      toast({
+        kind: 'error',
+        title: 'Background upload failed',
+        body: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setUploadingBackgroundForRow(null);
+      backgroundUploadRowKeyRef.current = null;
+    }
+  }
+
   async function handleWorkflowChange(rowKey: string, workflowTemplateId: string) {
     updateLookRow(rowKey, { workflowTemplateId });
     const row = looks.find((l) => l.key === rowKey);
@@ -297,8 +344,18 @@ export function EditCatalogueTemplateModal({
     }
   }
 
+  const uploadInFlight = uploadingPoseForRow !== null || uploadingBackgroundForRow !== null;
+
   const handleSave = async () => {
     if (!label.trim()) return;
+    if (uploadInFlight) {
+      toast({
+        kind: 'error',
+        title: 'Still uploading',
+        body: 'Wait for the pose/background upload to finish before saving.',
+      });
+      return;
+    }
     const dedupe = new Set(looks.map((l) => `${l.poseAssetId}::${l.backgroundId}`));
     if (dedupe.size !== looks.length) {
       toast({
@@ -367,16 +424,19 @@ export function EditCatalogueTemplateModal({
     }
   };
 
+  const validLooks = looks.filter((l) => l.poseAssetId && l.backgroundId);
+  const coverPreviewUrl = thumbnailFile ? URL.createObjectURL(thumbnailFile) : undefined;
+
   return (
     <>
       <div className="modal-overlay" onClick={saving ? undefined : onClose}>
         <div
-          className="modal"
+          className="drawer"
           onClick={(e) => e.stopPropagation()}
-          style={{ width: 'min(640px, calc(100vw - 40px))' }}
+          style={{ width: 'min(720px, calc(100vw - 60px))' }}
         >
-          <div className="modal-head">
-            <h3>{isEditing ? 'Edit catalogue template' : 'New catalogue template'}</h3>
+          <div className="drawer-head">
+            <h2>{isEditing ? 'Edit Catalogue Template' : 'New Catalogue Template'}</h2>
             <button
               className="btn sm ghost"
               onClick={onClose}
@@ -388,109 +448,110 @@ export function EditCatalogueTemplateModal({
           </div>
 
           <div
-            className="modal-body"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-              maxHeight: '72vh',
-              overflowY: 'auto',
-            }}
+            className="drawer-body"
+            style={{ display: 'flex', flexDirection: 'column', gap: 18 }}
           >
-            <div className="field">
-              <label>Label</label>
-              <input
-                className="input"
-                value={label}
-                disabled={saving}
-                placeholder="e.g. Autumn Collection"
-                onChange={(e) => setLabel(e.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label>
-                Gender{' '}
-                {isEditing && (
-                  <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
-                    (locked after creation)
-                  </span>
-                )}
-              </label>
-              <select
-                className="select"
-                value={genderSlug}
-                disabled={saving || isEditing}
-                onChange={(e) => setGenderSlug(e.target.value as GenderSlug)}
-              >
-                <option value="men">Men</option>
-                <option value="women">Women</option>
-                <option value="boys">Boys</option>
-                <option value="girls">Girls</option>
-              </select>
-            </div>
-
-            <div className="field">
-              <label>Sort order</label>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                step={1}
-                value={sortOrder}
-                disabled={saving}
-                onChange={(e) => setSortOrder(Number(e.target.value))}
-                style={{ width: 120 }}
-              />
-            </div>
-
-            <div className="field">
-              <label>Cover thumbnail</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {(thumbnailFile || template?.thumbnailUrl) && (
-                  // biome-ignore lint/performance/noImgElement: admin panel thumbnail
-                  <img
-                    src={
-                      thumbnailFile
-                        ? URL.createObjectURL(thumbnailFile)
-                        : (template?.thumbnailUrl ?? undefined)
-                    }
-                    alt=""
-                    style={{
-                      width: 48,
-                      height: 60,
-                      objectFit: 'cover',
-                      borderRadius: 5,
-                      border: '1px solid var(--border)',
-                    }}
-                  />
-                )}
-                <input
-                  ref={thumbInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
+            <div className="card">
+              <div className="card-head">
+                <h3>Template Info</h3>
+              </div>
+              <div className="card-body" style={{ display: 'flex', gap: 16 }}>
+                <UploadTile
+                  label="Cover"
+                  previewUrl={coverPreviewUrl}
+                  thumbnailKey={!thumbnailFile ? (template?.thumbnailKey ?? undefined) : undefined}
+                  storageBase={storagePublicUrl}
                   disabled={saving}
-                  onChange={(e) => setThumbnailFile(e.target.files?.[0] ?? null)}
+                  w={96}
+                  h={120}
+                  onClick={() => thumbInputRef.current?.click()}
                 />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1 }}>
+                  <div className="field">
+                    <label>Label</label>
+                    <input
+                      className="input"
+                      value={label}
+                      disabled={saving}
+                      placeholder="e.g. Autumn Collection"
+                      onChange={(e) => setLabel(e.target.value)}
+                    />
+                  </div>
+                  <div className="field-row">
+                    <div className="field">
+                      <label>
+                        Gender
+                        {isEditing && (
+                          <span style={{ fontWeight: 400, color: 'var(--muted)' }}> (locked)</span>
+                        )}
+                      </label>
+                      {isEditing ? (
+                        <span className="badge dot accent" style={{ marginTop: 2 }}>
+                          {genderSlug}
+                        </span>
+                      ) : (
+                        <select
+                          className="select"
+                          value={genderSlug}
+                          disabled={saving}
+                          onChange={(e) => setGenderSlug(e.target.value as GenderSlug)}
+                        >
+                          <option value="men">Men</option>
+                          <option value="women">Women</option>
+                          <option value="boys">Boys</option>
+                          <option value="girls">Girls</option>
+                        </select>
+                      )}
+                    </div>
+                    <div className="field">
+                      <label>Sort order</label>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={sortOrder}
+                        disabled={saving}
+                        onChange={(e) => setSortOrder(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="field">
-              <label>
-                Looks{' '}
-                <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
-                  (upload a pose + background per look — falls back to the first look's pose
-                  thumbnail if no cover is set)
-                </span>
-              </label>
-              {!looksLoaded ? (
-                <p style={{ fontSize: 12, color: 'var(--muted)' }}>Loading looks…</p>
-              ) : (
-                <>
-                  {looks.map((row) => (
+            <div className="card">
+              <div className="card-head">
+                <h3>Looks</h3>
+                <span className="sub">{validLooks.length} ready</span>
+                <button
+                  type="button"
+                  className="btn sm ghost"
+                  style={{ marginLeft: 'auto' }}
+                  disabled={saving}
+                  onClick={addLookRow}
+                >
+                  <Icon.Add /> Add look
+                </button>
+              </div>
+              <div className="card-body" style={{ padding: 0 }}>
+                {!looksLoaded ? (
+                  <div className="empty">Loading looks…</div>
+                ) : looks.length === 0 ? (
+                  <div className="empty">
+                    No looks yet. Each look uploads a fresh pose + background photo.
+                  </div>
+                ) : (
+                  looks.map((row, i) => (
                     <div
                       key={row.key}
-                      style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}
+                      style={{
+                        display: 'flex',
+                        gap: 12,
+                        alignItems: 'center',
+                        padding: '14px 18px',
+                        borderTop: i > 0 ? '1px solid var(--border)' : undefined,
+                      }}
                     >
                       <UploadTile
                         label="Pose"
@@ -504,16 +565,12 @@ export function EditCatalogueTemplateModal({
                         label="Background"
                         thumbnailKey={backgroundById.get(row.backgroundId)?.thumbnailKey}
                         storageBase={storagePublicUrl}
-                        disabled={saving}
-                        onClick={() => setUploadBackgroundForRow(row.key)}
+                        disabled={saving || uploadingBackgroundForRow === row.key}
+                        loading={uploadingBackgroundForRow === row.key}
+                        onClick={() => openBackgroundUpload(row.key)}
                       />
-                      <label
-                        className="field"
-                        style={{ flex: 1, minWidth: 0, gap: 4, marginBottom: 0 }}
-                      >
-                        <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>
-                          Workflow
-                        </span>
+                      <div className="field" style={{ flex: 1, minWidth: 0, marginBottom: 0 }}>
+                        <label>Workflow</label>
                         <select
                           className="select"
                           value={row.workflowTemplateId}
@@ -527,41 +584,50 @@ export function EditCatalogueTemplateModal({
                             </option>
                           ))}
                         </select>
-                      </label>
+                      </div>
                       <button
                         type="button"
-                        className="btn sm danger"
+                        className="iconbtn"
                         disabled={saving}
                         onClick={() => removeLookRow(row.key)}
+                        title="Remove look"
                       >
                         <Icon.Trash />
                       </button>
                     </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="btn sm ghost"
-                    style={{ marginTop: 8 }}
-                    disabled={saving}
-                    onClick={addLookRow}
-                  >
-                    <Icon.Add /> Add look
-                  </button>
-                </>
-              )}
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="modal-foot">
+          <div className="drawer-foot">
             <button className="btn ghost" onClick={onClose} disabled={saving}>
               Cancel
             </button>
-            <button className="btn primary" onClick={handleSave} disabled={saving || !label.trim()}>
-              {saving ? 'Saving…' : 'Save template'}
+            <button
+              className="btn primary"
+              onClick={handleSave}
+              disabled={saving || !label.trim() || uploadInFlight}
+              title={uploadInFlight ? 'Wait for uploads to finish' : undefined}
+            >
+              {saving ? 'Saving…' : uploadInFlight ? 'Uploading…' : 'Save template'}
             </button>
           </div>
         </div>
       </div>
+
+      <input
+        ref={thumbInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) setThumbnailFile(file);
+        }}
+      />
 
       <input
         ref={poseFileInputRef}
@@ -575,20 +641,17 @@ export function EditCatalogueTemplateModal({
         }}
       />
 
-      {uploadBackgroundForRow && (
-        <BackgroundUploadModal
-          lockedGenderSlug={genderSlug}
-          scope="template"
-          onDone={(rows) => {
-            setLocalBackgrounds((prev) => [...prev, ...rows]);
-            const first = rows[0];
-            if (first) updateLookRow(uploadBackgroundForRow, { backgroundId: first.id });
-            setUploadBackgroundForRow(null);
-          }}
-          onClose={() => setUploadBackgroundForRow(null)}
-          toast={toast}
-        />
-      )}
+      <input
+        ref={backgroundFileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void handleBackgroundFileSelected(file);
+        }}
+      />
     </>
   );
 }
