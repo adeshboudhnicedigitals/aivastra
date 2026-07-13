@@ -86,11 +86,23 @@ describe('GET /v1/models/catalogue-templates', () => {
       },
     ]);
 
+    // Both templates mapped to the same garment type, so the ONLY reason
+    // templateFullyFiltered disappears from results is the zero-surviving-looks
+    // rule under test here — not the garment-type mapping requirement.
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `sc-looks-${activePose.id}`, label: 'GT' })
+      .returning();
+    await app.db.insert(schema.catalogueTemplateSubcategories).values([
+      { templateId: templateWithSurvivingLook.id, subcategoryId: garmentType.id },
+      { templateId: templateFullyFiltered.id, subcategoryId: garmentType.id },
+    ]);
+
     const token = await loginToken('templates-public@x.com');
 
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/models/catalogue-templates?gender=men',
+      url: `/v1/models/catalogue-templates?gender=men&garmentTypeId=${garmentType.id}`,
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.statusCode).toBe(200);
@@ -129,13 +141,17 @@ describe('GET /v1/models/catalogue-templates', () => {
         garmentPhasePromptNode: '1',
       })
       .returning();
-    const [subcat] = await app.db
+    const [subcatWithOverride] = await app.db
       .insert(schema.garmentSubcategories)
-      .values({ genderSlug: 'women', slug: `sc-${pose.id}`, label: 'SC' })
+      .values({ genderSlug: 'women', slug: `sc-override-${pose.id}`, label: 'SC' })
+      .returning();
+    const [subcatNoOverride] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `sc-no-override-${pose.id}`, label: 'SC2' })
       .returning();
     await app.db.insert(schema.poseGarmentConfigs).values({
       poseAssetId: pose.id,
-      subcategoryId: subcat.id,
+      subcategoryId: subcatWithOverride.id,
       workflowTemplateId: workflow.id,
     });
     const [template] = await app.db
@@ -148,25 +164,79 @@ describe('GET /v1/models/catalogue-templates', () => {
       backgroundId: bg.id,
       sortOrder: 0,
     });
+    // Template mapped to BOTH garment types — one with a pose override, one without —
+    // so both branches below are testing the override overlay, not the mapping gate.
+    await app.db.insert(schema.catalogueTemplateSubcategories).values([
+      { templateId: template.id, subcategoryId: subcatWithOverride.id },
+      { templateId: template.id, subcategoryId: subcatNoOverride.id },
+    ]);
 
     const token = await loginToken('templates-override@x.com');
 
-    // Without garmentTypeId — pose has no default workflow → hasLower false.
+    // Garment type with no pose override — pose has no default workflow → hasLower false.
     const resWithout = await app.inject({
       method: 'GET',
-      url: '/v1/models/catalogue-templates?gender=women',
+      url: `/v1/models/catalogue-templates?gender=women&garmentTypeId=${subcatNoOverride.id}`,
       headers: { authorization: `Bearer ${token}` },
     });
     const withoutLook = resWithout.json().items[0].looks[0];
     expect(withoutLook.hasLower).toBe(false);
 
-    // With garmentTypeId matching the override — hasLower true (workflow has lowerNodeId).
+    // Garment type with a pose override — hasLower true (workflow has lowerNodeId).
     const resWith = await app.inject({
       method: 'GET',
-      url: `/v1/models/catalogue-templates?gender=women&garmentTypeId=${subcat.id}`,
+      url: `/v1/models/catalogue-templates?gender=women&garmentTypeId=${subcatWithOverride.id}`,
       headers: { authorization: `Bearer ${token}` },
     });
     const withLook = resWith.json().items[0].looks[0];
     expect(withLook.hasLower).toBe(true);
+  });
+
+  it('excludes a template that has no garment-type mapping at all', async () => {
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({ label: 'P', genderSlug: 'men', r2Key: 'p2.jpg', thumbnailKey: 'p2.jpg' })
+      .returning();
+    const [bg] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({ label: 'B', r2Key: 'b2.jpg', thumbnailKey: 'b2.jpg' })
+      .returning();
+    const [unmappedTemplate] = await app.db
+      .insert(schema.catalogueTemplates)
+      .values({ genderSlug: 'men', label: 'Unmapped', sortOrder: 0 })
+      .returning();
+    await app.db.insert(schema.catalogueTemplateLooks).values({
+      templateId: unmappedTemplate.id,
+      poseAssetId: pose.id,
+      backgroundId: bg.id,
+      sortOrder: 0,
+    });
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `sc-unmapped-${pose.id}`, label: 'GT' })
+      .returning();
+    // Deliberately no catalogueTemplateSubcategories row inserted for this template.
+
+    const token = await loginToken('templates-unmapped@x.com');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/models/catalogue-templates?gender=men&garmentTypeId=${garmentType.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(
+      res.json().items.find((t: { id: string }) => t.id === unmappedTemplate.id),
+    ).toBeUndefined();
+  });
+
+  it('returns an empty list when garmentTypeId is omitted', async () => {
+    const token = await loginToken('templates-no-gt@x.com');
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/models/catalogue-templates?gender=men',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items).toEqual([]);
   });
 });

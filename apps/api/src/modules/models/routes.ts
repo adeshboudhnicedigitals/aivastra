@@ -311,6 +311,11 @@ export async function modelsRoutes(app: FastifyInstance) {
     async (req) => {
       const { gender, garmentTypeId } = req.query as { gender: string; garmentTypeId?: string };
 
+      // A template with no mapping row for this garment type is not offered for it at
+      // all (strict opt-in — see catalogue_template_subcategories). Without a
+      // garmentTypeId there's no way to know which templates apply, so fail closed.
+      if (!garmentTypeId) return { items: [] };
+
       const templates = await app.db
         .select({
           id: schema.catalogueTemplates.id,
@@ -318,6 +323,13 @@ export async function modelsRoutes(app: FastifyInstance) {
           thumbnailKey: schema.catalogueTemplates.thumbnailKey,
         })
         .from(schema.catalogueTemplates)
+        .innerJoin(
+          schema.catalogueTemplateSubcategories,
+          and(
+            eq(schema.catalogueTemplateSubcategories.templateId, schema.catalogueTemplates.id),
+            eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId),
+          ),
+        )
         .where(
           and(
             eq(schema.catalogueTemplates.genderSlug, gender),
