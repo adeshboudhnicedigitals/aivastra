@@ -92,6 +92,13 @@ export interface CatalogueTemplateLook {
   sortOrder: number;
 }
 
+export interface TemplateGarmentTypeMapping {
+  id: string;
+  label: string;
+  thumbnailUrl: string | null;
+  mapped: boolean;
+}
+
 // Poses are per (garment type × face × background) combo
 export interface ModelPose {
   id: string;
