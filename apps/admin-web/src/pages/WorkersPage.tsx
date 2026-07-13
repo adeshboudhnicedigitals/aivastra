@@ -140,6 +140,26 @@ export default function WorkersPage({ toast }: Props) {
     }
   }
 
+  async function handleDrain(w: Worker) {
+    try {
+      await apiFetch(`/admin/workers/${w.id}/drain`, { method: 'POST' });
+      toast({ title: `Worker ${w.id} draining` });
+      void load();
+    } catch {
+      toast({ kind: 'error', title: 'Failed to drain worker' });
+    }
+  }
+
+  async function handleUndrain(w: Worker) {
+    try {
+      await apiFetch(`/admin/workers/${w.id}/undrain`, { method: 'POST' });
+      toast({ title: `Worker ${w.id} back to IDLE` });
+      void load();
+    } catch {
+      toast({ kind: 'error', title: 'Failed to undrain worker' });
+    }
+  }
+
   async function handleDelete(w: Worker) {
     setConfirmDelete(w);
   }
@@ -330,6 +350,28 @@ export default function WorkersPage({ toast }: Props) {
                       }}
                     >
                       <Switch checked={w.isActive} onChange={() => void handleToggleActive(w)} />
+                      {w.status === 'DRAINING' ? (
+                        <button
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => void handleUndrain(w)}
+                          title="Undrain (back to IDLE)"
+                        >
+                          <Icon.Refresh />
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => void handleDrain(w)}
+                          disabled={!w.isActive}
+                          title={
+                            w.isActive
+                              ? 'Drain (finish current job, stop accepting new ones)'
+                              : 'Worker already inactive'
+                          }
+                        >
+                          <Icon.Drain />
+                        </button>
+                      )}
                       <button
                         className="btn btn--ghost btn--sm"
                         onClick={() => openEdit(w)}
