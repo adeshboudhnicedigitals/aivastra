@@ -36,7 +36,10 @@ export async function googleAuthRoutes(app: FastifyInstance) {
       secure: app.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/v1/auth/google',
-      maxAge: 60,
+      // 5 minutes — long enough to survive Google's own consent/account-picker/2FA flow,
+      // which routinely takes longer than the 60s this used to be set to, causing a
+      // guaranteed INVALID_STATE on any login that isn't instant.
+      maxAge: 300,
       signed: false,
     });
     if (next) {
@@ -45,7 +48,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
         secure: app.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/v1/auth/google',
-        maxAge: 60,
+        maxAge: 300,
         signed: false,
       });
     }
