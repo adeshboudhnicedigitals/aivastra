@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../lib/data';
+import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { WorkflowOption } from '../types';
 
@@ -54,8 +54,8 @@ async function putFile(url: string, file: Blob): Promise<void> {
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
-        : reject(new Error(`Upload failed: HTTP ${xhr.status}`));
-    xhr.onerror = () => reject(new Error('Network error during upload'));
+        : reject(new Error(uploadErrorMessage(xhr.status)));
+    xhr.onerror = () => reject(new Error(UPLOAD_NETWORK_ERROR));
     xhr.send(file);
   });
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { apiFetch } from '../lib/data';
+import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
@@ -60,8 +60,8 @@ function uploadWithProgress(
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
-        : reject(new Error(`R2 upload failed: ${xhr.status}`));
-    xhr.onerror = () => reject(new Error('Network error during R2 upload'));
+        : reject(new Error(uploadErrorMessage(xhr.status)));
+    xhr.onerror = () => reject(new Error(UPLOAD_NETWORK_ERROR));
     xhr.send(file);
   });
 }

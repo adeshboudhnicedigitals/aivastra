@@ -393,25 +393,124 @@ export function initAuthFailureHandler(cb: () => void) {
 }
 
 export class ApiError extends Error {
+  public readonly code: string | undefined;
+
   constructor(
     public status: number,
     public body: unknown,
   ) {
-    super(`API ${status}`);
+    super(apiErrorBodyMessage(body) ?? httpStatusMessage(status));
+    this.name = 'ApiError';
+    this.code = apiErrorBodyCode(body);
   }
 }
 
-/**
- * ApiError.message is just "API <status>" — the actual backend reason (e.g. an
- * AppError's message) lives in ApiError.body.error.message. Use this wherever a
- * catch block needs to show the admin *why* a request failed, not just that it did.
- */
-export function apiErrorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    const body = err.body as { error?: { message?: string } } | undefined;
-    if (body?.error?.message) return body.error.message;
+type ApiErrorBody = {
+  error?: { code?: unknown; message?: unknown } | string;
+  message?: unknown;
+};
+
+function apiErrorBodyMessage(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const value = body as ApiErrorBody;
+  const message =
+    typeof value.error === 'object' && value.error !== null
+      ? value.error.message
+      : typeof value.error === 'string'
+        ? value.error
+        : value.message;
+  return typeof message === 'string' && message.trim() ? message.trim() : undefined;
+}
+
+function apiErrorBodyCode(body: unknown): string | undefined {
+  if (!body || typeof body !== 'object') return undefined;
+  const error = (body as ApiErrorBody).error;
+  if (!error || typeof error !== 'object') return undefined;
+  return typeof error.code === 'string' ? error.code : undefined;
+}
+
+function httpStatusMessage(status: number): string {
+  switch (status) {
+    case 400:
+    case 422:
+      return 'Some information is invalid. Check the form and try again.';
+    case 401:
+      return 'Your session has expired. Sign in again.';
+    case 403:
+      return 'You do not have permission to perform this action.';
+    case 404:
+      return 'The requested item could not be found.';
+    case 409:
+      return 'This action conflicts with the current state. Refresh and try again.';
+    case 413:
+      return 'The selected file is too large.';
+    case 429:
+      return 'Too many requests. Wait a moment and try again.';
+    case 502:
+    case 503:
+    case 504:
+      return 'The service is temporarily unavailable. Try again shortly.';
+    default:
+      return status >= 500
+        ? 'Something went wrong on the server. Try again.'
+        : 'The request could not be completed. Try again.';
   }
+}
+
+export function uploadErrorMessage(status: number): string {
+  switch (status) {
+    case 403:
+      return 'The upload authorization expired. Start the upload again.';
+    case 413:
+      return 'The selected file is too large.';
+    case 429:
+      return 'Too many uploads. Wait a moment and try again.';
+    case 500:
+    case 502:
+    case 503:
+    case 504:
+      return 'The storage service is temporarily unavailable. Try again shortly.';
+    default:
+      return 'The file could not be uploaded. Try again.';
+  }
+}
+
+export const UPLOAD_NETWORK_ERROR =
+  'Unable to upload the file. Check your connection and try again.';
+
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message.trim()) return err.message;
   return fallback;
+}
+
+async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    throw new Error('Unable to reach the server. Check your connection and try again.', {
+      cause: err,
+    });
+  }
+}
+
+async function readResponseBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text.trim()) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function apiErrorFromResponse(res: Response): Promise<ApiError> {
+  return new ApiError(res.status, await readResponseBody(res));
+}
+
+async function readApiResponse<T>(res: Response): Promise<T> {
+  if (!res.ok) throw await apiErrorFromResponse(res);
+  return (await readResponseBody(res)) as T;
 }
 
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
@@ -421,32 +520,35 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
     ...((init.headers as Record<string, string>) ?? {}),
   });
 
-  const res = await fetch(path, { ...init, headers: makeHeaders(_token), credentials: 'include' });
+  const res = await fetchApi(path, {
+    ...init,
+    headers: makeHeaders(_token),
+    credentials: 'include',
+  });
 
   if (res.status === 401 && _token) {
-    const refreshRes = await fetch('/admin/auth/refresh', {
+    const refreshRes = await fetchApi('/admin/auth/refresh', {
       method: 'POST',
       credentials: 'include',
     });
     if (refreshRes.ok) {
-      const { accessToken } = (await refreshRes.json()) as { accessToken: string };
+      const { accessToken } = await readApiResponse<{ accessToken: string }>(refreshRes);
       setToken(accessToken);
-      const retry = await fetch(path, {
+      const retry = await fetchApi(path, {
         ...init,
         headers: makeHeaders(accessToken),
         credentials: 'include',
       });
-      if (!retry.ok) throw new ApiError(retry.status, await retry.json());
-      return retry.json() as Promise<T>;
+      return readApiResponse<T>(retry);
     }
     setToken(null);
     _onAuthFailure?.();
-    throw new ApiError(401, { error: { code: 'SESSION_EXPIRED', message: 'session expired' } });
+    throw new ApiError(401, {
+      error: { code: 'SESSION_EXPIRED', message: 'Your session has expired. Sign in again.' },
+    });
   }
 
-  if (!res.ok) throw new ApiError(res.status, await res.json());
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  return readApiResponse<T>(res);
 }
 
 export async function patchAdminPreferences(preferences: { theme?: 'light' | 'dark' | 'system' }) {

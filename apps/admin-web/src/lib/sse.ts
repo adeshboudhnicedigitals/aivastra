@@ -3,7 +3,7 @@
  * Mirrors apps/catalogues-web/src/lib/sse.ts but uses the admin auth token from data.ts.
  */
 
-import { getToken, setToken } from './data';
+import { apiErrorFromResponse, getToken, setToken } from './data';
 
 const INITIAL_DELAY_MS = 1_000;
 const MAX_DELAY_MS = 30_000;
@@ -89,7 +89,8 @@ export function createSSEConnection<T = unknown>(
         });
       }
 
-      if (!res.ok || !res.body) throw new Error(`SSE ${res.status}`);
+      if (!res.ok) throw await apiErrorFromResponse(res);
+      if (!res.body) throw new Error('The live update connection returned no data.');
 
       if (Date.now() - lastDataAt < RESET_DELAY_AFTER_MS) retryDelay = INITIAL_DELAY_MS;
 
@@ -157,7 +158,8 @@ export function createAdminSSEConnection(
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
       });
-      if (!res.ok || !res.body) throw new Error(`SSE ${res.status}`);
+      if (!res.ok) throw await apiErrorFromResponse(res);
+      if (!res.body) throw new Error('The live update connection returned no data.');
       retryDelay = 2_000;
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

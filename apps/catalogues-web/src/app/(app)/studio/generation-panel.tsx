@@ -6,6 +6,7 @@ import { DownloadIcon, FullscreenIcon, SpinnerIcon, XIcon } from '@/components/i
 import { C } from '@/components/tokens';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
+import { downloadErrorMessage } from '@/lib/errors';
 
 export interface GenerationJob {
   id: string;
@@ -122,7 +123,7 @@ export function GenerationPanel({
     setDownloading(true);
     try {
       const res = await fetch(url);
-      if (!res.ok) throw new Error(`${res.status}`);
+      if (!res.ok) throw new Error(downloadErrorMessage(res.status));
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -133,12 +134,7 @@ export function GenerationPanel({
       a.remove();
       URL.revokeObjectURL(objectUrl);
     } catch (e) {
-      const msg = (e as Error).message ?? '';
-      alert(
-        msg.includes('403')
-          ? 'Download link expired. Please refresh the page and try again.'
-          : 'Download failed. Please try again.',
-      );
+      alert(e instanceof Error ? e.message : 'The image could not be downloaded. Try again.');
     } finally {
       setDownloading(false);
     }

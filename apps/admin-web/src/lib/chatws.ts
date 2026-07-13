@@ -1,4 +1,4 @@
-import { getToken } from './data';
+import { apiErrorFromResponse, getToken } from './data';
 
 export interface ChatMessageT {
   id: string;
@@ -30,7 +30,7 @@ export async function fetchChatbot<T>(path: string): Promise<T> {
   const res = await fetch(`${CHATBOT_URL}${path}`, {
     headers: { authorization: `Bearer ${getToken()}` },
   });
-  if (!res.ok) throw new Error(`chatbot ${res.status}`);
+  if (!res.ok) throw await apiErrorFromResponse(res);
   return res.json() as Promise<T>;
 }
 
@@ -41,7 +41,7 @@ export async function connectAgentWs(
     method: 'POST',
     headers: { authorization: `Bearer ${getToken()}` },
   });
-  if (!res.ok) throw new Error('ws ticket failed');
+  if (!res.ok) throw await apiErrorFromResponse(res);
   const { ticket } = (await res.json()) as { ticket: string };
   const ws = new WebSocket(`${CHATBOT_URL.replace(/^http/, 'ws')}/ws?ticket=${ticket}`);
   ws.onmessage = (ev) => onFrame(JSON.parse(ev.data as string) as WsServerFrameT);
