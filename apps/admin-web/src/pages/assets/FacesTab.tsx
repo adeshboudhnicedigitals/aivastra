@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { AddFaceModal } from '../../components/AddFaceModal';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditFaceModal } from '../../components/EditFaceModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
-import type { FieldDef } from '../../components/UploadModal';
-import { UploadModal } from '../../components/UploadModal';
 import { apiFetch } from '../../lib/data';
 import type { ModelFace } from '../../types';
 import { useAssetsContext } from './AssetsContext';
@@ -15,34 +14,6 @@ const GENDER_TABS = [
   { k: 'women' as const, l: 'Women' },
   { k: 'boys' as const, l: 'Boys' },
   { k: 'girls' as const, l: 'Girls' },
-];
-
-const FACE_FIELDS: FieldDef[] = [
-  {
-    type: 'text',
-    name: 'label',
-    label: 'Label',
-    required: true,
-    placeholder: 'e.g. Model 1 — Men',
-  },
-  {
-    type: 'select',
-    name: 'gender',
-    label: 'Gender',
-    options: [
-      { value: 'men', label: 'Men' },
-      { value: 'women', label: 'Women' },
-      { value: 'boys', label: 'Boys' },
-      { value: 'girls', label: 'Girls' },
-    ],
-  },
-  {
-    type: 'number',
-    name: 'sortOrder',
-    label: 'Sort order (lower = first)',
-    min: 0,
-    defaultValue: 0,
-  },
 ];
 
 export function FacesTab() {
@@ -396,19 +367,10 @@ export function FacesTab() {
       )}
 
       {showFaceUpload && (
-        <UploadModal
-          title="Add model face"
-          presignPath="/admin/assets/faces/presign"
-          confirmPath="/admin/assets/faces/confirm"
-          fields={FACE_FIELDS}
-          secondaryUpload={{
-            label: 'ComfyUI Face Image',
-            uploadUrlKey: 'faceSideUploadUrl',
-            r2KeyField: 'faceSideR2Key',
-          }}
-          onDone={(row) => {
+        <AddFaceModal
+          onDone={(face) => {
             setShowFaceUpload(false);
-            setFaces((prev) => [...prev, row as ModelFace]);
+            setFaces((prev) => [...prev, face]);
           }}
           onClose={() => setShowFaceUpload(false)}
           toast={toast}
