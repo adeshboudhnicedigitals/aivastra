@@ -232,3 +232,25 @@ export const catalogueTemplateLooks = pgTable(
     templateIdx: index('catalogue_template_looks_template_id_idx').on(table.templateId),
   }),
 );
+
+// Which garment types a catalogue template is offered for — pure many-to-many, no
+// override columns. A template with zero rows here is offered for NO garment types
+// (strict opt-in), not "all" — an admin must explicitly map it. Modeled directly on
+// catalogItemSubcategories above, which answers the same kind of question for catalog
+// items. Per-pose, per-garment-type workflow variance is a separate, already-working
+// concern (pose_garment_configs) — this table only controls whether the template as a
+// whole shows up at all for a given garment type.
+export const catalogueTemplateSubcategories = pgTable(
+  'catalogue_template_subcategories',
+  {
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => catalogueTemplates.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.templateId, table.subcategoryId] }),
+  }),
+);

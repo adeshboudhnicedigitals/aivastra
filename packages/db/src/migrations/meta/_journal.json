@@ -743,6 +743,13 @@
       "when": 1783772538890,
       "tag": "0105_wide_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1783981045921,
+      "tag": "0106_square_blazing_skull",
+      "breakpoints": true
     }
   ]
 }
