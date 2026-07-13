@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { Icon } from '../components/Icons';
-import { apiFetch } from '../lib/data';
+import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
 
 interface WorkflowOption {
   id: string;
@@ -17,14 +18,14 @@ interface FunnelTemplate {
 }
 
 interface Props {
-  toast: (opts: { title: string; description?: string }) => void;
+  toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
 }
 
 function slugify(value: string): string {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 export default function ShopifyFunnelsPage({ toast }: Props) {
@@ -46,6 +47,16 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
   const [editWorkflowTemplateId, setEditWorkflowTemplateId] = useState('');
   const [editSortOrder, setEditSortOrder] = useState(0);
   const [editSaving, setEditSaving] = useState(false);
+
+  const [confirmDelete, setConfirmDelete] = useState<FunnelTemplate | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const [reassignSource, setReassignSource] = useState<FunnelTemplate | null>(null);
+  const [reassignTargetId, setReassignTargetId] = useState('');
+  const [reassigning, setReassigning] = useState(false);
+  // true when opened via a blocked delete (reassign, then delete the source);
+  // false when opened via the standalone "Move products" action (reassign only).
+  const [reassignThenDelete, setReassignThenDelete] = useState(true);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -84,6 +95,12 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       resetCreateForm();
       setShowCreate(false);
       load();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Failed to create funnel template',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
     } finally {
       setCreating(false);
     }
@@ -126,6 +143,76 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
       load();
     } finally {
       setEditSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirmDelete) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/admin/shopify/funnel-templates/${confirmDelete.id}`, { method: 'DELETE' });
+      toast({ title: `${confirmDelete.label} deleted` });
+      load();
+      setConfirmDelete(null);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // Products are still assigned — offer to move them to another funnel
+        // template first instead of just reporting the block.
+        setReassignSource(confirmDelete);
+        setReassignTargetId('');
+        setReassignThenDelete(true);
+        setConfirmDelete(null);
+      } else {
+        toast({
+          kind: 'error',
+          title: 'Failed to delete funnel template',
+          body: apiErrorMessage(err, 'Please try again.'),
+        });
+        setConfirmDelete(null);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function openMove(item: FunnelTemplate) {
+    setReassignSource(item);
+    setReassignTargetId('');
+    setReassignThenDelete(false);
+  }
+
+  async function handleReassignAndDelete() {
+    if (!reassignSource || !reassignTargetId) return;
+    setReassigning(true);
+    try {
+      const { reassigned } = await apiFetch<{ ok: boolean; reassigned: number }>(
+        `/admin/shopify/funnel-templates/${reassignSource.id}/reassign`,
+        { method: 'POST', body: JSON.stringify({ targetId: reassignTargetId }) },
+      );
+      if (reassignThenDelete) {
+        await apiFetch(`/admin/shopify/funnel-templates/${reassignSource.id}`, {
+          method: 'DELETE',
+        });
+        toast({
+          title: `${reassignSource.label} deleted`,
+          body: `${reassigned} product(s) moved to the selected funnel template.`,
+        });
+      } else {
+        toast({
+          title: 'Products moved',
+          body: `${reassigned} product(s) moved to the selected funnel template.`,
+        });
+      }
+      setReassignSource(null);
+      load();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: reassignThenDelete ? 'Failed to reassign and delete' : 'Failed to move products',
+        body: apiErrorMessage(err, 'Please try again.'),
+      });
+    } finally {
+      setReassigning(false);
     }
   }
 
@@ -223,6 +310,22 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                       title="Edit label, workflow, or sort order"
                     >
                       <Icon.Edit /> Edit
+                    </button>{' '}
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => openMove(item)}
+                      title="Move this template's assigned products to another funnel template"
+                    >
+                      <Icon.Replace /> Move
+                    </button>{' '}
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      onClick={() => setConfirmDelete(item)}
+                      title="Delete this funnel template"
+                    >
+                      <Icon.Trash /> Delete
                     </button>
                   </td>
                 </tr>
@@ -274,7 +377,7 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                   className="input"
                   value={slug}
                   disabled={creating}
-                  placeholder="snake_case"
+                  placeholder="kebab-case"
                   onChange={(e) => {
                     setSlugTouched(true);
                     setSlug(slugify(e.target.value));
@@ -408,6 +511,96 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
                 onClick={saveEdit}
               >
                 {editSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          title="Delete funnel template"
+          body={`Are you sure you want to delete "${confirmDelete.label}"? This cannot be undone.`}
+          what={`slug: ${confirmDelete.slug}`}
+          danger
+          confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+          onConfirm={handleDelete}
+          onClose={() => setConfirmDelete(null)}
+        />
+      )}
+
+      {reassignSource && (
+        <div
+          className="modal-overlay"
+          onClick={reassigning ? undefined : () => setReassignSource(null)}
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{ width: 'min(420px, calc(100vw - 40px))' }}
+          >
+            <div className="modal-head">
+              <h3>{reassignThenDelete ? 'Move products & delete' : 'Move products'}</h3>
+              <button
+                className="btn sm ghost"
+                onClick={() => setReassignSource(null)}
+                disabled={reassigning}
+                style={{ marginLeft: 'auto' }}
+              >
+                <Icon.Close />
+              </button>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
+                {reassignThenDelete ? (
+                  <>
+                    "{reassignSource.label}" still has products assigned to it. Pick another funnel
+                    template to move them to — they'll be reassigned, then "{reassignSource.label}"
+                    will be deleted.
+                  </>
+                ) : (
+                  <>
+                    Pick another funnel template to move "{reassignSource.label}"'s assigned
+                    products to. "{reassignSource.label}" itself won't be deleted.
+                  </>
+                )}
+              </p>
+              <div className="field">
+                <label>Move products to</label>
+                <select
+                  className="select"
+                  value={reassignTargetId}
+                  disabled={reassigning}
+                  onChange={(e) => setReassignTargetId(e.target.value)}
+                >
+                  <option value="">Select a funnel template</option>
+                  {items
+                    .filter((i) => i.id !== reassignSource.id)
+                    .map((i) => (
+                      <option key={i.id} value={i.id}>
+                        {i.label}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setReassignSource(null)}
+                disabled={reassigning}
+              >
+                Cancel
+              </button>
+              <button
+                className={reassignThenDelete ? 'btn danger' : 'btn primary'}
+                disabled={reassigning || !reassignTargetId}
+                onClick={handleReassignAndDelete}
+              >
+                {reassigning ? 'Moving…' : reassignThenDelete ? 'Move & delete' : 'Move'}
               </button>
             </div>
           </div>
