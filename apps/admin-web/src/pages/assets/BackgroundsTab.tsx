@@ -4,7 +4,7 @@ import { BackgroundUploadModal } from '../../components/BackgroundUploadModal';
 import { EditBackgroundModal } from '../../components/EditBackgroundModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
-import { apiFetch } from '../../lib/data';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type { CatalogCategory, CategoryTag, GenderSlug, ModelBackground } from '../../types';
 import { useAssetsContext } from './AssetsContext';
@@ -733,8 +733,12 @@ export function BackgroundsTab() {
                     setBackgrounds((prev) => prev.filter((b) => b.id !== id));
                     setAllBackgrounds((prev) => prev.filter((b) => b.id !== id));
                     toast({ title: `${label} moved to recycle bin` });
-                  } catch {
-                    toast({ kind: 'error', title: 'Failed to delete background' });
+                  } catch (err) {
+                    toast({
+                      kind: 'error',
+                      title: 'Background could not be moved to the recycle bin',
+                      body: apiErrorMessage(err, 'Please try again.'),
+                    });
                   }
                 }}
               >

@@ -1,3 +1,39 @@
+## 2026-07-13 - Background Recycle-Bin Delete Fix
+
+### Done
+- Fixed single-background deletion so a background used by historical jobs can still be moved to the recycle bin.
+- Removed the same invalid historical-job restriction from single face and pose-asset soft deletion, making single-item behavior consistent with existing bulk soft deletion.
+- Kept historical job references intact because recycle-bin deletion only sets `deletedAt`; it does not remove the database row or R2 files.
+- Updated the Backgrounds tab to display the backend reason for genuine permission, missing-record, or infrastructure failures instead of only showing `Failed to delete background`.
+- Added an integration regression test that verifies a job-referenced background is soft-deleted while its job input reference remains intact.
+- Verified scoped Biome checks, API typecheck, and the admin production build.
+
+### Failed / Not Done
+- The focused integration test could not execute its assertion because the local PostgreSQL instance rejected the configured password for user `tryon`. The test compiled and was discovered successfully.
+
+### Open Questions / Decisions
+- Permanent deletion from the recycle bin remains separate from this fix and must continue respecting database references; this change only affects reversible soft deletion.
+
+---
+
+## 2026-07-13 - Actionable Web Error Messages
+
+### Done
+- Changed the admin API error contract so `ApiError.message` preserves the backend's domain message and `ApiError.code` preserves its machine-readable code instead of exposing messages such as `API 409`.
+- Added actionable fallback messages for invalid requests, expired sessions, permission failures, missing resources, conflicts, oversized files, rate limits, and unavailable services.
+- Made the admin and catalogue clients handle network failures, non-JSON error responses, and empty successful responses without leaking fetch or JSON parser errors.
+- Applied the same message handling to admin uploads, catalogue uploads/downloads, SSE connections, chatbot requests, and catalogue auth BFF responses.
+- Confirmed no admin-web or catalogues-web helper still constructs raw API, HTTP, SSE, or upload status messages.
+- Verified the backend conflict envelope with focused runtime assertions, ran Biome across all 24 touched files, and completed successful production builds for admin-web and catalogues-web.
+
+### Failed / Not Done
+- Page-level catches that intentionally suppress initial-load failures were not globally converted to toasts. A global toast at the request layer would duplicate messages for actions that already handle errors.
+
+### Open Questions / Decisions
+- Initial-load failures should be handled in a separate UI pass with page-level error/empty states and retry actions rather than global request toasts.
+
+---
+
 ## 2026-07-11 - Catalogue Templates (real feature, replaces placeholder)
 
 ### Done

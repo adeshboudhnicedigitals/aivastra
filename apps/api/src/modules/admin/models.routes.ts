@@ -137,14 +137,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .where(eq(schema.modelFaces.id, id));
       if (!face) throw new AppError('NOT_FOUND', 404, 'face not found');
 
-      const jobRef = await app.db
-        .select({ jobId: schema.jobInputs.jobId })
-        .from(schema.jobInputs)
-        .where(eq(schema.jobInputs.faceId, id))
-        .limit(1);
-      if (jobRef.length > 0)
-        throw new AppError('CONFLICT', 409, 'face is referenced by existing jobs');
-
       await app.db
         .update(schema.modelFaces)
         .set({ deletedAt: new Date() })
@@ -328,14 +320,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .from(schema.modelBackgrounds)
         .where(eq(schema.modelBackgrounds.id, id));
       if (!bg) throw new AppError('NOT_FOUND', 404, 'background not found');
-
-      const jobRef = await app.db
-        .select({ jobId: schema.jobInputs.jobId })
-        .from(schema.jobInputs)
-        .where(eq(schema.jobInputs.backgroundId, id))
-        .limit(1);
-      if (jobRef.length > 0)
-        throw new AppError('CONFLICT', 409, 'background is referenced by existing jobs');
 
       await app.db
         .update(schema.modelBackgrounds)
@@ -623,20 +607,6 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .from(schema.modelPoseAssets)
         .where(eq(schema.modelPoseAssets.id, id));
       if (!asset) throw new AppError('NOT_FOUND', 404, 'pose asset not found');
-
-      // Check if any jobs reference this pose asset
-      const jobRefs = await app.db
-        .select({ jobId: schema.jobInputs.jobId })
-        .from(schema.jobInputs)
-        .where(eq(schema.jobInputs.poseId, id))
-        .limit(1);
-      if (jobRefs.length > 0) {
-        throw new AppError(
-          'CONFLICT',
-          409,
-          'pose asset is referenced by existing jobs — cannot delete',
-        );
-      }
 
       // Soft delete — keep R2 intact for potential restore
       await app.db
