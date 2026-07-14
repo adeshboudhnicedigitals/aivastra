@@ -233,16 +233,12 @@ export const catalogueTemplateLooks = pgTable(
   }),
 );
 
-// Which garment types a catalogue template is offered for — pure many-to-many, no
-// override columns. A template with zero rows here is offered for NO garment types
-// (strict opt-in), not "all" — an admin must explicitly map it. Modeled directly on
-// catalogItemSubcategories above, which answers the same kind of question for catalog
-// items. Per-pose, per-garment-type workflow variance is a separate, already-working
-// concern (pose_garment_configs) — this table only controls whether the template as a
-// whole shows up at all for a given garment type.
+// A concrete template-to-garment-type mapping. Its generated ID scopes pose workflows,
+// allowing the same global template to render differently for Shirt, Suit, or another type.
 export const catalogueTemplateSubcategories = pgTable(
   'catalogue_template_subcategories',
   {
+    id: uuid('id').primaryKey().defaultRandom(),
     templateId: uuid('template_id')
       .notNull()
       .references(() => catalogueTemplates.id, { onDelete: 'cascade' }),
@@ -251,6 +247,39 @@ export const catalogueTemplateSubcategories = pgTable(
       .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.templateId, table.subcategoryId] }),
+    uniqTemplateSubcategory: unique(
+      'catalogue_template_subcategories_template_subcategory_unique',
+    ).on(table.templateId, table.subcategoryId),
+    subcategoryIdx: index('catalogue_template_subcategories_subcategory_id_idx').on(
+      table.subcategoryId,
+    ),
+  }),
+);
+
+// Workflow selection for one pose inside one mapped template. Global templates
+// deliberately carry no workflow; the same template pose can therefore use a
+// different workflow when the template is mapped to Shirt, Suit, or another type.
+export const catalogueTemplatePoseWorkflows = pgTable(
+  'catalogue_template_pose_workflows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    mappingId: uuid('mapping_id')
+      .notNull()
+      .references(() => catalogueTemplateSubcategories.id, { onDelete: 'cascade' }),
+    poseAssetId: uuid('pose_asset_id')
+      .notNull()
+      .references(() => modelPoseAssets.id, { onDelete: 'cascade' }),
+    workflowTemplateId: uuid('workflow_template_id')
+      .notNull()
+      .references(() => workflowTemplates.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqMappingPose: unique('catalogue_template_pose_workflows_mapping_pose_unique').on(
+      table.mappingId,
+      table.poseAssetId,
+    ),
+    mappingIdx: index('catalogue_template_pose_workflows_mapping_id_idx').on(table.mappingId),
   }),
 );

@@ -71,6 +71,7 @@ interface TemplateLook {
 }
 interface CatalogueTemplateItem {
   id: string;
+  mappingId: string;
   label: string;
   thumbnailUrl: string | null;
   looks: TemplateLook[];
@@ -836,7 +837,13 @@ export default function StudioPage(): React.ReactElement {
   });
   const catalogueTemplates = useMemo(
     () => [
-      { id: 'custom', label: 'Custom', thumbnailUrl: null, looks: [] as TemplateLook[] },
+      {
+        id: 'custom',
+        mappingId: '',
+        label: 'Custom',
+        thumbnailUrl: null,
+        looks: [] as TemplateLook[],
+      },
       ...(catalogueTemplatesData?.items ?? []),
     ],
     [catalogueTemplatesData],
@@ -1148,6 +1155,7 @@ export default function StudioPage(): React.ReactElement {
           ? { ...inputsBase, backgroundId, poseIds }
           : {
               ...inputsBase,
+              catalogueTemplateMappingId: activeTemplate?.mappingId,
               looks: selectedLooks.map((l) => ({ poseId: l.poseId, backgroundId: l.backgroundId })),
             };
       const { catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(

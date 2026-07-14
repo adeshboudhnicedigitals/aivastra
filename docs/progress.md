@@ -1,18 +1,18 @@
-## 2026-07-14 - Catalogue Template Garment-Type Mapping
+## 2026-07-14 - Mapping-Specific Catalogue Template Workflows
 
 ### Done
-- New `catalogue_template_subcategories` table (pure many-to-many, no override columns) records which garment types a catalogue template is offered for. No rows = offered for no garment types — strict opt-in, not a backward-compatible "shows everywhere" default (confirmed safe: zero production templates existed at implementation time).
-- `GET /v1/models/catalogue-templates` now requires a matching mapping row for the given `garmentTypeId`; a request with no `garmentTypeId` returns an empty list rather than everything.
-- New admin endpoints mirroring the existing per-garment-type pose-override pattern (`GET`/`PATCH .../garment-types/:id/pose-configs`): `GET /admin/assets/garment-types/:id/templates` (list same-gender templates with `mapped` flags) and `PATCH .../templates/:templateId` (toggle one mapping).
-- New "Garment Type Mapping" sub-view inside the existing Catalogue Templates admin tab — deliberately not merged into the separate Garment Types tab (which already has its own per-garment-type sub-view for a different concept, pose overrides) and not a new top-level tab.
-- Confirmed and left untouched: per-pose, per-garment-type workflow resolution already works end-to-end via the existing `pose_garment_configs` mechanism, both at job-creation validation and dispatcher generation time — this feature only gates which templates are visible at all, not how their looks render.
-- Spec: `docs/superpowers/specs/2026-07-14-catalogue-template-garment-type-mapping-design.md`. Plan: `docs/superpowers/plans/2026-07-14-catalogue-template-garment-type-mapping.md`.
+- Global catalogue templates now contain reusable pose/background looks only; workflow selection was removed from the global template editor.
+- Every template-to-garment-type row now has its own mapping ID, and `catalogue_template_pose_workflows` assigns one workflow to each pose inside that specific mapping.
+- The same global template and pose can use different workflows in different garment types, such as one workflow for Men / Shirts and another for Men / Suits.
+- Garment Types now owns the complete setup flow: map a same-gender template, open Configure workflows on that mapped template, and select a workflow independently for every pose.
+- Public template discovery returns only mapped poses with configured active workflows. Studio submits the mapping ID, job creation validates the selected looks against it, snapshots each resolved workflow, and dispatcher execution uses that snapshot.
+- Added integration coverage for mapping identity, separate workflows for the same template pose, public workflow resolution, and job mapping validation/snapshotting.
 
 ### Failed / Not Done
 - None.
 
 ### Open Questions / Decisions
-- None.
+- Standalone Create your own look poses intentionally continue using the existing `pose_garment_configs` workflow path; mapped template poses use only mapping-specific workflows.
 
 ## 2026-07-13 - Background Recycle-Bin Delete Fix
 

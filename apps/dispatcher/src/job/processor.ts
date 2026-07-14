@@ -209,7 +209,13 @@ export async function processJob(
   let effectiveWorkflowTemplateId = poseRow.workflowTemplateId;
   let effectivePromptFacePhase = poseRow.promptFacePhase;
   let effectivePromptGarmentPhase = poseRow.promptGarmentPhase;
-  if (inputs.garmentTypeId) {
+  const snapshottedWorkflowTemplateId =
+    typeof rawParams.workflowTemplateId === 'string' ? rawParams.workflowTemplateId : null;
+  if (snapshottedWorkflowTemplateId) {
+    effectiveWorkflowTemplateId = snapshottedWorkflowTemplateId;
+    effectivePromptFacePhase = null;
+    effectivePromptGarmentPhase = null;
+  } else if (inputs.garmentTypeId) {
     const [cfgRow] = await db
       .select({
         workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,

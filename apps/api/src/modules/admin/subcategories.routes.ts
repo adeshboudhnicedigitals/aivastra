@@ -326,25 +326,48 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .orderBy(asc(schema.catalogueTemplates.sortOrder), asc(schema.catalogueTemplates.label));
 
       const mappedRows = await app.db
-        .select({ templateId: schema.catalogueTemplateSubcategories.templateId })
+        .select({
+          id: schema.catalogueTemplateSubcategories.id,
+          templateId: schema.catalogueTemplateSubcategories.templateId,
+        })
         .from(schema.catalogueTemplateSubcategories)
         .where(eq(schema.catalogueTemplateSubcategories.subcategoryId, id));
-      const mappedSet = new Set(mappedRows.map((r) => r.templateId));
+      const mappingIdByTemplate = new Map(mappedRows.map((r) => [r.templateId, r.id]));
+
+      const templateIds = templates.map((template) => template.id);
+      const lookRows =
+        templateIds.length > 0
+          ? await app.db
+              .select({
+                templateId: schema.catalogueTemplateLooks.templateId,
+                poseAssetId: schema.catalogueTemplateLooks.poseAssetId,
+              })
+              .from(schema.catalogueTemplateLooks)
+              .where(inArray(schema.catalogueTemplateLooks.templateId, templateIds))
+          : [];
+      const poseIdsByTemplate = new Map<string, Set<string>>();
+      for (const look of lookRows) {
+        const poseIds = poseIdsByTemplate.get(look.templateId) ?? new Set<string>();
+        poseIds.add(look.poseAssetId);
+        poseIdsByTemplate.set(look.templateId, poseIds);
+      }
 
       return {
         items: templates.map((t) => ({
           id: t.id,
           label: t.label,
           thumbnailUrl: t.thumbnailKey ? app.storage.publicUrl(t.thumbnailKey) : null,
-          mapped: mappedSet.has(t.id),
+          mapped: mappingIdByTemplate.has(t.id),
+          mappingId: mappingIdByTemplate.get(t.id) ?? null,
+          poseAssetIds: [...(poseIdsByTemplate.get(t.id) ?? [])],
         })),
       };
     },
   );
 
   // PATCH /admin/assets/garment-types/:id/templates/:templateId
-  // mapped:true inserts the mapping row (no-op if already present), mapped:false
-  // deletes it. No override data to upsert — plain membership toggle.
+  // mapped:true inserts the mapping row (no-op if already present). mapped:false
+  // deletes it and cascades its mapping-specific pose workflows.
   app.patch(
     '/admin/assets/garment-types/:id/templates/:templateId',
     {
@@ -359,10 +382,23 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       const { mapped } = req.body as { mapped: boolean };
 
       if (mapped) {
-        await app.db
+        const [inserted] = await app.db
           .insert(schema.catalogueTemplateSubcategories)
           .values({ templateId, subcategoryId: id })
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ id: schema.catalogueTemplateSubcategories.id });
+        if (inserted) return { ok: true, mappingId: inserted.id };
+
+        const [existing] = await app.db
+          .select({ id: schema.catalogueTemplateSubcategories.id })
+          .from(schema.catalogueTemplateSubcategories)
+          .where(
+            and(
+              eq(schema.catalogueTemplateSubcategories.templateId, templateId),
+              eq(schema.catalogueTemplateSubcategories.subcategoryId, id),
+            ),
+          );
+        return { ok: true, mappingId: existing?.id ?? null };
       } else {
         await app.db
           .delete(schema.catalogueTemplateSubcategories)
@@ -374,7 +410,137 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           );
       }
 
-      return { ok: true };
+      return { ok: true, mappingId: null };
+    },
+  );
+
+  app.get(
+    '/admin/assets/catalogue-template-mappings/:mappingId/poses',
+    {
+      preHandler: RW,
+      schema: { params: z.object({ mappingId: z.string().uuid() }) },
+    },
+    async (req) => {
+      const { mappingId } = req.params as { mappingId: string };
+      const [mapping] = await app.db
+        .select({ templateId: schema.catalogueTemplateSubcategories.templateId })
+        .from(schema.catalogueTemplateSubcategories)
+        .where(eq(schema.catalogueTemplateSubcategories.id, mappingId));
+      if (!mapping) throw new AppError('NOT_FOUND', 404, 'template mapping not found');
+
+      const poses = await app.db
+        .selectDistinct({
+          id: schema.modelPoseAssets.id,
+          label: schema.modelPoseAssets.label,
+          displayName: schema.modelPoseAssets.displayName,
+          thumbnailKey: schema.modelPoseAssets.thumbnailKey,
+          sortOrder: schema.modelPoseAssets.sortOrder,
+          workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+        })
+        .from(schema.catalogueTemplateLooks)
+        .innerJoin(
+          schema.modelPoseAssets,
+          eq(schema.catalogueTemplateLooks.poseAssetId, schema.modelPoseAssets.id),
+        )
+        .leftJoin(
+          schema.catalogueTemplatePoseWorkflows,
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mappingId),
+            eq(
+              schema.catalogueTemplatePoseWorkflows.poseAssetId,
+              schema.catalogueTemplateLooks.poseAssetId,
+            ),
+          ),
+        )
+        .where(eq(schema.catalogueTemplateLooks.templateId, mapping.templateId))
+        .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));
+
+      return {
+        items: poses.map((pose) => ({
+          id: pose.id,
+          label: pose.label,
+          displayName: pose.displayName,
+          workflowTemplateId: pose.workflowTemplateId,
+          thumbnailUrl: app.storage.publicUrl(pose.thumbnailKey),
+        })),
+      };
+    },
+  );
+
+  app.patch(
+    '/admin/assets/catalogue-template-mappings/:mappingId/poses/:poseAssetId',
+    {
+      preHandler: RW,
+      schema: {
+        params: z.object({
+          mappingId: z.string().uuid(),
+          poseAssetId: z.string().uuid(),
+        }),
+        body: z.object({ workflowTemplateId: z.string().uuid().nullable() }),
+      },
+    },
+    async (req) => {
+      const { mappingId, poseAssetId } = req.params as {
+        mappingId: string;
+        poseAssetId: string;
+      };
+      const { workflowTemplateId } = req.body as { workflowTemplateId: string | null };
+
+      const [validPose] = await app.db
+        .select({ id: schema.catalogueTemplateLooks.id })
+        .from(schema.catalogueTemplateSubcategories)
+        .innerJoin(
+          schema.catalogueTemplateLooks,
+          and(
+            eq(
+              schema.catalogueTemplateLooks.templateId,
+              schema.catalogueTemplateSubcategories.templateId,
+            ),
+            eq(schema.catalogueTemplateLooks.poseAssetId, poseAssetId),
+          ),
+        )
+        .where(eq(schema.catalogueTemplateSubcategories.id, mappingId))
+        .limit(1);
+      if (!validPose) {
+        throw new AppError('NOT_FOUND', 404, 'pose does not belong to this template mapping');
+      }
+
+      if (!workflowTemplateId) {
+        await app.db
+          .delete(schema.catalogueTemplatePoseWorkflows)
+          .where(
+            and(
+              eq(schema.catalogueTemplatePoseWorkflows.mappingId, mappingId),
+              eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, poseAssetId),
+            ),
+          );
+        return { ok: true, action: 'deleted' };
+      }
+
+      const [workflow] = await app.db
+        .select({ id: schema.workflowTemplates.id })
+        .from(schema.workflowTemplates)
+        .where(
+          and(
+            eq(schema.workflowTemplates.id, workflowTemplateId),
+            eq(schema.workflowTemplates.workflowType, 'regular'),
+            eq(schema.workflowTemplates.isActive, true),
+          ),
+        );
+      if (!workflow) throw new AppError('BAD_CATALOG', 400, 'workflow not found or inactive');
+
+      await app.db
+        .insert(schema.catalogueTemplatePoseWorkflows)
+        .values({ mappingId, poseAssetId, workflowTemplateId })
+        .onConflictDoUpdate({
+          target: [
+            schema.catalogueTemplatePoseWorkflows.mappingId,
+            schema.catalogueTemplatePoseWorkflows.poseAssetId,
+          ],
+          set: { workflowTemplateId, updatedAt: new Date() },
+        });
+
+      return { ok: true, action: 'upserted' };
     },
   );
 }

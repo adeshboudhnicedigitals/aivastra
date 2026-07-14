@@ -53,6 +53,7 @@ export const CreateTryOnJobInputs = z
       .max(12)
       .optional(),
     garmentTypeId: z.string().uuid().optional(),
+    catalogueTemplateMappingId: z.string().uuid().optional(),
     lowerCatalogId: z.string().uuid().optional(),
     lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
     shoeCatalogId: z.string().uuid().optional(),
