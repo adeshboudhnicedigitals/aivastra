@@ -8,7 +8,9 @@ import { makeThumbnail } from '../../lib/thumbnail';
 import type {
   GarmentType,
   GenderSlug,
+  MappedTemplatePoseWorkflow,
   PoseGarmentConfig,
+  TemplateGarmentTypeMapping,
   TryonCategory,
   WorkflowOption,
 } from '../../types';
@@ -244,12 +246,10 @@ export function GarmentTypesTab() {
               <span>{subView.sub.label}</span>
             </div>
           )}
-          <h1>
-            {subView.kind === 'configs' ? `${subView.sub.label} — Pose Configs` : 'Garment Types'}
-          </h1>
+          <h1>{subView.kind === 'configs' ? `${subView.sub.label} — Setup` : 'Garment Types'}</h1>
           <p className="lede">
             {subView.kind === 'configs'
-              ? `Override workflow and prompts per pose for ${subView.sub.genderSlug} / ${subView.sub.slug}.`
+              ? `Choose the catalogue templates offered for ${subView.sub.label}, then configure its workflow per pose.`
               : 'Garment types used to classify uploads.'}
           </p>
         </div>
@@ -275,21 +275,39 @@ export function GarmentTypesTab() {
 
       {/* Pose configs subview */}
       {subView.kind === 'configs' && (
-        <PoseConfigsPanel
-          sub={subView.sub}
-          items={poseConfigs}
-          loading={configsLoading}
-          savingId={savingConfigId}
-          workflows={workflows}
-          storagePublicUrl={storagePublicUrl}
-          onBack={() => setSubView({ kind: 'list' })}
-          onSave={saveConfig}
-          onToggleActive={(poseAssetId, isActive) =>
-            togglePoseActive(subView.sub.id, poseAssetId, isActive)
-          }
-          onSaveDefaultPose={saveDefaultPose}
-          savingDefaultPose={savingDefaultPose}
-        />
+        <>
+          <GarmentTemplateMappingPanel sub={subView.sub} workflows={workflows} toast={toast} />
+
+          <div
+            style={{
+              marginTop: 32,
+              paddingTop: 24,
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: 18 }}>2. Custom look poses</h2>
+            <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
+              Configure standalone poses used by Create your own look. Template workflows are
+              configured inside each mapped template above.
+            </p>
+          </div>
+
+          <PoseConfigsPanel
+            sub={subView.sub}
+            items={poseConfigs}
+            loading={configsLoading}
+            savingId={savingConfigId}
+            workflows={workflows}
+            storagePublicUrl={storagePublicUrl}
+            onBack={() => setSubView({ kind: 'list' })}
+            onSave={saveConfig}
+            onToggleActive={(poseAssetId, isActive) =>
+              togglePoseActive(subView.sub.id, poseAssetId, isActive)
+            }
+            onSaveDefaultPose={saveDefaultPose}
+            savingDefaultPose={savingDefaultPose}
+          />
+        </>
       )}
 
       {subView.kind === 'list' && !loading && (
@@ -732,6 +750,355 @@ export function GarmentTypesTab() {
 
 // ── PoseConfigsPanel ──────────────────────────────────────────────────────────
 
+interface GarmentTemplateMappingPanelProps {
+  sub: GarmentType;
+  workflows: WorkflowOption[];
+  toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateMappingPanelProps) {
+  const [items, setItems] = useState<TemplateGarmentTypeMapping[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<TemplateGarmentTypeMapping | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ items: TemplateGarmentTypeMapping[] }>(
+        `/admin/assets/garment-types/${sub.id}/templates`,
+      );
+      setItems(res.items);
+    } catch (error) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load catalogue templates',
+        body: (error as Error).message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [sub.id, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const toggleMapped = async (templateId: string, mapped: boolean) => {
+    const previous = items;
+    setSavingId(templateId);
+    setItems((current) =>
+      current.map((item) => (item.id === templateId ? { ...item, mapped } : item)),
+    );
+    try {
+      const response = await apiFetch<{ ok: true; mappingId: string | null }>(
+        `/admin/assets/garment-types/${sub.id}/templates/${templateId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ mapped }),
+        },
+      );
+      setItems((current) =>
+        current.map((item) =>
+          item.id === templateId ? { ...item, mapped, mappingId: response.mappingId } : item,
+        ),
+      );
+    } catch (error) {
+      setItems(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to update template mapping',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <section style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 18 }}>1. Catalogue templates</h2>
+          <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
+            Select the {sub.genderSlug} templates users can choose for {sub.label}.
+          </p>
+        </div>
+        {!loading && (
+          <span className="badge">
+            {items.filter((item) => item.mapped).length} of {items.length} mapped
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Loading…
+        </div>
+      ) : items.length === 0 ? (
+        <div
+          className="card"
+          style={{ marginTop: 14, padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}
+        >
+          No global catalogue templates exist for {sub.genderSlug}.
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+            gap: 12,
+            marginTop: 14,
+          }}
+        >
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="card"
+              style={{
+                padding: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                outline: item.mapped ? '2px solid var(--pink)' : undefined,
+                opacity: savingId === item.id ? 0.7 : 1,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--surface2, #1a1a1a)',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  aspectRatio: '3/4',
+                }}
+              >
+                {item.thumbnailUrl ? (
+                  // biome-ignore lint/performance/noImgElement: admin panel
+                  <img
+                    src={item.thumbnailUrl}
+                    alt={item.label}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <Icon.Image />
+                )}
+              </div>
+              <div style={{ padding: '9px 10px 10px' }}>
+                <p
+                  title={item.label}
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {item.label}
+                </p>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 9,
+                  }}
+                >
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {item.mapped ? `${item.poseAssetIds.length} poses` : 'Not offered'}
+                  </span>
+                  <Switch
+                    checked={item.mapped}
+                    onChange={() => void toggleMapped(item.id, !item.mapped)}
+                  />
+                </div>
+                {item.mapped && item.mappingId && (
+                  <button
+                    className="btn sm"
+                    style={{ width: '100%', marginTop: 9, justifyContent: 'center' }}
+                    onClick={() => setEditingTemplate(item)}
+                  >
+                    <Icon.Edit /> Configure workflows
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {editingTemplate?.mappingId && (
+        <MappedTemplateWorkflowModal
+          mapping={editingTemplate}
+          garmentTypeLabel={sub.label}
+          workflows={workflows}
+          toast={toast}
+          onClose={() => setEditingTemplate(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+interface MappedTemplateWorkflowModalProps {
+  mapping: TemplateGarmentTypeMapping;
+  garmentTypeLabel: string;
+  workflows: WorkflowOption[];
+  toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+  onClose: () => void;
+}
+
+function MappedTemplateWorkflowModal({
+  mapping,
+  garmentTypeLabel,
+  workflows,
+  toast,
+  onClose,
+}: MappedTemplateWorkflowModalProps) {
+  const [items, setItems] = useState<MappedTemplatePoseWorkflow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    void apiFetch<{ items: MappedTemplatePoseWorkflow[] }>(
+      `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses`,
+    )
+      .then((response) => setItems(response.items))
+      .catch((error) =>
+        toast({
+          kind: 'error',
+          title: 'Failed to load template poses',
+          body: (error as Error).message,
+        }),
+      )
+      .finally(() => setLoading(false));
+  }, [mapping.mappingId, toast]);
+
+  const setWorkflow = async (poseAssetId: string, workflowTemplateId: string | null) => {
+    const previous = items;
+    setSavingId(poseAssetId);
+    setItems((current) =>
+      current.map((item) => (item.id === poseAssetId ? { ...item, workflowTemplateId } : item)),
+    );
+    try {
+      await apiFetch(
+        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ workflowTemplateId }),
+        },
+      );
+      toast({ title: workflowTemplateId ? 'Pose workflow saved' : 'Pose workflow cleared' });
+    } catch (error) {
+      setItems(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to save pose workflow',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const configuredCount = items.filter((item) => item.workflowTemplateId).length;
+  return (
+    <div className="modal-overlay" onClick={savingId ? undefined : onClose}>
+      <div
+        className="modal"
+        onClick={(event) => event.stopPropagation()}
+        style={{ width: 'min(820px, calc(100vw - 64px))' }}
+      >
+        <div className="modal-head">
+          <div>
+            <h3 style={{ margin: 0 }}>{mapping.label}</h3>
+            <p style={{ margin: '5px 0 0', color: 'var(--muted)', fontSize: 12 }}>
+              {garmentTypeLabel} / {configuredCount} of {items.length} poses ready
+            </p>
+          </div>
+          <button className="btn sm ghost" onClick={onClose} disabled={!!savingId}>
+            <Icon.Close />
+          </button>
+        </div>
+        <div className="modal-body">
+          {loading ? (
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+              Loading poses...
+            </div>
+          ) : items.length === 0 ? (
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+              Add looks to the global template before configuring workflows.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {items.map((item) => (
+                <div
+                  key={item.id}
+                  className="card"
+                  style={{
+                    padding: 10,
+                    display: 'grid',
+                    gridTemplateColumns: '58px minmax(140px, 1fr) minmax(220px, 1.4fr)',
+                    alignItems: 'center',
+                    gap: 12,
+                    outline: item.workflowTemplateId ? '1px solid var(--pink)' : undefined,
+                    opacity: savingId === item.id ? 0.65 : 1,
+                  }}
+                >
+                  {/* biome-ignore lint/performance/noImgElement: admin panel */}
+                  <img
+                    src={item.thumbnailUrl}
+                    alt={item.displayName ?? item.label}
+                    style={{ width: 58, height: 68, borderRadius: 8, objectFit: 'cover' }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ margin: 0, fontSize: 12, fontWeight: 650 }}>
+                      {item.displayName ?? item.label}
+                    </p>
+                    <span
+                      className={`badge ${item.workflowTemplateId ? 'dot accent' : ''}`}
+                      style={{ marginTop: 6, fontSize: 9 }}
+                    >
+                      {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
+                    </span>
+                  </div>
+                  <select
+                    className="select"
+                    aria-label={`Workflow for ${item.displayName ?? item.label}`}
+                    value={item.workflowTemplateId ?? ''}
+                    disabled={savingId === item.id}
+                    onChange={(event) => void setWorkflow(item.id, event.target.value || null)}
+                  >
+                    <option value="">Select workflow...</option>
+                    {workflows.map((workflow) => (
+                      <option key={workflow.id} value={workflow.id}>
+                        {workflow.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <span
+            className="mono"
+            style={{ marginRight: 'auto', color: 'var(--muted)', fontSize: 10 }}
+          >
+            Mapping {mapping.mappingId}
+          </span>
+          <button className="btn" onClick={onClose} disabled={!!savingId}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface PoseConfigsPanelProps {
   sub: GarmentType;
   items: PoseGarmentConfig[];
@@ -1093,7 +1460,7 @@ function PoseConfigsPanel({
                     style={{ fontSize: 10, padding: '3px 8px' }}
                     onClick={() => openEdit(item)}
                   >
-                    <Icon.Edit /> Edit
+                    <Icon.Edit /> Set workflow
                   </button>
                 </div>
               </div>
@@ -1111,7 +1478,9 @@ function PoseConfigsPanel({
             style={{ width: 'min(720px, calc(100vw - 80px))' }}
           >
             <div className="modal-head">
-              <h3>{editing.displayName ?? editing.label} — Override</h3>
+              <h3>
+                {sub.label} — {editing.displayName ?? editing.label}
+              </h3>
               <button
                 className="btn sm ghost"
                 onClick={closeEdit}

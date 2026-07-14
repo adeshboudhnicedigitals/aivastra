@@ -97,6 +97,16 @@ export interface TemplateGarmentTypeMapping {
   label: string;
   thumbnailUrl: string | null;
   mapped: boolean;
+  mappingId: string | null;
+  poseAssetIds: string[];
+}
+
+export interface MappedTemplatePoseWorkflow {
+  id: string;
+  label: string;
+  displayName: string | null;
+  thumbnailUrl: string;
+  workflowTemplateId: string | null;
 }
 
 // Poses are per (garment type × face × background) combo

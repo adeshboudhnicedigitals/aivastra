@@ -2,13 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type {
-  CatalogueTemplate,
-  GenderSlug,
-  ModelBackground,
-  ModelPoseAsset,
-  WorkflowOption,
-} from '../types';
+import type { CatalogueTemplate, GenderSlug, ModelBackground, ModelPoseAsset } from '../types';
 import { Icon } from './Icons';
 
 async function putFile(url: string, file: Blob): Promise<void> {
@@ -29,7 +23,6 @@ interface LookRow {
   key: string; // stable React key — random per row, independent of the eventual saved id
   poseAssetId: string;
   backgroundId: string;
-  workflowTemplateId: string;
 }
 
 /** Click-to-upload tile — no picking from existing assets, every look uploads fresh. */
@@ -176,13 +169,6 @@ export function EditCatalogueTemplateModal({
   useEffect(() => setLocalPoseAssets(poseAssets), [poseAssets]);
   useEffect(() => setLocalBackgrounds(backgrounds), [backgrounds]);
 
-  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
-  useEffect(() => {
-    apiFetch<WorkflowOption[]>('/admin/workflows')
-      .then((wfs) => setWorkflows(wfs.filter((w) => w.isActive)))
-      .catch(() => toast({ kind: 'error', title: 'Failed to load workflows' }));
-  }, [toast]);
-
   // Which look row's pose tile is currently uploading, if any (disables that tile).
   const [uploadingPoseForRow, setUploadingPoseForRow] = useState<string | null>(null);
   const poseFileInputRef = useRef<HTMLInputElement>(null);
@@ -193,7 +179,6 @@ export function EditCatalogueTemplateModal({
   const backgroundFileInputRef = useRef<HTMLInputElement>(null);
   const backgroundUploadRowKeyRef = useRef<string | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: poseAssets intentionally omitted — only used for the one-time initial mapping below, re-running this fetch on every poseAssets update (e.g. after an in-modal pose upload) would clobber in-progress row edits
   useEffect(() => {
     if (!isEditing || !template) return;
     apiFetch<{ items: { id: string; poseAssetId: string; backgroundId: string }[] }>(
@@ -205,8 +190,6 @@ export function EditCatalogueTemplateModal({
             key: l.id,
             poseAssetId: l.poseAssetId,
             backgroundId: l.backgroundId,
-            workflowTemplateId:
-              poseAssets.find((p) => p.id === l.poseAssetId)?.workflowTemplateId ?? '',
           })),
         );
       })
@@ -224,7 +207,6 @@ export function EditCatalogueTemplateModal({
         key: crypto.randomUUID(),
         poseAssetId: '',
         backgroundId: '',
-        workflowTemplateId: workflows[0]?.id ?? '',
       },
     ]);
   }
@@ -245,7 +227,6 @@ export function EditCatalogueTemplateModal({
   async function handlePoseFileSelected(file: File) {
     const rowKey = poseUploadRowKeyRef.current;
     if (!rowKey) return;
-    const row = looks.find((l) => l.key === rowKey);
     setUploadingPoseForRow(rowKey);
     try {
       const presign = await apiFetch<{
@@ -268,7 +249,6 @@ export function EditCatalogueTemplateModal({
           r2Key: presign.r2Key,
           thumbnailKey: presign.thumbnailKey,
           genderSlug,
-          workflowTemplateId: row?.workflowTemplateId || undefined,
           scope: 'template',
         }),
       });
@@ -322,25 +302,6 @@ export function EditCatalogueTemplateModal({
     } finally {
       setUploadingBackgroundForRow(null);
       backgroundUploadRowKeyRef.current = null;
-    }
-  }
-
-  async function handleWorkflowChange(rowKey: string, workflowTemplateId: string) {
-    updateLookRow(rowKey, { workflowTemplateId });
-    const row = looks.find((l) => l.key === rowKey);
-    if (!row?.poseAssetId) return;
-    // Pose's workflow lives on the pose asset itself — keep it in sync so the
-    // dispatcher patches the workflow this row's admin actually chose.
-    try {
-      await apiFetch(`/admin/assets/pose-assets/${row.poseAssetId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ workflowTemplateId: workflowTemplateId || null }),
-      });
-      setLocalPoseAssets((prev) =>
-        prev.map((p) => (p.id === row.poseAssetId ? { ...p, workflowTemplateId } : p)),
-      );
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update workflow for this look' });
     }
   }
 
@@ -569,22 +530,6 @@ export function EditCatalogueTemplateModal({
                         loading={uploadingBackgroundForRow === row.key}
                         onClick={() => openBackgroundUpload(row.key)}
                       />
-                      <div className="field" style={{ flex: 1, minWidth: 0, marginBottom: 0 }}>
-                        <label>Workflow</label>
-                        <select
-                          className="select"
-                          value={row.workflowTemplateId}
-                          disabled={saving}
-                          onChange={(e) => void handleWorkflowChange(row.key, e.target.value)}
-                        >
-                          <option value="">— none —</option>
-                          {workflows.map((w) => (
-                            <option key={w.id} value={w.id}>
-                              {w.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
                       <button
                         type="button"
                         className="iconbtn"

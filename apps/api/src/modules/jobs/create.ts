@@ -55,8 +55,15 @@ export async function createJob(
   userId: string,
   body: z.infer<typeof CreateTryOnJobRequest>,
 ) {
-  const { faceId, garmentTypeId, upperGarmentKey, lowerCatalogId, lowerGarmentKey, shoeCatalogId } =
-    body.inputs;
+  const {
+    faceId,
+    garmentTypeId,
+    catalogueTemplateMappingId,
+    upperGarmentKey,
+    lowerCatalogId,
+    lowerGarmentKey,
+    shoeCatalogId,
+  } = body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
   const platform: string | undefined = body.platform;
 
@@ -235,15 +242,101 @@ export async function createJob(
   // Validate that workflow-required inputs are present for every selected pose.
   // If a pose's workflow has a lower garment node → lowerCatalogId is mandatory.
   // Same for shoes. This mirrors what the studio UI shows based on hasLower/hasShoes.
-  // A per-garment-type pose_garment_configs override (when one exists with a
-  // workflowTemplateId set) takes priority over the pose's own default workflow —
-  // must match the resolution used by /v1/models/poses and the dispatcher exactly,
-  // otherwise the UI and the server disagree on what's required.
+  // Mapped template looks resolve only from their mapping-specific pose workflows.
+  // Custom looks continue resolving through pose_garment_configs, where a configured
+  // workflow takes priority over the pose's default.
+  const mappingPoseWorkflows = catalogueTemplateMappingId
+    ? await (async () => {
+        if (!templateLooks || !garmentTypeId) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'catalogueTemplateMappingId requires looks and garmentTypeId',
+          );
+        }
+
+        const rows = await app.db
+          .select({
+            poseId: schema.catalogueTemplateLooks.poseAssetId,
+            backgroundId: schema.catalogueTemplateLooks.backgroundId,
+            workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+            lowerNodeId: schema.workflowTemplates.lowerNodeId,
+            shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+          })
+          .from(schema.catalogueTemplateSubcategories)
+          .innerJoin(
+            schema.catalogueTemplateLooks,
+            eq(
+              schema.catalogueTemplateLooks.templateId,
+              schema.catalogueTemplateSubcategories.templateId,
+            ),
+          )
+          .innerJoin(
+            schema.catalogueTemplatePoseWorkflows,
+            and(
+              eq(
+                schema.catalogueTemplatePoseWorkflows.mappingId,
+                schema.catalogueTemplateSubcategories.id,
+              ),
+              eq(
+                schema.catalogueTemplatePoseWorkflows.poseAssetId,
+                schema.catalogueTemplateLooks.poseAssetId,
+              ),
+            ),
+          )
+          .innerJoin(
+            schema.workflowTemplates,
+            and(
+              eq(
+                schema.workflowTemplates.id,
+                schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+              ),
+              eq(schema.workflowTemplates.isActive, true),
+            ),
+          )
+          .where(
+            and(
+              eq(schema.catalogueTemplateSubcategories.id, catalogueTemplateMappingId),
+              eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId),
+            ),
+          );
+
+        const allowedLookKeys = new Set(rows.map((row) => `${row.poseId}::${row.backgroundId}`));
+        if (
+          rows.length === 0 ||
+          looks.some((look) => !allowedLookKeys.has(`${look.poseId}::${look.backgroundId}`))
+        ) {
+          throw new AppError(
+            'BAD_CATALOG',
+            400,
+            'one or more looks are not configured for this template mapping',
+          );
+        }
+
+        const byPose = new Map(rows.map((row) => [row.poseId, row]));
+        return distinctPoseIds.map((poseId) => {
+          const row = byPose.get(poseId);
+          if (!row) {
+            throw new AppError('BAD_CATALOG', 400, 'workflow not configured for template pose');
+          }
+          return {
+            poseId,
+            workflowTemplateId: row.workflowTemplateId,
+            lowerNodeId: row.lowerNodeId,
+            shoeNodeId: row.shoeNodeId,
+            sizeNodeIds: row.sizeNodeIds,
+          };
+        });
+      })()
+    : null;
+
   const defaultWorkflow = aliasedTable(schema.workflowTemplates, 'default_workflow');
   const overrideWorkflow = aliasedTable(schema.workflowTemplates, 'override_workflow');
   const poseWorkflowRows = await app.db
     .select({
       poseId: schema.modelPoseAssets.id,
+      defaultWorkflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
@@ -273,16 +366,25 @@ export async function createJob(
   // A per-garment-type active override can hide a pose for this garment type
   // specifically (see /v1/models/poses) — reject here too so a stale client can't
   // submit a job for a pose+garmentType combo the admin explicitly disabled.
-  if (garmentTypeId && poseWorkflowRows.some((r) => r.configIsActive === false)) {
+  if (
+    !mappingPoseWorkflows &&
+    garmentTypeId &&
+    poseWorkflowRows.some((r) => r.configIsActive === false)
+  ) {
     throw new AppError('BAD_CATALOG', 400, 'one or more poses not found or inactive');
   }
 
-  const poseWorkflows = poseWorkflowRows.map((r) => ({
-    poseId: r.poseId,
-    lowerNodeId: r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
-    shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
-    sizeNodeIds: r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
-  }));
+  const poseWorkflows =
+    mappingPoseWorkflows ??
+    poseWorkflowRows.map((r) => ({
+      poseId: r.poseId,
+      workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+      lowerNodeId:
+        r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
+      shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+      sizeNodeIds:
+        r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
+    }));
 
   // Build map for O(1) lookup in the insert loop
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
@@ -366,6 +468,12 @@ export async function createJob(
           ...(effectiveAspectRatio ? { aspectRatio: effectiveAspectRatio } : {}),
           resolution,
           ...(platform ? { platform } : {}),
+          ...(catalogueTemplateMappingId
+            ? {
+                catalogueTemplateMappingId,
+                workflowTemplateId: pw?.workflowTemplateId,
+              }
+            : {}),
         },
       });
       created.push(job.id);
