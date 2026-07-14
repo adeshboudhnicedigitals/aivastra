@@ -907,4 +907,51 @@ describe('shot-type workflow resolve', () => {
       expect(res.json().items[0].source).toBe('manual');
     });
   });
+
+  it('POST pose-assets persists shotType', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/admin/assets/pose-assets',
+      headers,
+      payload: {
+        label: 'Shot type creation test',
+        r2Key: `shot-type-create-${Date.now()}.jpg`,
+        thumbnailKey: `shot-type-create-thumb-${Date.now()}.jpg`,
+        genderSlug: 'women',
+        scope: 'template',
+        shotType: 'closeup',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().shotType).toBe('closeup');
+
+    const [row] = await app.db
+      .select({ shotType: schema.modelPoseAssets.shotType })
+      .from(schema.modelPoseAssets)
+      .where(eq(schema.modelPoseAssets.id, res.json().id));
+    expect(row.shotType).toBe('closeup');
+  });
+
+  it('GET pose-assets returns shotType for an already-tagged pose', async () => {
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'Already tagged pose',
+        genderSlug: 'women',
+        r2Key: `already-tagged-${Date.now()}.jpg`,
+        thumbnailKey: 'already-tagged-thumb.jpg',
+        scope: 'template',
+        shotType: 'half',
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/assets/pose-assets?scope=all',
+      headers,
+    });
+    expect(res.statusCode).toBe(200);
+    const found = res.json().items.find((i: { id: string }) => i.id === pose.id);
+    expect(found.shotType).toBe('half');
+  });
 });
