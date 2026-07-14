@@ -12,7 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
-import { resolveForGarmentTypeShotType } from './shot-type-resolve.js';
+import { resolveForGarmentTypeShotType, resolveForMapping } from './shot-type-resolve.js';
 
 export async function adminGarmentTypesRoutes(app: FastifyInstance) {
   const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
@@ -383,12 +383,18 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       const { mapped } = req.body as { mapped: boolean };
 
       if (mapped) {
-        const [inserted] = await app.db
-          .insert(schema.catalogueTemplateSubcategories)
-          .values({ templateId, subcategoryId: id })
-          .onConflictDoNothing()
-          .returning({ id: schema.catalogueTemplateSubcategories.id });
-        if (inserted) return { ok: true, mappingId: inserted.id };
+        const inserted = await app.db.transaction(async (tx) => {
+          const [row] = await tx
+            .insert(schema.catalogueTemplateSubcategories)
+            .values({ templateId, subcategoryId: id })
+            .onConflictDoNothing()
+            .returning({ id: schema.catalogueTemplateSubcategories.id });
+          if (!row) return null;
+          const resolvedCount = await resolveForMapping(tx, row.id);
+          return { id: row.id, resolvedCount };
+        });
+        if (inserted)
+          return { ok: true, mappingId: inserted.id, resolvedCount: inserted.resolvedCount };
 
         const [existing] = await app.db
           .select({ id: schema.catalogueTemplateSubcategories.id })
