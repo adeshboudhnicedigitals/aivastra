@@ -68,7 +68,7 @@ export default function AssetsPage(): React.ReactElement {
     return () => document.removeEventListener('keydown', trap);
   }, [zoom]);
 
-  const filtered = assets.filter((a) => a.r2Key.toLowerCase().includes(search.toLowerCase()));
+  const filtered = assets.filter((a) => a.r2Key?.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <>

@@ -370,6 +370,8 @@ export async function jobsRoutes(app: FastifyInstance) {
         .select({
           params: schema.jobInputs.params,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          lowerCatalogId: schema.jobInputs.lowerCatalogId,
         })
         .from(schema.jobInputs)
         .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
@@ -379,13 +381,20 @@ export async function jobsRoutes(app: FastifyInstance) {
         (anyInput?.params as { aspectRatio?: string } | null)?.aspectRatio ?? null;
 
       let garmentUrl: string | null = null;
-      if (anyInput?.upperGarmentKey) {
+      const heroKey = anyInput?.upperGarmentKey ?? anyInput?.lowerGarmentKey ?? null;
+      if (heroKey) {
         try {
-          const { url } = await app.storage.presignGet(anyInput.upperGarmentKey, 3600);
+          const { url } = await app.storage.presignGet(heroKey, 3600);
           garmentUrl = url;
         } catch {
           // non-fatal
         }
+      } else if (anyInput?.lowerCatalogId) {
+        const [catalogItem] = await app.db
+          .select({ thumbnailKey: schema.catalogItems.thumbnailKey })
+          .from(schema.catalogItems)
+          .where(eq(schema.catalogItems.id, anyInput.lowerCatalogId));
+        if (catalogItem?.thumbnailKey) garmentUrl = app.storage.publicUrl(catalogItem.thumbnailKey);
       }
 
       // Current plan's watermark entitlement — NOT the per-job snapshot. The UI
@@ -406,39 +415,77 @@ export async function jobsRoutes(app: FastifyInstance) {
 
   // List user's unique uploaded garments — deduplicated by R2 key
   app.get('/v1/assets', { preHandler: app.requireUser }, async (req) => {
-    const result = await app.db
-      .select({
-        r2Key: schema.jobInputs.upperGarmentKey,
-        uploadedAt: sql<Date>`MAX(${schema.jobs.createdAt})`.as('uploadedAt'),
-        jobCount: sql<number>`COUNT(${schema.jobs.id})`.as('jobCount'),
-      })
-      .from(schema.jobInputs)
-      .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
-      .where(
-        and(
-          eq(schema.jobs.userId, req.userId),
-          // Try-on jobs set upperGarmentKey to keys.output(sourceJobId) — a prior
-          // job's GENERATED result reused as the "garment" input, not a real
-          // upload. Exclude those (identified by params.sourceJobId) so this page
-          // only lists actual product photos.
-          sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
-        ),
-      )
-      .groupBy(schema.jobInputs.upperGarmentKey)
-      .orderBy(desc(sql`MAX(${schema.jobs.createdAt})`));
+    const excludeReuse = sql`${schema.jobInputs.params}->>'sourceJobId' is null`;
+    const [upperRows, lowerRows] = await Promise.all([
+      app.db
+        .select({
+          r2Key: schema.jobInputs.upperGarmentKey,
+          uploadedAt: sql<Date>`MAX(${schema.jobs.createdAt})`.as('uploadedAt'),
+          jobCount: sql<number>`COUNT(${schema.jobs.id})`.as('jobCount'),
+        })
+        .from(schema.jobInputs)
+        .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.userId, req.userId),
+            // Try-on jobs set upperGarmentKey to keys.output(sourceJobId) — a prior
+            // job's GENERATED result reused as the "garment" input, not a real
+            // upload. Exclude those (identified by params.sourceJobId) so this page
+            // only lists actual product photos.
+            sql`${schema.jobInputs.upperGarmentKey} is not null`,
+            excludeReuse,
+          ),
+        )
+        .groupBy(schema.jobInputs.upperGarmentKey),
+      app.db
+        .select({
+          r2Key: schema.jobInputs.lowerGarmentKey,
+          uploadedAt: sql<Date>`MAX(${schema.jobs.createdAt})`.as('uploadedAt'),
+          jobCount: sql<number>`COUNT(${schema.jobs.id})`.as('jobCount'),
+        })
+        .from(schema.jobInputs)
+        .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.userId, req.userId),
+            sql`${schema.jobInputs.lowerGarmentKey} is not null`,
+          ),
+        )
+        .groupBy(schema.jobInputs.lowerGarmentKey),
+    ]);
+
+    // Merge, de-duplicating by r2Key - a garment could theoretically appear as
+    // both an upper and lower upload across different jobs. Keep the most
+    // recent uploadedAt and sum jobCount when a key appears in both sets.
+    const merged = new Map<string, { r2Key: string; uploadedAt: Date; jobCount: number }>();
+    for (const row of [...upperRows, ...lowerRows]) {
+      if (!row.r2Key) continue;
+      const existing = merged.get(row.r2Key);
+      if (existing) {
+        existing.jobCount += row.jobCount;
+        if (row.uploadedAt > existing.uploadedAt) existing.uploadedAt = row.uploadedAt;
+      } else {
+        merged.set(row.r2Key, {
+          r2Key: row.r2Key,
+          uploadedAt: row.uploadedAt,
+          jobCount: row.jobCount,
+        });
+      }
+    }
+    const result = [...merged.values()].sort(
+      (a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime(),
+    );
 
     // Presign each thumbnail server-side so the client gets URLs in one response
     // instead of firing a /v1/uploads/thumbnail request per asset (N+1).
     return Promise.all(
       result.map(async (asset) => {
         let thumbnailUrl: string | null = null;
-        if (asset.r2Key) {
-          try {
-            const { url } = await app.storage.presignGet(asset.r2Key, 3600);
-            thumbnailUrl = url;
-          } catch {
-            /* missing object — leave null, client shows placeholder */
-          }
+        try {
+          const { url } = await app.storage.presignGet(asset.r2Key, 3600);
+          thumbnailUrl = url;
+        } catch {
+          /* missing object - leave null, client shows placeholder */
         }
         return {
           r2Key: asset.r2Key,

@@ -143,6 +143,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           createdAt: schema.jobs.createdAt,
           status: schema.jobs.status,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           poseThumbKey: schema.modelPoseAssets.thumbnailKey,
           backgroundThumbKey: schema.modelBackgrounds.thumbnailKey,
           lowerThumbKey: sql<
@@ -178,7 +179,7 @@ export async function resultsRoutes(app: FastifyInstance) {
           creditsCharged: r.creditsCharged,
           createdAt: r.createdAt,
           status: r.status,
-          garmentUrl: await presign(r.upperGarmentKey),
+          garmentUrl: await presign(r.upperGarmentKey ?? r.lowerGarmentKey),
           poseUrl: await presign(r.poseThumbKey),
           backgroundUrl: await presign(r.backgroundThumbKey),
           lowerUrl: await presign(r.lowerThumbKey),
