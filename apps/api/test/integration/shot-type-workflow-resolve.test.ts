@@ -726,5 +726,68 @@ describe('shot-type workflow resolve', () => {
         );
       expect(newRow.workflowTemplateId).toBe(workflow.id);
     });
+
+    it('PATCH templates mapped:true resolves the new mapping against existing defaults', async () => {
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({ genderSlug: 'women', slug: `new-mapping-${Date.now()}`, label: 'Shirt' })
+        .returning();
+      const [template] = await app.db
+        .insert(schema.catalogueTemplates)
+        .values({ genderSlug: 'women', label: 'New mapping template', sortOrder: 0 })
+        .returning();
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'New mapping pose',
+          genderSlug: 'women',
+          r2Key: `new-mapping-${Date.now()}.jpg`,
+          thumbnailKey: 'new-mapping-thumb.jpg',
+          scope: 'template',
+          shotType: 'half',
+        })
+        .returning();
+      const [background] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({
+          label: 'New mapping background',
+          r2Key: `new-mapping-bg-${Date.now()}.jpg`,
+          thumbnailKey: 'new-mapping-bg-thumb.jpg',
+          scope: 'template',
+        })
+        .returning();
+      await app.db.insert(schema.catalogueTemplateLooks).values({
+        templateId: template.id,
+        poseAssetId: pose.id,
+        backgroundId: background.id,
+      });
+      const workflow = await seedWorkflow('Half default for new mapping');
+      await app.db.insert(schema.garmentShotTypeWorkflows).values({
+        garmentTypeId: garmentType.id,
+        shotType: 'half',
+        workflowTemplateId: workflow.id,
+      });
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/garment-types/${garmentType.id}/templates/${template.id}`,
+        headers,
+        payload: { mapped: true },
+      });
+      expect(res.statusCode).toBe(200);
+      const { mappingId, resolvedCount } = res.json();
+      expect(resolvedCount).toBe(1);
+
+      const [row] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mappingId),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+          ),
+        );
+      expect(row.workflowTemplateId).toBe(workflow.id);
+    });
   });
 });
