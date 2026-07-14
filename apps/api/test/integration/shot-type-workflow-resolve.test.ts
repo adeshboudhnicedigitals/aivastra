@@ -575,5 +575,156 @@ describe('shot-type workflow resolve', () => {
       });
       expect(res.statusCode).toBe(404);
     });
+
+    it('PUT template looks resolves the new look across every garment type the template is mapped to', async () => {
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({ genderSlug: 'women', slug: `looks-put-${Date.now()}`, label: 'Shirt' })
+        .returning();
+      const [template] = await app.db
+        .insert(schema.catalogueTemplates)
+        .values({ genderSlug: 'women', label: 'Looks PUT template', sortOrder: 0 })
+        .returning();
+      await app.db
+        .insert(schema.catalogueTemplateSubcategories)
+        .values({ templateId: template.id, subcategoryId: garmentType.id });
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Fresh pose',
+          genderSlug: 'women',
+          r2Key: `fresh-${Date.now()}.jpg`,
+          thumbnailKey: 'fresh-thumb.jpg',
+          scope: 'template',
+          shotType: 'closeup',
+        })
+        .returning();
+      const [background] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({
+          label: 'Fresh background',
+          r2Key: `fresh-bg-${Date.now()}.jpg`,
+          thumbnailKey: 'fresh-bg-thumb.jpg',
+          scope: 'template',
+        })
+        .returning();
+      const workflow = await seedWorkflow('Closeup default');
+      await app.db.insert(schema.garmentShotTypeWorkflows).values({
+        garmentTypeId: garmentType.id,
+        shotType: 'closeup',
+        workflowTemplateId: workflow.id,
+      });
+
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/admin/assets/catalogue-templates/${template.id}/looks`,
+        headers,
+        payload: { looks: [{ poseAssetId: pose.id, backgroundId: background.id }] },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ ok: true, count: 1, resolvedCount: 1 });
+
+      const [mapping] = await app.db
+        .select({ id: schema.catalogueTemplateSubcategories.id })
+        .from(schema.catalogueTemplateSubcategories)
+        .where(eq(schema.catalogueTemplateSubcategories.templateId, template.id));
+      const [row] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+          ),
+        );
+      expect(row.workflowTemplateId).toBe(workflow.id);
+      expect(row.source).toBe('auto');
+    });
+
+    it('PUT template looks deletes stale workflow rows for poses no longer in the template', async () => {
+      const {
+        garmentType,
+        template,
+        mapping,
+        pose: oldPose,
+      } = await seedMappedPose({
+        shotType: 'full',
+      });
+      const workflow = await seedWorkflow('Stale-row cleanup default');
+      await app.db.insert(schema.garmentShotTypeWorkflows).values({
+        garmentTypeId: garmentType.id,
+        shotType: 'full',
+        workflowTemplateId: workflow.id,
+      });
+      // Resolve once so the old pose has a real row to clean up.
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows/full`,
+        headers,
+        payload: { workflowTemplateId: workflow.id },
+      });
+      const [beforeRow] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, oldPose.id),
+          ),
+        );
+      expect(beforeRow).toBeDefined();
+
+      // Simulate "correct a mis-tagged pose by re-uploading it" — a brand-new pose
+      // asset replaces the old one in this template's only look.
+      const [newPose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Replacement pose',
+          genderSlug: 'women',
+          r2Key: `replacement-${Date.now()}.jpg`,
+          thumbnailKey: 'replacement-thumb.jpg',
+          scope: 'template',
+          shotType: 'full',
+        })
+        .returning();
+      const [background] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({
+          label: 'Replacement background',
+          r2Key: `replacement-bg-${Date.now()}.jpg`,
+          thumbnailKey: 'replacement-bg-thumb.jpg',
+          scope: 'template',
+        })
+        .returning();
+
+      await app.inject({
+        method: 'PUT',
+        url: `/admin/assets/catalogue-templates/${template.id}/looks`,
+        headers,
+        payload: { looks: [{ poseAssetId: newPose.id, backgroundId: background.id }] },
+      });
+
+      const oldRows = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, oldPose.id),
+          ),
+        );
+      expect(oldRows).toHaveLength(0);
+
+      const [newRow] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, newPose.id),
+          ),
+        );
+      expect(newRow.workflowTemplateId).toBe(workflow.id);
+    });
   });
 });
