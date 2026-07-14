@@ -12,6 +12,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
+import { resolveForGarmentTypeShotType } from './shot-type-resolve.js';
 
 export async function adminGarmentTypesRoutes(app: FastifyInstance) {
   const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
@@ -566,6 +567,107 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         });
 
       return { ok: true, action: 'upserted' };
+    },
+  );
+
+  // ── Per-garment-type shot-type default workflows ──────────────────────────
+  // The 3-slot default that auto-resolves catalogue_template_pose_workflows for
+  // every template mapped to this garment type — see shot-type-resolve.ts.
+
+  const SHOT_TYPES = ['full', 'half', 'closeup'] as const;
+
+  async function requireGarmentType(id: string) {
+    const [sub] = await app.db
+      .select({ id: schema.garmentSubcategories.id })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, id));
+    if (!sub) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+  }
+
+  app.get(
+    '/admin/assets/garment-types/:id/shot-type-workflows',
+    { preHandler: RW, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      await requireGarmentType(id);
+      const rows = await app.db
+        .select({
+          shotType: schema.garmentShotTypeWorkflows.shotType,
+          workflowTemplateId: schema.garmentShotTypeWorkflows.workflowTemplateId,
+        })
+        .from(schema.garmentShotTypeWorkflows)
+        .where(eq(schema.garmentShotTypeWorkflows.garmentTypeId, id));
+      const byShotType = new Map(rows.map((r) => [r.shotType, r.workflowTemplateId]));
+      return {
+        items: SHOT_TYPES.map((shotType) => ({
+          shotType,
+          workflowTemplateId: byShotType.get(shotType) ?? null,
+        })),
+      };
+    },
+  );
+
+  app.patch(
+    '/admin/assets/garment-types/:id/shot-type-workflows/:shotType',
+    {
+      preHandler: RW,
+      schema: {
+        params: z.object({ id: z.string().uuid(), shotType: z.enum(SHOT_TYPES) }),
+        body: z.object({ workflowTemplateId: z.string().uuid().nullable() }),
+      },
+    },
+    async (req) => {
+      const { id, shotType } = req.params as {
+        id: string;
+        shotType: (typeof SHOT_TYPES)[number];
+      };
+      const { workflowTemplateId } = req.body as { workflowTemplateId: string | null };
+      await requireGarmentType(id);
+
+      if (!workflowTemplateId) {
+        await app.db
+          .delete(schema.garmentShotTypeWorkflows)
+          .where(
+            and(
+              eq(schema.garmentShotTypeWorkflows.garmentTypeId, id),
+              eq(schema.garmentShotTypeWorkflows.shotType, shotType),
+            ),
+          );
+        // Deliberately does not touch already-resolved 'auto' rows — clearing a
+        // default shouldn't retroactively break templates that are already working.
+        return { ok: true, action: 'cleared', resolvedCount: 0 };
+      }
+
+      const [workflow] = await app.db
+        .select({ id: schema.workflowTemplates.id })
+        .from(schema.workflowTemplates)
+        .where(
+          and(
+            eq(schema.workflowTemplates.id, workflowTemplateId),
+            eq(schema.workflowTemplates.workflowType, 'regular'),
+            eq(schema.workflowTemplates.isActive, true),
+          ),
+        );
+      if (!workflow) throw new AppError('BAD_CATALOG', 400, 'workflow not found or inactive');
+
+      // Upsert + cascade run in one transaction — see shot-type-resolve.ts's header
+      // comment for why: if the resolve half failed after a non-transactional upsert
+      // had already committed, the default would be saved but never actually applied,
+      // with no automatic way to notice or retry.
+      const resolvedCount = await app.db.transaction(async (tx) => {
+        await tx
+          .insert(schema.garmentShotTypeWorkflows)
+          .values({ garmentTypeId: id, shotType, workflowTemplateId })
+          .onConflictDoUpdate({
+            target: [
+              schema.garmentShotTypeWorkflows.garmentTypeId,
+              schema.garmentShotTypeWorkflows.shotType,
+            ],
+            set: { workflowTemplateId, updatedAt: new Date() },
+          });
+        return resolveForGarmentTypeShotType(tx, id, shotType);
+      });
+      return { ok: true, action: 'upserted', resolvedCount };
     },
   );
 }
