@@ -27,13 +27,6 @@ const NAV: {
     badge: 'New',
   },
   {
-    id: 'saree',
-    href: '/saree',
-    label: 'Saree',
-    icon: `${BASE}/assets/saree-icon.svg`,
-    badge: 'New',
-  },
-  {
     id: 'catalogues',
     href: '/catalogues',
     label: 'Catalogues',
@@ -97,8 +90,6 @@ export function Sidebar() {
         queryKey: ['garmentTypes', 'women'],
         queryFn: () => api.get('/v1/models/garment-types?gender=women'),
       });
-    } else if (id === 'saree') {
-      qc.prefetchQuery({ queryKey: ['saree-config'], queryFn: () => api.get('/v1/saree/config') });
     }
   }
 
@@ -198,13 +189,7 @@ export function Sidebar() {
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     {/* biome-ignore lint/performance/noImgElement: sidebar nav icon */}
-                    <img
-                      src={item.icon}
-                      alt=""
-                      width={20}
-                      height={20}
-                      style={item.id === 'saree' ? { filter: 'invert(1)' } : undefined}
-                    />
+                    <img src={item.icon} alt="" width={20} height={20} />
                   </>
                 )}
               </span>
