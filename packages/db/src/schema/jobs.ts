@@ -53,7 +53,7 @@ export const jobInputs = pgTable('job_inputs', {
   jobId: uuid('job_id')
     .primaryKey()
     .references(() => jobs.id, { onDelete: 'cascade' }),
-  upperGarmentKey: text('upper_garment_key').notNull(),
+  upperGarmentKey: text('upper_garment_key'),
   faceId: uuid('face_id').references(() => modelFaces.id),
   backgroundId: uuid('background_id').references(() => modelBackgrounds.id),
   poseId: uuid('pose_id').references(() => modelPoseAssets.id),

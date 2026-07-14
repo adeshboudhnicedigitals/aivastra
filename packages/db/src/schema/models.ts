@@ -85,9 +85,9 @@ export const workflowTemplates = pgTable('workflow_templates', {
   jsonContent: jsonb('json_content').notNull().$type<Record<string, unknown>>(),
 
   // Node ID mappings (ComfyUI node IDs as strings — may contain colons e.g. "1345:111")
-  faceNodeId: text('face_node_id').notNull(),
+  faceNodeId: text('face_node_id'),
   poseNodeId: text('pose_node_id').notNull(),
-  bgNodeId: text('bg_node_id').notNull(),
+  bgNodeId: text('bg_node_id'),
   upperNodeIds: text('upper_node_ids').array().notNull(),
   lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
   shoeNodeId: text('shoe_node_id'), // nullable — some workflows have no shoe garment
@@ -103,7 +103,7 @@ export const workflowTemplates = pgTable('workflow_templates', {
   resultNodeId: text('result_node_id'), // SaveImage node holding the final deliverable image, when ambiguous
 
   // Prompt node IDs
-  facePhasePromptNode: text('face_phase_prompt_node').notNull(),
+  facePhasePromptNode: text('face_phase_prompt_node'),
   garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),
 
   // Default prompts extracted from JSON at upload time
