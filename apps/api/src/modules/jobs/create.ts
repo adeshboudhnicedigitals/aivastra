@@ -50,6 +50,38 @@ export async function assertOwnsUploadKey(app: FastifyInstance, userId: string, 
   }
 }
 
+/**
+ * Resolves a completed saree-mannequin job (see createSareeMannequinJob) to its
+ * output R2 key, for use as a step-2 job's upperGarmentKey. Mirrors
+ * assertOwnsUploadKey's ownership check, but against a job's own output rather
+ * than a presigned-upload Redis binding.
+ */
+export async function resolveMannequinGarmentKey(
+  app: FastifyInstance,
+  userId: string,
+  mannequinJobId: string,
+): Promise<string> {
+  const [row] = await app.db
+    .select({
+      userId: schema.jobs.userId,
+      status: schema.jobs.status,
+      kind: sql<string>`${schema.jobInputs.params}->>'kind'`.as('kind'),
+    })
+    .from(schema.jobs)
+    .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .where(eq(schema.jobs.id, mannequinJobId));
+  if (!row || row.userId !== userId) {
+    throw new AppError('FORBIDDEN', 403, 'mannequin job not owned by caller');
+  }
+  if (row.kind !== 'saree_mannequin') {
+    throw new AppError('VALIDATION', 400, 'job is not a mannequin generation job');
+  }
+  if (row.status !== 'COMPLETED') {
+    throw new AppError('VALIDATION', 400, 'mannequin generation not yet complete');
+  }
+  return keys.output(mannequinJobId);
+}
+
 export async function createJob(
   app: FastifyInstance,
   userId: string,
