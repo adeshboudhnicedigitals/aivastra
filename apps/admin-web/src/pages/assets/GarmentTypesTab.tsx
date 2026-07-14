@@ -959,6 +959,8 @@ function MappedTemplateWorkflowModal({
   const [items, setItems] = useState<MappedTemplatePoseWorkflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [promptDraft, setPromptDraft] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -1003,6 +1005,48 @@ function MappedTemplateWorkflowModal({
     }
   };
 
+  const openPromptEditor = (item: MappedTemplatePoseWorkflow) => {
+    const assignedWorkflow = workflows.find((w) => w.id === item.workflowTemplateId);
+    setPromptDraft(item.promptGarmentPhase ?? assignedWorkflow?.defaultGarmentPhasePrompt ?? '');
+    setEditingPromptId(item.id);
+  };
+
+  const closePromptEditor = () => {
+    setEditingPromptId(null);
+    setPromptDraft('');
+  };
+
+  const savePrompt = async (poseAssetId: string) => {
+    const item = items.find((i) => i.id === poseAssetId);
+    if (!item?.workflowTemplateId) return;
+    const previous = items;
+    setSavingId(poseAssetId);
+    const promptGarmentPhase = promptDraft || null;
+    setItems((current) =>
+      current.map((i) => (i.id === poseAssetId ? { ...i, promptGarmentPhase } : i)),
+    );
+    try {
+      await apiFetch(
+        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ workflowTemplateId: item.workflowTemplateId, promptGarmentPhase }),
+        },
+      );
+      toast({ title: promptGarmentPhase ? 'Prompt saved' : 'Prompt override cleared' });
+      closePromptEditor();
+    } catch (error) {
+      setItems(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to save prompt',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const configuredCount = items.filter((item) => item.workflowTemplateId).length;
   return (
     <div className="modal-overlay" onClick={savingId ? undefined : onClose}>
@@ -1034,50 +1078,110 @@ function MappedTemplateWorkflowModal({
           ) : (
             <div style={{ display: 'grid', gap: 10 }}>
               {items.map((item) => (
-                <div
-                  key={item.id}
-                  className="card"
-                  style={{
-                    padding: 10,
-                    display: 'grid',
-                    gridTemplateColumns: '58px minmax(140px, 1fr) minmax(220px, 1.4fr)',
-                    alignItems: 'center',
-                    gap: 12,
-                    outline: item.workflowTemplateId ? '1px solid var(--pink)' : undefined,
-                    opacity: savingId === item.id ? 0.65 : 1,
-                  }}
-                >
-                  {/* biome-ignore lint/performance/noImgElement: admin panel */}
-                  <img
-                    src={item.thumbnailUrl}
-                    alt={item.displayName ?? item.label}
-                    style={{ width: 58, height: 68, borderRadius: 8, objectFit: 'cover' }}
-                  />
-                  <div style={{ minWidth: 0 }}>
-                    <p style={{ margin: 0, fontSize: 12, fontWeight: 650 }}>
-                      {item.displayName ?? item.label}
-                    </p>
-                    <span
-                      className={`badge ${item.workflowTemplateId ? 'dot accent' : ''}`}
-                      style={{ marginTop: 6, fontSize: 9 }}
-                    >
-                      {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
-                    </span>
-                  </div>
-                  <select
-                    className="select"
-                    aria-label={`Workflow for ${item.displayName ?? item.label}`}
-                    value={item.workflowTemplateId ?? ''}
-                    disabled={savingId === item.id}
-                    onChange={(event) => void setWorkflow(item.id, event.target.value || null)}
+                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div
+                    className="card"
+                    style={{
+                      padding: 10,
+                      display: 'grid',
+                      gridTemplateColumns: '58px minmax(140px, 1fr) minmax(220px, 1.4fr) auto',
+                      alignItems: 'center',
+                      gap: 12,
+                      outline: item.workflowTemplateId ? '1px solid var(--pink)' : undefined,
+                      opacity: savingId === item.id ? 0.65 : 1,
+                    }}
                   >
-                    <option value="">Select workflow...</option>
-                    {workflows.map((workflow) => (
-                      <option key={workflow.id} value={workflow.id}>
-                        {workflow.label}
-                      </option>
-                    ))}
-                  </select>
+                    {/* biome-ignore lint/performance/noImgElement: admin panel */}
+                    <img
+                      src={item.thumbnailUrl}
+                      alt={item.displayName ?? item.label}
+                      style={{ width: 58, height: 68, borderRadius: 8, objectFit: 'cover' }}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 650 }}>
+                        {item.displayName ?? item.label}
+                      </p>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                        <span
+                          className={`badge ${item.workflowTemplateId ? 'dot accent' : ''}`}
+                          style={{ fontSize: 9 }}
+                        >
+                          {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
+                        </span>
+                        {item.promptGarmentPhase && (
+                          <span className="badge dot" style={{ fontSize: 9 }}>
+                            Custom prompt
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <select
+                      className="select"
+                      aria-label={`Workflow for ${item.displayName ?? item.label}`}
+                      value={item.workflowTemplateId ?? ''}
+                      disabled={savingId === item.id}
+                      onChange={(event) => void setWorkflow(item.id, event.target.value || null)}
+                    >
+                      <option value="">Select workflow...</option>
+                      {workflows.map((workflow) => (
+                        <option key={workflow.id} value={workflow.id}>
+                          {workflow.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn sm ghost"
+                      disabled={!item.workflowTemplateId || savingId === item.id}
+                      onClick={() =>
+                        editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
+                      }
+                    >
+                      <Icon.MessageSquare /> Prompt
+                    </button>
+                  </div>
+                  {editingPromptId === item.id && (
+                    <div className="card" style={{ padding: 10 }}>
+                      <div className="field">
+                        <label>Garment-phase prompt override</label>
+                        <textarea
+                          className="input"
+                          rows={6}
+                          placeholder="Inherited from workflow default"
+                          value={promptDraft}
+                          disabled={savingId === item.id}
+                          onChange={(e) => setPromptDraft(e.target.value)}
+                          style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+                        />
+                        <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                          Used only for this pose within this template/garment-type mapping. Leave
+                          blank to use the assigned workflow's own default prompt.
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          gap: 8,
+                          marginTop: 10,
+                        }}
+                      >
+                        <button
+                          className="btn sm ghost"
+                          disabled={savingId === item.id}
+                          onClick={closePromptEditor}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          className="btn sm primary"
+                          disabled={savingId === item.id}
+                          onClick={() => void savePrompt(item.id)}
+                        >
+                          {savingId === item.id ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

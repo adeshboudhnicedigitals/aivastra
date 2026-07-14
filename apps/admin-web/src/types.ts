@@ -107,6 +107,7 @@ export interface MappedTemplatePoseWorkflow {
   displayName: string | null;
   thumbnailUrl: string;
   workflowTemplateId: string | null;
+  promptGarmentPhase: string | null;
 }
 
 // Poses are per (garment type × face × background) combo
