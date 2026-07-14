@@ -1,7 +1,7 @@
 /**
- * finalizeOutput — shared helper called by every job processor (processJob,
- * processTryonDirectJob, processSareeMannequinJob, processWidgetJob, etc.)
- * after ComfyUI produces its result image.
+ * finalizeOutput — shared helper called by all three job processors
+ * (processJob, processTryonDirectJob, processSareeJob) after ComfyUI
+ * produces its result image.
  *
  * Responsibility:
  *   1. Upload the raw image buffer to R2 at keys.output(jobId).

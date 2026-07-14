@@ -53,13 +53,12 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
 
-  // Tryon-direct jobs (kind: personKey/garmentKey in params, no face/background/
-  // pose model rows) are the smallest job shape the dispatcher supports.
-  // finalizeOutput() behaves identically regardless of job kind, so this is a
-  // faithful, minimal seed for exercising it. (Migrated off the old standalone
-  // saree job shape — retired in Task 19 — which served this same purpose
-  // before its dispatcher processor was deleted.)
-  async function seedWatermarkedTryonDirectJob() {
+  // Saree jobs are the smallest job "kind" the dispatcher supports — no
+  // face/background/pose model rows needed, just a workflow template with the
+  // tryon* node IDs and a garment key in R2. finalizeOutput() behaves
+  // identically regardless of job kind, so this is a faithful, minimal seed
+  // for exercising it.
+  async function seedWatermarkedSareeJob() {
     const [user] = await env.db
       .insert(schema.users)
       .values({ email: `wm-fc-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
@@ -72,9 +71,9 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
     const [workflow] = await env.db
       .insert(schema.workflowTemplates)
       .values({
-        slug: `tryon-wf-${randomUUID()}`,
-        label: 'Tryon workflow',
-        workflowType: 'tryon',
+        slug: `saree-wf-${randomUUID()}`,
+        label: 'Saree workflow',
+        workflowType: 'saree',
         jsonContent: {},
         isActive: true,
         tryonPersonNodeId: '1',
@@ -101,14 +100,14 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
       .returning();
 
     const garmentKey = `inputs/${job?.id}/garment.jpg`;
-    const personKey = `inputs/person-${randomUUID()}.jpg`;
+    const modelKey = `saree/model-${randomUUID()}.jpg`;
     await env.db.insert(schema.jobInputs).values({
       jobId: job?.id,
       upperGarmentKey: garmentKey,
-      params: { personKey, workflowTemplateId: workflow?.id },
+      params: { modelKey, workflowTemplateId: workflow?.id, kind: 'saree' },
     });
 
-    for (const key of [garmentKey, personKey]) {
+    for (const key of [garmentKey, modelKey]) {
       await env.s3.send(
         new PutObjectCommand({
           Bucket: env.r2Bucket,
@@ -123,7 +122,7 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
   }
 
   it('fails the job and uploads nothing when watermarking throws for a watermark:true job', async () => {
-    const { jobId, userId } = await seedWatermarkedTryonDirectJob();
+    const { jobId, userId } = await seedWatermarkedSareeJob();
     const log = createLogger('test');
     // A stream name unique to this test avoids colliding with a persisted
     // `jobs:normal` stream on the shared dev Redis instance. The message ID
@@ -162,7 +161,7 @@ describe('finalizeOutput — fail-closed on watermark failure', () => {
   });
 
   it('reaches terminal FAILED with a refund after MAX_ATTEMPTS, still with no upload', async () => {
-    const { jobId, userId } = await seedWatermarkedTryonDirectJob();
+    const { jobId, userId } = await seedWatermarkedSareeJob();
     const log = createLogger('test');
     const cfg = {
       db: env.db,

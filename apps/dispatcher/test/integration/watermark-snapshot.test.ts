@@ -52,11 +52,7 @@ describe('watermark entitlement snapshot — core business rule', () => {
     await setWorkerStatus(redis, WORKER_ID, 'IDLE');
   });
 
-  // Migrated off the old standalone saree job shape (retired in Task 19,
-  // which deleted its dispatcher processor) — a tryon-direct job (personKey/
-  // garmentKey in params, no face/background/pose model rows) is the
-  // still-existing minimal job shape that serves the same purpose here.
-  async function seedTryonDirectJob(opts: { watermark: boolean }) {
+  async function seedSareeJob(opts: { watermark: boolean }) {
     const [user] = await env.db
       .insert(schema.users)
       .values({ email: `wm-snap-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
@@ -66,9 +62,9 @@ describe('watermark entitlement snapshot — core business rule', () => {
     const [workflow] = await env.db
       .insert(schema.workflowTemplates)
       .values({
-        slug: `tryon-wf-${randomUUID()}`,
-        label: 'Tryon workflow',
-        workflowType: 'tryon',
+        slug: `saree-wf-${randomUUID()}`,
+        label: 'Saree workflow',
+        workflowType: 'saree',
         jsonContent: {},
         isActive: true,
         tryonPersonNodeId: '1',
@@ -98,14 +94,14 @@ describe('watermark entitlement snapshot — core business rule', () => {
       .returning();
 
     const garmentKey = `inputs/${job?.id}/garment.jpg`;
-    const personKey = `inputs/person-${randomUUID()}.jpg`;
+    const modelKey = `saree/model-${randomUUID()}.jpg`;
     await env.db.insert(schema.jobInputs).values({
       jobId: job?.id,
       upperGarmentKey: garmentKey,
-      params: { personKey, workflowTemplateId: workflow?.id },
+      params: { modelKey, workflowTemplateId: workflow?.id, kind: 'saree' },
     });
 
-    for (const key of [garmentKey, personKey]) {
+    for (const key of [garmentKey, modelKey]) {
       await env.s3.send(
         new PutObjectCommand({
           Bucket: env.r2Bucket,
@@ -121,7 +117,7 @@ describe('watermark entitlement snapshot — core business rule', () => {
 
   it('stays WATERMARKED even if the user upgrades to a paid plan while the job is queued/processing', async () => {
     // Job created while free — watermark:true snapshotted onto the job row.
-    const { jobId, userId } = await seedTryonDirectJob({ watermark: true });
+    const { jobId, userId } = await seedSareeJob({ watermark: true });
 
     // Simulate the user upgrading mid-flight: their tier changes, but the
     // job row's snapshot must not be touched by this (and the dispatcher
@@ -156,7 +152,7 @@ describe('watermark entitlement snapshot — core business rule', () => {
   });
 
   it('delivers ORIGINAL for a job snapshotted as non-watermarked, even if the user later downgrades', async () => {
-    const { jobId, userId } = await seedTryonDirectJob({ watermark: false });
+    const { jobId, userId } = await seedSareeJob({ watermark: false });
     await env.db.update(schema.users).set({ tier: 'free' }).where(eq(schema.users.id, userId));
 
     const log = createLogger('test');
@@ -178,7 +174,7 @@ describe('watermark entitlement snapshot — core business rule', () => {
   });
 
   it('generates the thumbnail from the watermarked buffer, not the pre-watermark original', async () => {
-    const { jobId, userId } = await seedTryonDirectJob({ watermark: true });
+    const { jobId, userId } = await seedSareeJob({ watermark: true });
     const log = createLogger('test');
     const stream = `jobs:test-${jobId}`;
     await processJob(

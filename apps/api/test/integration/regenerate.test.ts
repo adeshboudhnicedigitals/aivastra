@@ -100,47 +100,32 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
     expect(res.statusCode).toBe(409);
   });
 
-  describe('watermark entitlement refresh on regenerate', () => {
-    // Migrated off the retired `kind: 'saree'` job shape (Task 19 — standalone
-    // saree feature retirement removed createSareeJob/regenerateJob's isSaree
-    // branch). Uses a minimal studio job instead — same watermark-refresh
-    // behavior (createJob resolves watermark fresh from the CURRENT plan at
-    // creation time, see create.ts), just via a different code path.
-    async function seedMinimalStudioJob() {
-      const [face] = await app.db
-        .insert(schema.modelFaces)
-        .values({
-          gender: 'men',
-          label: 'F',
-          r2Key: `f-${randomUUID()}.jpg`,
-          thumbnailKey: `f-${randomUUID()}.jpg`,
-        })
-        .returning();
-      const [bg] = await app.db
-        .insert(schema.modelBackgrounds)
-        .values({
-          label: 'B',
-          r2Key: `b-${randomUUID()}.jpg`,
-          thumbnailKey: `b-${randomUUID()}.jpg`,
-        })
-        .returning();
-      const [pose] = await app.db
-        .insert(schema.modelPoseAssets)
-        .values({
-          label: 'P',
-          r2Key: `p-${randomUUID()}.jpg`,
-          thumbnailKey: `p-${randomUUID()}.jpg`,
-        })
-        .returning();
-      return { face, bg, pose };
+  describe('saree job regenerate', () => {
+    async function seedSareeSettings() {
+      await app.db.insert(schema.workflowTemplates).values({
+        slug: `saree-wf-${randomUUID()}`,
+        label: 'Saree workflow',
+        workflowType: 'saree',
+        jsonContent: {},
+        isActive: true,
+        faceNodeId: '1',
+        poseNodeId: '1',
+        bgNodeId: '1',
+        upperNodeIds: ['1'],
+        facePhasePromptNode: '1',
+        garmentPhasePromptNode: '1',
+      });
+      await app.db.insert(schema.sareeSettings).values({
+        modelImageKey: `saree/model-${randomUUID()}.jpg`,
+      });
     }
 
     it('resolves the CURRENT watermark entitlement, not the one baked into the original job', async () => {
+      await seedSareeSettings();
       await seedCreditPlan('free', true);
 
-      const { token, userId } = await registerUser('regen-watermark@x.com', 'free');
+      const { token, userId } = await registerUser('regen-saree@x.com', 'free');
       await grantCredits(userId, 100);
-      const { face, bg, pose } = await seedMinimalStudioJob();
       const garmentKey = `inputs/${userId}/garment.jpg`;
       await bindUploadKey(userId, garmentKey);
 
@@ -151,10 +136,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
       await app.db.insert(schema.jobInputs).values({
         jobId: original.id,
         upperGarmentKey: garmentKey,
-        faceId: face.id,
-        backgroundId: bg.id,
-        poseId: pose.id,
-        params: { aspectRatio: '1:1', resolution: '2K' },
+        params: { kind: 'saree' },
       });
 
       // User upgrades to a plan with watermark:false before regenerating.

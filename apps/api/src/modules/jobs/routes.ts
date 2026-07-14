@@ -1,16 +1,20 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  CreateSareeJobRequest,
   CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
   CreateTryOnJobRequest,
+  SareeConfigResponse,
 } from '@aivastra/types';
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { getSareeSettings } from '../saree/settings.js';
 import { createJob, createSimpleTryonJob } from './create.js';
+import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
@@ -97,6 +101,54 @@ export async function jobsRoutes(app: FastifyInstance) {
             req.userId,
             req.body as z.infer<typeof CreateSareeMannequinJobRequest>,
           ),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  // GET /v1/saree/config — exposed to the user page; tells the client whether the
+  // admin has configured saree try-on (model image + active workflow).
+  app.get(
+    '/v1/saree/config',
+    { preHandler: app.requireUser, schema: { response: { 200: SareeConfigResponse } } },
+    async () => {
+      const row = await getSareeSettings(app.db);
+      const modelImageKey = row?.modelImageKey ?? null;
+      const sampleSareeImageKey = row?.sampleSareeImageKey ?? null;
+      const presign = async (key: string | null) => {
+        if (!key) return null;
+        try {
+          const { url } = await app.storage.presignGet(key, 3600);
+          return url;
+        } catch {
+          return null;
+        }
+      };
+      const [modelImageUrl, sampleSareeImageUrl, creditsCost] = await Promise.all([
+        presign(row?.modelImageThumbKey ?? modelImageKey),
+        presign(row?.sampleSareeImageThumbKey ?? sampleSareeImageKey),
+        getTryonCreditCost(app),
+      ]);
+      return {
+        modelImageUrl,
+        sampleSareeImageUrl,
+        isConfigured: !!modelImageKey,
+        creditsCost,
+      };
+    },
+  );
+
+  // POST /v1/jobs/saree
+  app.post(
+    '/v1/jobs/saree',
+    { preHandler: app.requireUser, schema: { body: CreateSareeJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () => createSareeJob(app, req.userId, req.body as z.infer<typeof CreateSareeJobRequest>),
       );
       reply.code(201);
       return result;
