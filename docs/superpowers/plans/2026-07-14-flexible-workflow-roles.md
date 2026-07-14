@@ -1,107 +1,118 @@
 # Flexible Workflow Roles Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
->
-> **Execution note for this plan specifically:** implementation will be done externally (Codex), not by an agentic worker following this plan directly in this session. This plan is written to the same bite-sized, zero-placeholder standard so it can be handed off as-is. After Codex implements, the reviewer's job is to diff the actual changes against every task/step below — see "Review Checklist" at the end.
 
-**Goal:** Let an admin upload a ComfyUI workflow for lower-wear-only or inner-wear-only generation (no upper garment, optionally no face/background node), and let a job be submitted to it without an upper-garment upload — without touching the studio wizard at all.
+**Goal:** Let admins upload ComfyUI workflows for lower-wear/inner-wear-only generation (no face/background/upper-garment node required) and let the job-creation API run them safely end-to-end — including regeneration, catalogue history, and results display — without ever submitting an `undefined` image to ComfyUI or silently generating a wrong-garment output.
 
-**Architecture:** A workflow's roles become implicit in which node-ID columns are populated, instead of a fixed required-set keyed off `workflowType`. `poseNodeId` and `garmentPhasePromptNode` stay mandatory (pose selects the workflow; every workflow has a garment phase); `faceNodeId`, `bgNodeId`, `facePhasePromptNode` become nullable, and `upperNodeIds` may be empty as long as `lowerNodeId` is set (or vice versa). `faceId`/`backgroundId` stay mandatory at job-creation — the studio always asks for them regardless of workflow shape; only `upperGarmentKey` becomes optional. The dispatcher patcher and processor gain conditional guards so a workflow missing a role simply isn't patched for it. Because `job_inputs.upper_garment_key` is a column shared by every job type (catalog, saree, tryon-direct, widget, shopify), making it nullable ripples into several other read sites — each has been individually verified as either already-safe or in need of a small defensive guard (see Task 6).
+**Architecture:** Relax `workflow_templates`/`job_inputs` nullability, then thread "which garment/face/background roles does this specific resolved workflow actually declare" through every layer that currently assumes all roles exist: admin validation (create + PATCH), admin UI, job-creation cross-validation, dispatcher patching (fail closed on any mapped-but-unfulfilled role), dispatcher upload orchestration, regeneration, and the two read-only surfaces that display a job's source garment.
 
-**Tech Stack:** Drizzle ORM/Postgres, Fastify 5 + Zod, Vitest (unit + integration against the docker-compose Postgres/Redis/MinIO), Node/TypeScript dispatcher.
+**Tech Stack:** Drizzle ORM/Postgres, Fastify 5 + Zod, Vitest integration tests (real Postgres via `apps/api/test/helpers/containers.ts`), Vitest unit tests for the dispatcher patcher, React (admin-web).
 
-**Spec:** `docs/superpowers/specs/2026-07-14-flexible-workflow-roles-design.md`
+**Spec:** `docs/superpowers/specs/2026-07-14-flexible-workflow-roles-design.md` (Revision 2 — read this first; it documents 8 gaps found in a prior review and why each fix below exists).
+
+**Note:** this replaces the original version of this plan (Revision 1), which was written against Revision 1 of the spec before an independent review found 8 confirmed gaps in that design — several severe enough to block (undefined reaching ComfyUI, a missing admin UI, no fail-closed behavior). This revision implements the corrected design.
 
 ---
 
-### Task 1: Schema — nullable workflow/job-input columns
+## File Structure
+
+| File | Responsibility |
+|---|---|
+| `packages/db/src/schema/models.ts` | Relax `workflow_templates.faceNodeId`/`bgNodeId`/`facePhasePromptNode` to nullable |
+| `packages/db/src/schema/jobs.ts` | Relax `job_inputs.upperGarmentKey` to nullable |
+| `packages/db/src/migrations/01NN_*.sql` (generated) | Migration for both column relaxations |
+| `packages/types/src/admin.ts` | `CreateWorkflowBody`'s floor validation |
+| `packages/types/src/jobs.ts` | `CreateTryOnJobInputs.upperGarmentKey` optional, drop the redundant refine |
+| `apps/api/src/modules/admin/workflows.routes.ts` | POST conditional validation; PATCH merge-then-validate |
+| `apps/api/test/integration/admin-workflows.test.ts` (new) | Covers POST/PATCH floor + merge-validation |
+| `apps/admin-web/src/components/WorkflowUploadModal.tsx` | Client-side validation matches the new floor |
+| `apps/api/src/modules/jobs/create.ts` | Per-pose `upperNodeIds` cross-validation |
+| `apps/api/test/integration/jobs-create-looks.test.ts` | Covers the new upper-required-when-mapped case |
+| `apps/dispatcher/src/workflow/patcher.ts` | Fail closed (throw) on any mapped-but-unfulfilled role, for all of face/bg/upper/lower/shoe |
+| `apps/dispatcher/src/workflow/patcher.test.ts` | Covers the new throw behavior |
+| `apps/dispatcher/src/job/processor.ts` | Conditional ComfyUI uploads; catch the new throw and route to `markFailed` |
+| `apps/api/src/modules/jobs/regenerate.ts` | Drop the `upperGarmentKey` hard requirement |
+| `apps/api/test/integration/regenerate.test.ts` | Covers regenerating a lower-only job |
+| `apps/api/src/modules/jobs/routes.ts` | `/v1/catalogues/:id` resolves hero garment from whichever source is present |
+| `apps/api/src/modules/results/routes.ts` | Ops dashboard select includes `lowerGarmentKey` |
+| `docs/progress.md` | Log entry |
+
+---
+
+### Task 1: Schema — nullable columns + migration
 
 **Files:**
-- Modify: `packages/db/src/schema/models.ts:80-124`
-- Modify: `packages/db/src/schema/jobs.ts:52-68`
+- Modify: `packages/db/src/schema/models.ts:88-106` (`workflowTemplates` table)
+- Modify: `packages/db/src/schema/jobs.ts:56` (`jobInputs` table)
+- Create: `packages/db/src/migrations/01NN_<generated>.sql`
 
-- [ ] **Step 1: Relax `workflow_templates` columns**
+- [ ] **Step 1: Relax the three `workflow_templates` columns**
 
-In `packages/db/src/schema/models.ts`, find:
+In `packages/db/src/schema/models.ts`, change:
 
 ```ts
-  // Node ID mappings (ComfyUI node IDs as strings — may contain colons e.g. "1345:111")
   faceNodeId: text('face_node_id').notNull(),
-  poseNodeId: text('pose_node_id').notNull(),
-  bgNodeId: text('bg_node_id').notNull(),
-  upperNodeIds: text('upper_node_ids').array().notNull(),
 ```
-
-Replace with:
-
+to
 ```ts
-  // Node ID mappings (ComfyUI node IDs as strings — may contain colons e.g. "1345:111").
-  // faceNodeId/bgNodeId are nullable — a workflow's roles are implicit in which of
-  // these are populated (see docs/superpowers/specs/2026-07-14-flexible-workflow-roles-
-  // design.md). poseNodeId stays mandatory: it's the only mechanism that selects which
-  // workflow runs for a job (model_pose_assets.workflowTemplateId).
   faceNodeId: text('face_node_id'),
-  poseNodeId: text('pose_node_id').notNull(),
+```
+
+Change (same table, a couple lines down):
+```ts
+  bgNodeId: text('bg_node_id').notNull(),
+```
+to
+```ts
   bgNodeId: text('bg_node_id'),
-  // Empty array = no upper role. At least one of upperNodeIds/lowerNodeId must be
-  // set (enforced at the admin API layer, not here).
-  upperNodeIds: text('upper_node_ids').array().notNull(),
 ```
 
-Then find:
-
+Change:
 ```ts
-  // Prompt node IDs
   facePhasePromptNode: text('face_phase_prompt_node').notNull(),
-  garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),
 ```
-
-Replace with:
-
+to
 ```ts
-  // Prompt node IDs. facePhasePromptNode is nullable and required only when
-  // faceNodeId is set (no face role without a prompt driving it). garmentPhasePromptNode
-  // stays mandatory — every workflow has at least one garment slot, hence a garment phase.
   facePhasePromptNode: text('face_phase_prompt_node'),
-  garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),
 ```
+
+Leave `poseNodeId`, `garmentPhasePromptNode`, and `upperNodeIds` (the array column itself, not its validation) untouched — they stay `.notNull()`.
 
 - [ ] **Step 2: Relax `job_inputs.upper_garment_key`**
 
-In `packages/db/src/schema/jobs.ts`, find:
-
+In `packages/db/src/schema/jobs.ts`, change:
 ```ts
   upperGarmentKey: text('upper_garment_key').notNull(),
 ```
-
-Replace with:
-
+to
 ```ts
-  // Nullable — a lower-wear-primary job has no upper upload at all. See
-  // docs/superpowers/specs/2026-07-14-flexible-workflow-roles-design.md for the full
-  // list of read sites this affects (most are already null-safe).
   upperGarmentKey: text('upper_garment_key'),
 ```
 
 - [ ] **Step 3: Generate the migration**
 
-Run: `pnpm db:generate`
+Ensure Postgres is up (`pnpm docker:up` if not already running), then run:
 
-Expected: a new file `packages/db/src/migrations/01NN_<adjective>_<name>.sql` (next index after whatever `ls packages/db/src/migrations | grep -E '^[0-9]{4}_' | sort | tail -1` currently shows — 0106 at the time this plan was written) containing four `ALTER TABLE` statements dropping `NOT NULL`: `workflow_templates.face_node_id`, `workflow_templates.bg_node_id`, `workflow_templates.face_phase_prompt_node`, `job_inputs.upper_garment_key`.
+```bash
+pnpm db:generate
+```
 
-Verify with `cat` on the generated file — confirm it contains ONLY these four statements, nothing else swept in.
+Expected: a new file `packages/db/src/migrations/01NN_<adjective>_<name>.sql` (next index after 0108 at the time this plan was written — check `packages/db/src/migrations/meta/_journal.json`'s last `idx` to confirm) containing exactly four `ALTER TABLE ... DROP NOT NULL` statements: `workflow_templates.face_node_id`, `workflow_templates.bg_node_id`, `workflow_templates.face_phase_prompt_node`, `job_inputs.upper_garment_key`. If anything else appears, stop and check for unrelated uncommitted schema changes first.
 
 - [ ] **Step 4: Apply the migration locally**
 
-Run: `pnpm db:migrate`
+```bash
+pnpm db:migrate
+```
 
-Expected: the new migration's hash applied with no errors.
+Expected: applies with no errors.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Typecheck and commit**
 
 ```bash
-git add packages/db/src/schema/models.ts packages/db/src/schema/jobs.ts packages/db/src/migrations/
-git commit -m "feat(db): relax NOT NULL on optional workflow node roles and upperGarmentKey"
+pnpm --filter @aivastra/db typecheck
+git add packages/db/src/schema/models.ts packages/db/src/schema/jobs.ts packages/db/src/migrations/01NN_*.sql packages/db/src/migrations/meta/
+git commit -m "feat(db): relax workflow_templates and job_inputs for lower/inner-only workflows"
 ```
 
 ---
@@ -109,47 +120,14 @@ git commit -m "feat(db): relax NOT NULL on optional workflow node roles and uppe
 ### Task 2: Zod validation — `packages/types`
 
 **Files:**
-- Modify: `packages/types/src/admin.ts:158-249`
-- Modify: `packages/types/src/jobs.ts:36-62`
+- Modify: `packages/types/src/admin.ts:158-212` (`CreateWorkflowBody`)
+- Modify: `packages/types/src/jobs.ts:36-63` (`CreateTryOnJobInputs`)
 
-- [ ] **Step 1: Relax `CreateWorkflowBody`'s floor and its `upperNodeIds` array**
+- [ ] **Step 1: Relax `CreateWorkflowBody`'s floor**
 
-In `packages/types/src/admin.ts`, find:
+In `packages/types/src/admin.ts`, replace the `superRefine` (lines 191-212):
 
 ```ts
-export const CreateWorkflowBody = z
-  .object({
-    slug: z
-      .string()
-      .regex(
-        /^[a-z0-9_]+$/,
-        'Slug must be snake_case (lowercase letters, digits, underscores only)',
-      ),
-    label: z.string().min(1).max(120),
-    jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'tryon']).default('regular'),
-    // Regular workflow fields (required when workflowType = 'regular')
-    faceNodeId: z.string().min(1).optional(),
-    poseNodeId: z.string().min(1).optional(),
-    bgNodeId: z.string().min(1).optional(),
-    upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
-    lowerNodeId: z.string().min(1).optional(),
-    shoeNodeId: z.string().min(1).optional(),
-    sizeNodeIds: z.array(z.string().min(1)).optional(),
-    // Dual-size-group templates (build_model_main v2+) — server-computed from node
-    // titles at parse time, not manually edited via the admin form.
-    latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
-    latentMaxPx: z.number().int().positive().optional(),
-    outputSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
-    outputMaxPx: z.number().int().positive().optional(),
-    resultNodeId: z.string().min(1).optional(),
-    facePhasePromptNode: z.string().min(1).optional(),
-    garmentPhasePromptNode: z.string().min(1).optional(),
-    // Tryon workflow fields (required when workflowType = 'tryon')
-    tryonPersonNodeId: z.string().min(1).optional(),
-    tryonGarmentNodeId: z.string().min(1).optional(),
-    tryonOutputNodeId: z.string().min(1).optional(),
-  })
   .superRefine((val, ctx) => {
     const required =
       val.workflowType === 'regular'
@@ -174,45 +152,9 @@ export const CreateWorkflowBody = z
   });
 ```
 
-Replace with:
+with:
 
 ```ts
-export const CreateWorkflowBody = z
-  .object({
-    slug: z
-      .string()
-      .regex(
-        /^[a-z0-9_]+$/,
-        'Slug must be snake_case (lowercase letters, digits, underscores only)',
-      ),
-    label: z.string().min(1).max(120),
-    jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'tryon']).default('regular'),
-    // Regular workflow fields. poseNodeId + garmentPhasePromptNode + at least one of
-    // (upperNodeIds non-empty | lowerNodeId) are required for workflowType='regular'
-    // — enforced below, not by .min(1)/non-optional here, since which combination is
-    // valid depends on which OTHER fields are present (see superRefine).
-    faceNodeId: z.string().min(1).optional(),
-    poseNodeId: z.string().min(1).optional(),
-    bgNodeId: z.string().min(1).optional(),
-    upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
-    lowerNodeId: z.string().min(1).optional(),
-    shoeNodeId: z.string().min(1).optional(),
-    sizeNodeIds: z.array(z.string().min(1)).optional(),
-    // Dual-size-group templates (build_model_main v2+) — server-computed from node
-    // titles at parse time, not manually edited via the admin form.
-    latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
-    latentMaxPx: z.number().int().positive().optional(),
-    outputSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
-    outputMaxPx: z.number().int().positive().optional(),
-    resultNodeId: z.string().min(1).optional(),
-    facePhasePromptNode: z.string().min(1).optional(),
-    garmentPhasePromptNode: z.string().min(1).optional(),
-    // Tryon workflow fields (required when workflowType = 'tryon')
-    tryonPersonNodeId: z.string().min(1).optional(),
-    tryonGarmentNodeId: z.string().min(1).optional(),
-    tryonOutputNodeId: z.string().min(1).optional(),
-  })
   .superRefine((val, ctx) => {
     if (val.workflowType === 'tryon') {
       for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
@@ -226,7 +168,9 @@ export const CreateWorkflowBody = z
       }
       return;
     }
-    // workflowType === 'regular'
+    // Regular workflow floor: pose + garment-phase prompt always required, plus
+    // at least one garment slot (upper and/or lower). Face is fully optional, but
+    // if present it must carry its own prompt node.
     if (!val.poseNodeId) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -242,12 +186,12 @@ export const CreateWorkflowBody = z
       });
     }
     const hasUpper = (val.upperNodeIds?.length ?? 0) > 0;
-    const hasLower = Boolean(val.lowerNodeId);
+    const hasLower = !!val.lowerNodeId;
     if (!hasUpper && !hasLower) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['upperNodeIds'],
-        message: 'at least one garment slot (upperNodeIds or lowerNodeId) is required',
+        message: 'at least one garment role (upperNodeIds or lowerNodeId) is required',
       });
     }
     if (val.faceNodeId && !val.facePhasePromptNode) {
@@ -260,398 +204,50 @@ export const CreateWorkflowBody = z
   });
 ```
 
-- [ ] **Step 2: Let `UpdateWorkflowBody` clear the now-nullable fields**
-
-In the same file, find:
+Also change `upperNodeIds` from `.min(1)` to no minimum, since an empty array is now a valid "no upper role" signal:
 
 ```ts
-export const UpdateWorkflowBody = z.object({
-  label: z.string().min(1).max(120).optional(),
-  slug: z
-    .string()
-    .min(1)
-    .max(80)
-    .regex(/^[a-z0-9_]+$/, 'slug must be lowercase alphanumeric with underscores')
-    .optional(),
-  isActive: z.boolean().optional(),
-  // Regular workflow node mappings (not the JSON itself)
-  faceNodeId: z.string().min(1).optional(),
-  poseNodeId: z.string().min(1).optional(),
-  bgNodeId: z.string().min(1).optional(),
-  upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
-  lowerNodeId: z.string().min(1).nullable().optional(),
-  shoeNodeId: z.string().min(1).nullable().optional(),
-  sizeNodeId: z.string().min(1).nullable().optional(),
-  sizeNodeIds: z.array(z.string().min(1)).optional(),
-  latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
-  latentMaxPx: z.number().int().positive().optional(),
-  outputSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
-  outputMaxPx: z.number().int().positive().optional(),
-  resultNodeId: z.string().min(1).nullable().optional(),
-  facePhasePromptNode: z.string().min(1).optional(),
-  garmentPhasePromptNode: z.string().min(1).optional(),
-  // Tryon workflow node IDs
-  tryonPersonNodeId: z.string().min(1).nullable().optional(),
-  tryonGarmentNodeId: z.string().min(1).nullable().optional(),
-  tryonOutputNodeId: z.string().min(1).nullable().optional(),
-});
+    upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
 ```
 
-Replace with:
+- [ ] **Step 2: Relax `CreateTryOnJobInputs`**
 
-```ts
-export const UpdateWorkflowBody = z.object({
-  label: z.string().min(1).max(120).optional(),
-  slug: z
-    .string()
-    .min(1)
-    .max(80)
-    .regex(/^[a-z0-9_]+$/, 'slug must be lowercase alphanumeric with underscores')
-    .optional(),
-  isActive: z.boolean().optional(),
-  // Regular workflow node mappings (not the JSON itself). faceNodeId/bgNodeId/
-  // facePhasePromptNode are nullable so an admin can explicitly clear a role after
-  // creation, mirroring lowerNodeId/shoeNodeId below.
-  faceNodeId: z.string().min(1).nullable().optional(),
-  poseNodeId: z.string().min(1).optional(),
-  bgNodeId: z.string().min(1).nullable().optional(),
-  upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
-  lowerNodeId: z.string().min(1).nullable().optional(),
-  shoeNodeId: z.string().min(1).nullable().optional(),
-  sizeNodeId: z.string().min(1).nullable().optional(),
-  sizeNodeIds: z.array(z.string().min(1)).optional(),
-  latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
-  latentMaxPx: z.number().int().positive().optional(),
-  outputSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
-  outputMaxPx: z.number().int().positive().optional(),
-  resultNodeId: z.string().min(1).nullable().optional(),
-  facePhasePromptNode: z.string().min(1).nullable().optional(),
-  garmentPhasePromptNode: z.string().min(1).optional(),
-  // Tryon workflow node IDs
-  tryonPersonNodeId: z.string().min(1).nullable().optional(),
-  tryonGarmentNodeId: z.string().min(1).nullable().optional(),
-  tryonOutputNodeId: z.string().min(1).nullable().optional(),
-});
-```
-
-- [ ] **Step 3: `CreateTryOnJobInputs.upperGarmentKey` becomes optional**
-
-In `packages/types/src/jobs.ts`, find:
+In `packages/types/src/jobs.ts`, change:
 
 ```ts
 export const CreateTryOnJobInputs = z
   .object({
     upperGarmentKey: z.string().regex(INPUT_GARMENT_KEY),
-    faceId: z.string().uuid(),
-    // Legacy/custom form: a single shared background applied to every pose.
-    backgroundId: z.string().uuid().optional(),
-    poseIds: z.array(z.string().uuid()).min(1).optional(),
-    // Template form: each pose carries its own background. Exactly one of
-    // (backgroundId + poseIds) or looks must be provided — enforced below.
-    looks: z
-      .array(
-        z.object({
-          poseId: z.string().uuid(),
-          backgroundId: z.string().uuid(),
-        }),
-      )
-      .min(1)
-      .max(12)
-      .optional(),
-    garmentTypeId: z.string().uuid().optional(),
-    lowerCatalogId: z.string().uuid().optional(),
-    lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
-    shoeCatalogId: z.string().uuid().optional(),
-  })
-  .refine((d) => Boolean(d.backgroundId && d.poseIds) !== Boolean(d.looks), {
-    message: 'Provide either (backgroundId + poseIds) or looks, not both',
-  });
 ```
 
-Replace with:
+to:
 
 ```ts
 export const CreateTryOnJobInputs = z
   .object({
-    // Optional — a lower-wear-primary job has no upper upload at all. At least one
-    // of upperGarmentKey/lowerGarmentKey must be present (enforced below). faceId/
-    // backgroundId stay mandatory: the studio always asks for them regardless of
-    // which workflow ends up handling the job — see
-    // docs/superpowers/specs/2026-07-14-flexible-workflow-roles-design.md.
     upperGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
-    faceId: z.string().uuid(),
-    // Legacy/custom form: a single shared background applied to every pose.
-    backgroundId: z.string().uuid().optional(),
-    poseIds: z.array(z.string().uuid()).min(1).optional(),
-    // Template form: each pose carries its own background. Exactly one of
-    // (backgroundId + poseIds) or looks must be provided — enforced below.
-    looks: z
-      .array(
-        z.object({
-          poseId: z.string().uuid(),
-          backgroundId: z.string().uuid(),
-        }),
-      )
-      .min(1)
-      .max(12)
-      .optional(),
-    garmentTypeId: z.string().uuid().optional(),
-    lowerCatalogId: z.string().uuid().optional(),
-    lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
-    shoeCatalogId: z.string().uuid().optional(),
-  })
-  .refine((d) => Boolean(d.backgroundId && d.poseIds) !== Boolean(d.looks), {
-    message: 'Provide either (backgroundId + poseIds) or looks, not both',
-  })
-  .refine((d) => Boolean(d.upperGarmentKey) || Boolean(d.lowerGarmentKey), {
-    message: 'Provide at least one of upperGarmentKey or lowerGarmentKey',
-  });
 ```
 
-- [ ] **Step 4: Typecheck**
+Do **not** add a "at least one of upperGarmentKey/lowerGarmentKey" refine here — per the spec, this request-level check is insufficient (it doesn't know which workflow the selected pose resolves to) and is superseded entirely by Task 6's per-pose check in `create.ts`, which runs against the actually-resolved workflow. The existing `.refine((d) => Boolean(d.backgroundId && d.poseIds) !== Boolean(d.looks), ...)` at the bottom of the object is unrelated and stays unchanged.
 
-Run: `pnpm --filter @aivastra/types typecheck`
-
-Expected: no errors.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Typecheck and commit**
 
 ```bash
+pnpm --filter @aivastra/types typecheck
 git add packages/types/src/admin.ts packages/types/src/jobs.ts
-git commit -m "feat(types): flexible workflow role validation, optional upperGarmentKey"
+git commit -m "feat(types): relax workflow and job-creation validation for optional garment roles"
 ```
 
 ---
 
-### Task 3: Admin workflow routes — floor validation + nullable-clear
+### Task 3: Admin workflow POST route — conditional validation
 
 **Files:**
-- Modify: `apps/api/src/modules/admin/workflows.routes.ts`
-- Test: `apps/api/test/integration/admin-workflows-flexible-roles.test.ts`
+- Modify: `apps/api/src/modules/admin/workflows.routes.ts:277-`(end of the regular-workflow insert block)
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Replace the non-null-asserted block**
 
-Create `apps/api/test/integration/admin-workflows-flexible-roles.test.ts`:
-
-```ts
-import { schema } from '@aivastra/db';
-import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { adminAuthHeader } from '../helpers/admin.js';
-import { buildTestApp, type TestApp } from '../helpers/api.js';
-import { type Containers, startContainers } from '../helpers/containers.js';
-
-function lowerOnlyWorkflowJson() {
-  return {
-    '1': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'pose' } },
-    '2': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'lower_garment' } },
-    '3': {
-      inputs: { prompt: 'default positive' },
-      class_type: 'CLIPTextEncode',
-      _meta: { title: 'positive_prompt' },
-    },
-  };
-}
-
-describe('admin workflows — flexible roles', () => {
-  let c: Containers;
-  let app: TestApp;
-
-  beforeAll(async () => {
-    c = await startContainers();
-    app = await buildTestApp(c);
-  }, 60000);
-
-  afterAll(async () => {
-    await app?.close();
-    await c?.stop();
-  });
-
-  it('creates a lower-only regular workflow with no face/bg/upper nodes', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
-    const res = await app.inject({
-      method: 'POST',
-      url: '/admin/workflows',
-      headers,
-      payload: {
-        slug: `lower_only_${Date.now()}`,
-        label: 'Lower Only',
-        jsonContent: lowerOnlyWorkflowJson(),
-        workflowType: 'regular',
-        poseNodeId: '1',
-        lowerNodeId: '2',
-        garmentPhasePromptNode: '3',
-      },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-
-    const [row] = await app.db
-      .select()
-      .from(schema.workflowTemplates)
-      .where(eq(schema.workflowTemplates.id, body.id));
-    expect(row?.faceNodeId).toBeNull();
-    expect(row?.bgNodeId).toBeNull();
-    expect(row?.upperNodeIds).toEqual([]);
-    expect(row?.lowerNodeId).toBe('2');
-    expect(row?.poseNodeId).toBe('1');
-  });
-
-  it('rejects a regular workflow with neither upperNodeIds nor lowerNodeId', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
-    const res = await app.inject({
-      method: 'POST',
-      url: '/admin/workflows',
-      headers,
-      payload: {
-        slug: `no_garment_${Date.now()}`,
-        label: 'No Garment',
-        jsonContent: lowerOnlyWorkflowJson(),
-        workflowType: 'regular',
-        poseNodeId: '1',
-        garmentPhasePromptNode: '3',
-      },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('rejects a regular workflow missing poseNodeId', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
-    const res = await app.inject({
-      method: 'POST',
-      url: '/admin/workflows',
-      headers,
-      payload: {
-        slug: `no_pose_${Date.now()}`,
-        label: 'No Pose',
-        jsonContent: lowerOnlyWorkflowJson(),
-        workflowType: 'regular',
-        lowerNodeId: '2',
-        garmentPhasePromptNode: '3',
-      },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('rejects faceNodeId without facePhasePromptNode', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
-    const json = {
-      ...lowerOnlyWorkflowJson(),
-      '4': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'face' } },
-    };
-    const res = await app.inject({
-      method: 'POST',
-      url: '/admin/workflows',
-      headers,
-      payload: {
-        slug: `face_no_prompt_${Date.now()}`,
-        label: 'Face No Prompt',
-        jsonContent: json,
-        workflowType: 'regular',
-        poseNodeId: '1',
-        lowerNodeId: '2',
-        garmentPhasePromptNode: '3',
-        faceNodeId: '4',
-      },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('PATCH can explicitly clear faceNodeId back to null', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
-    const json = {
-      ...lowerOnlyWorkflowJson(),
-      '4': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'face' } },
-      '5': {
-        inputs: { prompt: 'negative' },
-        class_type: 'CLIPTextEncode',
-        _meta: { title: 'negative_prompt' },
-      },
-    };
-    const createRes = await app.inject({
-      method: 'POST',
-      url: '/admin/workflows',
-      headers,
-      payload: {
-        slug: `clearable_face_${Date.now()}`,
-        label: 'Clearable Face',
-        jsonContent: json,
-        workflowType: 'regular',
-        poseNodeId: '1',
-        lowerNodeId: '2',
-        garmentPhasePromptNode: '3',
-        faceNodeId: '4',
-        facePhasePromptNode: '5',
-      },
-    });
-    expect(createRes.statusCode).toBe(200);
-    const { id } = createRes.json();
-
-    const patchRes = await app.inject({
-      method: 'PATCH',
-      url: `/admin/workflows/${id}`,
-      headers,
-      payload: { faceNodeId: null, facePhasePromptNode: null },
-    });
-    expect(patchRes.statusCode).toBe(200);
-
-    const [row] = await app.db
-      .select()
-      .from(schema.workflowTemplates)
-      .where(eq(schema.workflowTemplates.id, id));
-    expect(row?.faceNodeId).toBeNull();
-    expect(row?.facePhasePromptNode).toBeNull();
-  });
-});
-```
-
-- [ ] **Step 2: Run the tests to verify they fail**
-
-Run: `pnpm --filter @aivastra/api exec vitest run --config vitest.integration.config.ts test/integration/admin-workflows-flexible-roles.test.ts --reporter=verbose`
-
-Expected: FAIL — `poseNodeId`/`faceNodeId`/`bgNodeId`/`upperNodeIds`/`facePhasePromptNode` are still all required together per the old superRefine, so the lower-only creation (test 1) fails with 400, and the PATCH null-clear (test 5) is rejected by the old zod type (`faceNodeId: z.string().min(1).optional()` doesn't accept `null`).
-
-- [ ] **Step 3: Update `extractDefaultPrompts` to accept a nullable negative-prompt node**
-
-In `apps/api/src/modules/admin/workflows.routes.ts`, find:
-
-```ts
-function extractDefaultPrompts(
-  json: Record<string, unknown>,
-  negativePromptNode: string,
-  positivePromptNode: string,
-): { defaultFacePhasePrompt: string; defaultGarmentPhasePrompt: string } {
-  const negNode = json[negativePromptNode] as WorkflowNode | undefined;
-  const posNode = json[positivePromptNode] as WorkflowNode | undefined;
-  return {
-    defaultFacePhasePrompt: extractPromptText(negNode),
-    defaultGarmentPhasePrompt: extractPromptText(posNode),
-  };
-}
-```
-
-Replace with:
-
-```ts
-function extractDefaultPrompts(
-  json: Record<string, unknown>,
-  negativePromptNode: string | null,
-  positivePromptNode: string,
-): { defaultFacePhasePrompt: string; defaultGarmentPhasePrompt: string } {
-  const negNode = negativePromptNode
-    ? (json[negativePromptNode] as WorkflowNode | undefined)
-    : undefined;
-  const posNode = json[positivePromptNode] as WorkflowNode | undefined;
-  return {
-    defaultFacePhasePrompt: extractPromptText(negNode),
-    defaultGarmentPhasePrompt: extractPromptText(posNode),
-  };
-}
-```
-
-- [ ] **Step 4: Rewrite the POST `/admin/workflows` regular-branch validation**
-
-In the same file, find (the entire "Regular workflow" block through the insert):
+Replace (currently lines 277-309):
 
 ```ts
       // Regular workflow — full node validation.
@@ -687,68 +283,31 @@ In the same file, find (the entire "Regular workflow" block through the insert):
       validateNodeType(body.jsonContent, faceNodeId, 'image', 'face');
       validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
       validateNodeType(body.jsonContent, bgNodeId, 'image', 'background');
-      for (const uid of upperNodeIds) {
-        validateNodeType(body.jsonContent, uid, 'image', 'upper garment');
-      }
-      if (body.lowerNodeId)
-        validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
-      if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
-      validateNodeType(body.jsonContent, facePhasePromptNode, 'prompt', 'negative prompt');
-      validateNodeType(body.jsonContent, garmentPhasePromptNode, 'prompt', 'positive prompt');
-
-      const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
-        body.jsonContent,
-        facePhasePromptNode,
-        garmentPhasePromptNode,
-      );
-
-      const [row] = await app.db
-        .insert(schema.workflowTemplates)
-        .values({
-          slug: body.slug,
-          label: body.label,
-          jsonContent: body.jsonContent,
-          workflowType: 'regular',
-          faceNodeId,
-          poseNodeId,
-          bgNodeId,
-          upperNodeIds,
-          lowerNodeId: body.lowerNodeId ?? null,
-          shoeNodeId: body.shoeNodeId ?? null,
-          sizeNodeIds: body.sizeNodeIds ?? [],
-          latentSizeNodeIds: body.latentSizeNodeIds ?? [],
-          ...(body.latentMaxPx !== undefined ? { latentMaxPx: body.latentMaxPx } : {}),
-          outputSizeNodeIds: body.outputSizeNodeIds ?? [],
-          ...(body.outputMaxPx !== undefined ? { outputMaxPx: body.outputMaxPx } : {}),
-          resultNodeId: body.resultNodeId ?? null,
-          facePhasePromptNode,
-          garmentPhasePromptNode,
-          defaultFacePhasePrompt,
-          defaultGarmentPhasePrompt,
-        })
-        .returning();
 ```
 
-Replace with:
+with:
 
 ```ts
-      // Regular workflow — floor validation: poseNodeId + garmentPhasePromptNode +
-      // at least one garment slot (upperNodeIds non-empty or lowerNodeId) are
-      // required (guaranteed by CreateWorkflowBody's superRefine — safe to assert
-      // those two). face/background are genuinely optional per-workflow — see
-      // docs/superpowers/specs/2026-07-14-flexible-workflow-roles-design.md.
+      // Regular workflow — full node validation.
+      // CreateWorkflowBody.superRefine() guarantees poseNodeId, garmentPhasePromptNode,
+      // at least one garment slot, and facePhasePromptNode-if-faceNodeId. Everything
+      // else (faceNodeId, bgNodeId, upperNodeIds) is genuinely optional now.
       // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const poseNodeId = body.poseNodeId!;
       // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const garmentPhasePromptNode = body.garmentPhasePromptNode!;
       const upperNodeIds = body.upperNodeIds ?? [];
-      const faceNodeId = body.faceNodeId ?? null;
-      const bgNodeId = body.bgNodeId ?? null;
-      const facePhasePromptNode = body.facePhasePromptNode ?? null;
 
       validateNodeExists(body.jsonContent, poseNodeId, 'pose');
-      if (faceNodeId) validateNodeExists(body.jsonContent, faceNodeId, 'face');
-      if (bgNodeId) validateNodeExists(body.jsonContent, bgNodeId, 'background');
+      validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
+      if (body.faceNodeId) {
+        validateNodeExists(body.jsonContent, body.faceNodeId, 'face');
+        validateNodeType(body.jsonContent, body.faceNodeId, 'image', 'face');
+      }
+      if (body.bgNodeId) {
+        validateNodeExists(body.jsonContent, body.bgNodeId, 'background');
+        validateNodeType(body.jsonContent, body.bgNodeId, 'image', 'background');
+      }
       for (const uid of upperNodeIds) {
         validateNodeExists(body.jsonContent, uid, 'upper garment');
       }
@@ -757,160 +316,62 @@ Replace with:
       for (const uid of body.sizeNodeIds ?? []) {
         validateNodeExists(body.jsonContent, uid, 'size');
       }
-      if (facePhasePromptNode)
-        validateNodeExists(body.jsonContent, facePhasePromptNode, 'negative prompt');
       validateNodeExists(body.jsonContent, garmentPhasePromptNode, 'positive prompt');
-
-      validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
-      if (faceNodeId) validateNodeType(body.jsonContent, faceNodeId, 'image', 'face');
-      if (bgNodeId) validateNodeType(body.jsonContent, bgNodeId, 'image', 'background');
-      for (const uid of upperNodeIds) {
-        validateNodeType(body.jsonContent, uid, 'image', 'upper garment');
-      }
-      if (body.lowerNodeId)
-        validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
-      if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
-      if (facePhasePromptNode)
-        validateNodeType(body.jsonContent, facePhasePromptNode, 'prompt', 'negative prompt');
       validateNodeType(body.jsonContent, garmentPhasePromptNode, 'prompt', 'positive prompt');
-
-      const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
-        body.jsonContent,
-        facePhasePromptNode,
-        garmentPhasePromptNode,
-      );
-
-      const [row] = await app.db
-        .insert(schema.workflowTemplates)
-        .values({
-          slug: body.slug,
-          label: body.label,
-          jsonContent: body.jsonContent,
-          workflowType: 'regular',
-          faceNodeId,
-          poseNodeId,
-          bgNodeId,
-          upperNodeIds,
-          lowerNodeId: body.lowerNodeId ?? null,
-          shoeNodeId: body.shoeNodeId ?? null,
-          sizeNodeIds: body.sizeNodeIds ?? [],
-          latentSizeNodeIds: body.latentSizeNodeIds ?? [],
-          ...(body.latentMaxPx !== undefined ? { latentMaxPx: body.latentMaxPx } : {}),
-          outputSizeNodeIds: body.outputSizeNodeIds ?? [],
-          ...(body.outputMaxPx !== undefined ? { outputMaxPx: body.outputMaxPx } : {}),
-          resultNodeId: body.resultNodeId ?? null,
-          facePhasePromptNode,
-          garmentPhasePromptNode,
-          defaultFacePhasePrompt,
-          defaultGarmentPhasePrompt,
-        })
-        .returning();
+      if (body.facePhasePromptNode) {
+        validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');
+        validateNodeType(body.jsonContent, body.facePhasePromptNode, 'prompt', 'negative prompt');
+      }
 ```
 
-- [ ] **Step 5: Widen the PATCH route's inline body type to accept nulls**
+Read the lines immediately after this block (validation continues past line 309 in the current file — there was more `validateNodeType` and the upper-node-type-check loop, plus the final `.insert(schema.workflowTemplates).values({...})` call) and:
+1. Remove any now-duplicate `validateNodeType(body.jsonContent, faceNodeId, ...)` / `bgNodeId` calls that referenced the old asserted `faceNodeId`/`bgNodeId` consts (they're replaced by the conditional blocks above).
+2. In the `.values({...})` insert call, change `faceNodeId,` to `faceNodeId: body.faceNodeId ?? null,`, change `bgNodeId,` to `bgNodeId: body.bgNodeId ?? null,`, change `upperNodeIds,` to `upperNodeIds,` (already defaults to `[]` from the const above, keep as-is), and change `facePhasePromptNode,` to `facePhasePromptNode: body.facePhasePromptNode ?? null,`.
 
-In the same file, find:
-
-```ts
-      const body = req.body as {
-        label?: string;
-        slug?: string;
-        isActive?: boolean;
-        faceNodeId?: string;
-        poseNodeId?: string;
-        bgNodeId?: string;
-        upperNodeIds?: string[];
-        lowerNodeId?: string | null;
-        shoeNodeId?: string | null;
-        sizeNodeIds?: string[];
-        latentSizeNodeIds?: string[];
-        latentMaxPx?: number;
-        outputSizeNodeIds?: string[];
-        outputMaxPx?: number;
-        resultNodeId?: string | null;
-        facePhasePromptNode?: string;
-        garmentPhasePromptNode?: string;
-        tryonPersonNodeId?: string | null;
-        tryonGarmentNodeId?: string | null;
-        tryonOutputNodeId?: string | null;
-      };
-```
-
-Replace with:
-
-```ts
-      const body = req.body as {
-        label?: string;
-        slug?: string;
-        isActive?: boolean;
-        faceNodeId?: string | null;
-        poseNodeId?: string;
-        bgNodeId?: string | null;
-        upperNodeIds?: string[];
-        lowerNodeId?: string | null;
-        shoeNodeId?: string | null;
-        sizeNodeIds?: string[];
-        latentSizeNodeIds?: string[];
-        latentMaxPx?: number;
-        outputSizeNodeIds?: string[];
-        outputMaxPx?: number;
-        resultNodeId?: string | null;
-        facePhasePromptNode?: string | null;
-        garmentPhasePromptNode?: string;
-        tryonPersonNodeId?: string | null;
-        tryonGarmentNodeId?: string | null;
-        tryonOutputNodeId?: string | null;
-      };
-```
-
-(The rest of the PATCH handler needs no further changes: its validation blocks already only run `if (body.X)` — truthy, so both `undefined` and `null` skip validation correctly — and its `updateValues` assignment already uses `if (body.X !== undefined) updateValues.X = body.X;`, which already writes `null` through correctly once the type allows it. Both are pre-existing code, unchanged by this task.)
-
-- [ ] **Step 6: Run the tests to verify they pass**
-
-Run: `pnpm --filter @aivastra/api exec vitest run --config vitest.integration.config.ts test/integration/admin-workflows-flexible-roles.test.ts --reporter=verbose`
-
-Expected: PASS — all 5 tests green.
-
-- [ ] **Step 7: Typecheck**
-
-Run: `pnpm --filter @aivastra/api typecheck`
-
-Expected: no errors.
-
-- [ ] **Step 8: Commit**
+- [ ] **Step 2: Typecheck**
 
 ```bash
-git add apps/api/src/modules/admin/workflows.routes.ts apps/api/test/integration/admin-workflows-flexible-roles.test.ts
-git commit -m "feat(api): floor validation for flexible workflow roles, nullable-clear on PATCH"
+pnpm --filter @aivastra/api typecheck
+```
+
+Expected: no errors. If `validateNodeType`'s signature requires a non-null string and TypeScript complains about `body.faceNodeId` inside the `if (body.faceNodeId)` block, that's a narrowing issue — TypeScript should narrow `string | undefined` to `string` inside the truthy check; if not, assign to a local `const faceNodeId = body.faceNodeId;` first inside the block.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add apps/api/src/modules/admin/workflows.routes.ts
+git commit -m "feat(admin): allow creating regular workflows with no face/background/upper role"
 ```
 
 ---
 
-### Task 4: Job creation — optional `upperGarmentKey`
+### Task 4: Admin workflow PATCH route — merge-then-validate
 
 **Files:**
-- Modify: `apps/api/src/modules/jobs/create.ts:53-96,320-374`
-- Test: `apps/api/test/integration/jobs-create-lower-only.test.ts`
+- Modify: `apps/api/src/modules/admin/workflows.routes.ts` (PATCH handler, starts at line 396)
+- Test: `apps/api/test/integration/admin-workflows.test.ts` (new file)
 
 - [ ] **Step 1: Write the failing test**
 
-Create `apps/api/test/integration/jobs-create-lower-only.test.ts`:
+No integration test file for `/admin/workflows` currently exists. Create `apps/api/test/integration/admin-workflows.test.ts`:
 
 ```ts
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createVerifiedUserToken } from '../helpers/auth.js';
+import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
 import { type Containers, startContainers } from '../helpers/containers.js';
 
-describe('POST /v1/jobs/tryon — lower-only (no upperGarmentKey)', () => {
+describe('admin workflows — floor validation', () => {
   let c: Containers;
   let app: TestApp;
+  let headers: Record<string, string>;
 
   beforeAll(async () => {
     c = await startContainers();
     app = await buildTestApp(c);
+    headers = await adminAuthHeader(app, 'SUPER_ADMIN');
   }, 60000);
 
   afterAll(async () => {
@@ -918,243 +379,650 @@ describe('POST /v1/jobs/tryon — lower-only (no upperGarmentKey)', () => {
     await c?.stop();
   });
 
-  async function seedLowerOnlyPose() {
-    const [wf] = await app.db
-      .insert(schema.workflowTemplates)
-      .values({
-        slug: `lower-only-${Date.now()}`,
-        label: 'Lower Only',
-        jsonContent: {},
-        workflowType: 'regular',
-        poseNodeId: '1',
-        lowerNodeId: '2',
-        upperNodeIds: [],
-        garmentPhasePromptNode: '3',
-      })
-      .returning();
-    const [pose] = await app.db
-      .insert(schema.modelPoseAssets)
-      .values({
-        label: 'Lower Pose',
-        r2Key: 'p.jpg',
-        thumbnailKey: 'p.jpg',
-        genderSlug: 'men',
-        workflowTemplateId: wf.id,
-      })
-      .returning();
-    const [face] = await app.db
-      .insert(schema.modelFaces)
-      .values({ label: 'F', genderSlug: 'men', r2Key: 'f.jpg', thumbnailKey: 'f.jpg' })
-      .returning();
-    const [bg] = await app.db
-      .insert(schema.modelBackgrounds)
-      .values({ label: 'B', r2Key: 'b.jpg', thumbnailKey: 'b.jpg' })
-      .returning();
-    return { pose, face, bg };
-  }
+  const jsonContent = {
+    pose_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'pose' } },
+    lower_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'lower' } },
+    positive_node: {
+      inputs: { prompt: 'default' },
+      class_type: 'CLIPTextEncode',
+      _meta: { title: 'positive_prompt' },
+    },
+  };
 
-  it('creates a job with lowerGarmentKey and no upperGarmentKey', async () => {
-    const email = `lower-only-${Date.now()}@x.com`;
-    const { token, userId } = await createVerifiedUserToken(app, email);
-    await app.db.insert(schema.userCredits).values({ userId, balance: 100 });
-    const { pose, face, bg } = await seedLowerOnlyPose();
-    const lowerGarmentKey = `inputs/${userId}/garment.jpg`;
-    await app.redis.set(`upload:owner:${lowerGarmentKey}`, userId, 'EX', 3600);
-    await app.storage.putObject(lowerGarmentKey, Buffer.from('x'), 'image/jpeg');
-
-    const res = await app.inject({
+  it('creates a lower-only regular workflow with no face/background/upper node', async () => {
+    const response = await app.inject({
       method: 'POST',
-      url: '/v1/jobs/tryon',
-      headers: { authorization: `Bearer ${token}` },
+      url: '/admin/workflows',
+      headers,
       payload: {
-        inputs: {
-          faceId: face.id,
-          backgroundId: bg.id,
-          poseIds: [pose.id],
-          lowerGarmentKey,
-        },
-        aspectRatio: '1:1',
-        resolution: 'HD',
+        slug: `lower_only_${Date.now()}`,
+        label: 'Lower only',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
       },
     });
-    expect(res.statusCode).toBe(201);
-
-    const [jobInput] = await app.db
-      .select()
-      .from(schema.jobInputs)
-      .where(eq(schema.jobInputs.poseId, pose.id));
-    expect(jobInput?.upperGarmentKey).toBeNull();
-    expect(jobInput?.lowerGarmentKey).toBe(lowerGarmentKey);
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.faceNodeId ?? null).toBeNull();
+    expect(body.upperNodeIds).toEqual([]);
   });
 
-  it('rejects a job with neither upperGarmentKey nor lowerGarmentKey', async () => {
-    const email = `neither-${Date.now()}@x.com`;
-    const { token, userId } = await createVerifiedUserToken(app, email);
-    await app.db.insert(schema.userCredits).values({ userId, balance: 100 });
-    const { pose, face, bg } = await seedLowerOnlyPose();
-
-    const res = await app.inject({
+  it('rejects a regular workflow with neither upperNodeIds nor lowerNodeId', async () => {
+    const response = await app.inject({
       method: 'POST',
-      url: '/v1/jobs/tryon',
-      headers: { authorization: `Bearer ${token}` },
+      url: '/admin/workflows',
+      headers,
       payload: {
-        inputs: {
-          faceId: face.id,
-          backgroundId: bg.id,
-          poseIds: [pose.id],
-        },
-        aspectRatio: '1:1',
-        resolution: 'HD',
+        slug: `no_garment_role_${Date.now()}`,
+        label: 'No garment role',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        garmentPhasePromptNode: 'positive_node',
       },
     });
-    expect(res.statusCode).toBe(400);
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects faceNodeId set without facePhasePromptNode', async () => {
+    const withFace = {
+      ...jsonContent,
+      face_node: { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'face' } },
+    };
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `face_no_prompt_${Date.now()}`,
+        label: 'Face no prompt',
+        jsonContent: withFace,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+        faceNodeId: 'face_node',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('PATCH rejects clearing the last garment role on an existing workflow', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `patch_target_${Date.now()}`,
+        label: 'Patch target',
+        jsonContent,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { lowerNodeId: null },
+    });
+    expect(patchRes.statusCode).toBe(400);
+
+    const [row] = await app.db
+      .select({ lowerNodeId: schema.workflowTemplates.lowerNodeId })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.lowerNodeId).toBe('lower_node');
   });
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `pnpm --filter @aivastra/api exec vitest run --config vitest.integration.config.ts test/integration/jobs-create-lower-only.test.ts --reporter=verbose`
-
-Expected: FAIL — `upperGarmentKey` is still required by the zod schema (Task 2 not yet applied if run standalone) or `assertOwnsUploadKey(app, userId, upperGarmentKey)` throws on `undefined` (create.ts not yet updated).
-
-- [ ] **Step 3: Make the upload-ownership check conditional**
-
-In `apps/api/src/modules/jobs/create.ts`, find:
-
-```ts
-  // H2: keys are format-pinned by zod, but the format alone does not prove the
-  // caller owns the object — another user's key has the same shape. Verify each
-  // garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
-  // before any credit/DB mutation.
-  await assertOwnsUploadKey(app, userId, upperGarmentKey);
-  if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
-```
-
-Replace with:
-
-```ts
-  // H2: keys are format-pinned by zod, but the format alone does not prove the
-  // caller owns the object — another user's key has the same shape. Verify each
-  // garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
-  // before any credit/DB mutation. upperGarmentKey is optional (lower-wear-primary
-  // jobs have no upper upload) — CreateTryOnJobInputs's refine already guarantees
-  // at least one of upperGarmentKey/lowerGarmentKey is present.
-  if (upperGarmentKey) await assertOwnsUploadKey(app, userId, upperGarmentKey);
-  if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
-```
-
-- [ ] **Step 4: Write `upperGarmentKey` as an explicit `null` when absent**
-
-In the same file, find:
-
-```ts
-      await tx.insert(schema.jobInputs).values({
-        jobId: job.id,
-        upperGarmentKey,
-        faceId,
-```
-
-Replace with:
-
-```ts
-      await tx.insert(schema.jobInputs).values({
-        jobId: job.id,
-        upperGarmentKey: upperGarmentKey ?? null,
-        faceId,
-```
-
-- [ ] **Step 5: Run the tests to verify they pass**
-
-Run: `pnpm --filter @aivastra/api exec vitest run --config vitest.integration.config.ts test/integration/jobs-create-lower-only.test.ts --reporter=verbose`
-
-Expected: PASS — both tests green.
-
-- [ ] **Step 6: Run the full unit suite + typecheck to confirm no regression**
-
-Run: `pnpm --filter @aivastra/api test:unit`
-
-Expected: all passing.
-
-Run: `pnpm --filter @aivastra/api typecheck`
-
-Expected: no errors.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-git add apps/api/src/modules/jobs/create.ts apps/api/test/integration/jobs-create-lower-only.test.ts
-git commit -m "feat(api): allow job creation without an upper garment upload"
+cd apps/api && pnpm exec vitest run --config vitest.integration.config.ts test/integration/admin-workflows.test.ts --reporter=verbose
+```
+
+Expected: the first three tests pass already once Task 2/3 land (they test the create-side floor, already implemented by then) — the 4th test (`PATCH rejects clearing the last garment role`) FAILS, since the PATCH handler has no merge-validation yet (it will return 200 and actually clear `lowerNodeId` to null).
+
+- [ ] **Step 3: Implement merge-then-validate in PATCH**
+
+In `apps/api/src/modules/admin/workflows.routes.ts`, inside the PATCH handler, after the existing per-field `if (body.xxx) validateNodeExists(...)` block (ends around line 468) and before the `updateValues` construction, add:
+
+```ts
+      // Merge-then-validate: individual fields can each be valid in isolation while
+      // the resulting final row breaks the create-time floor (e.g. clearing the last
+      // garment role, or clearing facePhasePromptNode while faceNodeId survives).
+      const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
+      const mergedLowerNodeId =
+        body.lowerNodeId !== undefined ? body.lowerNodeId : existing.lowerNodeId;
+      const mergedFaceNodeId =
+        body.faceNodeId !== undefined ? body.faceNodeId : existing.faceNodeId;
+      const mergedFacePhasePromptNode =
+        body.facePhasePromptNode !== undefined
+          ? body.facePhasePromptNode
+          : existing.facePhasePromptNode;
+
+      if (existing.workflowType === 'regular') {
+        const hasUpper = mergedUpperNodeIds.length > 0;
+        const hasLower = !!mergedLowerNodeId;
+        if (!hasUpper && !hasLower) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot clear the last garment role — at least one of upperNodeIds/lowerNodeId must remain set',
+          );
+        }
+        if (mergedFaceNodeId && !mergedFacePhasePromptNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot leave faceNodeId set without facePhasePromptNode',
+          );
+        }
+      }
+```
+
+Place this after `const json = existing.jsonContent as Record<string, unknown>;` and the per-field validation block, using `existing` (already fetched earlier in the handler) as the merge base.
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+cd apps/api && pnpm exec vitest run --config vitest.integration.config.ts test/integration/admin-workflows.test.ts --reporter=verbose
+```
+
+Expected: all 4 tests pass.
+
+- [ ] **Step 5: Typecheck and commit**
+
+```bash
+pnpm --filter @aivastra/api typecheck
+git add apps/api/src/modules/admin/workflows.routes.ts apps/api/test/integration/admin-workflows.test.ts
+git commit -m "feat(admin): validate the merged workflow shape on PATCH, not just the patch body"
 ```
 
 ---
 
-### Task 5: Dispatcher patcher — guard optional face/background/upper roles
+### Task 5: Admin UI — relax `WorkflowUploadModal.tsx`
 
 **Files:**
-- Modify: `apps/dispatcher/src/workflow/patcher.ts`
+- Modify: `apps/admin-web/src/components/WorkflowUploadModal.tsx:246-259` (`handleSubmit` validation), `:280-300` (payload construction)
+
+- [ ] **Step 1: Relax client-side validation**
+
+Replace (currently lines 246-259):
+
+```ts
+    } else {
+      if (!parsed) return;
+      if (!faceNodeId || !poseNodeId || !bgNodeId || !positivePromptNode || !negativePromptNode) {
+        setError(
+          'Face, pose, background, positive prompt, and negative prompt nodes are all required',
+        );
+        return;
+      }
+      const validUpperIds = upperNodeIds.filter(Boolean);
+      if (validUpperIds.length === 0) {
+        setError('At least one upper garment node is required');
+        return;
+      }
+    }
+```
+
+with:
+
+```ts
+    } else {
+      if (!parsed) return;
+      if (!poseNodeId || !positivePromptNode) {
+        setError('Pose and positive prompt nodes are required');
+        return;
+      }
+      if (faceNodeId && !negativePromptNode) {
+        setError('Negative prompt node is required when a face node is set');
+        return;
+      }
+      const validUpperIds = upperNodeIds.filter(Boolean);
+      if (validUpperIds.length === 0 && !lowerNodeId) {
+        setError(
+          'At least one garment role is required — set an upper garment node or a lower garment node',
+        );
+        return;
+      }
+    }
+```
+
+- [ ] **Step 2: Don't send empty-string face/background node IDs**
+
+In the payload construction for the regular-workflow branch (currently around lines 280-300), change:
+
+```ts
+          faceNodeId,
+          poseNodeId,
+          bgNodeId,
+```
+
+to:
+
+```ts
+          faceNodeId: faceNodeId || undefined,
+          poseNodeId,
+          bgNodeId: bgNodeId || undefined,
+```
+
+(matching the existing `lowerNodeId: lowerNodeId || undefined` convention two lines below it in the same object).
+
+- [ ] **Step 3: Add a discoverability hint**
+
+Near the node-mapping section of the form (find the `NodeSelect` for `faceNodeId` — search for `label="Face"` or similar in the render body below line 300), add a short helper line directly under it. If the existing markup renders `NodeSelect` components in a list/grid, insert a `<p>` or `<span>` immediately after the face `NodeSelect` with:
+
+```tsx
+<span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+  Leave face and background blank for a lower/inner-wear-only workflow — at least one of
+  upper or lower garment node is still required.
+</span>
+```
+
+- [ ] **Step 4: Typecheck, lint, and manual check**
+
+```bash
+cd apps/admin-web && pnpm exec tsc --noEmit
+pnpm --filter @aivastra/admin lint
+pnpm --filter @aivastra/admin dev
+```
+
+Navigate to Assets → Workflows → New workflow, parse a JSON file with no face/background nodes and a `lower_garment`-titled node, and confirm the form now lets you save without a face/background/upper mapping (as long as pose + positive prompt + lowerNodeId are set).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/admin-web/src/components/WorkflowUploadModal.tsx
+git commit -m "feat(admin-web): allow uploading lower/inner-only workflows through the create form"
+```
+
+---
+
+### Task 6: Job creation — per-pose garment-slot cross-validation
+
+**Files:**
+- Modify: `apps/api/src/modules/jobs/create.ts:258-267` (`mappingPoseWorkflows` select), `:319-331` (its return shape), `:338-390` (`poseWorkflowRows` select + fallback map), `:395-402` (validation loop)
+- Test: `apps/api/test/integration/jobs-create-looks.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+Add these tests to `apps/api/test/integration/jobs-create-looks.test.ts` (reuse this file's existing `seedFaceAndTwoBackgrounds`/`seedTwoPoses`/`registerUser`/`grantCredits`/`bindUploadKey`/`seedCreditPlan` helpers as-is):
+
+```ts
+  it('rejects a lower-only submission against a pose whose workflow requires an upper garment', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-upper-required@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `upper-required-${poseAId}`, label: 'Upper required' })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `upper-required-workflow-${poseAId}`,
+        label: 'Upper required workflow',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: ['4'],
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+
+    const garmentKey = `inputs/${userId}/lower-only.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          lowerGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('accepts a lower-only submission against a lower-primary workflow with no upper role', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-lower-primary@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `lower-primary-${poseAId}`, label: 'Lower primary' })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `lower-primary-workflow-${poseAId}`,
+        label: 'Lower primary workflow',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: [],
+        lowerNodeId: '7',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+
+    const garmentKey = `inputs/${userId}/lower-primary.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          lowerGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+  });
+```
+
+If `seedFaceAndTwoBackgrounds`/`seedTwoPoses` are defined with different names in the current file, use the file's actual existing helper names instead — check the top of `jobs-create-looks.test.ts` before writing these.
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+cd apps/api && pnpm exec vitest run --config vitest.integration.config.ts test/integration/jobs-create-looks.test.ts --reporter=verbose
+```
+
+Expected: the first new test (`rejects a lower-only submission...`) FAILS — currently nothing validates `upperNodeIds`, so the request succeeds with 201 instead of the expected 400. The second test should already pass once Task 2 lands (upperGarmentKey is optional), since nothing currently blocks a lower-primary submission either — but confirm it passes for the right reason after Step 3, not by accident.
+
+- [ ] **Step 3: Implement — carry `upperNodeIds` through both `poseWorkflows` branches**
+
+In `apps/api/src/modules/jobs/create.ts`, add `upperNodeIds` to the `mappingPoseWorkflows` select (inside the block starting at line 248):
+
+```ts
+        const rows = await app.db
+          .select({
+            poseId: schema.catalogueTemplateLooks.poseAssetId,
+            backgroundId: schema.catalogueTemplateLooks.backgroundId,
+            workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+            promptGarmentPhase: schema.catalogueTemplatePoseWorkflows.promptGarmentPhase,
+            upperNodeIds: schema.workflowTemplates.upperNodeIds,
+            lowerNodeId: schema.workflowTemplates.lowerNodeId,
+            shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+          })
+```
+
+and carry it into the returned per-pose objects:
+
+```ts
+          return {
+            poseId,
+            workflowTemplateId: row.workflowTemplateId,
+            promptGarmentPhase: row.promptGarmentPhase,
+            upperNodeIds: row.upperNodeIds,
+            lowerNodeId: row.lowerNodeId,
+            shoeNodeId: row.shoeNodeId,
+            sizeNodeIds: row.sizeNodeIds,
+          };
+```
+
+For the non-mapped `poseWorkflowRows` fallback, add `defaultUpperNodeIds`/`overrideUpperNodeIds` to that select (mirroring the existing `defaultLowerNodeId`/`overrideLowerNodeId` pattern):
+
+```ts
+  const poseWorkflowRows = await app.db
+    .select({
+      poseId: schema.modelPoseAssets.id,
+      defaultWorkflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+      defaultUpperNodeIds: defaultWorkflow.upperNodeIds,
+      defaultLowerNodeId: defaultWorkflow.lowerNodeId,
+      defaultShoeNodeId: defaultWorkflow.shoeNodeId,
+      defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
+      configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+      configIsActive: schema.poseGarmentConfigs.isActive,
+      overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
+      overrideLowerNodeId: overrideWorkflow.lowerNodeId,
+      overrideShoeNodeId: overrideWorkflow.shoeNodeId,
+      overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
+    })
+```
+
+and in the fallback `.map(...)` (the `poseWorkflows = mappingPoseWorkflows ?? poseWorkflowRows.map(...)` block):
+
+```ts
+  const poseWorkflows =
+    mappingPoseWorkflows ??
+    poseWorkflowRows.map((r) => ({
+      poseId: r.poseId,
+      workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+      promptGarmentPhase: null,
+      upperNodeIds:
+        r.configWorkflowTemplateId != null ? (r.overrideUpperNodeIds ?? []) : (r.defaultUpperNodeIds ?? []),
+      lowerNodeId:
+        r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
+      shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+      sizeNodeIds:
+        r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
+    }));
+```
+
+- [ ] **Step 4: Implement — the cross-validation check itself**
+
+Replace the validation loop (currently lines 395-402):
+
+```ts
+  for (const pw of poseWorkflows) {
+    if (pw.lowerNodeId && !lowerCatalogId && !lowerGarmentKey) {
+      throw new AppError('VALIDATION', 400, 'lower garment required for this pose');
+    }
+    if (pw.shoeNodeId && !shoeCatalogId) {
+      throw new AppError('VALIDATION', 400, 'shoe catalog item required for this pose');
+    }
+  }
+```
+
+with:
+
+```ts
+  for (const pw of poseWorkflows) {
+    if (pw.upperNodeIds.length > 0 && !upperGarmentKey) {
+      throw new AppError('VALIDATION', 400, 'upper garment required for this pose');
+    }
+    if (pw.lowerNodeId && !lowerCatalogId && !lowerGarmentKey) {
+      throw new AppError('VALIDATION', 400, 'lower garment required for this pose');
+    }
+    if (pw.shoeNodeId && !shoeCatalogId) {
+      throw new AppError('VALIDATION', 400, 'shoe catalog item required for this pose');
+    }
+  }
+```
+
+This runs before credit deduction, same as the existing lower/shoe checks, and correctly handles a workflow with both `upperNodeIds` non-empty and `lowerNodeId` set (Decision 1's "mixed" case) — both branches fire independently against the same `pw`.
+
+- [ ] **Step 5: Run test to verify it passes**
+
+```bash
+cd apps/api && pnpm exec vitest run --config vitest.integration.config.ts test/integration/jobs-create-looks.test.ts --reporter=verbose
+```
+
+Expected: all tests in the file pass, including both new ones.
+
+- [ ] **Step 6: Typecheck and commit**
+
+```bash
+pnpm --filter @aivastra/api typecheck
+git add apps/api/src/modules/jobs/create.ts apps/api/test/integration/jobs-create-looks.test.ts
+git commit -m "feat(jobs): reject a job when the resolved workflow's upper role has no matching upload"
+```
+
+---
+
+### Task 7: Dispatcher patcher — fail closed on any mapped-but-unfulfilled role
+
+**Files:**
+- Modify: `apps/dispatcher/src/workflow/patcher.ts:74-126` (`applyWorkflowPatch`), `:49-64` (`WorkflowInputs`)
 - Test: `apps/dispatcher/src/workflow/patcher.test.ts`
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `apps/dispatcher/src/workflow/patcher.test.ts`, inside a new `describe` block appended at the end of the file (after the existing closing of the last `describe`):
+Add to `apps/dispatcher/src/workflow/patcher.test.ts`, reusing the existing `makeWorkflow`/`makeTemplate`/`BASE_INPUTS` fixtures:
 
 ```ts
-describe('optional roles (lower/inner-primary workflows)', () => {
-  it('does not throw when faceNodeId is null and faceSideFile is not provided', () => {
+describe('fail-closed on missing garment input for a mapped role', () => {
+  it('throws when upperNodeIds is mapped but upperGarmentFile is missing', () => {
     const wf = makeWorkflow();
-    const tmpl = makeTemplate({ faceNodeId: null, upperNodeIds: [] });
-    const inputs = {
-      poseFile: 'pose_abc123.jpg',
-      backgroundFile: 'bg_abc123.jpg',
-      lowerGarmentFile: 'lower_abc123.jpg',
-    };
-    expect(() => applyWorkflowPatch(wf, tmpl, inputs)).not.toThrow();
-    // Face node's image is untouched (still the empty string from the fixture).
-    expect(wf['1332']?.inputs.image).toBe('');
+    const { upperGarmentFile, ...inputsWithoutUpper } = BASE_INPUTS;
+    expect(() =>
+      applyWorkflowPatch(wf, makeTemplate({ faceNodeId: null, bgNodeId: null }), inputsWithoutUpper),
+    ).toThrow(/upper/i);
   });
 
-  it('does not throw when bgNodeId is null and backgroundFile is not provided', () => {
+  it('throws when lowerNodeId is mapped but lowerGarmentFile is missing (no fallback to upper)', () => {
     const wf = makeWorkflow();
-    const tmpl = makeTemplate({ bgNodeId: null, upperNodeIds: [] });
-    const inputs = {
-      faceSideFile: 'face_abc123.jpg',
-      poseFile: 'pose_abc123.jpg',
-      lowerGarmentFile: 'lower_abc123.jpg',
-    };
-    expect(() => applyWorkflowPatch(wf, tmpl, inputs)).not.toThrow();
-    expect(wf['1334']?.inputs.image).toBe('');
+    expect(() =>
+      applyWorkflowPatch(wf, makeTemplate({ lowerNodeId: '1331' }), BASE_INPUTS),
+    ).toThrow(/lower/i);
   });
 
-  it('leaves the lower node untouched (no fallback-to-upper crash) when there is no upper garment file', () => {
+  it('throws when faceNodeId is mapped but faceSideFile is missing', () => {
     const wf = makeWorkflow();
-    const tmpl = makeTemplate({ upperNodeIds: [], faceNodeId: null, bgNodeId: null });
-    const inputs = {
-      poseFile: 'pose_abc123.jpg',
-      lowerGarmentFile: 'lower_abc123.jpg',
-    };
-    applyWorkflowPatch(wf, tmpl, inputs);
-    expect(wf['1331']?.inputs.image).toBe('lower_abc123.jpg');
+    const { faceSideFile, ...inputsWithoutFace } = BASE_INPUTS;
+    expect(() =>
+      applyWorkflowPatch(wf, makeTemplate({ bgNodeId: null }), inputsWithoutFace),
+    ).toThrow(/face/i);
   });
 
-  it('still throws for pose, which stays mandatory', () => {
+  it('does not throw for an unmapped role even when its input is absent', () => {
     const wf = makeWorkflow();
-    const tmpl = makeTemplate({ poseNodeId: 'NODE_THAT_DOES_NOT_EXIST' });
-    const inputs = { poseFile: 'pose_abc123.jpg', lowerGarmentFile: 'lower_abc123.jpg' };
-    expect(() => applyWorkflowPatch(wf, tmpl, inputs)).toThrowError(/NODE_THAT_DOES_NOT_EXIST/);
+    const { upperGarmentFile, ...inputsWithoutUpper } = BASE_INPUTS;
+    expect(() =>
+      applyWorkflowPatch(
+        wf,
+        makeTemplate({ faceNodeId: null, bgNodeId: null, upperNodeIds: [], lowerNodeId: '1331' }),
+        { ...inputsWithoutUpper, lowerGarmentFile: 'lower_abc123.jpg' },
+      ),
+    ).not.toThrow();
+  });
+
+  it('patches the lower node with its own file, not a fallback, when both are provided', () => {
+    const wf = makeWorkflow();
+    applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, lowerGarmentFile: 'lower_xyz.jpg' });
+    expect(wf['1331']?.inputs.image).toBe('lower_xyz.jpg');
   });
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+Note: `makeTemplate({ faceNodeId: null, ... })` requires `WorkflowTemplate['faceNodeId']` to accept `null` — this is already true once Task 1's schema change lands, since `$inferSelect` for the Drizzle table reflects the nullable column.
 
-Run: `pnpm --filter @aivastra/dispatcher exec vitest run --config vitest.config.ts src/workflow/patcher.test.ts --reporter=verbose`
+- [ ] **Step 2: Run tests to verify they fail**
 
-Expected: FAIL — the current `applyWorkflowPatch` calls `requireNode(workflow, tmpl.faceNodeId, 'face')` unconditionally, and `tmpl.faceNodeId` being `null` makes `requireNode` throw `Workflow node "null" (face) not found in JSON`. Also `WorkflowInputs`/its `Omit<...>` currently require `upperGarmentFile`/`faceSideFile`/`backgroundFile` as non-optional, so the new tests' inputs objects (which omit them) won't even type-check yet.
+```bash
+pnpm --filter @aivastra/dispatcher test
+```
 
-- [ ] **Step 3: Update `WorkflowInputs` and guard the patch logic**
+Expected: the throw-based tests FAIL (current code either silently skips or falls back to the upper garment instead of throwing); the "does not throw" and "patches with its own file" tests should already pass.
 
-In `apps/dispatcher/src/workflow/patcher.ts`, find:
+- [ ] **Step 3: Implement**
+
+Replace `applyWorkflowPatch`'s body (currently lines 80-126) — the required-node section, upper-garment loop, and lower/shoe fallback blocks — with:
+
+```ts
+  // Required image nodes — every mapped role must have a matching input, or fail
+  // closed rather than submit a stale/placeholder image from the template JSON.
+  if (tmpl.faceNodeId) {
+    if (!inputs.faceSideFile) {
+      throw new Error(`Workflow "${tmpl.slug}" maps a face node but no face image was provided`);
+    }
+    requireNode(workflow, tmpl.faceNodeId, 'face').inputs.image = inputs.faceSideFile;
+  }
+  requireNode(workflow, tmpl.poseNodeId, 'pose').inputs.image = inputs.poseFile;
+  if (tmpl.bgNodeId) {
+    if (!inputs.backgroundFile) {
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps a background node but no background image was provided`,
+      );
+    }
+    requireNode(workflow, tmpl.bgNodeId, 'bg').inputs.image = inputs.backgroundFile;
+  }
+
+  // Upper garment — patch all mapped nodes with the same file
+  if (tmpl.upperNodeIds.length > 0) {
+    if (!inputs.upperGarmentFile) {
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps ${tmpl.upperNodeIds.length} upper garment node(s) but no upper garment image was provided`,
+      );
+    }
+    for (const uid of tmpl.upperNodeIds) {
+      requireNode(workflow, uid, 'upper garment').inputs.image = inputs.upperGarmentFile;
+    }
+  }
+
+  // Lower garment — no fallback to the upper garment. A mapped-but-unfulfilled
+  // role fails the job rather than submit the wrong garment for a customer charge.
+  if (tmpl.lowerNodeId) {
+    if (!inputs.lowerGarmentFile) {
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps a lower garment node but no lower garment image was provided`,
+      );
+    }
+    requireNode(workflow, tmpl.lowerNodeId, 'lower garment').inputs.image = inputs.lowerGarmentFile;
+  } else if (inputs.lowerGarmentFile) {
+    log?.warn(
+      `patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`,
+    );
+  }
+
+  // Shoe — same fail-closed pattern as lower garment
+  if (tmpl.shoeNodeId) {
+    if (!inputs.shoeGarmentFile) {
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps a shoe node but no shoe image was provided`,
+      );
+    }
+    requireNode(workflow, tmpl.shoeNodeId, 'shoes').inputs.image = inputs.shoeGarmentFile;
+  } else if (inputs.shoeGarmentFile) {
+    log?.warn(
+      `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
+    );
+  }
+```
+
+Note `requireNode` already throws if the node ID isn't present in the JSON at all (pre-existing behavior, unchanged) — the new checks above throw for the *different* case of "node exists in the JSON and is mapped, but no input file was supplied," which `requireNode` alone doesn't catch since it only inspects the workflow object, not `inputs`.
+
+- [ ] **Step 4: Update `WorkflowInputs`**
+
+In the same file, change the interface (currently lines 49-64):
 
 ```ts
 export interface WorkflowInputs {
@@ -1168,341 +1036,86 @@ export interface WorkflowInputs {
   promptFacePhase?: string;
   promptGarmentPhase?: string;
   aspectRatio?: string;
-  /** Custom pixel dimensions from the user — when present, override the
-   *  ASPECT_DIMENSIONS enum lookup so the exact requested resolution is used. */
   outputWidth?: number;
   outputHeight?: number;
 }
 ```
 
-Replace with:
+to:
 
 ```ts
 export interface WorkflowInputs {
   workflowTemplateId: string;
-  // Optional — a lower/inner-primary workflow may have no upper role at all
-  // (tmpl.upperNodeIds is empty) or no face/background role (tmpl.faceNodeId/
-  // bgNodeId null). poseFile stays mandatory — pose is the one role every
-  // workflow has. See docs/superpowers/specs/2026-07-14-flexible-workflow-roles-
-  // design.md.
+  poseFile: string;
   upperGarmentFile?: string;
   faceSideFile?: string;
-  poseFile: string;
   backgroundFile?: string;
   lowerGarmentFile?: string;
   shoeGarmentFile?: string;
   promptFacePhase?: string;
   promptGarmentPhase?: string;
   aspectRatio?: string;
-  /** Custom pixel dimensions from the user — when present, override the
-   *  ASPECT_DIMENSIONS enum lookup so the exact requested resolution is used. */
   outputWidth?: number;
   outputHeight?: number;
 }
 ```
 
-Then find:
-
-```ts
-  // Required image nodes — throw if any are missing from the JSON
-  requireNode(workflow, tmpl.faceNodeId, 'face').inputs.image = inputs.faceSideFile;
-  requireNode(workflow, tmpl.poseNodeId, 'pose').inputs.image = inputs.poseFile;
-  requireNode(workflow, tmpl.bgNodeId, 'bg').inputs.image = inputs.backgroundFile;
-
-  // Upper garment — patch all mapped nodes
-  for (const uid of tmpl.upperNodeIds) {
-    const upperNode = workflow[uid];
-    if (upperNode) upperNode.inputs.image = inputs.upperGarmentFile;
-  }
-
-  // Lower garment — fall back to upper garment when not provided so ComfyUI
-  // never receives a stale/empty filename from the original workflow design.
-  if (tmpl.lowerNodeId) {
-    const lowerNode = workflow[tmpl.lowerNodeId];
-    if (lowerNode) {
-      const lowerFile = inputs.lowerGarmentFile ?? inputs.upperGarmentFile;
-      if (!inputs.lowerGarmentFile) {
-        log?.warn(
-          `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
-        );
-      }
-      lowerNode.inputs.image = lowerFile;
-    }
-  } else if (inputs.lowerGarmentFile) {
-    log?.warn(
-      `patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`,
-    );
-  }
-
-  // Shoe — same fallback pattern as lower garment
-  if (tmpl.shoeNodeId) {
-    const shoeNode = workflow[tmpl.shoeNodeId];
-    if (shoeNode) {
-      const shoeFile = inputs.shoeGarmentFile ?? inputs.upperGarmentFile;
-      if (!inputs.shoeGarmentFile) {
-        log?.warn(
-          `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
-        );
-      }
-      shoeNode.inputs.image = shoeFile;
-    }
-  } else if (inputs.shoeGarmentFile) {
-    log?.warn(
-      `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
-    );
-  }
-```
-
-Replace with:
-
-```ts
-  // Required image node — pose is the only role every workflow has (it's what
-  // selected this workflow in the first place — see the spec).
-  requireNode(workflow, tmpl.poseNodeId, 'pose').inputs.image = inputs.poseFile;
-
-  // Face and background are optional per-workflow — only patch when the workflow
-  // actually declares the role (tmpl.faceNodeId/bgNodeId non-null).
-  if (tmpl.faceNodeId) {
-    requireNode(workflow, tmpl.faceNodeId, 'face').inputs.image = inputs.faceSideFile ?? '';
-  }
-  if (tmpl.bgNodeId) {
-    requireNode(workflow, tmpl.bgNodeId, 'bg').inputs.image = inputs.backgroundFile ?? '';
-  }
-
-  // Upper garment — patch all mapped nodes. Empty tmpl.upperNodeIds (lower/inner-
-  // primary workflow) means this loop simply does nothing.
-  for (const uid of tmpl.upperNodeIds) {
-    const upperNode = workflow[uid];
-    if (upperNode && inputs.upperGarmentFile) upperNode.inputs.image = inputs.upperGarmentFile;
-  }
-
-  // Lower garment — falls back to the upper garment file when not itself provided,
-  // so an upper-primary workflow that also has a lower accessory node never gets a
-  // stale/empty filename. When there's no upper file either (lower-primary job),
-  // leave the node's existing value untouched rather than patching in "undefined".
-  if (tmpl.lowerNodeId) {
-    const lowerNode = workflow[tmpl.lowerNodeId];
-    if (lowerNode) {
-      const lowerFile = inputs.lowerGarmentFile ?? inputs.upperGarmentFile;
-      if (lowerFile) {
-        if (!inputs.lowerGarmentFile) {
-          log?.warn(
-            `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
-          );
-        }
-        lowerNode.inputs.image = lowerFile;
-      }
-    }
-  } else if (inputs.lowerGarmentFile) {
-    log?.warn(
-      `patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`,
-    );
-  }
-
-  // Shoe — same fallback pattern as lower garment
-  if (tmpl.shoeNodeId) {
-    const shoeNode = workflow[tmpl.shoeNodeId];
-    if (shoeNode) {
-      const shoeFile = inputs.shoeGarmentFile ?? inputs.upperGarmentFile;
-      if (shoeFile) {
-        if (!inputs.shoeGarmentFile) {
-          log?.warn(
-            `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
-          );
-        }
-        shoeNode.inputs.image = shoeFile;
-      }
-    }
-  } else if (inputs.shoeGarmentFile) {
-    log?.warn(
-      `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
-    );
-  }
-```
-
-- [ ] **Step 4: Run the tests to verify they pass**
-
-Run: `pnpm --filter @aivastra/dispatcher exec vitest run --config vitest.config.ts src/workflow/patcher.test.ts --reporter=verbose`
-
-Expected: PASS — all tests green, including the pre-existing ones (the required-nodes `describe` block from before this task still exercises the unconditional pose patch plus face/bg/upper all being present in `BASE_INPUTS` and `makeTemplate()`'s defaults, so nothing there changes behavior).
-
-- [ ] **Step 5: Typecheck**
-
-Run: `pnpm --filter @aivastra/dispatcher exec tsc -p tsconfig.json --noEmit`
-
-Expected: no output, no errors.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Run tests to verify they pass**
 
 ```bash
+pnpm --filter @aivastra/dispatcher test
+```
+
+Expected: all tests pass, including the pre-existing ones (which all provide every field via `BASE_INPUTS`, so the fail-closed checks don't fire for them).
+
+- [ ] **Step 6: Typecheck and commit**
+
+```bash
+pnpm --filter @aivastra/dispatcher exec tsc --noEmit
 git add apps/dispatcher/src/workflow/patcher.ts apps/dispatcher/src/workflow/patcher.test.ts
-git commit -m "feat(dispatcher): patcher guards optional face/background/upper roles"
+git commit -m "feat(dispatcher): fail closed instead of stale-image fallback for any unmapped garment input"
 ```
 
 ---
 
-### Task 6: Dispatcher processor — conditional uploads + defensive guards elsewhere
+### Task 8: Dispatcher processor — conditional uploads + catch missing-input failures
 
 **Files:**
-- Modify: `apps/dispatcher/src/job/processor.ts`
-- Test: `apps/dispatcher/test/integration/lower-only.test.ts`
+- Modify: `apps/dispatcher/src/job/processor.ts` (around lines 260-420 — the section between resolving `workflowTemplateId` and calling `patchWorkflow`)
 
-- [ ] **Step 1: Write the failing integration test**
+- [ ] **Step 1: Fetch the resolved template's role flags before building the upload list**
 
-Create `apps/dispatcher/test/integration/lower-only.test.ts`:
+Immediately after the existing block:
 
 ```ts
-import { schema } from '@aivastra/db';
-import { createLogger } from '@aivastra/logger';
-import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { eq } from 'drizzle-orm';
-import { Redis } from 'ioredis';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { processJob } from '../../src/job/processor.js';
-import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
-import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
-import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
-
-const WORKER_ID = 'test-worker-lower-only';
-
-describe('dispatcher — lower-only (no upper, no face, no bg node) job', () => {
-  let env: TestEnv;
-  let redis: Redis;
-  let pub: Redis;
-  let comfy: ComfyMock;
-
-  beforeAll(async () => {
-    env = await setupTestEnv();
-    redis = new Redis(env.redisUrl);
-    pub = new Redis(env.redisUrl);
-    comfy = await startComfyMock();
-
-    await registerWorkers(redis, [{ id: WORKER_ID, url: comfy.url, apiKey: 'test-key' }]);
-    await redis.setex(`worker:health:${WORKER_ID}`, 30, '1');
-  }, 60_000);
-
-  afterAll(async () => {
-    await deregisterWorker(redis, WORKER_ID);
-    await comfy.close();
-    redis.disconnect();
-    pub.disconnect();
-    await env.cleanup();
-  });
-
-  beforeEach(async () => {
-    comfy.setOptions({});
-    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
-  });
-
-  async function seedJob() {
-    const [user] = await env.db
-      .insert(schema.users)
-      .values({ email: `lower-only-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
-      .returning();
-    await env.db.insert(schema.userCredits).values({ userId: user?.id, balance: 5 });
-
-    const [wf] = await env.db
-      .insert(schema.workflowTemplates)
-      .values({
-        slug: `lower-only-dispatch-${Date.now()}`,
-        label: 'Lower Only',
-        jsonContent: {
-          '1': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'pose' } },
-          '2': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'lower' } },
-          '3': { inputs: { prompt: 'x' }, class_type: 'CLIPTextEncode', _meta: { title: 'pos' } },
-        },
-        workflowType: 'regular',
-        poseNodeId: '1',
-        lowerNodeId: '2',
-        upperNodeIds: [],
-        garmentPhasePromptNode: '3',
-      })
-      .returning();
-
-    const [face] = await env.db
-      .insert(schema.modelFaces)
-      .values({ label: 'F', genderSlug: 'men', r2Key: 'face/f.jpg', thumbnailKey: 'face/f.jpg' })
-      .returning();
-    const [bg] = await env.db
-      .insert(schema.modelBackgrounds)
-      .values({ label: 'B', r2Key: 'bg/b.jpg', thumbnailKey: 'bg/b.jpg' })
-      .returning();
-    const [pose] = await env.db
-      .insert(schema.modelPoseAssets)
-      .values({
-        label: 'P',
-        r2Key: 'pose/p.jpg',
-        thumbnailKey: 'pose/p.jpg',
-        genderSlug: 'men',
-        workflowTemplateId: wf.id,
-      })
-      .returning();
-
-    const [job] = await env.db
-      .insert(schema.jobs)
-      .values({ userId: user?.id, status: 'QUEUED', priority: false, creditsCharged: 1, source: 'catalog' })
-      .returning();
-
-    await env.db.insert(schema.jobInputs).values({
-      jobId: job?.id,
-      upperGarmentKey: null,
-      lowerGarmentKey: `inputs/${job?.id}/garment.jpg`,
-      faceId: face.id,
-      backgroundId: bg.id,
-      poseId: pose.id,
-    });
-
-    for (const key of ['face/f.jpg', 'bg/b.jpg', 'pose/p.jpg', `inputs/${job?.id}/garment.jpg`]) {
-      await env.s3.send(
-        new PutObjectCommand({
-          Bucket: env.r2Bucket,
-          Key: key,
-          Body: Buffer.from('stub'),
-          ContentType: 'image/jpeg',
-        }),
-      );
-    }
-
-    return { jobId: job?.id, userId: user?.id };
+  const workflowTemplateId = effectiveWorkflowTemplateId;
+  if (!workflowTemplateId) {
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
+    return;
   }
-
-  it('processes a job with no upper garment to COMPLETED, patches only the lower node', async () => {
-    const { jobId, userId } = await seedJob();
-    const log = createLogger('test');
-
-    await processJob(
-      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
-      jobId,
-      userId,
-      'jobs:normal',
-      'mock-msg-id',
-    );
-
-    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
-    expect(job?.status).toBe('COMPLETED');
-
-    const sentPrompt = comfy.lastPrompt();
-    expect(sentPrompt).not.toBeNull();
-    // The lower node (id "2") got patched with an uploaded filename; nothing crashed
-    // trying to patch a nonexistent upper/face/bg role.
-    expect(sentPrompt?.prompt['2']?.inputs?.image).toMatch(/^uploaded-/);
-  });
-});
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `pnpm --filter @aivastra/dispatcher exec vitest run --config vitest.integration.config.ts test/integration/lower-only.test.ts --reporter=verbose`
-
-Expected: FAIL — `uploadToComfy(inputs.upperGarmentKey, 'garment')` is called unconditionally in `processor.ts`, and `inputs.upperGarmentKey` is `null` for this job, so the R2 download step throws (`GetObjectCommand` with a `null` Key).
-
-- [ ] **Step 3: Make the upload step conditional on which keys are actually present**
-
-In `apps/dispatcher/src/job/processor.ts`, find:
+add:
 
 ```ts
-    // 4. Upload only the images that ComfyUI actually needs.
-    // Display images (faceRow.r2Key, bgRow.r2Key) are UI-only and never sent to ComfyUI.
+  const [tmplRoles] = await db
+    .select({
+      faceNodeId: schema.workflowTemplates.faceNodeId,
+      bgNodeId: schema.workflowTemplates.bgNodeId,
+      upperNodeIds: schema.workflowTemplates.upperNodeIds,
+    })
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const needsFace = !!tmplRoles?.faceNodeId;
+  const needsBg = !!tmplRoles?.bgNodeId;
+  const needsUpper = (tmplRoles?.upperNodeIds.length ?? 0) > 0;
+```
+
+- [ ] **Step 2: Make the upload list conditional**
+
+Replace (currently around lines 359-368):
+
+```ts
     jobLog.info('uploading inputs to ComfyUI');
     const baseTasks: Promise<string>[] = [
       uploadToComfy(inputs.upperGarmentKey, 'garment'),
@@ -1527,200 +1140,257 @@ In `apps/dispatcher/src/job/processor.ts`, find:
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
 ```
 
-Replace with:
+with:
 
 ```ts
-    // 4. Upload only the images that ComfyUI actually needs — a lower/inner-primary
-    // workflow may have no upper role (inputs.upperGarmentKey null) and/or no face/
-    // background role (tmpl.faceNodeId/bgNodeId null, resolved above into
-    // effectiveWorkflowTemplateId's template — checked via tmpl below). Fixed
-    // positions in the Promise.all array (not push()-based) so there's no manual
-    // index bookkeeping to get wrong as more roles become optional.
-    jobLog.info('uploading inputs to ComfyUI');
-    const [tmplForUpload] = await db
-      .select({ faceNodeId: schema.workflowTemplates.faceNodeId, bgNodeId: schema.workflowTemplates.bgNodeId })
-      .from(schema.workflowTemplates)
-      .where(eq(schema.workflowTemplates.id, workflowTemplateId));
-    const needsFace = Boolean(tmplForUpload?.faceNodeId);
-    const needsBg = Boolean(tmplForUpload?.bgNodeId);
+    jobLog.info({ needsFace, needsBg, needsUpper }, 'uploading inputs to ComfyUI');
+    const baseTasks: Promise<string>[] = [uploadToComfy(poseKey, 'pose')];
+    if (needsUpper && inputs.upperGarmentKey) baseTasks.push(uploadToComfy(inputs.upperGarmentKey, 'garment'));
+    if (needsFace) baseTasks.push(uploadToComfy(faceSideKey, 'face'));
+    if (needsBg) baseTasks.push(uploadToComfy(bgKey, 'bg'));
+    if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
+    if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
+    const uploaded = await Promise.all(baseTasks);
 
-    const [upperGarmentFile, faceSideFile, poseFile, backgroundFile, lowerGarmentFile, shoeGarmentFile] =
-      await Promise.all([
-        inputs.upperGarmentKey ? uploadToComfy(inputs.upperGarmentKey, 'garment') : Promise.resolve(undefined),
-        needsFace ? uploadToComfy(faceSideKey, 'face') : Promise.resolve(undefined),
-        uploadToComfy(poseKey, 'pose'),
-        needsBg ? uploadToComfy(bgKey, 'bg') : Promise.resolve(undefined),
-        lowerKey ? uploadToComfy(lowerKey, 'lower') : Promise.resolve(undefined),
-        shoeKey ? uploadToComfy(shoeKey, 'shoe') : Promise.resolve(undefined),
-      ]);
+    let idx = 0;
+    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces the pose entry first
+    const poseFile = uploaded[idx++]!;
+    const upperGarmentFile = needsUpper && inputs.upperGarmentKey ? uploaded[idx++] : undefined;
+    const faceSideFile = needsFace ? uploaded[idx++] : undefined;
+    const backgroundFile = needsBg ? uploaded[idx++] : undefined;
+    const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
+    const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
 ```
 
-- [ ] **Step 4: Update the `patchWorkflow` call site to match the now-optional fields**
+`inputs.upperGarmentKey` is nullable after Task 1 — the `needsUpper && inputs.upperGarmentKey` guard means a workflow that needs an upper role but has no key (which Task 6 should already prevent at job-creation time) simply doesn't upload one; `applyWorkflowPatch`'s Task-7 fail-closed check then throws cleanly instead of silently omitting the role.
 
-In the same file, find:
+- [ ] **Step 3: Update the two places that reference `upperGarmentFile`/`faceSideFile`/`backgroundFile` downstream**
+
+The `patchWorkflow(...)` call and the `jobEvents` insert both already destructure these same variable names (`upperGarmentFile`, `faceSideFile`, `backgroundFile`, `lowerGarmentFile`, `shoeGarmentFile`) — no further change needed there, since they now naturally carry `string | undefined` matching `WorkflowInputs`'s Task-7 signature.
+
+- [ ] **Step 4: Catch the new fail-closed throw from `patchWorkflow` and route to `markFailed`**
+
+The whole upload-through-submit sequence is already inside one `try { ... }` block (starts at line 337). Find that block's matching `catch` clause further down in the function (search for `} catch (` after the `waitForCompletion`/`finalizeOutput` calls). Inside that catch, before whatever generic retry/failure handling already exists, add a check for this specific error class:
 
 ```ts
-    const { prompt, resultNodeId } = await patchWorkflow(
-      {
-        workflowTemplateId,
-        upperGarmentFile,
-        faceSideFile,
-        poseFile,
-        backgroundFile,
-        lowerGarmentFile,
-        shoeGarmentFile,
-        promptFacePhase: effectivePromptFacePhase ?? undefined,
-        promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
-        aspectRatio: jobAspectRatio,
-        outputWidth: jobOutputWidth,
-        outputHeight: jobOutputHeight,
-      },
-      db,
-      jobLog,
-    );
+  } catch (err) {
+    if (err instanceof Error && /no .* image was provided|no .* garment image was provided/.test(err.message)) {
+      jobLog.error({ err: err.message }, 'missing garment input for a mapped workflow role');
+      await markFailed(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'MISSING_GARMENT_INPUT',
+        jobLog,
+        startedAt,
+      );
+      return;
+    }
+    // ... existing catch body continues unchanged below ...
 ```
 
-This block needs no code change — `upperGarmentFile`/`faceSideFile`/`backgroundFile` are now typed `string | undefined` from Step 3's destructure, matching `WorkflowInputs`'s now-optional fields from Task 5. Confirm it still compiles (checked in Step 6 below).
+Read the existing catch body first to place this correctly relative to whatever's already there (e.g. retry-count logic via `handleFailure`) — this new branch must come first and `return` before any retry path, since retrying a data/config problem will fail identically every time and just wastes an attempt.
 
-- [ ] **Step 5: Add defensive null-guards to the two other processor functions that read `inputs.upperGarmentKey` unguarded**
-
-These are unrelated job types (tryon-direct and widget) that never actually produce a null `upperGarmentKey` in practice — their own request schemas always require it — but the column is now nullable at the type level, so TypeScript needs an explicit narrowing, and a defensive runtime guard is the correct way to provide one.
-
-In the same file, find (inside `processTryonDirectJob`):
-
-```ts
-  const personKey = params.personKey as string;
-  const workflowTemplateId = params.workflowTemplateId as string;
-  const garmentKey = inputs.upperGarmentKey;
-
-  if (!workflowTemplateId) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
-    return;
-  }
-```
-
-Replace with:
-
-```ts
-  const personKey = params.personKey as string;
-  const workflowTemplateId = params.workflowTemplateId as string;
-  const garmentKey = inputs.upperGarmentKey;
-
-  if (!workflowTemplateId) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
-    return;
-  }
-  // Defensive — tryon-direct jobs always set upperGarmentKey to keys.output(sourceJobId)
-  // at creation time (create.ts's createSimpleTryonJob), never null in practice. The
-  // column is nullable at the type level because it's shared with the regular catalog
-  // flow, where it genuinely can be null.
-  if (!garmentKey) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'MISSING_GARMENT_KEY', jobLog, startedAt);
-    return;
-  }
-```
-
-Then find (inside `processWidgetJob`, after the `if (!job.customerPhotoKey) { ... }` block):
-
-```ts
-  if (!job.customerPhotoKey) {
-    await markWidgetFailed(
-```
-
-Read enough of that existing block to locate its closing `}`, then insert immediately after it (same indentation level as the `if (!job.customerPhotoKey)` block):
-
-```ts
-  // Defensive — widget jobs always set upperGarmentKey from a real merchant-catalog
-  // r2Key at creation time, never null in practice. The column is nullable at the
-  // type level because it's shared with the regular catalog flow.
-  if (!inputs.upperGarmentKey) {
-    await markWidgetFailed(
-      cfg,
-      jobId,
-      merchantId,
-      creditsCharged,
-      stream,
-      messageId,
-      'MISSING_GARMENT_KEY',
-      jobLog,
-      startedAt,
-    );
-    return;
-  }
-```
-
-- [ ] **Step 6: Run the test to verify it passes**
-
-Run: `pnpm --filter @aivastra/dispatcher exec vitest run --config vitest.integration.config.ts test/integration/lower-only.test.ts --reporter=verbose`
-
-Expected: PASS.
-
-- [ ] **Step 7: Typecheck**
-
-Run: `pnpm --filter @aivastra/dispatcher exec tsc -p tsconfig.json --noEmit`
-
-Expected: no output, no errors. If `processWidgetJob`'s downstream code (past your inserted guard) still shows a "possibly null" error for `inputs.upperGarmentKey`, it means the guard was inserted in the wrong place relative to where TypeScript's control-flow analysis re-reads `inputs.upperGarmentKey` vs a narrowed local — in that case, capture it into a local const right after the guard (`const garmentKey = inputs.upperGarmentKey;`) and use `garmentKey` for the rest of the function instead of re-reading `inputs.upperGarmentKey`.
-
-- [ ] **Step 8: Run existing dispatcher integration tests to confirm no regression**
-
-Run: `pnpm --filter @aivastra/dispatcher exec vitest run --config vitest.integration.config.ts test/integration/retry.test.ts test/integration/shopify.test.ts test/integration/watermark-fail-closed.test.ts test/integration/watermark-snapshot.test.ts --reporter=verbose`
-
-Expected: same pass/fail status as before this plan's changes. (`happy-path.test.ts` and `recovery.test.ts` are pre-existing broken tests — per `apps/api/vitest.config.ts`'s own documented known-failures comment for the equivalent API-side issue, these dispatcher tests seed `job_inputs` with `modelCatalogId`/`poseCatalogId`/`backgroundCatalogId`, fields that don't exist in the current schema. That's a pre-existing bug unrelated to this plan — do not fix it here, and do not treat its failure as a regression caused by this task.)
-
-- [ ] **Step 9: Commit**
+- [ ] **Step 5: Typecheck**
 
 ```bash
-git add apps/dispatcher/src/job/processor.ts apps/dispatcher/test/integration/lower-only.test.ts
-git commit -m "feat(dispatcher): conditional uploads for optional workflow roles, defensive guards elsewhere"
+cd apps/dispatcher && pnpm exec tsc --noEmit
+```
+
+Expected: no errors.
+
+- [ ] **Step 6: Run the dispatcher's integration happy-path suite**
+
+```bash
+cd apps/dispatcher && pnpm exec vitest run --config vitest.integration.config.ts test/integration/happy-path.test.ts --reporter=verbose
+```
+
+Expected: passes unchanged — existing fixtures provide every role's input, so `needsFace`/`needsBg`/`needsUpper` are all true and behavior matches before this change. (If this environment can't run the dispatcher integration suite due to pre-existing setup issues unrelated to this change, note that explicitly rather than skip verification silently — see the prior review's note about `deregisterWorker` teardown failures in this harness.)
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add apps/dispatcher/src/job/processor.ts
+git commit -m "feat(dispatcher): upload only the ComfyUI inputs the resolved workflow needs, fail closed on gaps"
 ```
 
 ---
 
-### Task 7: Update progress log
+### Task 9: Regeneration — stop hard-requiring `upperGarmentKey`
+
+**Files:**
+- Modify: `apps/api/src/modules/jobs/regenerate.ts:67`
+- Test: `apps/api/test/integration/regenerate.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+Add a test to `apps/api/test/integration/regenerate.test.ts` that creates a lower-only original job (reuse this file's existing `registerUser`/`grantCredits`/`bindUploadKey` helpers and whatever seed helpers the file already has for faces/poses/backgrounds/workflows — read the rest of the file for the exact seeding pattern used by its other regenerate tests before writing this one, since `originalJobId`/`sourceJobId` wiring needs to match exactly) and asserts the regenerate endpoint returns 201, not the current 400.
+
+- [ ] **Step 2: Run to verify it fails**
+
+```bash
+cd apps/api && pnpm exec vitest run --config vitest.integration.config.ts test/integration/regenerate.test.ts --reporter=verbose
+```
+
+Expected: FAILS with the new test hitting the `'original job is missing required inputs to regenerate'` 400.
+
+- [ ] **Step 3: Implement**
+
+In `apps/api/src/modules/jobs/regenerate.ts`, change line 67:
+
+```ts
+  if (!inputs.poseId || !inputs.faceId || !inputs.backgroundId || !inputs.upperGarmentKey) {
+    throw new AppError('VALIDATION', 400, 'original job is missing required inputs to regenerate');
+  }
+```
+
+to:
+
+```ts
+  if (!inputs.poseId || !inputs.faceId || !inputs.backgroundId) {
+    throw new AppError('VALIDATION', 400, 'original job is missing required inputs to regenerate');
+  }
+```
+
+The reconstructed `CreateTryOnJobRequest` a few lines below already passes `upperGarmentKey: inputs.upperGarmentKey` through as-is (now legitimately `null`/`undefined`-capable after Task 1/2) — the downstream `createJob` call performs the real per-workflow validation from Task 6.
+
+- [ ] **Step 4: Run to verify it passes, typecheck, commit**
+
+```bash
+cd apps/api && pnpm exec vitest run --config vitest.integration.config.ts test/integration/regenerate.test.ts --reporter=verbose
+pnpm --filter @aivastra/api typecheck
+git add apps/api/src/modules/jobs/regenerate.ts apps/api/test/integration/regenerate.test.ts
+git commit -m "fix(jobs): allow regenerating a lower-only job"
+```
+
+---
+
+### Task 10: Catalogue history + results display
+
+**Files:**
+- Modify: `apps/api/src/modules/jobs/routes.ts:367-403` (`/v1/catalogues/:id`)
+- Modify: `apps/api/src/modules/results/routes.ts` (the `/results/data` select around line 145, and wherever `monitorHtml()` renders `upperGarmentKey`)
+
+- [ ] **Step 1: `jobs/routes.ts` — resolve hero garment from whichever source is present**
+
+Replace (currently around lines 369-389):
+
+```ts
+      const [anyInput] = await app.db
+        .select({
+          params: schema.jobInputs.params,
+          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+        })
+        .from(schema.jobInputs)
+        .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
+        .limit(1);
+      const aspectRatio =
+        (anyInput?.params as { aspectRatio?: string } | null)?.aspectRatio ?? null;
+
+      let garmentUrl: string | null = null;
+      if (anyInput?.upperGarmentKey) {
+        try {
+          const { url } = await app.storage.presignGet(anyInput.upperGarmentKey, 3600);
+          garmentUrl = url;
+        } catch {
+          // non-fatal
+        }
+      }
+```
+
+with:
+
+```ts
+      const [anyInput] = await app.db
+        .select({
+          params: schema.jobInputs.params,
+          upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          lowerCatalogId: schema.jobInputs.lowerCatalogId,
+        })
+        .from(schema.jobInputs)
+        .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
+        .limit(1);
+      const aspectRatio =
+        (anyInput?.params as { aspectRatio?: string } | null)?.aspectRatio ?? null;
+
+      // Hero garment source, in priority order: uploaded upper, uploaded lower,
+      // catalog-picked lower. A lower-only job must still show a source image.
+      let garmentUrl: string | null = null;
+      const heroKey = anyInput?.upperGarmentKey ?? anyInput?.lowerGarmentKey ?? null;
+      if (heroKey) {
+        try {
+          const { url } = await app.storage.presignGet(heroKey, 3600);
+          garmentUrl = url;
+        } catch {
+          // non-fatal
+        }
+      } else if (anyInput?.lowerCatalogId) {
+        const [catalogItem] = await app.db
+          .select({ thumbnailKey: schema.catalogItems.thumbnailKey })
+          .from(schema.catalogItems)
+          .where(eq(schema.catalogItems.id, anyInput.lowerCatalogId));
+        if (catalogItem?.thumbnailKey) garmentUrl = app.storage.publicUrl(catalogItem.thumbnailKey);
+      }
+```
+
+- [ ] **Step 2: `results/routes.ts` — include `lowerGarmentKey` in the ops-dashboard select**
+
+In the `/results/data` handler, find the select that currently has `upperGarmentKey: schema.jobInputs.upperGarmentKey,` (line 145) and add immediately after it:
+
+```ts
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+```
+
+Then find wherever the row's `upperGarmentKey` is turned into a displayed thumbnail URL further down in this file (search for `upperGarmentKey` again after line 145 — likely near where `poseThumbKey`/`backgroundThumbKey` are presigned or turned into public URLs) and apply the same `?? lowerGarmentKey` fallback used in Step 1, presigning whichever is present.
+
+- [ ] **Step 3: Typecheck and commit**
+
+```bash
+pnpm --filter @aivastra/api typecheck
+git add apps/api/src/modules/jobs/routes.ts apps/api/src/modules/results/routes.ts
+git commit -m "fix(jobs): show a lower-only job's actual source garment in catalogue history and ops results"
+```
+
+---
+
+### Task 11: Progress log + rollout note
 
 **Files:**
 - Modify: `docs/progress.md`
 
-- [ ] **Step 1: Add a dated entry at the top**
+- [ ] **Step 1: Add a dated entry**
 
-Prepend to `docs/progress.md`:
-
-```markdown
-## 2026-07-14 - Flexible Workflow Roles (Sub-project A of wear-type support)
-
-### Done
-- `workflow_templates.faceNodeId`/`bgNodeId`/`facePhasePromptNode` relaxed to nullable; `upperNodeIds` may now be an empty array. `poseNodeId` and `garmentPhasePromptNode` stay mandatory — pose is the only mechanism that selects which workflow runs, and every workflow has at least one garment slot. A workflow's roles are now implicit in which node-ID columns are populated, replacing the old fixed `workflowType='regular'` required-field list.
-- `job_inputs.upperGarmentKey` relaxed to nullable. `CreateTryOnJobInputs.upperGarmentKey` is now optional, with a new refine requiring at least one of `upperGarmentKey`/`lowerGarmentKey`. `faceId`/`backgroundId` deliberately stay mandatory — the studio always asks for them today regardless of which workflow ends up handling the job; only the garment upload itself varies.
-- Admin `POST /admin/workflows` floor validation: `poseNodeId` + `garmentPhasePromptNode` + at least one garment slot required; `facePhasePromptNode` required only when `faceNodeId` is set. `PATCH /admin/workflows/:id` can now explicitly clear `faceNodeId`/`bgNodeId`/`facePhasePromptNode` back to null.
-- Dispatcher patcher (`applyWorkflowPatch`) and the regular catalog-flow logic inline in `processJob` (`processor.ts`) both guard the now-optional roles — face/background are only patched/uploaded when the resolved workflow actually has that node.
-- Traced the full ripple of `job_inputs.upperGarmentKey` becoming nullable across every job type sharing that column (saree, tryon-direct, widget, shopify, kiosk, merchant) — most read sites were already null-safe; added defensive guards to the two that weren't (`processTryonDirectJob`, `processWidgetJob` in the dispatcher), both purely for type-safety since those job types never produce a null value in practice.
-- Spec: `docs/superpowers/specs/2026-07-14-flexible-workflow-roles-design.md`. Plan: `docs/superpowers/plans/2026-07-14-flexible-workflow-roles.md`.
-
-### Failed / Not Done
-- None.
-
-### Open Questions / Decisions
-- This is Sub-project A of a two-part feature. Sub-project B — the studio wizard's gender → wear-type (upper/lower/inner/full-set) → garment-type selection UX, plus `garment_subcategories` gaining a wear-type classification — is a separate, not-yet-started spec/plan that depends on this one.
-- `lowerCatalogId`-as-hero (picking a lower garment from the admin catalog instead of uploading one) is out of scope here; the job-creation refine only recognizes uploads (`upperGarmentKey`/`lowerGarmentKey`). Catalog-as-hero is a Sub-project B UX decision.
-```
+Summarize: flexible workflow roles (lower/inner-primary generation) is implemented end-to-end — schema, admin create/PATCH validation, admin UI, job-creation cross-validation, dispatcher fail-closed patching, conditional ComfyUI uploads, regeneration, and catalogue/results display. Note explicitly: **deploy dispatcher (this branch) before deploying api/admin-web** — an old dispatcher receiving a job with `NULL upper_garment_key` before its own null-tolerant changes are live will hit the previously-unguarded upload/patch code paths this plan fixed. Migration is safe to apply at any time (backward compatible, no behavior change on its own).
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add docs/progress.md
-git commit -m "docs(progress): log flexible workflow roles feature"
+git commit -m "docs(progress): log flexible workflow roles implementation"
 ```
 
 ---
 
-## Review Checklist
+## Self-Review
 
-Since Codex implements this plan externally, use this checklist when reviewing the actual diff against it:
+**Spec coverage:**
+- §1 Data model → Task 1.
+- §2 Admin create backend (Zod floor + route handler) → Task 2 (Zod), Task 3 (route handler — the part missing from the original plan).
+- §3 Admin PATCH merge-then-validate → Task 4.
+- §4 Admin create UI → Task 5.
+- §5 Job-creation garment-slot cross-validation → Task 6.
+- §6 Dispatcher patcher fail-closed → Task 7.
+- §7 Dispatcher processor conditional uploads → Task 8.
+- §8 Regeneration → Task 9.
+- §9 Catalogue history + results display → Task 10.
+- §10 Rollout order → Task 11 (documented; this plan doesn't enforce it mechanically since no feature-flag system exists in this codebase — deploy-ordering discipline is a human/ops process, called out explicitly so it isn't missed).
+- "Confirmed decisions" — both-role workflows (Decision 1) validated by Task 6's independent upper/lower checks; fail-and-refund (Decision 3) implemented by Task 7 (throw) + Task 8 (catch → `markFailed`); admin edit-UI explicitly out of scope, matching Task 4's API-only fix with no corresponding UI task.
 
-1. **Task 1** — Confirm exactly four columns lost `NOT NULL` (`workflow_templates.face_node_id`, `bg_node_id`, `face_phase_prompt_node`; `job_inputs.upper_garment_key`) and nothing else. `pose_node_id` and `garment_phase_prompt_node` must still be `NOT NULL`.
-2. **Task 2/3** — Does the new `CreateWorkflowBody` superRefine actually reject a workflow with neither `upperNodeIds` nor `lowerNodeId`? Does it reject `faceNodeId` set without `facePhasePromptNode`? Does `PATCH` genuinely persist an explicit `null` for `faceNodeId` (not just silently ignore it)?
-3. **Task 4** — Confirm `faceId`/`backgroundId` were **not** touched — only `upperGarmentKey` became optional. If Codex also loosened `faceId`/`backgroundId`, that's scope creep beyond this plan and beyond what the processor/dispatcher changes actually support (their resolution logic was deliberately left unconditional).
-4. **Task 5** — Confirm `poseNodeId`'s `requireNode` call is still unconditional (unguarded) — pose must never become skippable. Confirm the lower/shoe fallback no longer writes `undefined` into a node's `inputs.image` when there's no upper file.
-5. **Task 6** — Confirm the upload step is genuinely conditional (not just wrapped in a try/catch that swallows the error) — the fixed-position `Promise.all` destructure should have `Promise.resolve(undefined)` in the skipped slots, not a `push()`-based array with manual index tracking (the old fragile pattern this task deliberately replaced).
-6. **Task 6, Step 5** — Confirm the two defensive guards were added to the *correct* functions (`processTryonDirectJob`, `processWidgetJob`) and not, say, papered over with a blanket non-null assertion instead of an actual runtime check.
-7. **General** — Nothing in this plan should touch `apps/catalogues-web` (the studio wizard) or `garment_subcategories` — both are explicitly Sub-project B. Flag any such change as out-of-scope.
+**Placeholder scan:** no TBD/TODO markers.
+
+**Type consistency:** `WorkflowInputs.upperGarmentFile`/`faceSideFile`/`backgroundFile` all `string | undefined` (Task 7) matches the conditional extraction in Task 8 exactly. `pw.upperNodeIds: string[]` threaded consistently from the `mappingPoseWorkflows` select (Task 6) through the fallback branch to the validation loop. `markFailed`'s `errorCode: string` parameter (verified against `processor.ts`'s existing signature) accepts the new `'MISSING_GARMENT_INPUT'` literal with no signature change needed.
