@@ -146,21 +146,13 @@ export async function processJob(
     return;
   }
 
-  // Saree jobs: kind === 'saree' in jobInputs.params. Two image inputs (model + saree),
-  // admin-configured modelKey and user-uploaded garmentKey. Saree jobs route to
-  // workers with 'saree' in their allowedJobTypes (selectWorker below).
-  if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree') {
-    await processSareeJob(
-      cfg,
-      job,
-      inputs,
-      rawParams,
-      userId,
-      stream,
-      messageId,
-      jobLog,
-      startedAt,
-    );
+  // Saree mannequin (step-1) jobs: kind === 'saree_mannequin' in jobInputs.params.
+  // Draped-mannequin generation, run once per flat-saree job regardless of pose
+  // count; 0 credits; never surfaced to the user (see createSareeMannequinJob).
+  // Has faceId (the selected model) but no backgroundId/poseId — that combination
+  // distinguishes it from every other job shape.
+  if (!inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree_mannequin') {
+    await processSareeMannequinJob(cfg, job, inputs, userId, stream, messageId, jobLog, startedAt);
     return;
   }
 
@@ -711,21 +703,18 @@ async function processTryonDirectJob(
   }
 }
 
-// ── Saree job processor ────────────────────────────────────────────────────
+// ── Saree mannequin (step-1) job processor ─────────────────────────────────
 
-type SareeJob = {
+type SareeMannequinJob = {
   id: string;
-  creditsCharged: number;
   attempts: number;
   createdAt: Date;
-  watermark: boolean;
 };
 
-async function processSareeJob(
+async function processSareeMannequinJob(
   cfg: ProcessorConfig,
-  job: SareeJob,
+  job: SareeMannequinJob,
   inputs: typeof schema.jobInputs.$inferSelect,
-  params: Record<string, unknown>,
   userId: string,
   stream: string,
   messageId: string,
@@ -735,26 +724,45 @@ async function processSareeJob(
   const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
 
-  const modelKey = params.modelKey as string | undefined;
-  const workflowTemplateId = params.workflowTemplateId as string | undefined;
   const garmentKey = inputs.upperGarmentKey;
+  const faceId = inputs.faceId;
+  const garmentTypeId = inputs.garmentTypeId;
 
-  if (!modelKey || !workflowTemplateId || !garmentKey) {
+  if (!garmentKey || !faceId || !garmentTypeId) {
     await markFailed(
       cfg,
       jobId,
       userId,
       stream,
       messageId,
-      'SARE_INPUTS_MISSING',
+      'MANNEQUIN_INPUTS_MISSING',
       jobLog,
       startedAt,
     );
     return;
   }
 
-  // Load saree workflow template. Saree flows reuse the tryon*_node_id columns
-  // on workflow_templates (the admin route writes those columns at upload time).
+  const [garmentType] = await db
+    .select({
+      mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
+    })
+    .from(schema.garmentSubcategories)
+    .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+  const workflowTemplateId = garmentType?.mannequinWorkflowTemplateId;
+  if (!workflowTemplateId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_WORKFLOW_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
   const [template] = await db
     .select({
       jsonContent: schema.workflowTemplates.jsonContent,
@@ -764,7 +772,6 @@ async function processSareeJob(
     })
     .from(schema.workflowTemplates)
     .where(eq(schema.workflowTemplates.id, workflowTemplateId));
-
   if (!template) {
     await markFailed(
       cfg,
@@ -779,43 +786,40 @@ async function processSareeJob(
     return;
   }
 
-  const modelNodeId = template.tryonPersonNodeId;
-  const sareeNodeId = template.tryonGarmentNodeId;
+  const personNodeId = template.tryonPersonNodeId;
+  const garmentNodeId = template.tryonGarmentNodeId;
   const outputNodeId = template.tryonOutputNodeId;
-
-  if (!modelNodeId || !sareeNodeId || !outputNodeId) {
+  if (!personNodeId || !garmentNodeId || !outputNodeId) {
     await markFailed(
       cfg,
       jobId,
       userId,
       stream,
       messageId,
-      'SARE_NODES_NOT_CONFIGURED',
+      'MANNEQUIN_NODES_NOT_CONFIGURED',
       jobLog,
       startedAt,
     );
     return;
   }
 
+  const [faceRow] = await db
+    .select({ r2Key: schema.modelFaces.r2Key, faceSideR2Key: schema.modelFaces.faceSideR2Key })
+    .from(schema.modelFaces)
+    .where(eq(schema.modelFaces.id, faceId));
+  if (!faceRow) {
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
+    return;
+  }
+  const personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
+
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
 
-  // Saree jobs route to workers with 'saree' in their allowedJobTypes. Workers
-  // self-declare this in the workers table (admin can edit from the Workers page).
   const worker = await selectWorker(redis, 'saree');
   if (!worker) {
     if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
-      jobLog.warn('no idle saree worker — job exceeded max queue wait, terminating with refund');
-      await terminateJob(
-        cfg,
-        jobId,
-        userId,
-        stream,
-        messageId,
-        'NO_WORKER',
-        job.creditsCharged,
-        jobLog,
-        startedAt,
-      );
+      jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
+      await terminateJob(cfg, jobId, userId, stream, messageId, 'NO_WORKER', 0, jobLog, startedAt);
     } else {
       jobLog.warn('no idle saree worker — re-enqueuing with backoff');
       await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
@@ -827,7 +831,7 @@ async function processSareeJob(
     return;
   }
   const w = worker;
-  jobLog.info({ workerId: w.id }, 'worker claimed for saree');
+  jobLog.info({ workerId: w.id }, 'worker claimed for saree mannequin');
 
   try {
     async function r2Download(key: string): Promise<Uint8Array> {
@@ -844,32 +848,31 @@ async function processSareeJob(
       return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
     }
 
-    jobLog.info('uploading saree inputs to ComfyUI');
-    const [modelFile, sareeFile] = await Promise.all([
-      uploadToComfy(modelKey, 'saree_model'),
-      uploadToComfy(garmentKey, 'saree_garment'),
+    jobLog.info('uploading mannequin inputs to ComfyUI');
+    const [personFile, garmentFile] = await Promise.all([
+      uploadToComfy(personKey, 'mannequin_person'),
+      uploadToComfy(garmentKey, 'mannequin_garment'),
     ]);
-    jobLog.info({ modelFile, sareeFile }, 'saree inputs uploaded');
+    jobLog.info({ personFile, garmentFile }, 'mannequin inputs uploaded');
 
-    // Clone and patch workflow
     const workflow = structuredClone(template.jsonContent) as Record<
       string,
       { inputs?: Record<string, unknown> }
     >;
-    if (workflow[modelNodeId]?.inputs) {
+    if (workflow[personNodeId]?.inputs) {
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
-      workflow[modelNodeId].inputs!.image = modelFile;
+      workflow[personNodeId].inputs!.image = personFile;
     }
-    if (workflow[sareeNodeId]?.inputs) {
+    if (workflow[garmentNodeId]?.inputs) {
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
-      workflow[sareeNodeId].inputs!.image = sareeFile;
+      workflow[garmentNodeId].inputs!.image = garmentFile;
     }
 
     await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
     const comfyStartedAt = Date.now();
     const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
-    jobLog.info({ promptId }, 'saree prompt submitted');
+    jobLog.info({ promptId }, 'mannequin prompt submitted');
 
     await db.insert(schema.jobEvents).values({
       jobId,
@@ -879,7 +882,7 @@ async function processSareeJob(
         workerId: w.id,
         workerUrl: w.url,
         workflowTemplateId,
-        inputs: { modelKey, garmentKey, modelFile, sareeFile },
+        inputs: { garmentKey, personKey, personFile, garmentFile },
       },
     });
 
@@ -897,16 +900,16 @@ async function processSareeJob(
     await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
     const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
     const [firstImage] = outputImages;
-    if (!firstImage) throw new Error('ComfyUI returned no output images for saree job');
+    if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin job');
 
     const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
 
-    // Finalize: upload result + thumbnail, write job_outputs, transition COMPLETED.
+    // Mannequin images are never delivered to the user — no watermark applies.
     await finalizeOutput({
       imageBytes,
       jobId,
       userId,
-      jobWatermark: job.watermark,
+      jobWatermark: false,
       db,
       pub,
       s3,
@@ -916,9 +919,9 @@ async function processSareeJob(
     await redis.xack(stream, 'dispatcher-cg', messageId);
     await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt);
-    jobLog.info('saree job completed successfully');
+    jobLog.info('mannequin job completed successfully');
   } catch (err) {
-    jobLog.error({ err }, 'saree job processing error');
+    jobLog.error({ err }, 'mannequin job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
     await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
