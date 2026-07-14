@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
+import { SIMPLE_TRYON_COST } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service.js';
@@ -256,7 +257,7 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
         .from(schema.jobs)
         .where(eq(schema.jobs.id, regenJobId));
       expect(regenJob.parentJobId).toBe(tryonDirectJobId);
-      expect(regenJob.creditsCharged).toBe(35);
+      expect(regenJob.creditsCharged).toBe(SIMPLE_TRYON_COST);
 
       const [regenInputs] = await app.db
         .select()
@@ -270,6 +271,185 @@ describe('regenerate — reuses job-creation pipeline, never a separate implemen
   });
 
   describe('studio (catalogue) job regenerate — pose-workflow parity', () => {
+    it('regenerates a lower-only original job without requiring an upper garment', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-lower-only@x.com', 'free');
+      await grantCredits(userId, 100);
+      const [face] = await app.db
+        .insert(schema.modelFaces)
+        .values({ gender: 'men', label: 'F', r2Key: 'f.jpg', thumbnailKey: 'f.jpg' })
+        .returning();
+      const [bg] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({ label: 'B', r2Key: 'b.jpg', thumbnailKey: 'b.jpg' })
+        .returning();
+      const [workflow] = await app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `regen-lower-${randomUUID()}`,
+          label: 'Lower only',
+          jsonContent: {},
+          poseNodeId: '2',
+          upperNodeIds: [],
+          lowerNodeId: '7',
+          garmentPhasePromptNode: '6',
+        })
+        .returning();
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({
+          label: 'Lower pose',
+          r2Key: 'p.jpg',
+          thumbnailKey: 'p.jpg',
+          workflowTemplateId: workflow.id,
+        })
+        .returning();
+      const garmentKey = `inputs/${userId}/garment.jpg`;
+      await bindUploadKey(userId, garmentKey);
+      const [original] = await app.db
+        .insert(schema.jobs)
+        .values({ userId, status: 'COMPLETED', creditsCharged: 35 })
+        .returning();
+      await app.db.insert(schema.jobInputs).values({
+        jobId: original.id,
+        upperGarmentKey: null,
+        lowerGarmentKey: garmentKey,
+        faceId: face.id,
+        backgroundId: bg.id,
+        poseId: pose.id,
+        params: { aspectRatio: '1:1', resolution: '2K' },
+      });
+      const response = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${original.id}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode).toBe(201);
+    });
+
+    it('regenerates after the upload-ownership Redis binding has expired', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-expired-upload@x.com', 'free');
+      await grantCredits(userId, 100);
+      const [face] = await app.db
+        .insert(schema.modelFaces)
+        .values({ gender: 'men', label: 'F', r2Key: 'f.jpg', thumbnailKey: 'f.jpg' })
+        .returning();
+      const [bg] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({ label: 'B', r2Key: 'b.jpg', thumbnailKey: 'b.jpg' })
+        .returning();
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({ label: 'P', r2Key: 'p.jpg', thumbnailKey: 'p.jpg' })
+        .returning();
+      const garmentKey = `inputs/${userId}/garment.jpg`;
+      await bindUploadKey(userId, garmentKey);
+      const [original] = await app.db
+        .insert(schema.jobs)
+        .values({ userId, status: 'COMPLETED', creditsCharged: 35 })
+        .returning();
+      await app.db.insert(schema.jobInputs).values({
+        jobId: original.id,
+        upperGarmentKey: garmentKey,
+        faceId: face.id,
+        backgroundId: bg.id,
+        poseId: pose.id,
+        params: { aspectRatio: '1:1', resolution: '2K' },
+      });
+      await app.redis.del(`upload:owner:${garmentKey}`);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${original.id}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode).toBe(201);
+    });
+
+    it('preserves catalogue-template mapping context when regenerating', async () => {
+      await seedCreditPlan('free', false);
+      const { token, userId } = await registerUser('regen-mapped-template@x.com', 'free');
+      await grantCredits(userId, 100);
+      const [face] = await app.db
+        .insert(schema.modelFaces)
+        .values({ gender: 'men', label: 'F', r2Key: 'f.jpg', thumbnailKey: 'f.jpg' })
+        .returning();
+      const [bg] = await app.db
+        .insert(schema.modelBackgrounds)
+        .values({ label: 'B', r2Key: 'b.jpg', thumbnailKey: 'b.jpg' })
+        .returning();
+      const [pose] = await app.db
+        .insert(schema.modelPoseAssets)
+        .values({ label: 'Mapped pose', r2Key: 'p.jpg', thumbnailKey: 'p.jpg' })
+        .returning();
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({ genderSlug: 'men', slug: `regen-shirt-${randomUUID()}`, label: 'Shirt' })
+        .returning();
+      const [template] = await app.db
+        .insert(schema.catalogueTemplates)
+        .values({ genderSlug: 'men', label: 'Mapped template' })
+        .returning();
+      await app.db.insert(schema.catalogueTemplateLooks).values({
+        templateId: template.id,
+        poseAssetId: pose.id,
+        backgroundId: bg.id,
+      });
+      const [mapping] = await app.db
+        .insert(schema.catalogueTemplateSubcategories)
+        .values({ templateId: template.id, subcategoryId: garmentType.id })
+        .returning();
+      const [workflow] = await app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `regen-mapped-${randomUUID()}`,
+          label: 'Mapped workflow',
+          jsonContent: {},
+          poseNodeId: '2',
+          upperNodeIds: ['4'],
+          garmentPhasePromptNode: '6',
+        })
+        .returning();
+      await app.db.insert(schema.catalogueTemplatePoseWorkflows).values({
+        mappingId: mapping.id,
+        poseAssetId: pose.id,
+        workflowTemplateId: workflow.id,
+      });
+      const garmentKey = `inputs/${userId}/garment.jpg`;
+      await bindUploadKey(userId, garmentKey);
+      const [original] = await app.db
+        .insert(schema.jobs)
+        .values({ userId, status: 'COMPLETED', creditsCharged: 35 })
+        .returning();
+      await app.db.insert(schema.jobInputs).values({
+        jobId: original.id,
+        upperGarmentKey: garmentKey,
+        faceId: face.id,
+        backgroundId: bg.id,
+        poseId: pose.id,
+        garmentTypeId: garmentType.id,
+        params: {
+          aspectRatio: '1:1',
+          resolution: '2K',
+          catalogueTemplateMappingId: mapping.id,
+          workflowTemplateId: workflow.id,
+        },
+      });
+      const response = await app.inject({
+        method: 'POST',
+        url: `/v1/jobs/${original.id}/regenerate`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode).toBe(201);
+      const [newInputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, response.json().jobId));
+      expect((newInputs.params as Record<string, unknown>).catalogueTemplateMappingId).toBe(
+        mapping.id,
+      );
+    });
+
     it('re-derives lower/shoe stripping from the CURRENT pose workflow, not the stale original inputs', async () => {
       await seedCreditPlan('free', false);
       const { token, userId } = await registerUser('regen-studio@x.com', 'free');

@@ -18,42 +18,18 @@ import {
   getResolutionCreditCost,
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
+import { assertGarmentObjectValid, assertOwnsUploadKey } from '../../lib/upload-ownership.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
 
-/** Max accepted garment upload size — mirrors the presign zod cap. */
-const MAX_GARMENT_BYTES = 10 * 1024 * 1024;
-
-/**
- * Reject a garment key that was not presigned for this user. The presign route
- * records `upload:owner:<key> -> userId`; a key bound to nobody (expired/never
- * issued) or to another user fails here.
- *
- * Also enforces the upload size (M2): the presigned PUT can't bind size at sign
- * time, so we verify the actually-uploaded object via HEAD before accepting the
- * job. Doubles as an existence check.
- */
-export async function assertOwnsUploadKey(app: FastifyInstance, userId: string, key: string) {
-  const owner = await app.redis.get(`upload:owner:${key}`);
-  if (owner !== userId) {
-    throw new AppError('FORBIDDEN', 403, 'upload key not owned by caller');
-  }
-  let head: { contentLength: number };
-  try {
-    head = await app.storage.headObject(key);
-  } catch {
-    throw new AppError('BAD_UPLOAD', 400, 'uploaded garment not found');
-  }
-  if (head.contentLength > MAX_GARMENT_BYTES) {
-    throw new AppError('BAD_UPLOAD', 413, 'uploaded garment exceeds size limit');
-  }
-}
+export { assertOwnsUploadKey } from '../../lib/upload-ownership.js';
 
 export async function createJob(
   app: FastifyInstance,
   userId: string,
   body: z.infer<typeof CreateTryOnJobRequest>,
+  opts?: { trustedGarmentKeys?: Set<string> },
 ) {
   const {
     faceId,
@@ -99,8 +75,15 @@ export async function createJob(
   // caller owns the object — another user's key has the same shape. Verify each
   // garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
   // before any credit/DB mutation.
-  if (upperGarmentKey) await assertOwnsUploadKey(app, userId, upperGarmentKey);
-  if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
+  async function verifyGarmentKey(key: string) {
+    if (opts?.trustedGarmentKeys?.has(key)) {
+      await assertGarmentObjectValid(app, key);
+      return;
+    }
+    await assertOwnsUploadKey(app, userId, key);
+  }
+  if (upperGarmentKey) await verifyGarmentKey(upperGarmentKey);
+  if (lowerGarmentKey) await verifyGarmentKey(lowerGarmentKey);
 
   // Normalize to a single per-look list. This only rejects "neither form present" —
   // it does not independently re-enforce "not both", since CreateTryOnJobInputs's
