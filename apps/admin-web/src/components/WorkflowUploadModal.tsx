@@ -245,15 +245,19 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       }
     } else {
       if (!parsed) return;
-      if (!faceNodeId || !poseNodeId || !bgNodeId || !positivePromptNode || !negativePromptNode) {
-        setError(
-          'Face, pose, background, positive prompt, and negative prompt nodes are all required',
-        );
+      if (!poseNodeId || !positivePromptNode) {
+        setError('Pose and positive prompt nodes are required');
+        return;
+      }
+      if (faceNodeId && !negativePromptNode) {
+        setError('Negative prompt node is required when a face node is set');
         return;
       }
       const validUpperIds = upperNodeIds.filter(Boolean);
-      if (validUpperIds.length === 0) {
-        setError('At least one upper garment node is required');
+      if (validUpperIds.length === 0 && !lowerNodeId) {
+        setError(
+          'At least one garment role is required - set an upper garment node or a lower garment node',
+        );
         return;
       }
     }
@@ -284,9 +288,9 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           label: label.trim(),
           jsonContent,
           workflowType: 'regular',
-          faceNodeId,
+          faceNodeId: faceNodeId || undefined,
           poseNodeId,
-          bgNodeId,
+          bgNodeId: bgNodeId || undefined,
           upperNodeIds: validUpperIds,
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
@@ -296,7 +300,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           ...(resultNodeId ? { resultNodeId } : {}),
           // positive → garmentPhasePromptNode (DB field name)
           // negative → facePhasePromptNode    (DB field name)
-          facePhasePromptNode: negativePromptNode,
+          facePhasePromptNode: negativePromptNode || undefined,
           garmentPhasePromptNode: positivePromptNode,
         };
       }
@@ -349,12 +353,10 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
         positivePromptNode &&
         negativePromptNode
       : parsed &&
-        faceNodeId &&
         poseNodeId &&
-        bgNodeId &&
         positivePromptNode &&
-        negativePromptNode &&
-        upperNodeIds.filter(Boolean).length > 0);
+        (!faceNodeId || negativePromptNode) &&
+        (upperNodeIds.filter(Boolean).length > 0 || lowerNodeId));
 
   return (
     <div className="modal-overlay" onClick={saving || parsing ? undefined : onClose}>
@@ -695,14 +697,18 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 needed.
               </p>
 
-              {/* Required image nodes */}
+              <span style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginTop: 4 }}>
+                Leave face and background blank for a lower/inner-wear-only workflow - at least one
+                of upper or lower garment node is still required.
+              </span>
+
+              {/* Core image nodes */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <NodeSelect
                   label="Face node"
                   nodes={nodes.image}
                   value={faceNodeId}
                   onChange={setFaceNodeId}
-                  required
                   disabled={saving}
                   hint='Title convention: "face"'
                 />
@@ -720,7 +726,6 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                   nodes={nodes.image}
                   value={bgNodeId}
                   onChange={setBgNodeId}
-                  required
                   disabled={saving}
                   hint='Title convention: "background"'
                 />
@@ -729,7 +734,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               {/* Upper garment — can have multiple */}
               <div className="field">
                 <label style={{ fontSize: 12, fontWeight: 600 }}>
-                  Upper garment node(s) <span style={{ color: 'var(--danger)' }}>*</span>
+                  Upper garment node(s)
                   <span
                     style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}
                   >
@@ -783,7 +788,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               {/* Optional image nodes */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <NodeSelect
-                  label="Lower garment node (optional)"
+                  label="Lower garment node"
                   nodes={nodes.image}
                   value={lowerNodeId}
                   onChange={setLowerNodeId}
@@ -822,7 +827,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                   nodes={nodes.prompt}
                   value={negativePromptNode}
                   onChange={setNegativePromptNode}
-                  required
+                  required={!!faceNodeId}
                   disabled={saving}
                   hint='Title convention: "negative_prompt"'
                 />
