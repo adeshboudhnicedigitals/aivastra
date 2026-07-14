@@ -1162,15 +1162,21 @@ git commit -m "feat(api): add resolveMannequinGarmentKey ownership helper"
 
 ### Task 9: Widen `CreateTryOnJobInputs` with `mannequinJobId`
 
+> **AMENDMENT (pre-flight drift check, 2026-07-14):** origin/master added a
+> `catalogueTemplateMappingId` field to this schema since the plan was
+> written, and dropped `poseIds`'s `.max(6)` cap. The find/replace below is
+> updated to match; `catalogueTemplateMappingId` is untouched, just carried
+> through.
+
 **Files:**
-- Modify: `packages/types/src/jobs.ts:36-62`
+- Modify: `packages/types/src/jobs.ts:36-63` (verify live — line count may have drifted further)
 
 **Interfaces:**
 - Produces: `CreateTryOnJobInputs.upperGarmentKey` becomes optional; adds `mannequinJobId: uuid optional`; new refine enforcing exactly one of the two present. Consumed by Task 10's `createJob()`.
 
 - [ ] **Step 1: Widen the schema**
 
-In `packages/types/src/jobs.ts:36-62`, find:
+In `packages/types/src/jobs.ts`, find (current lines 36-63):
 ```ts
 export const CreateTryOnJobInputs = z
   .object({
@@ -1178,7 +1184,7 @@ export const CreateTryOnJobInputs = z
     faceId: z.string().uuid(),
     // Legacy/custom form: a single shared background applied to every pose.
     backgroundId: z.string().uuid().optional(),
-    poseIds: z.array(z.string().uuid()).min(1).max(6).optional(),
+    poseIds: z.array(z.string().uuid()).min(1).optional(),
     // Template form: each pose carries its own background. Exactly one of
     // (backgroundId + poseIds) or looks must be provided — enforced below.
     looks: z
@@ -1192,6 +1198,7 @@ export const CreateTryOnJobInputs = z
       .max(12)
       .optional(),
     garmentTypeId: z.string().uuid().optional(),
+    catalogueTemplateMappingId: z.string().uuid().optional(),
     lowerCatalogId: z.string().uuid().optional(),
     lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
     shoeCatalogId: z.string().uuid().optional(),
@@ -1213,7 +1220,7 @@ export const CreateTryOnJobInputs = z
     faceId: z.string().uuid(),
     // Legacy/custom form: a single shared background applied to every pose.
     backgroundId: z.string().uuid().optional(),
-    poseIds: z.array(z.string().uuid()).min(1).max(6).optional(),
+    poseIds: z.array(z.string().uuid()).min(1).optional(),
     // Template form: each pose carries its own background. Exactly one of
     // (backgroundId + poseIds) or looks must be provided — enforced below.
     looks: z
@@ -1227,6 +1234,7 @@ export const CreateTryOnJobInputs = z
       .max(12)
       .optional(),
     garmentTypeId: z.string().uuid().optional(),
+    catalogueTemplateMappingId: z.string().uuid().optional(),
     lowerCatalogId: z.string().uuid().optional(),
     lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
     shoeCatalogId: z.string().uuid().optional(),
@@ -1256,13 +1264,31 @@ git commit -m "feat(types): add mannequinJobId as an upperGarmentKey alternative
 
 ### Task 10: `createJob()` — support the `mannequinJobId` branch
 
+> **AMENDMENT (pre-flight drift check, 2026-07-14):** origin/master gained a
+> `catalogueTemplateMappingId` feature since this task was written.
+> `createJob()` now spans lines 53-516 (not 53-372), and — critically — it
+> resolves per-pose `lowerNodeId`/`shoeNodeId`/`sizeNodeIds` for validation
+> and for `job_inputs` row construction from either `mappingPoseWorkflows`
+> (catalogue-template path) or `poseWorkflowRows` (the pose's own
+> `workflowTemplateId`, or a `pose_garment_configs` override) — see the
+> `poseWorkflows =` assignment. Neither source is correct for flat-saree: the
+> pose's own default workflow has nothing to do with the fixed
+> `sareeStep2WorkflowTemplateId` the dispatcher will actually use (Task 14).
+> Left unfixed, a flat-saree job's lower/shoe validation and
+> `job_inputs.lowerCatalogId`/`shoeCatalogId` would reflect the wrong
+> workflow's node IDs. Step 3 below is expanded to also resolve
+> `sareeStep2`'s `lowerNodeId`/`shoeNodeId`/`sizeNodeIds` and short-circuit
+> the `poseWorkflows` assignment the same way Task 14 short-circuits the
+> dispatcher's resolution. Re-locate all anchors by content — line numbers
+> below are a starting point, not gospel.
+
 **Files:**
-- Modify: `apps/api/src/modules/jobs/create.ts:53-372` (`createJob` function)
+- Modify: `apps/api/src/modules/jobs/create.ts` (currently lines 53-516, `createJob` function — verify live)
 - Test: `apps/api/test/integration/jobs-create-mannequin.test.ts` (new)
 
 **Interfaces:**
 - Consumes: `resolveMannequinGarmentKey` (Task 8, same file), `CreateTryOnJobInputs.mannequinJobId` (Task 9).
-- Produces: when a garment type has `requiresMannequinStep=true`, `createJob()` requires `mannequinJobId` (rejects `upperGarmentKey`) and writes the resolved mannequin output key as every look's `job_inputs.upperGarmentKey`; when `requiresMannequinStep=false`, behavior is unchanged (rejects `mannequinJobId`).
+- Produces: when a garment type has `requiresMannequinStep=true`, `createJob()` requires `mannequinJobId` (rejects `upperGarmentKey`), writes the resolved mannequin output key as every look's `job_inputs.upperGarmentKey`, and resolves lower/shoe validation + `job_inputs.lowerCatalogId`/`shoeCatalogId` from the garment type's fixed `sareeStep2WorkflowTemplateId` for every pose (not the pose's own default workflow or any `pose_garment_configs` override); when `requiresMannequinStep=false`, behavior is unchanged (rejects `mannequinJobId`).
 
 - [ ] **Step 1: Write the failing integration test**
 
@@ -1490,16 +1516,24 @@ Expected: the first test FAILs — `createJob()` doesn't destructure `mannequinJ
 
 - [ ] **Step 3: Modify `createJob()`**
 
-In `apps/api/src/modules/jobs/create.ts`, find the destructuring at the top of `createJob` (line 58-60):
+In `apps/api/src/modules/jobs/create.ts`, find the destructuring at the top of `createJob` (current lines 58-66 — `catalogueTemplateMappingId` is already there from the unrelated mapping feature, leave it untouched):
 ```ts
-  const { faceId, garmentTypeId, upperGarmentKey, lowerCatalogId, lowerGarmentKey, shoeCatalogId } =
-    body.inputs;
+  const {
+    faceId,
+    garmentTypeId,
+    catalogueTemplateMappingId,
+    upperGarmentKey,
+    lowerCatalogId,
+    lowerGarmentKey,
+    shoeCatalogId,
+  } = body.inputs;
 ```
 Replace with:
 ```ts
   const {
     faceId,
     garmentTypeId,
+    catalogueTemplateMappingId,
     upperGarmentKey,
     mannequinJobId,
     lowerCatalogId,
@@ -1508,7 +1542,7 @@ Replace with:
   } = body.inputs;
 ```
 
-A few lines below, find:
+A few lines below (current lines 98-103), find:
 ```ts
   // H2: keys are format-pinned by zod, but the format alone does not prove the
   // caller owns the object — another user's key has the same shape. Verify each
@@ -1520,15 +1554,41 @@ A few lines below, find:
 Replace with:
 ```ts
   // Flat-saree (and any future two-pass) garment types resolve their garment
-  // input from a completed mannequin job instead of a fresh upload — resolve
-  // that here so the rest of createJob is unaware of the distinction.
+  // input from a completed mannequin job instead of a fresh upload, and use a
+  // single fixed step-2 workflow for every pose (its own lowerNodeId/shoeNodeId
+  // govern validation below) instead of each pose's own default workflow or any
+  // pose_garment_configs override.
   let requiresMannequinStep = false;
+  let sareeStep2: {
+    workflowTemplateId: string | null;
+    lowerNodeId: string | null;
+    shoeNodeId: string | null;
+    sizeNodeIds: string[] | null;
+  } | null = null;
   if (garmentTypeId) {
-    const [gtCheck] = await app.db
-      .select({ requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep })
+    const [gtRow] = await app.db
+      .select({
+        requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+        sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
+        sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
+        sareeStep2ShoeNodeId: schema.workflowTemplates.shoeNodeId,
+        sareeStep2SizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+      })
       .from(schema.garmentSubcategories)
+      .leftJoin(
+        schema.workflowTemplates,
+        eq(schema.workflowTemplates.id, schema.garmentSubcategories.sareeStep2WorkflowTemplateId),
+      )
       .where(eq(schema.garmentSubcategories.id, garmentTypeId));
-    requiresMannequinStep = gtCheck?.requiresMannequinStep ?? false;
+    requiresMannequinStep = gtRow?.requiresMannequinStep ?? false;
+    if (requiresMannequinStep) {
+      sareeStep2 = {
+        workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
+        lowerNodeId: gtRow?.sareeStep2LowerNodeId ?? null,
+        shoeNodeId: gtRow?.sareeStep2ShoeNodeId ?? null,
+        sizeNodeIds: gtRow?.sareeStep2SizeNodeIds ?? null,
+      };
+    }
   }
   if (requiresMannequinStep && !mannequinJobId) {
     throw new AppError('VALIDATION', 400, 'mannequinJobId required for this garment type');
@@ -1552,7 +1612,46 @@ Replace with:
   if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
 ```
 
-Finally, find the per-look insert inside the transaction loop:
+Further down, find the `poseWorkflows` assignment (current lines 379-390 — it follows the `mappingPoseWorkflows` block and the `poseWorkflowRows` query, both unrelated to this task and left untouched):
+```ts
+  const poseWorkflows =
+    mappingPoseWorkflows ??
+    poseWorkflowRows.map((r) => ({
+      poseId: r.poseId,
+      workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+      promptGarmentPhase: null,
+      lowerNodeId:
+        r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
+      shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+      sizeNodeIds:
+        r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
+    }));
+```
+Replace with:
+```ts
+  const poseWorkflows = requiresMannequinStep
+    ? distinctPoseIds.map((poseId) => ({
+        poseId,
+        workflowTemplateId: sareeStep2?.workflowTemplateId ?? null,
+        promptGarmentPhase: null,
+        lowerNodeId: sareeStep2?.lowerNodeId ?? null,
+        shoeNodeId: sareeStep2?.shoeNodeId ?? null,
+        sizeNodeIds: sareeStep2?.sizeNodeIds ?? null,
+      }))
+    : (mappingPoseWorkflows ??
+      poseWorkflowRows.map((r) => ({
+        poseId: r.poseId,
+        workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+        promptGarmentPhase: null,
+        lowerNodeId:
+          r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
+        shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+        sizeNodeIds:
+          r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
+      })));
+```
+
+Finally, find the per-look insert inside the transaction loop (current line 453-455):
 ```ts
       await tx.insert(schema.jobInputs).values({
         jobId: job.id,
@@ -2290,8 +2389,19 @@ git commit -m "feat(dispatcher): replace processSareeJob with processSareeManneq
 
 ### Task 14: Dispatcher — `requiresMannequinStep` short-circuit for the regular per-pose workflow resolution
 
+> **AMENDMENT (pre-flight drift check, 2026-07-14):** origin/master gained a
+> `snapshottedWorkflowTemplateId` precedence tier (catalogue-template-mapping
+> feature) between this task was written and execution. It reads
+> `rawParams.workflowTemplateId`, which `createJob()` only ever sets when the
+> request carries a `catalogueTemplateMappingId` (see `create.ts:474`) —
+> flat-saree requests never set that, so the tier is always a no-op for
+> `requiresMannequinStep` jobs. The short-circuit below still belongs inside
+> the `else if (inputs.garmentTypeId)` branch, unchanged in intent; only the
+> file's line numbers and the surrounding "find" text moved. Use the updated
+> find/replace below, not the original line range.
+
 **Files:**
-- Modify: `apps/dispatcher/src/job/processor.ts:208-231`
+- Modify: `apps/dispatcher/src/job/processor.ts:208-238` (current line numbers — verify live, do not trust blindly)
 - Test: `apps/dispatcher/test/integration/saree-step2-workflow-override.test.ts` (new)
 
 **Interfaces:**
@@ -2467,13 +2577,20 @@ Expected: FAILs — `dispatchEvent.payload.workflowTemplateId` currently equals 
 
 - [ ] **Step 3: Add the short-circuit**
 
-In `apps/dispatcher/src/job/processor.ts:208-231`, find:
+In `apps/dispatcher/src/job/processor.ts`, find (current lines 208-238 — re-locate by content if line numbers have drifted further):
 ```ts
   // If job has a garmentTypeId, check for per-type workflow/prompt overrides.
   let effectiveWorkflowTemplateId = poseRow.workflowTemplateId;
   let effectivePromptFacePhase = poseRow.promptFacePhase;
   let effectivePromptGarmentPhase = poseRow.promptGarmentPhase;
-  if (inputs.garmentTypeId) {
+  const snapshottedWorkflowTemplateId =
+    typeof rawParams.workflowTemplateId === 'string' ? rawParams.workflowTemplateId : null;
+  if (snapshottedWorkflowTemplateId) {
+    effectiveWorkflowTemplateId = snapshottedWorkflowTemplateId;
+    effectivePromptFacePhase = null;
+    effectivePromptGarmentPhase =
+      typeof rawParams.promptGarmentPhase === 'string' ? rawParams.promptGarmentPhase : null;
+  } else if (inputs.garmentTypeId) {
     const [cfgRow] = await db
       .select({
         workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
@@ -2494,13 +2611,20 @@ In `apps/dispatcher/src/job/processor.ts:208-231`, find:
     }
   }
 ```
-Replace with:
+Replace with (the `snapshottedWorkflowTemplateId` branch is untouched — the new short-circuit nests inside the `else if (inputs.garmentTypeId)` branch, ahead of the `pose_garment_configs` lookup):
 ```ts
   // If job has a garmentTypeId, check for per-type workflow/prompt overrides.
   let effectiveWorkflowTemplateId = poseRow.workflowTemplateId;
   let effectivePromptFacePhase = poseRow.promptFacePhase;
   let effectivePromptGarmentPhase = poseRow.promptGarmentPhase;
-  if (inputs.garmentTypeId) {
+  const snapshottedWorkflowTemplateId =
+    typeof rawParams.workflowTemplateId === 'string' ? rawParams.workflowTemplateId : null;
+  if (snapshottedWorkflowTemplateId) {
+    effectiveWorkflowTemplateId = snapshottedWorkflowTemplateId;
+    effectivePromptFacePhase = null;
+    effectivePromptGarmentPhase =
+      typeof rawParams.promptGarmentPhase === 'string' ? rawParams.promptGarmentPhase : null;
+  } else if (inputs.garmentTypeId) {
     const [garmentTypeRow] = await db
       .select({
         requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
@@ -2512,7 +2636,9 @@ Replace with:
       // Flat-saree (and any future two-pass) garment types use ONE workflow for
       // every pose, set directly on the garment type — bypasses the normal
       // per-pose pose_garment_configs override entirely (a saree pose's own
-      // workflow assignment, if any, is ignored).
+      // workflow assignment, if any, is ignored). Flat-saree jobs never carry
+      // a catalogue-template-mapping snapshot, so in practice this is the
+      // top-precedence tier whenever it applies.
       effectiveWorkflowTemplateId = garmentTypeRow.sareeStep2WorkflowTemplateId;
     } else {
       const [cfgRow] = await db
