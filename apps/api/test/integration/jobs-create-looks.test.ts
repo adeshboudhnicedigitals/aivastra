@@ -200,6 +200,7 @@ describe('createJob — atomic multi-background looks[] form', () => {
       mappingId: mapping.id,
       poseAssetId: poseAId,
       workflowTemplateId: workflow.id,
+      promptGarmentPhase: 'a mapped-template custom prompt',
     });
     const garmentKey = `inputs/${userId}/garment.jpg`;
     await bindUploadKey(userId, garmentKey);
@@ -229,7 +230,82 @@ describe('createJob — atomic multi-background looks[] form', () => {
     expect(inputs?.params).toMatchObject({
       catalogueTemplateMappingId: mapping.id,
       workflowTemplateId: workflow.id,
+      promptGarmentPhase: 'a mapped-template custom prompt',
     });
+  });
+
+  it('omits promptGarmentPhase from the snapshot when no override is configured', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-mapped-no-prompt@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `mapped-shirt-noprompt-${poseAId}`,
+        label: 'Mapped shirt',
+      })
+      .returning();
+    const [template] = await app.db
+      .insert(schema.catalogueTemplates)
+      .values({ genderSlug: 'men', label: 'Mapped template no prompt' })
+      .returning();
+    await app.db.insert(schema.catalogueTemplateLooks).values({
+      templateId: template.id,
+      poseAssetId: poseAId,
+      backgroundId: bgAId,
+    });
+    const [mapping] = await app.db
+      .insert(schema.catalogueTemplateSubcategories)
+      .values({ templateId: template.id, subcategoryId: garmentType.id })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `mapped-job-workflow-noprompt-${poseAId}`,
+        label: 'Mapped job workflow no prompt',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db.insert(schema.catalogueTemplatePoseWorkflows).values({
+      mappingId: mapping.id,
+      poseAssetId: poseAId,
+      workflowTemplateId: workflow.id,
+    });
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          catalogueTemplateMappingId: mapping.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).not.toHaveProperty('promptGarmentPhase');
   });
 
   it('rejects duplicate (poseId, backgroundId) pairs within one looks[] request', async () => {

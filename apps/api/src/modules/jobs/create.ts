@@ -260,6 +260,7 @@ export async function createJob(
             poseId: schema.catalogueTemplateLooks.poseAssetId,
             backgroundId: schema.catalogueTemplateLooks.backgroundId,
             workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+            promptGarmentPhase: schema.catalogueTemplatePoseWorkflows.promptGarmentPhase,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
@@ -323,6 +324,7 @@ export async function createJob(
           return {
             poseId,
             workflowTemplateId: row.workflowTemplateId,
+            promptGarmentPhase: row.promptGarmentPhase,
             lowerNodeId: row.lowerNodeId,
             shoeNodeId: row.shoeNodeId,
             sizeNodeIds: row.sizeNodeIds,
@@ -379,6 +381,7 @@ export async function createJob(
     poseWorkflowRows.map((r) => ({
       poseId: r.poseId,
       workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+      promptGarmentPhase: null,
       lowerNodeId:
         r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
       shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
@@ -472,6 +475,7 @@ export async function createJob(
             ? {
                 catalogueTemplateMappingId,
                 workflowTemplateId: pw?.workflowTemplateId,
+                ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
               }
             : {}),
         },
