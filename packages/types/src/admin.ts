@@ -377,6 +377,9 @@ export const PatchGarmentTypeBody = z.object({
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
   defaultPoseId: z.string().uuid().nullable().optional(),
+  requiresMannequinStep: z.boolean().optional(),
+  mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
