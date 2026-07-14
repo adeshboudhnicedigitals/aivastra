@@ -1,3 +1,21 @@
+## 2026-07-14 - Pose Shot-Type Default Workflows
+
+### Done
+- Added `full` / `half` / `closeup` tags to template-scoped pose assets and a three-slot shot-type workflow default per garment type.
+- Added atomic auto-resolution for existing and future template mappings when a default changes, a template is mapped, template looks are replaced, or a manual per-pose override is cleared.
+- Protected explicit per-pose workflow and prompt choices with `auto` / `manual` provenance so default cascades never overwrite an admin override.
+- Added stale workflow-row cleanup when template looks are replaced, active/deleted asset filtering, no-op update suppression, and duplicate-pose deduplication for templates that reuse one pose across backgrounds.
+- Added admin controls for garment-type shot defaults, shot-type selection during template pose upload, and visible auto-resolution provenance in the mapped-template workflow modal.
+- Replaced the non-scalable requirement to assign one workflow per pose per mapped template with three defaults per garment type, while retaining per-pose overrides for exceptions.
+- Verified 25 focused API integration tests, the 128-test API unit suite, API and admin-web TypeScript checks, and admin-web lint; the admin Vite server also responded successfully in a local smoke start.
+
+### Failed / Not Done
+- The full API integration configuration remains red from pre-existing cross-file shared auth-rate-limit/Redis state and unrelated stale assertions; the feature-specific integration file and existing six-test mapping file pass in isolation.
+- An authenticated browser click-through of default selection, tagged upload, auto-resolution, and manual-override persistence was not performed from the terminal environment.
+
+### Open Questions / Decisions
+- Bulk backfill tooling for existing untagged template poses is intentionally out of scope. Legacy poses become tagged when their look row is re-uploaded as templates are touched going forward.
+
 ## 2026-07-14 - Flexible Workflow Roles
 
 ### Done
