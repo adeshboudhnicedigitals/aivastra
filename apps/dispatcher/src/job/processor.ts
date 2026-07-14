@@ -231,23 +231,40 @@ export async function processJob(
     effectivePromptGarmentPhase =
       typeof rawParams.promptGarmentPhase === 'string' ? rawParams.promptGarmentPhase : null;
   } else if (inputs.garmentTypeId) {
-    const [cfgRow] = await db
+    const [garmentTypeRow] = await db
       .select({
-        workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
-        promptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
-        promptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
+        requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+        sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
       })
-      .from(schema.poseGarmentConfigs)
-      .where(
-        and(
-          eq(schema.poseGarmentConfigs.poseAssetId, inputs.poseId),
-          eq(schema.poseGarmentConfigs.subcategoryId, inputs.garmentTypeId),
-        ),
-      );
-    if (cfgRow) {
-      if (cfgRow.workflowTemplateId) effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
-      if (cfgRow.promptFacePhase) effectivePromptFacePhase = cfgRow.promptFacePhase;
-      if (cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = cfgRow.promptGarmentPhase;
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, inputs.garmentTypeId));
+    if (garmentTypeRow?.requiresMannequinStep) {
+      // Flat-saree (and any future two-pass) garment types use ONE workflow for
+      // every pose, set directly on the garment type — bypasses the normal
+      // per-pose pose_garment_configs override entirely (a saree pose's own
+      // workflow assignment, if any, is ignored). Flat-saree jobs never carry
+      // a catalogue-template-mapping snapshot, so in practice this is the
+      // top-precedence tier whenever it applies.
+      effectiveWorkflowTemplateId = garmentTypeRow.sareeStep2WorkflowTemplateId;
+    } else {
+      const [cfgRow] = await db
+        .select({
+          workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+          promptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
+          promptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
+        })
+        .from(schema.poseGarmentConfigs)
+        .where(
+          and(
+            eq(schema.poseGarmentConfigs.poseAssetId, inputs.poseId),
+            eq(schema.poseGarmentConfigs.subcategoryId, inputs.garmentTypeId),
+          ),
+        );
+      if (cfgRow) {
+        if (cfgRow.workflowTemplateId) effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
+        if (cfgRow.promptFacePhase) effectivePromptFacePhase = cfgRow.promptFacePhase;
+        if (cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = cfgRow.promptGarmentPhase;
+      }
     }
   }
 
