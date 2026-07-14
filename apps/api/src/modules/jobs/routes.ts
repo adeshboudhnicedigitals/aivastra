@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   CreateSareeJobRequest,
+  CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
   CreateTryOnJobRequest,
   SareeConfigResponse,
@@ -14,6 +15,7 @@ import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { createJob, createSimpleTryonJob } from './create.js';
 import { createSareeJob } from './createSaree.js';
+import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
@@ -78,6 +80,26 @@ export async function jobsRoutes(app: FastifyInstance) {
             app,
             req.userId,
             req.body as z.infer<typeof CreateSimpleTryonRequest>,
+          ),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.post(
+    '/v1/jobs/saree-mannequin',
+    { preHandler: app.requireUser, schema: { body: CreateSareeMannequinJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () =>
+          createSareeMannequinJob(
+            app,
+            req.userId,
+            req.body as z.infer<typeof CreateSareeMannequinJobRequest>,
           ),
       );
       reply.code(201);
