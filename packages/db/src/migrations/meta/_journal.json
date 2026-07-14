@@ -771,6 +771,13 @@
       "when": 1784023489676,
       "tag": "0109_sharp_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1784032378174,
+      "tag": "0110_gigantic_ultragirl",
+      "breakpoints": true
     }
   ]
 }

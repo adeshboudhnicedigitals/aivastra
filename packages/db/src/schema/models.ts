@@ -131,6 +131,11 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   label: text('label').notNull(),
   displayName: text('display_name'),
   poseVariant: text('pose_variant'),
+  // 'full' | 'half' | 'closeup' - validated at the Zod layer, not a DB enum, so
+  // adding a category later is a one-line change, not a migration. Set once at
+  // pose-upload time; drives garment_shot_type_workflows auto-resolution for
+  // template-scoped poses.
+  shotType: text('shot_type'),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
   genderSlug: text('gender_slug'),
@@ -273,6 +278,11 @@ export const catalogueTemplatePoseWorkflows = pgTable(
       .notNull()
       .references(() => workflowTemplates.id, { onDelete: 'cascade' }),
     promptGarmentPhase: text('prompt_garment_phase'),
+    // 'auto' = written or last refreshed by the shot-type-default resolver; safe to
+    // overwrite on the next resolve. 'manual' = an admin picked this explicitly via
+    // the per-pose dropdown; the resolver's ON CONFLICT ... WHERE source = 'auto'
+    // guard means it will never touch this row again until the admin clears it.
+    source: text('source').notNull().default('manual'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -282,5 +292,35 @@ export const catalogueTemplatePoseWorkflows = pgTable(
       table.poseAssetId,
     ),
     mappingIdx: index('catalogue_template_pose_workflows_mapping_id_idx').on(table.mappingId),
+  }),
+);
+
+// The 3-slot default per garment type: "poses tagged X use workflow Y". A join
+// table, not fixed columns on garment_subcategories - a 4th shot type later is new
+// rows, not a migration. Setting/changing a row here immediately re-resolves every
+// matching pose across every template mapped to this garment type - see
+// apps/api/src/modules/admin/shot-type-resolve.ts.
+export const garmentShotTypeWorkflows = pgTable(
+  'garment_shot_type_workflows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    garmentTypeId: uuid('garment_type_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+    shotType: text('shot_type').notNull(), // 'full' | 'half' | 'closeup'
+    workflowTemplateId: uuid('workflow_template_id')
+      .notNull()
+      .references(() => workflowTemplates.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqGarmentTypeShotType: unique('garment_shot_type_workflows_garment_type_shot_type_unique').on(
+      table.garmentTypeId,
+      table.shotType,
+    ),
+    garmentTypeIdx: index('garment_shot_type_workflows_garment_type_id_idx').on(
+      table.garmentTypeId,
+    ),
   }),
 );
