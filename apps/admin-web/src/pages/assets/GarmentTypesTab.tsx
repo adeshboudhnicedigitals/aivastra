@@ -81,28 +81,37 @@ export function GarmentTypesTab() {
     [toast],
   );
 
+  const refetchWorkflows = useCallback(() => {
+    // Always refetch, regardless of subView — the "Edit garment type" modal
+    // (with its saree-step-1/step-2 dropdowns) opens directly from the list
+    // view, so workflows must be fresh there too, not just inside "configs".
+    void apiFetch<WorkflowOption[]>('/admin/workflows')
+      .then(setWorkflows)
+      .catch(() => {});
+  }, [setWorkflows]);
+
   useEffect(() => {
     if (subView.kind === 'list') {
       void loadGarmentTypes();
     } else {
       void loadPoseConfigs(subView.sub.id);
-      if (workflows.length === 0) {
-        void apiFetch<WorkflowOption[]>('/admin/workflows')
-          .then(setWorkflows)
-          .catch(() => {});
-      }
     }
-  }, [subView, loadGarmentTypes, loadPoseConfigs, workflows.length, setWorkflows]);
+    refetchWorkflows();
+  }, [subView, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
 
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
-      if (subView.kind === 'list') void loadGarmentTypes();
-      else void loadPoseConfigs(subView.sub.id);
+      if (subView.kind === 'list') {
+        void loadGarmentTypes();
+      } else {
+        void loadPoseConfigs(subView.sub.id);
+      }
+      refetchWorkflows();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [subView, loadGarmentTypes, loadPoseConfigs]);
+  }, [subView, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
 
   useEffect(() => {
     apiFetch<TryonCategory[]>('/admin/tryon-categories')
