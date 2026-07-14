@@ -89,6 +89,12 @@ export const CreateSimpleTryonRequest = z.object({
   sourceJobId: z.string().uuid(),
 });
 
+export const CreateSareeMannequinJobRequest = z.object({
+  garmentTypeId: z.string().uuid(),
+  garmentKey: z.string().regex(INPUT_GARMENT_KEY),
+  faceId: z.string().uuid(),
+});
+
 export const PresignUploadBody = z.object({
   contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   contentLength: z
