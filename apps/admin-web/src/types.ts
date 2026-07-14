@@ -108,6 +108,12 @@ export interface MappedTemplatePoseWorkflow {
   thumbnailUrl: string;
   workflowTemplateId: string | null;
   promptGarmentPhase: string | null;
+  source: 'auto' | 'manual' | null;
+}
+
+export interface ShotTypeWorkflow {
+  shotType: 'full' | 'half' | 'closeup';
+  workflowTemplateId: string | null;
 }
 
 // Poses are per (garment type × face × background) combo
@@ -302,6 +308,7 @@ export interface ModelPoseAsset {
   promptGarmentPhase: string | null;
   promptFacePhase: string | null;
   poseVariant: string | null;
+  shotType: 'full' | 'half' | 'closeup' | null;
   scope: 'general' | 'template';
   isActive: boolean;
   sortOrder: number;
