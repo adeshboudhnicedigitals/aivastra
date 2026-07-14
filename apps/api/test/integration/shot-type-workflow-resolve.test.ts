@@ -428,4 +428,152 @@ describe('shot-type workflow resolve', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].workflowTemplateId).toBe(workflow.id);
   });
+
+  describe('routes', () => {
+    it('GET shot-type-workflows always returns all three slots', async () => {
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({ genderSlug: 'women', slug: `route-get-${Date.now()}`, label: 'Shirt' })
+        .returning();
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows`,
+        headers,
+      });
+      expect(res.statusCode).toBe(200);
+      const { items } = res.json();
+      expect(items).toHaveLength(3);
+      expect(items.map((i: { shotType: string }) => i.shotType).sort()).toEqual([
+        'closeup',
+        'full',
+        'half',
+      ]);
+      expect(items.every((i: { workflowTemplateId: null }) => i.workflowTemplateId === null)).toBe(
+        true,
+      );
+    });
+
+    it('GET shot-type-workflows 404s for a nonexistent garment type', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/admin/assets/garment-types/${crypto.randomUUID()}/shot-type-workflows`,
+        headers,
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('PATCH shot-type-workflows upserts the default and cascades to existing poses', async () => {
+      const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+      const workflow = await seedWorkflow('Route default');
+
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows/full`,
+        headers,
+        payload: { workflowTemplateId: workflow.id },
+      });
+      expect(patchRes.statusCode).toBe(200);
+      expect(patchRes.json()).toMatchObject({ ok: true, action: 'upserted', resolvedCount: 1 });
+
+      const [row] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+          ),
+        );
+      expect(row.workflowTemplateId).toBe(workflow.id);
+
+      const getRes = await app.inject({
+        method: 'GET',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows`,
+        headers,
+      });
+      const full = getRes.json().items.find((i: { shotType: string }) => i.shotType === 'full');
+      expect(full.workflowTemplateId).toBe(workflow.id);
+    });
+
+    it('PATCH shot-type-workflows with null clears the default without touching resolved poses', async () => {
+      const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+      const workflow = await seedWorkflow('Cleared default');
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows/full`,
+        headers,
+        payload: { workflowTemplateId: workflow.id },
+      });
+
+      const clearRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows/full`,
+        headers,
+        payload: { workflowTemplateId: null },
+      });
+      expect(clearRes.statusCode).toBe(200);
+      expect(clearRes.json()).toMatchObject({ ok: true, action: 'cleared' });
+
+      const getRes = await app.inject({
+        method: 'GET',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows`,
+        headers,
+      });
+      const full = getRes.json().items.find((i: { shotType: string }) => i.shotType === 'full');
+      expect(full.workflowTemplateId).toBeNull();
+
+      // Already-resolved poses stay exactly as they are.
+      const [row] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+          ),
+        );
+      expect(row.workflowTemplateId).toBe(workflow.id);
+    });
+
+    it('PATCH shot-type-workflows rejects an inactive or non-regular workflow', async () => {
+      const [garmentType] = await app.db
+        .insert(schema.garmentSubcategories)
+        .values({ genderSlug: 'women', slug: `route-invalid-${Date.now()}`, label: 'Shirt' })
+        .returning();
+      const [inactiveWorkflow] = await app.db
+        .insert(schema.workflowTemplates)
+        .values({
+          slug: `inactive-${Date.now()}`,
+          label: 'Inactive',
+          jsonContent: {},
+          faceNodeId: '1',
+          poseNodeId: '2',
+          bgNodeId: '3',
+          upperNodeIds: ['4'],
+          facePhasePromptNode: '5',
+          garmentPhasePromptNode: '6',
+          isActive: false,
+        })
+        .returning();
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows/full`,
+        headers,
+        payload: { workflowTemplateId: inactiveWorkflow.id },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('PATCH shot-type-workflows 404s for a nonexistent garment type', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/garment-types/${crypto.randomUUID()}/shot-type-workflows/full`,
+        headers,
+        payload: { workflowTemplateId: null },
+      });
+      expect(res.statusCode).toBe(404);
+    });
+  });
 });
