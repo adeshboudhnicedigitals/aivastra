@@ -980,16 +980,26 @@ function MappedTemplateWorkflowModal({
 
   const setWorkflow = async (poseAssetId: string, workflowTemplateId: string | null) => {
     const previous = items;
+    const currentItem = items.find((i) => i.id === poseAssetId);
+    const workflowChanged = currentItem?.workflowTemplateId !== workflowTemplateId;
+    // A workflow change (or clear) invalidates any saved prompt override - it was
+    // written for a different workflow's prompt/node structure. Clear it instead of
+    // letting it silently carry over, mirroring PoseConfigsPanel's existing
+    // workflow-change convention.
+    const promptGarmentPhase = workflowChanged ? null : (currentItem?.promptGarmentPhase ?? null);
     setSavingId(poseAssetId);
     setItems((current) =>
-      current.map((item) => (item.id === poseAssetId ? { ...item, workflowTemplateId } : item)),
+      current.map((item) =>
+        item.id === poseAssetId ? { ...item, workflowTemplateId, promptGarmentPhase } : item,
+      ),
     );
+    if (workflowChanged && editingPromptId === poseAssetId) closePromptEditor();
     try {
       await apiFetch(
         `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`,
         {
           method: 'PATCH',
-          body: JSON.stringify({ workflowTemplateId }),
+          body: JSON.stringify({ workflowTemplateId, promptGarmentPhase }),
         },
       );
       toast({ title: workflowTemplateId ? 'Pose workflow saved' : 'Pose workflow cleared' });
