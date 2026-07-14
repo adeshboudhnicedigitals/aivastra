@@ -48,6 +48,9 @@ export interface GarmentType {
   defaultShoeCatalogId?: string | null;
   tryonCategoryId?: string | null;
   defaultPoseId: string | null;
+  requiresMannequinStep?: boolean;
+  mannequinWorkflowTemplateId?: string | null;
+  sareeStep2WorkflowTemplateId?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
@@ -57,7 +60,7 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'tryon';
+  workflowType: 'regular' | 'tryon' | 'saree_step1';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
