@@ -35,7 +35,7 @@ export const INPUT_GARMENT_KEY =
 
 export const CreateTryOnJobInputs = z
   .object({
-    upperGarmentKey: z.string().regex(INPUT_GARMENT_KEY),
+    upperGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
     faceId: z.string().uuid(),
     // Legacy/custom form: a single shared background applied to every pose.
     backgroundId: z.string().uuid().optional(),
