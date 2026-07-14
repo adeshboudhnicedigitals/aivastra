@@ -48,10 +48,10 @@ export { ASPECT_DIMENSIONS };
 
 export interface WorkflowInputs {
   workflowTemplateId: string;
-  upperGarmentFile: string;
-  faceSideFile: string;
   poseFile: string;
-  backgroundFile: string;
+  upperGarmentFile?: string;
+  faceSideFile?: string;
+  backgroundFile?: string;
   lowerGarmentFile?: string;
   shoeGarmentFile?: string;
   promptFacePhase?: string;
@@ -78,47 +78,53 @@ export function applyWorkflowPatch(
   log?: PatchLog,
 ): Record<string, unknown> {
   // Required image nodes — throw if any are missing from the JSON
-  requireNode(workflow, tmpl.faceNodeId, 'face').inputs.image = inputs.faceSideFile;
+  if (tmpl.faceNodeId) {
+    if (!inputs.faceSideFile) {
+      throw new Error(`Workflow "${tmpl.slug}" maps a face node but no face image was provided`);
+    }
+    requireNode(workflow, tmpl.faceNodeId, 'face').inputs.image = inputs.faceSideFile;
+  }
   requireNode(workflow, tmpl.poseNodeId, 'pose').inputs.image = inputs.poseFile;
-  requireNode(workflow, tmpl.bgNodeId, 'bg').inputs.image = inputs.backgroundFile;
-
-  // Upper garment — patch all mapped nodes
-  for (const uid of tmpl.upperNodeIds) {
-    const upperNode = workflow[uid];
-    if (upperNode) upperNode.inputs.image = inputs.upperGarmentFile;
+  if (tmpl.bgNodeId) {
+    if (!inputs.backgroundFile) {
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps a background node but no background image was provided`,
+      );
+    }
+    requireNode(workflow, tmpl.bgNodeId, 'bg').inputs.image = inputs.backgroundFile;
   }
 
-  // Lower garment — fall back to upper garment when not provided so ComfyUI
-  // never receives a stale/empty filename from the original workflow design.
-  if (tmpl.lowerNodeId) {
-    const lowerNode = workflow[tmpl.lowerNodeId];
-    if (lowerNode) {
-      const lowerFile = inputs.lowerGarmentFile ?? inputs.upperGarmentFile;
-      if (!inputs.lowerGarmentFile) {
-        log?.warn(
-          `patchWorkflow: lowerNodeId "${tmpl.lowerNodeId}" mapped but no lower garment provided — falling back to upper garment`,
-        );
-      }
-      lowerNode.inputs.image = lowerFile;
+  // Upper garment — patch all mapped nodes
+  if (tmpl.upperNodeIds.length > 0) {
+    if (!inputs.upperGarmentFile) {
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps ${tmpl.upperNodeIds.length} upper garment node(s) but no upper garment image was provided`,
+      );
     }
+    for (const uid of tmpl.upperNodeIds) {
+      requireNode(workflow, uid, 'upper garment').inputs.image = inputs.upperGarmentFile;
+    }
+  }
+
+  // Every mapped role must receive its own file; never reuse another role's image.
+  if (tmpl.lowerNodeId) {
+    if (!inputs.lowerGarmentFile) {
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps a lower garment node but no lower garment image was provided`,
+      );
+    }
+    requireNode(workflow, tmpl.lowerNodeId, 'lower garment').inputs.image = inputs.lowerGarmentFile;
   } else if (inputs.lowerGarmentFile) {
     log?.warn(
       `patchWorkflow: lower garment provided but workflow "${tmpl.slug}" has no lower_node_id — skipping`,
     );
   }
 
-  // Shoe — same fallback pattern as lower garment
   if (tmpl.shoeNodeId) {
-    const shoeNode = workflow[tmpl.shoeNodeId];
-    if (shoeNode) {
-      const shoeFile = inputs.shoeGarmentFile ?? inputs.upperGarmentFile;
-      if (!inputs.shoeGarmentFile) {
-        log?.warn(
-          `patchWorkflow: shoeNodeId "${tmpl.shoeNodeId}" mapped but no shoe garment provided — falling back to upper garment`,
-        );
-      }
-      shoeNode.inputs.image = shoeFile;
+    if (!inputs.shoeGarmentFile) {
+      throw new Error(`Workflow "${tmpl.slug}" maps a shoe node but no shoe image was provided`);
     }
+    requireNode(workflow, tmpl.shoeNodeId, 'shoes').inputs.image = inputs.shoeGarmentFile;
   } else if (inputs.shoeGarmentFile) {
     log?.warn(
       `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
