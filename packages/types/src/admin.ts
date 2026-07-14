@@ -170,7 +170,7 @@ export const CreateWorkflowBody = z
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
     bgNodeId: z.string().min(1).optional(),
-    upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+    upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
@@ -189,25 +189,47 @@ export const CreateWorkflowBody = z
     tryonOutputNodeId: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
-    const required =
-      val.workflowType === 'regular'
-        ? ([
-            'faceNodeId',
-            'poseNodeId',
-            'bgNodeId',
-            'upperNodeIds',
-            'facePhasePromptNode',
-            'garmentPhasePromptNode',
-          ] as const)
-        : (['facePhasePromptNode', 'garmentPhasePromptNode'] as const);
-    for (const field of required) {
-      if (!val[field]) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: [field],
-          message: `${field} is required for ${val.workflowType} workflows`,
-        });
+    if (val.workflowType === 'tryon') {
+      for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for tryon workflows`,
+          });
+        }
       }
+      return;
+    }
+    if (!val.poseNodeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['poseNodeId'],
+        message: 'poseNodeId is required for regular workflows',
+      });
+    }
+    if (!val.garmentPhasePromptNode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['garmentPhasePromptNode'],
+        message: 'garmentPhasePromptNode is required for regular workflows',
+      });
+    }
+    const hasUpper = (val.upperNodeIds?.length ?? 0) > 0;
+    const hasLower = !!val.lowerNodeId;
+    if (!hasUpper && !hasLower) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['upperNodeIds'],
+        message: 'at least one garment role (upperNodeIds or lowerNodeId) is required',
+      });
+    }
+    if (val.faceNodeId && !val.facePhasePromptNode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['facePhasePromptNode'],
+        message: 'facePhasePromptNode is required when faceNodeId is set',
+      });
     }
   });
 
@@ -229,7 +251,7 @@ export const UpdateWorkflowBody = z.object({
   faceNodeId: z.string().min(1).optional(),
   poseNodeId: z.string().min(1).optional(),
   bgNodeId: z.string().min(1).optional(),
-  upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+  upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
