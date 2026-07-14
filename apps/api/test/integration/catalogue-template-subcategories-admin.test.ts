@@ -8,10 +8,12 @@ import { type Containers, startContainers } from '../helpers/containers.js';
 describe('admin garment-type <-> catalogue-template mapping', () => {
   let c: Containers;
   let app: TestApp;
+  let headers: Record<string, string>;
 
   beforeAll(async () => {
     c = await startContainers();
     app = await buildTestApp(c);
+    headers = await adminAuthHeader(app, 'SUPER_ADMIN');
   }, 60000);
 
   afterAll(async () => {
@@ -41,7 +43,6 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
   }
 
   it('GET lists every same-gender template with mapped:false when unmapped', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
     const { garmentType, templateA, templateB, templateWomen } =
       await seedGarmentTypeAndTemplates();
 
@@ -61,7 +62,6 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
   });
 
   it('GET includes the pose IDs used by each template', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
     const { garmentType, templateA, templateB } = await seedGarmentTypeAndTemplates();
     const [pose] = await app.db
       .insert(schema.modelPoseAssets)
@@ -101,7 +101,6 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
   });
 
   it('PATCH mapped:true inserts a mapping row, mapped:false removes it', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
     const { garmentType, templateA } = await seedGarmentTypeAndTemplates();
 
     const enableRes = await app.inject({
@@ -143,7 +142,6 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
   });
 
   it('PATCH mapped:true twice is idempotent (no duplicate row, no error)', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
     const { garmentType, templateA } = await seedGarmentTypeAndTemplates();
 
     await app.inject({
@@ -168,7 +166,6 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
   });
 
   it('configures a separate workflow per pose for each garment-template mapping', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
     const { garmentType: shirt, templateA } = await seedGarmentTypeAndTemplates();
     const [suit] = await app.db
       .insert(schema.garmentSubcategories)
@@ -272,7 +269,6 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
   });
 
   it('PATCH sets, preserves, and clears the prompt override independently of the workflow', async () => {
-    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
     const { garmentType, templateA } = await seedGarmentTypeAndTemplates();
     const [pose] = await app.db
       .insert(schema.modelPoseAssets)
