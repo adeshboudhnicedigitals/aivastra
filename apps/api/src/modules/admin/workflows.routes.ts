@@ -359,6 +359,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         poseCount: 0,
         defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
         defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
+        upperNodeIds: row?.upperNodeIds,
         lowerNodeId: row?.lowerNodeId,
         shoeNodeId: row?.shoeNodeId,
         sizeNodeIds: row?.sizeNodeIds,
@@ -467,6 +468,35 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (body.garmentPhasePromptNode) {
         validateNodeExists(json, body.garmentPhasePromptNode, 'positive prompt');
         validateNodeType(json, body.garmentPhasePromptNode, 'prompt', 'positive prompt');
+      }
+
+      const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
+      const mergedLowerNodeId =
+        body.lowerNodeId !== undefined ? body.lowerNodeId : existing.lowerNodeId;
+      const mergedFaceNodeId =
+        body.faceNodeId !== undefined ? body.faceNodeId : existing.faceNodeId;
+      const mergedFacePhasePromptNode =
+        body.facePhasePromptNode !== undefined
+          ? body.facePhasePromptNode
+          : existing.facePhasePromptNode;
+
+      if (existing.workflowType === 'regular') {
+        const hasUpper = mergedUpperNodeIds.length > 0;
+        const hasLower = !!mergedLowerNodeId;
+        if (!hasUpper && !hasLower) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot clear the last garment role - at least one of upperNodeIds/lowerNodeId must remain set',
+          );
+        }
+        if (mergedFaceNodeId && !mergedFacePhasePromptNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot leave faceNodeId set without facePhasePromptNode',
+          );
+        }
       }
 
       const newNegNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;
