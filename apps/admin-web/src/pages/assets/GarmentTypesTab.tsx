@@ -1107,19 +1107,39 @@ function MappedTemplateWorkflowModal({
     setSavingId(poseAssetId);
     setItems((current) =>
       current.map((item) =>
-        item.id === poseAssetId ? { ...item, workflowTemplateId, promptGarmentPhase } : item,
+        item.id === poseAssetId
+          ? {
+              ...item,
+              workflowTemplateId,
+              promptGarmentPhase,
+              source: workflowTemplateId ? 'manual' : item.source,
+            }
+          : item,
       ),
     );
     if (workflowChanged && editingPromptId === poseAssetId) closePromptEditor();
     try {
-      await apiFetch(
-        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ workflowTemplateId, promptGarmentPhase }),
-        },
+      const res = await apiFetch<{
+        workflowTemplateId: string | null;
+        source: 'auto' | 'manual' | null;
+      }>(`/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ workflowTemplateId, promptGarmentPhase }),
+      });
+      // The response reflects the row's actual resulting state, not an echo of the
+      // request — clearing can immediately fall back to a live category default (a
+      // different, non-null workflow), which the optimistic update above has no way
+      // to predict. Sync from it so the modal never shows a stale "Workflow
+      // required" after a clear that just repopulated a workflow, and never shows a
+      // stale "auto" badge after an explicit pick.
+      setItems((current) =>
+        current.map((item) =>
+          item.id === poseAssetId
+            ? { ...item, workflowTemplateId: res.workflowTemplateId, source: res.source }
+            : item,
+        ),
       );
-      toast({ title: workflowTemplateId ? 'Pose workflow saved' : 'Pose workflow cleared' });
+      toast({ title: res.workflowTemplateId ? 'Pose workflow saved' : 'Pose workflow cleared' });
     } catch (error) {
       setItems(previous);
       toast({
@@ -1150,15 +1170,24 @@ function MappedTemplateWorkflowModal({
     setSavingId(poseAssetId);
     const promptGarmentPhase = promptDraft || null;
     setItems((current) =>
-      current.map((i) => (i.id === poseAssetId ? { ...i, promptGarmentPhase } : i)),
+      current.map((i) =>
+        i.id === poseAssetId ? { ...i, promptGarmentPhase, source: 'manual' } : i,
+      ),
     );
     try {
-      await apiFetch(
-        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`,
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ workflowTemplateId: item.workflowTemplateId, promptGarmentPhase }),
-        },
+      const res = await apiFetch<{
+        workflowTemplateId: string | null;
+        source: 'auto' | 'manual' | null;
+      }>(`/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ workflowTemplateId: item.workflowTemplateId, promptGarmentPhase }),
+      });
+      setItems((current) =>
+        current.map((i) =>
+          i.id === poseAssetId
+            ? { ...i, workflowTemplateId: res.workflowTemplateId, source: res.source }
+            : i,
+        ),
       );
       toast({ title: promptGarmentPhase ? 'Prompt saved' : 'Prompt override cleared' });
       closePromptEditor();
@@ -1235,6 +1264,15 @@ function MappedTemplateWorkflowModal({
                         >
                           {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
                         </span>
+                        {item.workflowTemplateId && item.source === 'auto' && (
+                          <span
+                            className="badge"
+                            style={{ fontSize: 9, opacity: 0.7 }}
+                            title="Filled from this garment type's shot-type default — picking a workflow here overrides it"
+                          >
+                            auto
+                          </span>
+                        )}
                         {item.promptGarmentPhase && (
                           <span className="badge dot" style={{ fontSize: 9 }}>
                             Custom prompt
