@@ -70,4 +70,81 @@ describe('catalog', () => {
     expect(res.json().tree[0].children.length).toBe(0);
     expect(res.json().tree[0].items.length).toBe(1);
   });
+
+  it('GET /v1/catalog/lower returns items for a pose whose lower role comes only from catalogue_template_pose_workflows', async () => {
+    const token = await getToken();
+
+    // A template-scoped pose with NO default workflowTemplateId of its own — its
+    // only workflow role comes from the per-mapping assignment below, matching how
+    // real catalogue-template poses work.
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'Template-only pose',
+        genderSlug: 'women',
+        r2Key: 'template-pose.jpg',
+        thumbnailKey: 'template-pose-thumb.jpg',
+        scope: 'template',
+      })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `catalog-lower-fix-${Date.now()}`,
+        label: 'Catalog lower fix test workflow',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        lowerNodeId: '7',
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    const [template] = await app.db
+      .insert(schema.catalogueTemplates)
+      .values({ genderSlug: 'women', label: 'Catalog lower fix template' })
+      .returning();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `catalog-lower-fix-${Date.now()}`,
+        label: 'Catalog lower fix type',
+      })
+      .returning();
+    const [mapping] = await app.db
+      .insert(schema.catalogueTemplateSubcategories)
+      .values({ templateId: template.id, subcategoryId: garmentType.id })
+      .returning();
+    await app.db.insert(schema.catalogueTemplatePoseWorkflows).values({
+      mappingId: mapping.id,
+      poseAssetId: pose.id,
+      workflowTemplateId: workflow.id,
+    });
+    await app.db.insert(schema.catalogItems).values({
+      type: 'lower',
+      genderSlug: 'women',
+      label: 'Template lower item',
+      r2Key: 'lower-item.jpg',
+      thumbnailKey: 'lower-item-thumb.jpg',
+      isActive: true,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/catalog/lower?gender=women&poseIds=${pose.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      tree: Array<{ items?: unknown[]; children?: { items?: unknown[] }[] }>;
+    };
+    const allItems = body.tree.flatMap((node) => [
+      ...(node.items ?? []),
+      ...(node.children ?? []).flatMap((c) => c.items ?? []),
+    ]);
+    expect(allItems.length).toBeGreaterThan(0);
+  });
 });
