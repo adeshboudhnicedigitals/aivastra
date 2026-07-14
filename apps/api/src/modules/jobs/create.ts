@@ -261,6 +261,7 @@ export async function createJob(
             backgroundId: schema.catalogueTemplateLooks.backgroundId,
             workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
             promptGarmentPhase: schema.catalogueTemplatePoseWorkflows.promptGarmentPhase,
+            upperNodeIds: schema.workflowTemplates.upperNodeIds,
             lowerNodeId: schema.workflowTemplates.lowerNodeId,
             shoeNodeId: schema.workflowTemplates.shoeNodeId,
             sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
@@ -325,6 +326,7 @@ export async function createJob(
             poseId,
             workflowTemplateId: row.workflowTemplateId,
             promptGarmentPhase: row.promptGarmentPhase,
+            upperNodeIds: row.upperNodeIds,
             lowerNodeId: row.lowerNodeId,
             shoeNodeId: row.shoeNodeId,
             sizeNodeIds: row.sizeNodeIds,
@@ -339,11 +341,13 @@ export async function createJob(
     .select({
       poseId: schema.modelPoseAssets.id,
       defaultWorkflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+      defaultUpperNodeIds: defaultWorkflow.upperNodeIds,
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
       configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
       configIsActive: schema.poseGarmentConfigs.isActive,
+      overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
       overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
@@ -382,6 +386,10 @@ export async function createJob(
       poseId: r.poseId,
       workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
       promptGarmentPhase: null,
+      upperNodeIds:
+        r.configWorkflowTemplateId != null
+          ? (r.overrideUpperNodeIds ?? [])
+          : (r.defaultUpperNodeIds ?? []),
       lowerNodeId:
         r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
       shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
@@ -393,8 +401,18 @@ export async function createJob(
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
 
   for (const pw of poseWorkflows) {
-    if (pw.lowerNodeId && !lowerCatalogId && !lowerGarmentKey) {
-      throw new AppError('VALIDATION', 400, 'lower garment required for this pose');
+    if (pw.upperNodeIds.length > 0 && !upperGarmentKey) {
+      throw new AppError('VALIDATION', 400, 'upper garment required for this pose');
+    }
+    if (pw.lowerNodeId) {
+      if (pw.upperNodeIds.length === 0) {
+        // A sole lower hero must be the customer's upload, not a generic catalog image.
+        if (!lowerGarmentKey) {
+          throw new AppError('VALIDATION', 400, 'lower garment upload required for this pose');
+        }
+      } else if (!lowerCatalogId && !lowerGarmentKey) {
+        throw new AppError('VALIDATION', 400, 'lower garment required for this pose');
+      }
     }
     if (pw.shoeNodeId && !shoeCatalogId) {
       throw new AppError('VALIDATION', 400, 'shoe catalog item required for this pose');
@@ -429,6 +447,8 @@ export async function createJob(
 
       // Only store inputs the workflow actually supports — strips irrelevant fields
       // so the dispatcher never receives/resolves data it won't use.
+      const effectiveUpperGarmentKey =
+        pw?.upperNodeIds && pw.upperNodeIds.length > 0 ? upperGarmentKey : null;
       const effectiveLowerCatalogId =
         pw?.lowerNodeId && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
       const effectiveLowerGarmentKey = pw?.lowerNodeId && lowerGarmentKey ? lowerGarmentKey : null;
@@ -452,7 +472,7 @@ export async function createJob(
       await atomicDeduct(tx as unknown as DB, userId, COST, job.id);
       await tx.insert(schema.jobInputs).values({
         jobId: job.id,
-        upperGarmentKey,
+        upperGarmentKey: effectiveUpperGarmentKey,
         faceId,
         backgroundId: look.backgroundId,
         poseId: look.poseId,

@@ -464,4 +464,175 @@ describe('createJob — atomic multi-background looks[] form', () => {
     const jobRows = await app.db.select().from(schema.jobs).where(eq(schema.jobs.userId, userId));
     expect(jobRows).toHaveLength(0);
   });
+
+  it('rejects a lower-only submission against a pose whose workflow requires an upper garment', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-upper-required@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `upper-required-${poseAId}`, label: 'Upper required' })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `upper-required-workflow-${poseAId}`,
+        label: 'Upper required workflow',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: ['4'],
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          lowerGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects a lowerCatalogId as the sole hero for a lower-primary workflow', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-catalog-hero-rejected@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `catalog-hero-rejected-${poseAId}`,
+        label: 'Catalog hero rejected',
+      })
+      .returning();
+    const [catalogType] = await app.db
+      .insert(schema.catalogTypes)
+      .values({ slug: `lower-${poseAId}`, label: 'Lower' })
+      .returning();
+    const [category] = await app.db
+      .insert(schema.catalogCategories)
+      .values({ typeId: catalogType.id, slug: `pants-${poseAId}`, label: 'Pants' })
+      .returning();
+    const [catalogItem] = await app.db
+      .insert(schema.catalogItems)
+      .values({
+        categoryId: category.id,
+        type: 'lower',
+        genderSlug: 'men',
+        label: 'Test pants',
+        r2Key: 'catalog/pants.jpg',
+        thumbnailKey: 'catalog/pants-thumb.jpg',
+      })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `lower-primary-catalog-${poseAId}`,
+        label: 'Lower primary catalog test',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: [],
+        lowerNodeId: '7',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          faceId,
+          garmentTypeId: garmentType.id,
+          lowerCatalogId: catalogItem.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('strips an irrelevant upper garment key from a lower-only job row', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-strip-upper@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `strip-upper-${poseAId}`, label: 'Strip upper' })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `strip-upper-workflow-${poseAId}`,
+        label: 'Strip upper workflow',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: [],
+        lowerNodeId: '7',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const upperKey = `inputs/${userId}/garment.jpg`;
+    const lowerKey = upperKey;
+    await bindUploadKey(userId, upperKey);
+    await bindUploadKey(userId, lowerKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: upperKey,
+          lowerGarmentKey: lowerKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.upperGarmentKey).toBeNull();
+    expect(inputs?.lowerGarmentKey).toBe(lowerKey);
+  });
 });
