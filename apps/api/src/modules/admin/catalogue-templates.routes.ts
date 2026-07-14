@@ -7,11 +7,12 @@ import {
   PresignCatalogueTemplateThumbnailBody,
   PutCatalogueTemplateLooksBody,
 } from '@aivastra/types';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, notInArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
+import { resolveForTemplate } from './shot-type-resolve.js';
 
 export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
   const RW = requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']);
@@ -161,7 +162,7 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
         }
       }
 
-      await app.db.transaction(async (tx) => {
+      const resolvedCount = await app.db.transaction(async (tx) => {
         await tx
           .delete(schema.catalogueTemplateLooks)
           .where(eq(schema.catalogueTemplateLooks.templateId, id));
@@ -175,9 +176,35 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
             })),
           );
         }
+
+        // Every pose upload in this builder is fresh (a new pose_asset_id), so
+        // "correct a mis-tagged pose by re-uploading it" — or simply removing a
+        // look — always leaves the old pose's workflow row behind with nothing
+        // pointing at it anymore. Delete any catalogue_template_pose_workflows row,
+        // across every garment type this template is mapped to, whose pose is no
+        // longer among the template's current looks.
+        const mappingRows = await tx
+          .select({ id: schema.catalogueTemplateSubcategories.id })
+          .from(schema.catalogueTemplateSubcategories)
+          .where(eq(schema.catalogueTemplateSubcategories.templateId, id));
+        const mappingIds = mappingRows.map((m) => m.id);
+        if (mappingIds.length > 0) {
+          const currentPoseIds = looks.map((l) => l.poseAssetId);
+          const staleConditions = [
+            inArray(schema.catalogueTemplatePoseWorkflows.mappingId, mappingIds),
+          ];
+          if (currentPoseIds.length > 0) {
+            staleConditions.push(
+              notInArray(schema.catalogueTemplatePoseWorkflows.poseAssetId, currentPoseIds),
+            );
+          }
+          await tx.delete(schema.catalogueTemplatePoseWorkflows).where(and(...staleConditions));
+        }
+
+        return resolveForTemplate(tx, id);
       });
 
-      return { ok: true, count: looks.length };
+      return { ok: true, count: looks.length, resolvedCount };
     },
   );
 
