@@ -1,0 +1,431 @@
+import { schema } from '@aivastra/db';
+import { and, eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  resolveForGarmentTypeShotType,
+  resolveForMapping,
+  resolveForTemplate,
+} from '../../src/modules/admin/shot-type-resolve.js';
+import { adminAuthHeader } from '../helpers/admin.js';
+import { buildTestApp, type TestApp } from '../helpers/api.js';
+import { type Containers, startContainers } from '../helpers/containers.js';
+
+describe('shot-type workflow resolve', () => {
+  let c: Containers;
+  let app: TestApp;
+  let headers: Record<string, string>;
+
+  beforeAll(async () => {
+    c = await startContainers();
+    app = await buildTestApp(c);
+    headers = await adminAuthHeader(app, 'SUPER_ADMIN');
+  }, 60000);
+
+  afterAll(async () => {
+    await app?.close();
+    await c?.stop();
+  });
+
+  async function seedWorkflow(label: string) {
+    const [wf] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `${label.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${Math.random()}`,
+        label,
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        lowerNodeId: '7',
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    return wf;
+  }
+
+  async function seedMappedPose(opts: { shotType: string | null }) {
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `sc-${Date.now()}-${Math.random()}`, label: 'Shirt' })
+      .returning();
+    const [template] = await app.db
+      .insert(schema.catalogueTemplates)
+      .values({ genderSlug: 'women', label: 'Template', sortOrder: 0 })
+      .returning();
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'Pose',
+        genderSlug: 'women',
+        r2Key: `pose-${Date.now()}-${Math.random()}.jpg`,
+        thumbnailKey: 'pose-thumb.jpg',
+        scope: 'template',
+        shotType: opts.shotType,
+      })
+      .returning();
+    const [background] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({
+        label: 'Background',
+        r2Key: `bg-${Date.now()}-${Math.random()}.jpg`,
+        thumbnailKey: 'bg-thumb.jpg',
+        scope: 'template',
+      })
+      .returning();
+    await app.db.insert(schema.catalogueTemplateLooks).values({
+      templateId: template.id,
+      poseAssetId: pose.id,
+      backgroundId: background.id,
+    });
+    const [mapping] = await app.db
+      .insert(schema.catalogueTemplateSubcategories)
+      .values({ templateId: template.id, subcategoryId: garmentType.id })
+      .returning();
+    return { garmentType, template, pose, background, mapping };
+  }
+
+  it('resolveForGarmentTypeShotType fills a gap from the configured default', async () => {
+    const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+    const workflow = await seedWorkflow('Full default');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: workflow.id,
+    });
+
+    const resolvedCount = await resolveForGarmentTypeShotType(app.db, garmentType.id, 'full');
+    expect(resolvedCount).toBe(1);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+    expect(row.workflowTemplateId).toBe(workflow.id);
+    expect(row.source).toBe('auto');
+  });
+
+  it('resolveForGarmentTypeShotType never touches a manually-set row', async () => {
+    const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+    const defaultWorkflow = await seedWorkflow('Default (should be ignored)');
+    const manualWorkflow = await seedWorkflow('Manual pick');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: defaultWorkflow.id,
+    });
+    await app.db.insert(schema.catalogueTemplatePoseWorkflows).values({
+      mappingId: mapping.id,
+      poseAssetId: pose.id,
+      workflowTemplateId: manualWorkflow.id,
+      source: 'manual',
+    });
+
+    const resolvedCount = await resolveForGarmentTypeShotType(app.db, garmentType.id, 'full');
+    expect(resolvedCount).toBe(0);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+    expect(row.workflowTemplateId).toBe(manualWorkflow.id);
+    expect(row.source).toBe('manual');
+  });
+
+  it('resolveForGarmentTypeShotType refreshes a previously-auto row when the default changes', async () => {
+    const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+    const oldDefault = await seedWorkflow('Old default');
+    const newDefault = await seedWorkflow('New default');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: oldDefault.id,
+    });
+    await resolveForGarmentTypeShotType(app.db, garmentType.id, 'full');
+
+    await app.db
+      .update(schema.garmentShotTypeWorkflows)
+      .set({ workflowTemplateId: newDefault.id })
+      .where(eq(schema.garmentShotTypeWorkflows.garmentTypeId, garmentType.id));
+    const resolvedCount = await resolveForGarmentTypeShotType(app.db, garmentType.id, 'full');
+    expect(resolvedCount).toBe(1);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+    expect(row.workflowTemplateId).toBe(newDefault.id);
+    expect(row.source).toBe('auto');
+  });
+
+  it('resolveForMapping resolves every shot type for one mapping in a single call', async () => {
+    const { garmentType, mapping, pose: fullPose } = await seedMappedPose({ shotType: 'full' });
+    const [halfPose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'Half pose',
+        genderSlug: 'women',
+        r2Key: `half-${Date.now()}.jpg`,
+        thumbnailKey: 'half-thumb.jpg',
+        scope: 'template',
+        shotType: 'half',
+      })
+      .returning();
+    const [background] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({
+        label: 'Background 2',
+        r2Key: `bg2-${Date.now()}.jpg`,
+        thumbnailKey: 'bg2-thumb.jpg',
+        scope: 'template',
+      })
+      .returning();
+    await app.db.insert(schema.catalogueTemplateLooks).values({
+      templateId: mapping.templateId,
+      poseAssetId: halfPose.id,
+      backgroundId: background.id,
+    });
+    const fullWorkflow = await seedWorkflow('Full');
+    const halfWorkflow = await seedWorkflow('Half');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values([
+      { garmentTypeId: garmentType.id, shotType: 'full', workflowTemplateId: fullWorkflow.id },
+      { garmentTypeId: garmentType.id, shotType: 'half', workflowTemplateId: halfWorkflow.id },
+    ]);
+
+    const resolvedCount = await resolveForMapping(app.db, mapping.id);
+    expect(resolvedCount).toBe(2);
+
+    const rows = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id));
+    expect(rows.find((r) => r.poseAssetId === fullPose.id)?.workflowTemplateId).toBe(
+      fullWorkflow.id,
+    );
+    expect(rows.find((r) => r.poseAssetId === halfPose.id)?.workflowTemplateId).toBe(
+      halfWorkflow.id,
+    );
+  });
+
+  it('resolveForTemplate resolves across every garment type the template is mapped to', async () => {
+    const { template, pose } = await seedMappedPose({ shotType: 'full' });
+    const [garmentTypeB] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `sc-b-${Date.now()}`, label: 'Suit' })
+      .returning();
+    const [mappingB] = await app.db
+      .insert(schema.catalogueTemplateSubcategories)
+      .values({ templateId: template.id, subcategoryId: garmentTypeB.id })
+      .returning();
+    const workflowB = await seedWorkflow('Garment type B default');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentTypeB.id,
+      shotType: 'full',
+      workflowTemplateId: workflowB.id,
+    });
+
+    const resolvedCount = await resolveForTemplate(app.db, template.id);
+    expect(resolvedCount).toBe(1);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mappingB.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+    expect(row.workflowTemplateId).toBe(workflowB.id);
+  });
+
+  it('resolve is a no-op when the pose has no shot type or no matching default exists', async () => {
+    const { garmentType, mapping, pose } = await seedMappedPose({ shotType: null });
+    const workflow = await seedWorkflow('Unused default');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: workflow.id,
+    });
+
+    const resolvedCount = await resolveForMapping(app.db, mapping.id);
+    expect(resolvedCount).toBe(0);
+
+    const rows = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  });
+
+  it('resolveForGarmentTypeShotType ignores a deactivated pose', async () => {
+    const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ isActive: false })
+      .where(eq(schema.modelPoseAssets.id, pose.id));
+    const workflow = await seedWorkflow('Ignored — pose inactive');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: workflow.id,
+    });
+
+    const resolvedCount = await resolveForGarmentTypeShotType(app.db, garmentType.id, 'full');
+    expect(resolvedCount).toBe(0);
+
+    const rows = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('resolveForGarmentTypeShotType ignores a soft-deleted template', async () => {
+    const { garmentType, template, mapping } = await seedMappedPose({ shotType: 'full' });
+    await app.db
+      .update(schema.catalogueTemplates)
+      .set({ deletedAt: new Date() })
+      .where(eq(schema.catalogueTemplates.id, template.id));
+    const workflow = await seedWorkflow('Ignored — template deleted');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: workflow.id,
+    });
+
+    const resolvedCount = await resolveForGarmentTypeShotType(app.db, garmentType.id, 'full');
+    expect(resolvedCount).toBe(0);
+
+    const rows = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it('resolve does not rewrite a row already at the correct value', async () => {
+    const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+    const workflow = await seedWorkflow('Stable default');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: workflow.id,
+    });
+    const firstRun = await resolveForGarmentTypeShotType(app.db, garmentType.id, 'full');
+    expect(firstRun).toBe(1);
+
+    const [before] = await app.db
+      .select({ updatedAt: schema.catalogueTemplatePoseWorkflows.updatedAt })
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+
+    const secondRun = await resolveForGarmentTypeShotType(app.db, garmentType.id, 'full');
+    expect(secondRun).toBe(0);
+
+    const [after] = await app.db
+      .select({ updatedAt: schema.catalogueTemplatePoseWorkflows.updatedAt })
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+    expect(after.updatedAt.getTime()).toBe(before.updatedAt.getTime());
+  });
+
+  it('resolve functions accept a transaction handle', async () => {
+    const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+    const workflow = await seedWorkflow('Resolved inside a transaction');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: workflow.id,
+    });
+
+    const resolvedCount = await app.db.transaction(async (tx) => {
+      return resolveForGarmentTypeShotType(tx, garmentType.id, 'full');
+    });
+    expect(resolvedCount).toBe(1);
+
+    const [row] = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+    expect(row.workflowTemplateId).toBe(workflow.id);
+  });
+
+  it('resolves to one row when the same pose appears in two looks with different backgrounds', async () => {
+    const { garmentType, template, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+    const [secondBackground] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({
+        label: 'Second background',
+        r2Key: `second-bg-${Date.now()}.jpg`,
+        thumbnailKey: 'second-bg-thumb.jpg',
+        scope: 'template',
+      })
+      .returning();
+    // Same pose as the one seedMappedPose already put in a look — the template's
+    // dedupe check only rejects duplicate (poseAssetId, backgroundId) pairs, so this
+    // (same pose, different background) combination is a valid second look.
+    await app.db.insert(schema.catalogueTemplateLooks).values({
+      templateId: template.id,
+      poseAssetId: pose.id,
+      backgroundId: secondBackground.id,
+    });
+    const workflow = await seedWorkflow('Reused-pose default');
+    await app.db.insert(schema.garmentShotTypeWorkflows).values({
+      garmentTypeId: garmentType.id,
+      shotType: 'full',
+      workflowTemplateId: workflow.id,
+    });
+
+    const resolvedCount = await resolveForTemplate(app.db, template.id);
+    expect(resolvedCount).toBe(1);
+
+    const rows = await app.db
+      .select()
+      .from(schema.catalogueTemplatePoseWorkflows)
+      .where(
+        and(
+          eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+          eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+        ),
+      );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].workflowTemplateId).toBe(workflow.id);
+  });
+});
