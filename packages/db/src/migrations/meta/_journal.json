@@ -757,6 +757,13 @@
       "when": 1783985258046,
       "tag": "0107_round_inhumans",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1784007797354,
+      "tag": "0108_bizarre_gladiator",
+      "breakpoints": true
     }
   ]
 }

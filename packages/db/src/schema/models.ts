@@ -272,6 +272,7 @@ export const catalogueTemplatePoseWorkflows = pgTable(
     workflowTemplateId: uuid('workflow_template_id')
       .notNull()
       .references(() => workflowTemplates.id, { onDelete: 'cascade' }),
+    promptGarmentPhase: text('prompt_garment_phase'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
