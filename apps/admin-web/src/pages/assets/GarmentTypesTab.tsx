@@ -10,6 +10,7 @@ import type {
   GenderSlug,
   MappedTemplatePoseWorkflow,
   PoseGarmentConfig,
+  ShotTypeWorkflow,
   TemplateGarmentTypeMapping,
   TryonCategory,
   WorkflowOption,
@@ -276,7 +277,7 @@ export function GarmentTypesTab() {
       {/* Pose configs subview */}
       {subView.kind === 'configs' && (
         <>
-          <GarmentTemplateMappingPanel sub={subView.sub} workflows={workflows} toast={toast} />
+          <ShotTypeWorkflowsPanel sub={subView.sub} workflows={workflows} toast={toast} />
 
           <div
             style={{
@@ -285,7 +286,17 @@ export function GarmentTypesTab() {
               borderTop: '1px solid var(--border)',
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 18 }}>2. Custom look poses</h2>
+            <GarmentTemplateMappingPanel sub={subView.sub} workflows={workflows} toast={toast} />
+          </div>
+
+          <div
+            style={{
+              marginTop: 32,
+              paddingTop: 24,
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: 18 }}>3. Custom look poses</h2>
             <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
               Configure standalone poses used by Create your own look. Template workflows are
               configured inside each mapped template above.
@@ -750,6 +761,112 @@ export function GarmentTypesTab() {
 
 // ── PoseConfigsPanel ──────────────────────────────────────────────────────────
 
+const SHOT_TYPE_LABELS: Record<ShotTypeWorkflow['shotType'], string> = {
+  full: 'Full pose',
+  half: 'Half pose',
+  closeup: 'Closeup',
+};
+
+interface ShotTypeWorkflowsPanelProps {
+  sub: GarmentType;
+  workflows: WorkflowOption[];
+  toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+function ShotTypeWorkflowsPanel({ sub, workflows, toast }: ShotTypeWorkflowsPanelProps) {
+  const [items, setItems] = useState<ShotTypeWorkflow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingShotType, setSavingShotType] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ items: ShotTypeWorkflow[] }>(
+        `/admin/assets/garment-types/${sub.id}/shot-type-workflows`,
+      );
+      setItems(res.items);
+    } catch (error) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load shot-type defaults',
+        body: (error as Error).message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [sub.id, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const setDefault = async (
+    shotType: ShotTypeWorkflow['shotType'],
+    workflowTemplateId: string | null,
+  ) => {
+    setSavingShotType(shotType);
+    try {
+      const res = await apiFetch<{ ok: true; resolvedCount: number }>(
+        `/admin/assets/garment-types/${sub.id}/shot-type-workflows/${shotType}`,
+        { method: 'PATCH', body: JSON.stringify({ workflowTemplateId }) },
+      );
+      setItems((prev) =>
+        prev.map((i) => (i.shotType === shotType ? { ...i, workflowTemplateId } : i)),
+      );
+      toast({
+        title: workflowTemplateId
+          ? `${SHOT_TYPE_LABELS[shotType]} default saved`
+          : `${SHOT_TYPE_LABELS[shotType]} default cleared`,
+        body: res.resolvedCount > 0 ? `Applied to ${res.resolvedCount} poses` : undefined,
+      });
+    } catch (error) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save shot-type default',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingShotType(null);
+    }
+  };
+
+  return (
+    <section style={{ marginTop: 12 }}>
+      <h2 style={{ margin: 0, fontSize: 18 }}>1. Shot-type default workflows</h2>
+      <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
+        Set once per shot type — applies to every pose tagged with it, across every template mapped
+        to {sub.label}, now and in the future.
+      </p>
+      {loading ? (
+        <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Loading…
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 10, marginTop: 14, maxWidth: 420 }}>
+          {items.map((item) => (
+            <div key={item.shotType} className="field" style={{ margin: 0 }}>
+              <label>{SHOT_TYPE_LABELS[item.shotType]}</label>
+              <select
+                className="select"
+                value={item.workflowTemplateId ?? ''}
+                disabled={savingShotType === item.shotType}
+                onChange={(e) => void setDefault(item.shotType, e.target.value || null)}
+              >
+                <option value="">— none —</option>
+                {workflows.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 interface GarmentTemplateMappingPanelProps {
   sub: GarmentType;
   workflows: WorkflowOption[];
@@ -819,7 +936,7 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
     <section style={{ marginTop: 12 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18 }}>1. Catalogue templates</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>2. Catalogue templates</h2>
           <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
             Select the {sub.genderSlug} templates users can choose for {sub.label}.
           </p>
