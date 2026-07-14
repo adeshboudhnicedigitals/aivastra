@@ -270,4 +270,106 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
     expect(shirtResponse.json().items[0].workflowTemplateId).toBe(workflows[0]?.id);
     expect(suitResponse.json().items[0].workflowTemplateId).toBe(workflows[1]?.id);
   });
+
+  it('PATCH sets, preserves, and clears the prompt override independently of the workflow', async () => {
+    const headers = await adminAuthHeader(app, 'SUPER_ADMIN');
+    const { garmentType, templateA } = await seedGarmentTypeAndTemplates();
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'Prompt override pose',
+        genderSlug: 'men',
+        r2Key: 'prompt-override-pose.jpg',
+        thumbnailKey: 'prompt-override-pose-thumb.jpg',
+        scope: 'template',
+      })
+      .returning();
+    const [background] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({
+        label: 'Prompt override background',
+        r2Key: 'prompt-override-background.jpg',
+        thumbnailKey: 'prompt-override-background-thumb.jpg',
+        scope: 'template',
+      })
+      .returning();
+    await app.db.insert(schema.catalogueTemplateLooks).values({
+      templateId: templateA.id,
+      poseAssetId: pose.id,
+      backgroundId: background.id,
+    });
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `prompt-override-workflow-${Date.now()}`,
+        label: 'Prompt override workflow',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+
+    const mapResponse = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/garment-types/${garmentType.id}/templates/${templateA.id}`,
+      headers,
+      payload: { mapped: true },
+    });
+    const mappingId = mapResponse.json().mappingId as string;
+
+    // Set workflow + prompt together.
+    const setResponse = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/catalogue-template-mappings/${mappingId}/poses/${pose.id}`,
+      headers,
+      payload: { workflowTemplateId: workflow.id, promptGarmentPhase: 'a custom prompt' },
+    });
+    expect(setResponse.statusCode).toBe(200);
+
+    let getResponse = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/catalogue-template-mappings/${mappingId}/poses`,
+      headers,
+    });
+    expect(getResponse.json().items[0]).toMatchObject({
+      workflowTemplateId: workflow.id,
+      promptGarmentPhase: 'a custom prompt',
+    });
+
+    // A workflow-only PATCH (promptGarmentPhase omitted) must NOT clobber the saved prompt.
+    const workflowOnlyResponse = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/catalogue-template-mappings/${mappingId}/poses/${pose.id}`,
+      headers,
+      payload: { workflowTemplateId: workflow.id },
+    });
+    expect(workflowOnlyResponse.statusCode).toBe(200);
+
+    getResponse = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/catalogue-template-mappings/${mappingId}/poses`,
+      headers,
+    });
+    expect(getResponse.json().items[0].promptGarmentPhase).toBe('a custom prompt');
+
+    // Explicit null clears it.
+    const clearResponse = await app.inject({
+      method: 'PATCH',
+      url: `/admin/assets/catalogue-template-mappings/${mappingId}/poses/${pose.id}`,
+      headers,
+      payload: { workflowTemplateId: workflow.id, promptGarmentPhase: null },
+    });
+    expect(clearResponse.statusCode).toBe(200);
+
+    getResponse = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/catalogue-template-mappings/${mappingId}/poses`,
+      headers,
+    });
+    expect(getResponse.json().items[0].promptGarmentPhase).toBeNull();
+  });
 });
