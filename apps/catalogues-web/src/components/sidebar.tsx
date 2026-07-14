@@ -26,13 +26,16 @@ const NAV: {
     icon: `${BASE}/assets/tryon-icon.svg`,
     badge: 'New',
   },
-  {
-    id: 'saree',
-    href: '/saree',
-    label: 'Saree',
-    icon: `${BASE}/assets/saree-icon.svg`,
-    badge: 'New',
-  },
+  // Standalone saree feature — superseded by the flat-saree garment type in
+  // Studio. Not removed (still fully functional, kept for historical-data
+  // reasons), just hidden from the sidebar for now.
+  // {
+  //   id: 'saree',
+  //   href: '/saree',
+  //   label: 'Saree',
+  //   icon: `${BASE}/assets/saree-icon.svg`,
+  //   badge: 'New',
+  // },
   {
     id: 'catalogues',
     href: '/catalogues',
