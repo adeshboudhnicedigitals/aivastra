@@ -734,6 +734,7 @@ export function GarmentTypesTab() {
           garmentType={editingSubcat}
           catalogItems={catalogItems}
           tryonCategories={tryonCategories}
+          workflows={workflows}
           storagePublicUrl={storagePublicUrl}
           onSaved={(patch) =>
             setGarmentTypes((prev) =>

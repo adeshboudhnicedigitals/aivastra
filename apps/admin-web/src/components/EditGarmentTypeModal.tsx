@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type { CatalogCategory, CatalogItem, GarmentType, TryonCategory } from '../types';
+import type {
+  CatalogCategory,
+  CatalogItem,
+  GarmentType,
+  TryonCategory,
+  WorkflowOption,
+} from '../types';
 import { AssetThumb } from './AssetThumb';
 import { Icon } from './Icons';
 import { Switch } from './Switch';
@@ -10,6 +16,7 @@ interface Props {
   garmentType: GarmentType;
   catalogItems: CatalogItem[];
   tryonCategories: TryonCategory[];
+  workflows: WorkflowOption[];
   storagePublicUrl: string | null;
   onSaved: (patch: Record<string, unknown>) => void;
   onClose: () => void;
@@ -331,6 +338,7 @@ export function EditGarmentTypeModal({
   garmentType,
   catalogItems,
   tryonCategories,
+  workflows,
   storagePublicUrl,
   onSaved,
   onClose,
@@ -341,6 +349,15 @@ export function EditGarmentTypeModal({
   const [defaultLowerId, setDefaultLowerId] = useState(garmentType.defaultLowerCatalogId ?? '');
   const [defaultShoeId, setDefaultShoeId] = useState(garmentType.defaultShoeCatalogId ?? '');
   const [tryonCategoryId, setTryonCategoryId] = useState(garmentType.tryonCategoryId ?? '');
+  const [requiresMannequinStep, setRequiresMannequinStep] = useState(
+    garmentType.requiresMannequinStep ?? false,
+  );
+  const [mannequinWorkflowTemplateId, setMannequinWorkflowTemplateId] = useState(
+    garmentType.mannequinWorkflowTemplateId ?? '',
+  );
+  const [sareeStep2WorkflowTemplateId, setSareeStep2WorkflowTemplateId] = useState(
+    garmentType.sareeStep2WorkflowTemplateId ?? '',
+  );
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [instructionFile, setInstructionFile] = useState<File | null>(null);
   const [removeInstructionImage, setRemoveInstructionImage] = useState(false);
@@ -372,7 +389,10 @@ export function EditGarmentTypeModal({
     requiresLowerUpload !== garmentType.requiresLowerUpload ||
     defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '') ||
     defaultShoeId !== (garmentType.defaultShoeCatalogId ?? '') ||
-    tryonCategoryId !== (garmentType.tryonCategoryId ?? '');
+    tryonCategoryId !== (garmentType.tryonCategoryId ?? '') ||
+    requiresMannequinStep !== (garmentType.requiresMannequinStep ?? false) ||
+    mannequinWorkflowTemplateId !== (garmentType.mannequinWorkflowTemplateId ?? '') ||
+    sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '');
 
   const save = async () => {
     setSaving(true);
@@ -417,6 +437,15 @@ export function EditGarmentTypeModal({
       }
       if (tryonCategoryId !== (garmentType.tryonCategoryId ?? '')) {
         patchBody.tryonCategoryId = tryonCategoryId || null;
+      }
+      if (requiresMannequinStep !== (garmentType.requiresMannequinStep ?? false)) {
+        patchBody.requiresMannequinStep = requiresMannequinStep;
+      }
+      if (mannequinWorkflowTemplateId !== (garmentType.mannequinWorkflowTemplateId ?? '')) {
+        patchBody.mannequinWorkflowTemplateId = mannequinWorkflowTemplateId || null;
+      }
+      if (sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '')) {
+        patchBody.sareeStep2WorkflowTemplateId = sareeStep2WorkflowTemplateId || null;
       }
 
       if (Object.keys(patchBody).length > 0) {
@@ -524,6 +553,78 @@ export function EditGarmentTypeModal({
                   the tryon page.
                 </span>
               </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-head">
+              <h3>Two-Step Generation</h3>
+            </div>
+            <div
+              className="card-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+            >
+              <div className="setting-row" style={{ padding: 0, border: 0 }}>
+                <div>
+                  <div className="setting-lbl">Two-step generation (mannequin + drape)</div>
+                  <div className="setting-desc">
+                    Runs a one-time, free "mannequin" generation before the normal per-pose jobs,
+                    reusing its output as the garment input for every pose. Used by Flat Saree.
+                  </div>
+                </div>
+                <Switch
+                  checked={requiresMannequinStep}
+                  onChange={setRequiresMannequinStep}
+                  disabled={saving}
+                />
+              </div>
+              {requiresMannequinStep && (
+                <>
+                  <div className="field">
+                    <label>Mannequin (Step 1) Workflow</label>
+                    <select
+                      className="select"
+                      value={mannequinWorkflowTemplateId}
+                      disabled={saving}
+                      onChange={(e) => setMannequinWorkflowTemplateId(e.target.value)}
+                    >
+                      <option value="">— none —</option>
+                      {workflows
+                        .filter((w) => w.workflowType === 'saree_step1' && w.isActive)
+                        .map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.label} ({w.slug})
+                          </option>
+                        ))}
+                    </select>
+                    <span className="hint">
+                      Drapes the uploaded garment onto the selected face, once per job.
+                    </span>
+                  </div>
+                  <div className="field">
+                    <label>Draping (Step 2) Workflow</label>
+                    <select
+                      className="select"
+                      value={sareeStep2WorkflowTemplateId}
+                      disabled={saving}
+                      onChange={(e) => setSareeStep2WorkflowTemplateId(e.target.value)}
+                    >
+                      <option value="">— none —</option>
+                      {workflows
+                        .filter((w) => w.workflowType === 'regular' && w.isActive)
+                        .map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.label} ({w.slug})
+                          </option>
+                        ))}
+                    </select>
+                    <span className="hint">
+                      Used for EVERY pose in a job for this garment type — overrides each pose's own
+                      workflow assignment.
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
