@@ -19,8 +19,22 @@ import {
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
-import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
+
+// The old standalone saree feature's admin-configurable settings row
+// (Task 19 retired its admin routes/UI, but historical `kind === 'saree'`
+// completed jobs remain chainable into a new simple-tryon job via
+// /v1/tryon/garment-images — see createSimpleTryonJob below — so the
+// workflowTemplateId this settings row points at must still resolve).
+const SAREE_SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
+
+async function getSareeWorkflowTemplateId(db: DB): Promise<string | null> {
+  const [row] = await db
+    .select({ workflowTemplateId: schema.sareeSettings.workflowTemplateId })
+    .from(schema.sareeSettings)
+    .where(eq(schema.sareeSettings.id, SAREE_SETTINGS_ID));
+  return row?.workflowTemplateId ?? null;
+}
 
 /** Max accepted garment upload size — mirrors the presign zod cap. */
 const MAX_GARMENT_BYTES = 10 * 1024 * 1024;
@@ -657,8 +671,8 @@ export async function createSimpleTryonJob(
   let workflowTemplateId: string;
 
   if (source.kind === 'saree') {
-    const sareeSettings = await getSareeSettings(app.db);
-    if (!sareeSettings?.workflowTemplateId) {
+    const sareeWorkflowTemplateId = await getSareeWorkflowTemplateId(app.db);
+    if (!sareeWorkflowTemplateId) {
       throw new AppError('VALIDATION', 400, 'saree tryon workflow not configured by admin');
     }
     const [wf] = await app.db
@@ -666,14 +680,14 @@ export async function createSimpleTryonJob(
       .from(schema.workflowTemplates)
       .where(
         and(
-          eq(schema.workflowTemplates.id, sareeSettings.workflowTemplateId),
+          eq(schema.workflowTemplates.id, sareeWorkflowTemplateId),
           eq(schema.workflowTemplates.isActive, true),
         ),
       );
     if (!wf) {
       throw new AppError('VALIDATION', 400, 'saree tryon workflow is not active');
     }
-    workflowTemplateId = sareeSettings.workflowTemplateId;
+    workflowTemplateId = sareeWorkflowTemplateId;
   } else {
     // Kill-switch parity: a tryon category (or its workflow template) that an admin
     // deactivated after garment types were mapped to it must not resolve.

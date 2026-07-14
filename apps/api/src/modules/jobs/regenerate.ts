@@ -1,21 +1,15 @@
 import { schema } from '@aivastra/db';
-import type {
-  CreateSareeJobRequest,
-  CreateSimpleTryonRequest,
-  CreateTryOnJobRequest,
-  Resolution,
-} from '@aivastra/types';
+import type { CreateSimpleTryonRequest, CreateTryOnJobRequest, Resolution } from '@aivastra/types';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createJob, createSimpleTryonJob } from './create.js';
-import { createSareeJob } from './createSaree.js';
 
 /**
  * Regenerate = a brand-new job, billed and validated exactly like a fresh
- * request. This delegates to the same createJob/createSimpleTryonJob/
- * createSareeJob helpers the real routes use — per spec, pricing, watermark
+ * request. This delegates to the same createJob/createSimpleTryonJob
+ * helpers the real routes use — per spec, pricing, watermark
  * entitlement, and catalog/pose-workflow validation must never be
  * special-cased here, or the two paths will silently drift apart.
  */
@@ -34,18 +28,7 @@ export async function regenerateJob(app: FastifyInstance, userId: string, origin
 
   const { inputs } = original;
   const params = (inputs.params ?? {}) as Record<string, unknown>;
-  const isSaree = params.kind === 'saree';
   const isTryonDirect = typeof params.personKey === 'string';
-
-  if (isSaree) {
-    if (!inputs.upperGarmentKey) {
-      throw new AppError('VALIDATION', 400, 'original job has no garment to regenerate');
-    }
-    const body: z.infer<typeof CreateSareeJobRequest> = { garmentKey: inputs.upperGarmentKey };
-    const result = await createSareeJob(app, userId, body);
-    await setParentJobId(app, result.jobId, originalJobId);
-    return { jobId: result.jobId, catalogueId: result.catalogueId };
-  }
 
   if (isTryonDirect) {
     const { personKey, sourceJobId } = params;
