@@ -3343,6 +3343,18 @@ git commit -m "feat(web): add two-phase submit for flat-saree garment types"
 
 ### Task 19: Retirement — delete the standalone saree feature
 
+> **AMENDMENT (Task 13 review, 2026-07-14):** Task 13 originally deleted
+> `apps/dispatcher/src/job/processor.ts`'s `processSareeJob` function and its
+> `kind === 'saree'` routing branch outright, but that broke two pre-existing,
+> unrelated dispatcher tests (`watermark-fail-closed.test.ts`,
+> `watermark-snapshot.test.ts`) that use that exact job shape to exercise
+> watermark logic — because `POST /v1/jobs/saree` (deleted only in THIS task)
+> was still live at that point. The fix restored `processSareeJob` and its
+> routing branch verbatim, to be deleted here instead, in the same task that
+> retires the API route that creates those jobs. This task's Files list and
+> steps below are amended accordingly — re-verify against the live file
+> before editing, since Task 13's restoration added ~230 lines back in.
+
 **Files:**
 - Delete: `apps/catalogues-web/src/app/(app)/saree/page.tsx`
 - Modify: `apps/catalogues-web/src/components/sidebar.tsx` (remove saree nav entry)
@@ -3354,9 +3366,11 @@ git commit -m "feat(web): add two-phase submit for flat-saree garment types"
 - Delete: `apps/admin-web/src/pages/SareePage.tsx`
 - Modify: `apps/admin-web/src/App.tsx` (remove import, label map entry, route), `apps/admin-web/src/components/Sidebar.tsx` (remove nav entry)
 - Delete: `apps/api/test/integration/saree-jobs.test.ts` (superseded by Tasks 6/10's tests)
+- **[ADDED by amendment]** Modify: `apps/dispatcher/src/job/processor.ts` — remove the `kind === 'saree'` routing branch and the entire `processSareeJob` function + its `SareeJob` type (the comment header reads `// ── Saree job processor (standalone feature, being retired — see Task 19 ...`, making it easy to locate; it sits between `processSareeMannequinJob` and the `// ── Widget job processor ──` section).
+- **[ADDED by amendment]** Modify or delete: `apps/dispatcher/test/integration/watermark-fail-closed.test.ts` and `apps/dispatcher/test/integration/watermark-snapshot.test.ts` — both currently seed a job with `params: { kind: 'saree', modelKey, workflowTemplateId }` specifically to route through `processSareeJob` as a convenient no-face/background/pose job shape (their actual subject is watermark entitlement logic, not saree). Once `processSareeJob` is deleted, these seeds must be migrated to a different still-existing job shape that also skips face/background/pose validation — check whether `processTryonDirectJob` (the simple-tryon/`kind` variant) or another existing minimal-input job path fits before inventing a new one. Re-run both files after migrating; they must keep passing.
 
 **Interfaces:**
-- Produces: no route, page, or admin surface for the old single-workflow saree feature remains reachable.
+- Produces: no route, page, or admin surface for the old single-workflow saree feature remains reachable; the dispatcher no longer has any code path for `kind === 'saree'` jobs.
 
 - [ ] **Step 1: Delete the web page and its sidebar entry**
 
@@ -3504,6 +3518,28 @@ In `apps/admin-web/src/components/Sidebar.tsx`, remove the nav entry:
       },
 ```
 
+- [ ] **Step 6b: [ADDED by amendment] Remove the dispatcher's `processSareeJob` and its routing branch**
+
+In `apps/dispatcher/src/job/processor.ts`, find and remove the routing branch (immediately after the `saree_mannequin` branch):
+```ts
+  // Saree jobs (standalone feature, being retired — see Task 19 of the
+  // flat-saree-two-step-workflow plan): kind === 'saree' in jobInputs.params.
+  // Two image inputs (model + saree), admin-configured modelKey and
+  // user-uploaded garmentKey. Kept alongside the mannequin branch above until
+  // the API-side POST /v1/jobs/saree route (and this handler) are deleted
+  // together in Task 19 — until then, jobs already in flight or created by
+  // any client still hitting that route must keep working.
+  if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree') {
+    await processSareeJob(cfg, job, inputs, rawParams, userId, stream, messageId, jobLog, startedAt);
+    return;
+  }
+```
+Then find and remove the entire block starting at the comment `// ── Saree job processor (standalone feature, being retired — see Task 19 of` through the closing `}` of `processSareeJob` (includes the `SareeJob` type and the full function body — verify the boundary by bracket-matching, do not trust any assumed line count).
+
+Then update `apps/dispatcher/test/integration/watermark-fail-closed.test.ts` and `watermark-snapshot.test.ts` per the Files-list note above: migrate their job-seeding away from `kind: 'saree'`/`modelKey`/`workflowTemplateId` to whichever existing job shape still reaches `finalizeOutput()` without needing `faceId`/`backgroundId`/`poseId`. Re-run both files (`cd apps/dispatcher && npx vitest run --config <temp-config-pointed-at-the-file>` — remember to set `testTimeout: 30000` in the temp config and to `source .env` into the shell first, per Task 13's report) and confirm all cases still pass.
+
+Run: `pnpm --filter @aivastra/dispatcher lint` and `cd apps/dispatcher && npx tsc --noEmit -p tsconfig.json` (this package has no `typecheck` script) — expect both clean.
+
 - [ ] **Step 7: Rebuild types, typecheck, and lint everything touched**
 
 Run: `pnpm --filter @aivastra/types build`
@@ -3520,7 +3556,7 @@ Expected: passes (minus any pre-existing known failures noted in `apps/api/vites
 - [ ] **Step 9: Commit**
 
 ```bash
-git add -A apps/catalogues-web apps/api apps/admin-web packages/types
+git add -A apps/catalogues-web apps/api apps/admin-web apps/dispatcher packages/types
 git commit -m "refactor: retire standalone saree feature in favor of flat-saree garment type"
 ```
 
