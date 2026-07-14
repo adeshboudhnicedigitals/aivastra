@@ -1,3 +1,21 @@
+## 2026-07-14 - Flexible Workflow Roles
+
+### Done
+- Relaxed workflow and job-input schemas so regular ComfyUI workflows can be upper-, lower-, or inner-wear primary while retaining at least one garment role.
+- Added merged create/PATCH validation and admin upload UI support for workflows without face, background, or upper nodes.
+- Made job creation validate each resolved pose workflow, require a real lower upload when lower is the sole hero, allow mixed-role pose batches, and strip irrelevant garment keys per pose.
+- Made dispatcher workflow patching fail closed for every mapped-but-missing input, upload only declared roles, and release a claimed worker before marking a garment-input gap failed.
+- Fixed regeneration for lower-only jobs, preserved mapped-template workflow context, and authorized original-job garment keys after the 24-hour Redis ownership binding expires while still checking object existence and size.
+- Updated catalogue detail, the operations dashboard, and My Products to display lower-only source garments; `/v1/assets` now excludes null keys and merges duplicate upper/lower uploads safely.
+- Verified focused API integration suites (4 admin workflow tests, 10 job-creation tests, and 9 regeneration tests), 46 dispatcher unit tests, and TypeScript checks across db, types, API, dispatcher, admin-web, and catalogues-web.
+
+### Failed / Not Done
+- The dispatcher happy-path integration test did not execute because its harness was rejected by PostgreSQL with `28P01` for user `tryon`; teardown then hit the pre-existing undefined-Redis `hdel` error.
+- A manual browser click-through of the workflow upload form was not performed.
+
+### Open Questions / Decisions
+- Production rollout order is mandatory: deploy dispatcher before API and admin-web so workers understand optional workflow roles before the API can enqueue them.
+
 ## 2026-07-14 - Mapped-Template Pose Prompt Overrides
 
 ### Done
