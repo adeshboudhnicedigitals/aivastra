@@ -300,6 +300,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         and(
           eq(schema.jobs.userId, req.userId),
           sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+          sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
         ),
       )
       .orderBy(desc(schema.jobs.createdAt))
@@ -375,6 +376,7 @@ export async function jobsRoutes(app: FastifyInstance) {
             eq(schema.jobs.catalogueId, id),
             eq(schema.jobs.userId, req.userId),
             sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+            sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
           ),
         )
         .orderBy(schema.jobs.createdAt);
@@ -444,6 +446,9 @@ export async function jobsRoutes(app: FastifyInstance) {
           // upload. Exclude those (identified by params.sourceJobId) so this page
           // only lists actual product photos.
           sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+          // Hidden internal mannequin-generation jobs (see createSareeMannequinJob)
+          // are never a real product photo either.
+          sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
         ),
       )
       .groupBy(schema.jobInputs.upperGarmentKey)
