@@ -1,0 +1,137 @@
+import { schema } from '@aivastra/db';
+import { createLogger } from '@aivastra/logger';
+import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { eq } from 'drizzle-orm';
+import { Redis } from 'ioredis';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { processJob } from '../../src/job/processor.js';
+import { deregisterWorker, registerWorkers, setWorkerStatus } from '../../src/worker/registry.js';
+import { type ComfyMock, startComfyMock } from '../helpers/comfy-mock.js';
+import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
+
+const WORKER_ID = 'test-worker-mannequin';
+
+describe('dispatcher — saree mannequin (step 1) job', () => {
+  let env: TestEnv;
+  let redis: Redis;
+  let pub: Redis;
+  let comfy: ComfyMock;
+
+  beforeAll(async () => {
+    env = await setupTestEnv();
+    redis = new Redis('redis://127.0.0.1:6379');
+    pub = new Redis('redis://127.0.0.1:6379');
+    comfy = await startComfyMock();
+
+    await registerWorkers(redis, [
+      { id: WORKER_ID, url: comfy.url, apiKey: 'test-key', allowedJobTypes: ['saree'] },
+    ]);
+    await redis.setex(`worker:health:${WORKER_ID}`, 30, '1');
+  }, 60_000);
+
+  afterAll(async () => {
+    await deregisterWorker(redis, WORKER_ID);
+    await comfy.close();
+    redis.disconnect();
+    pub.disconnect();
+    await env.cleanup();
+  });
+
+  beforeEach(async () => {
+    comfy.setOptions({});
+    await setWorkerStatus(redis, WORKER_ID, 'IDLE');
+  });
+
+  async function seedMannequinJob() {
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({ email: `mannequin-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
+      .returning();
+
+    const [template] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step1-${Date.now()}`,
+        label: 'Step1',
+        jsonContent: {
+          '1': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+          '2': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        },
+        workflowType: 'saree_step1',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: [],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+        tryonPersonNodeId: '1',
+        tryonGarmentNodeId: '2',
+        tryonOutputNodeId: '10',
+      })
+      .returning();
+
+    const [garmentType] = await env.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `flat-saree-${Date.now()}`,
+        label: 'Flat Saree',
+        requiresMannequinStep: true,
+        mannequinWorkflowTemplateId: template.id,
+      })
+      .returning();
+
+    const [face] = await env.db
+      .insert(schema.modelFaces)
+      .values({ gender: 'women', label: 'F', r2Key: 'face/f.jpg', thumbnailKey: 'face/f.jpg' })
+      .returning();
+
+    const [job] = await env.db
+      .insert(schema.jobs)
+      .values({ userId: user.id, status: 'QUEUED', priority: false, creditsCharged: 0 })
+      .returning();
+
+    await env.db.insert(schema.jobInputs).values({
+      jobId: job.id,
+      upperGarmentKey: `inputs/${job.id}/garment.jpg`,
+      faceId: face.id,
+      garmentTypeId: garmentType.id,
+      params: { kind: 'saree_mannequin' },
+    });
+
+    for (const key of [`inputs/${job.id}/garment.jpg`, 'face/f.jpg']) {
+      await env.s3.send(
+        new PutObjectCommand({
+          Bucket: env.r2Bucket,
+          Key: key,
+          Body: Buffer.from('stub'),
+          ContentType: 'image/jpeg',
+        }),
+      );
+    }
+
+    return { jobId: job.id, userId: user.id };
+  }
+
+  it('processes a saree_mannequin job to COMPLETED with 0 credits, output uploaded', async () => {
+    const { jobId, userId } = await seedMannequinJob();
+    const log = createLogger('test');
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      userId,
+      'jobs:normal',
+      '1-1',
+    );
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('COMPLETED');
+    expect(job?.creditsCharged).toBe(0);
+
+    const obj = await env.s3.send(
+      new GetObjectCommand({ Bucket: env.r2Bucket, Key: `outputs/${jobId}/result.png` }),
+    );
+    expect(obj.$metadata.httpStatusCode).toBe(200);
+  });
+});
