@@ -789,5 +789,122 @@ describe('shot-type workflow resolve', () => {
         );
       expect(row.workflowTemplateId).toBe(workflow.id);
     });
+
+    it('PATCH per-pose workflow sets source to manual, protecting it from later auto-resolve', async () => {
+      const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+      const defaultWorkflow = await seedWorkflow('Should be ignored');
+      const manualWorkflow = await seedWorkflow('Manual pick via route');
+
+      const patchRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/catalogue-template-mappings/${mapping.id}/poses/${pose.id}`,
+        headers,
+        payload: { workflowTemplateId: manualWorkflow.id },
+      });
+      expect(patchRes.statusCode).toBe(200);
+      expect(patchRes.json()).toMatchObject({
+        workflowTemplateId: manualWorkflow.id,
+        source: 'manual',
+      });
+
+      const [row] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+          ),
+        );
+      expect(row.source).toBe('manual');
+
+      // Setting the garment type's default afterwards must not override the manual pick.
+      await app.db.insert(schema.garmentShotTypeWorkflows).values({
+        garmentTypeId: garmentType.id,
+        shotType: 'full',
+        workflowTemplateId: defaultWorkflow.id,
+      });
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/garment-types/${garmentType.id}/shot-type-workflows/full`,
+        headers,
+        payload: { workflowTemplateId: defaultWorkflow.id },
+      });
+
+      const [rowAfter] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+          ),
+        );
+      expect(rowAfter.workflowTemplateId).toBe(manualWorkflow.id);
+      expect(rowAfter.source).toBe('manual');
+    });
+
+    it('clearing a manual override falls back to the live category default', async () => {
+      const { garmentType, mapping, pose } = await seedMappedPose({ shotType: 'full' });
+      const defaultWorkflow = await seedWorkflow('Fallback default');
+      const manualWorkflow = await seedWorkflow('To be cleared');
+      await app.db.insert(schema.garmentShotTypeWorkflows).values({
+        garmentTypeId: garmentType.id,
+        shotType: 'full',
+        workflowTemplateId: defaultWorkflow.id,
+      });
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/catalogue-template-mappings/${mapping.id}/poses/${pose.id}`,
+        headers,
+        payload: { workflowTemplateId: manualWorkflow.id },
+      });
+
+      const clearRes = await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/catalogue-template-mappings/${mapping.id}/poses/${pose.id}`,
+        headers,
+        payload: { workflowTemplateId: null },
+      });
+      expect(clearRes.statusCode).toBe(200);
+      // The response reflects the row's actual resulting state (the live default it
+      // just fell back to), not a blind echo of "cleared" — the admin UI depends on
+      // this to avoid showing a stale "Workflow required" after a clear that instantly
+      // repopulated a real workflow.
+      expect(clearRes.json()).toMatchObject({
+        workflowTemplateId: defaultWorkflow.id,
+        source: 'auto',
+      });
+
+      const [row] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+          ),
+        );
+      expect(row.workflowTemplateId).toBe(defaultWorkflow.id);
+      expect(row.source).toBe('auto');
+    });
+
+    it('GET poses-in-mapping surfaces source', async () => {
+      const { mapping, pose } = await seedMappedPose({ shotType: 'full' });
+      const workflow = await seedWorkflow('Source visibility check');
+      await app.inject({
+        method: 'PATCH',
+        url: `/admin/assets/catalogue-template-mappings/${mapping.id}/poses/${pose.id}`,
+        headers,
+        payload: { workflowTemplateId: workflow.id },
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/admin/assets/catalogue-template-mappings/${mapping.id}/poses`,
+        headers,
+      });
+      expect(res.json().items[0].source).toBe('manual');
+    });
   });
 });

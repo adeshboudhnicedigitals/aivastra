@@ -444,6 +444,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           sortOrder: schema.modelPoseAssets.sortOrder,
           workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
           promptGarmentPhase: schema.catalogueTemplatePoseWorkflows.promptGarmentPhase,
+          source: schema.catalogueTemplatePoseWorkflows.source,
         })
         .from(schema.catalogueTemplateLooks)
         .innerJoin(
@@ -470,6 +471,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           displayName: pose.displayName,
           workflowTemplateId: pose.workflowTemplateId,
           promptGarmentPhase: pose.promptGarmentPhase,
+          source: pose.source,
           thumbnailUrl: app.storage.publicUrl(pose.thumbnailKey),
         })),
       };
@@ -522,15 +524,42 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       }
 
       if (!workflowTemplateId) {
-        await app.db
-          .delete(schema.catalogueTemplatePoseWorkflows)
-          .where(
-            and(
-              eq(schema.catalogueTemplatePoseWorkflows.mappingId, mappingId),
-              eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, poseAssetId),
-            ),
-          );
-        return { ok: true, action: 'deleted' };
+        // "Clear override" and "reset to category default" unified: deleting can
+        // immediately let resolveForMapping fall back to a live default for this
+        // pose's shot type — the response returns the row's real resulting state
+        // (possibly a re-populated workflow, possibly nothing) rather than a blind
+        // "cleared", so the admin UI never shows stale "Workflow required" after a
+        // clear that actually just repopulated a different workflow. Delete + resolve
+        // + re-read run in one transaction so this is one atomic unit.
+        const result = await app.db.transaction(async (tx) => {
+          await tx
+            .delete(schema.catalogueTemplatePoseWorkflows)
+            .where(
+              and(
+                eq(schema.catalogueTemplatePoseWorkflows.mappingId, mappingId),
+                eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, poseAssetId),
+              ),
+            );
+          const resolvedCount = await resolveForMapping(tx, mappingId);
+          const [row] = await tx
+            .select({
+              workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+              source: schema.catalogueTemplatePoseWorkflows.source,
+            })
+            .from(schema.catalogueTemplatePoseWorkflows)
+            .where(
+              and(
+                eq(schema.catalogueTemplatePoseWorkflows.mappingId, mappingId),
+                eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, poseAssetId),
+              ),
+            );
+          return {
+            resolvedCount,
+            workflowTemplateId: row?.workflowTemplateId ?? null,
+            source: row?.source ?? null,
+          };
+        });
+        return { ok: true, action: 'deleted', ...result };
       }
 
       const [workflow] = await app.db
@@ -552,8 +581,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
       const updateSet: {
         workflowTemplateId: string;
         updatedAt: Date;
+        source: 'manual';
         promptGarmentPhase?: string | null;
-      } = { workflowTemplateId, updatedAt: new Date() };
+      } = { workflowTemplateId, source: 'manual', updatedAt: new Date() };
       if (hasPromptKey) updateSet.promptGarmentPhase = body.promptGarmentPhase ?? null;
 
       await app.db
@@ -562,6 +592,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           mappingId,
           poseAssetId,
           workflowTemplateId,
+          source: 'manual',
           promptGarmentPhase: body.promptGarmentPhase ?? null,
         })
         .onConflictDoUpdate({
@@ -572,7 +603,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           set: updateSet,
         });
 
-      return { ok: true, action: 'upserted' };
+      return { ok: true, action: 'upserted', workflowTemplateId, source: 'manual' as const };
     },
   );
 
