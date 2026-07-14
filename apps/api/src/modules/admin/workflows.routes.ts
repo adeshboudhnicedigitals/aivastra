@@ -135,7 +135,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         throw new AppError('VALIDATION', 400, 'jsonContent must be a JSON object');
       }
 
-      if ((req.body as { workflowType?: string }).workflowType === 'tryon') {
+      const parseWorkflowType = (req.body as { workflowType?: string }).workflowType;
+      if (parseWorkflowType === 'tryon' || parseWorkflowType === 'saree_step1') {
         const { detected, allImageNodes, allPromptNodes } = detectTryonMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
       }
@@ -189,7 +190,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
       const workflowType = body.workflowType ?? 'regular';
 
-      if (workflowType === 'tryon') {
+      if (workflowType === 'tryon' || workflowType === 'saree_step1') {
         // Auto-detect node IDs from JSON when not explicitly provided
         const { detected: autoDetected } = detectTryonMappings(body.jsonContent);
         const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
@@ -243,7 +244,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             slug: body.slug,
             label: body.label,
             jsonContent: body.jsonContent,
-            workflowType: 'tryon',
+            workflowType,
             faceNodeId: '',
             poseNodeId: '',
             bgNodeId: '',

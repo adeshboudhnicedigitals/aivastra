@@ -165,7 +165,7 @@ export const CreateWorkflowBody = z
       ),
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'tryon']).default('regular'),
+    workflowType: z.enum(['regular', 'tryon', 'saree_step1']).default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
@@ -213,7 +213,7 @@ export const CreateWorkflowBody = z
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'tryon']).optional(),
+  workflowType: z.enum(['regular', 'tryon', 'saree_step1']).optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -377,6 +377,9 @@ export const PatchGarmentTypeBody = z.object({
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
   defaultPoseId: z.string().uuid().nullable().optional(),
+  requiresMannequinStep: z.boolean().optional(),
+  mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,

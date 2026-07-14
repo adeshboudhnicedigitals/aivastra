@@ -7,6 +7,7 @@ import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
@@ -23,6 +24,7 @@ interface GarmentType {
   requiresLowerUpload: boolean;
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
+  requiresMannequinStep?: boolean;
 }
 interface FaceItem {
   id: string;
@@ -727,6 +729,35 @@ export default function StudioPage(): React.ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
   const [submitError, setSubmitError] = useState('');
+  const [mannequinWaitState, setMannequinWaitState] = useState<'idle' | 'waiting' | 'error'>(
+    'idle',
+  );
+  const mannequinResolverRef = useRef<{
+    resolve: (jobId: string) => void;
+    reject: (err: Error) => void;
+    jobId: string;
+  } | null>(null);
+
+  useJobStream(
+    useCallback((evt) => {
+      const pending = mannequinResolverRef.current;
+      if (!pending || evt.jobId !== pending.jobId) return;
+      if (evt.status === 'COMPLETED') {
+        mannequinResolverRef.current = null;
+        pending.resolve(pending.jobId);
+      } else if (evt.status === 'FAILED') {
+        mannequinResolverRef.current = null;
+        pending.reject(new Error('Garment preparation failed. Please try again.'));
+      }
+    }, []),
+  );
+
+  function waitForMannequinJob(jobId: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      mannequinResolverRef.current = { resolve, reject, jobId };
+    });
+  }
+
   const [activeGeneration, setActiveGeneration] = useState<{
     catalogueId: string;
     jobs: GenerationJob[];
@@ -1131,6 +1162,28 @@ export default function StudioPage(): React.ReactElement {
     setIsSubmitting(true);
     setSubmitError('');
     try {
+      // Flat-saree (and any future two-pass) garment types run a one-time,
+      // free mannequin-generation job first, then reuse its output as the
+      // garment input for every pose in the batch below.
+      let mannequinJobId: string | undefined;
+      if (selectedGarmentType?.requiresMannequinStep) {
+        setMannequinWaitState('waiting');
+        try {
+          const { jobId } = await api.post<{ jobId: string }>('/v1/jobs/saree-mannequin', {
+            garmentTypeId,
+            garmentKey,
+            faceId,
+          });
+          mannequinJobId = await waitForMannequinJob(jobId);
+          setMannequinWaitState('idle');
+        } catch (mannequinErr) {
+          setMannequinWaitState('error');
+          setSubmitError((mannequinErr as Error).message);
+          isSubmittingRef.current = false;
+          setIsSubmitting(false);
+          return;
+        }
+      }
       // Send platform:'Amazon' only when white bg override is wanted (main listing).
       // Lifestyle mode: omit platform so the API doesn't force white bg.
       // The aspectRatio (1:1) is already captured in `aspect` independently.
@@ -1142,14 +1195,23 @@ export default function StudioPage(): React.ReactElement {
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
-      const inputsBase = {
-        upperGarmentKey: garmentKey,
-        faceId,
-        garmentTypeId: garmentTypeId || undefined,
-        lowerCatalogId: effectiveLowerId,
-        lowerGarmentKey: lowerGarmentKey || undefined,
-        shoeCatalogId: effectiveShoesId,
-      };
+      const inputsBase = mannequinJobId
+        ? {
+            mannequinJobId,
+            faceId,
+            garmentTypeId: garmentTypeId || undefined,
+            lowerCatalogId: effectiveLowerId,
+            lowerGarmentKey: lowerGarmentKey || undefined,
+            shoeCatalogId: effectiveShoesId,
+          }
+        : {
+            upperGarmentKey: garmentKey,
+            faceId,
+            garmentTypeId: garmentTypeId || undefined,
+            lowerCatalogId: effectiveLowerId,
+            lowerGarmentKey: lowerGarmentKey || undefined,
+            shoeCatalogId: effectiveShoesId,
+          };
       const inputs =
         catalogueTemplateId === 'custom'
           ? { ...inputsBase, backgroundId, poseIds }
