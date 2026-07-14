@@ -214,7 +214,8 @@ export async function processJob(
   if (snapshottedWorkflowTemplateId) {
     effectiveWorkflowTemplateId = snapshottedWorkflowTemplateId;
     effectivePromptFacePhase = null;
-    effectivePromptGarmentPhase = null;
+    effectivePromptGarmentPhase =
+      typeof rawParams.promptGarmentPhase === 'string' ? rawParams.promptGarmentPhase : null;
   } else if (inputs.garmentTypeId) {
     const [cfgRow] = await db
       .select({
