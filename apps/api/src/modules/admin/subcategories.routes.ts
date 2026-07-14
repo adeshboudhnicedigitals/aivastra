@@ -436,6 +436,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           thumbnailKey: schema.modelPoseAssets.thumbnailKey,
           sortOrder: schema.modelPoseAssets.sortOrder,
           workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+          promptGarmentPhase: schema.catalogueTemplatePoseWorkflows.promptGarmentPhase,
         })
         .from(schema.catalogueTemplateLooks)
         .innerJoin(
@@ -461,6 +462,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           label: pose.label,
           displayName: pose.displayName,
           workflowTemplateId: pose.workflowTemplateId,
+          promptGarmentPhase: pose.promptGarmentPhase,
           thumbnailUrl: app.storage.publicUrl(pose.thumbnailKey),
         })),
       };
@@ -476,7 +478,10 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           mappingId: z.string().uuid(),
           poseAssetId: z.string().uuid(),
         }),
-        body: z.object({ workflowTemplateId: z.string().uuid().nullable() }),
+        body: z.object({
+          workflowTemplateId: z.string().uuid().nullable(),
+          promptGarmentPhase: z.string().nullable().optional(),
+        }),
       },
     },
     async (req) => {
@@ -484,7 +489,11 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         mappingId: string;
         poseAssetId: string;
       };
-      const { workflowTemplateId } = req.body as { workflowTemplateId: string | null };
+      const body = req.body as {
+        workflowTemplateId: string | null;
+        promptGarmentPhase?: string | null;
+      };
+      const { workflowTemplateId } = body;
 
       const [validPose] = await app.db
         .select({ id: schema.catalogueTemplateLooks.id })
@@ -529,15 +538,31 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         );
       if (!workflow) throw new AppError('BAD_CATALOG', 400, 'workflow not found or inactive');
 
+      // `promptGarmentPhase` absent from the body means "leave it untouched" (the
+      // workflow-<select>'s own PATCH calls never send it) — only update it on
+      // conflict when the key was actually present in the request.
+      const hasPromptKey = 'promptGarmentPhase' in body;
+      const updateSet: {
+        workflowTemplateId: string;
+        updatedAt: Date;
+        promptGarmentPhase?: string | null;
+      } = { workflowTemplateId, updatedAt: new Date() };
+      if (hasPromptKey) updateSet.promptGarmentPhase = body.promptGarmentPhase ?? null;
+
       await app.db
         .insert(schema.catalogueTemplatePoseWorkflows)
-        .values({ mappingId, poseAssetId, workflowTemplateId })
+        .values({
+          mappingId,
+          poseAssetId,
+          workflowTemplateId,
+          promptGarmentPhase: body.promptGarmentPhase ?? null,
+        })
         .onConflictDoUpdate({
           target: [
             schema.catalogueTemplatePoseWorkflows.mappingId,
             schema.catalogueTemplatePoseWorkflows.poseAssetId,
           ],
-          set: { workflowTemplateId, updatedAt: new Date() },
+          set: updateSet,
         });
 
       return { ok: true, action: 'upserted' };
