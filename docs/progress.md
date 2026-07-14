@@ -1,3 +1,19 @@
+## 2026-07-14 - Mapped-Template Pose Prompt Overrides
+
+### Done
+- Added nullable `promptGarmentPhase` to `catalogue_template_pose_workflows` so each pose can override the garment-phase prompt within one template/garment-type mapping.
+- Extended the mapped-template admin API with independent prompt semantics: omitted preserves, explicit null clears, and workflow-only updates do not clobber a saved prompt.
+- Snapshotted mapped prompt overrides into `job_inputs.params` at job creation and made dispatcher execution honor that snapshot while retaining workflow defaults when no override exists.
+- Added an inline prompt editor with workflow-default prefill, explicit save/clear controls, and a custom-prompt badge to the mapped-template Configure workflows modal.
+- Added focused integration coverage for API set/preserve/clear behavior and job snapshot presence/absence; the default API suite passed 128 tests and all touched packages passed TypeScript checks.
+
+### Failed / Not Done
+- The separately configured full integration suite remains red from pre-existing shared auth-rate-limit state and unrelated stale assertions; the feature-specific integration files pass in isolation.
+- Browser click-through verification was not performed because no browser automation connector was available.
+
+### Open Questions / Decisions
+- `promptFacePhase` remains intentionally unsupported for mapped templates; mapped prompt overrides apply only to the garment phase.
+
 ## 2026-07-14 - Mapping-Specific Catalogue Template Workflows
 
 ### Done
