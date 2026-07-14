@@ -99,7 +99,7 @@ export async function createJob(
   // caller owns the object — another user's key has the same shape. Verify each
   // garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
   // before any credit/DB mutation.
-  await assertOwnsUploadKey(app, userId, upperGarmentKey);
+  if (upperGarmentKey) await assertOwnsUploadKey(app, userId, upperGarmentKey);
   if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
 
   // Normalize to a single per-look list. This only rejects "neither form present" —
