@@ -41,16 +41,47 @@ export async function catalogRoutes(app: FastifyInstance) {
           type === 'lower'
             ? schema.workflowTemplates.lowerNodeId
             : schema.workflowTemplates.shoeNodeId;
-        const supportingPoses = await app.db
-          .select({ id: schema.modelPoseAssets.id })
-          .from(schema.modelPoseAssets)
-          .innerJoin(
-            schema.workflowTemplates,
-            eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
-          )
-          .where(and(inArray(schema.modelPoseAssets.id, poseIds), isNotNull(nodeField)));
+        // A pose "supports" this role via either of two independent workflow-resolution
+        // paths: its own default workflowTemplateId (used by the custom "choose your
+        // look" flow), or a per-(catalogue-template-mapping, pose) workflow assignment
+        // (used by the template flow — see catalogue_template_pose_workflows). A
+        // template-scoped pose commonly has no default workflow of its own, since its
+        // entire workflow role comes from the mapping-specific assignment — checking
+        // only the default caused every template whose poses have no default workflow
+        // to see zero lower/shoe options regardless of what the template's actually
+        // resolved workflow declares.
+        const [defaultSupporting, mappedSupporting] = await Promise.all([
+          app.db
+            .select({ id: schema.modelPoseAssets.id })
+            .from(schema.modelPoseAssets)
+            .innerJoin(
+              schema.workflowTemplates,
+              eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
+            )
+            .where(and(inArray(schema.modelPoseAssets.id, poseIds), isNotNull(nodeField)))
+            .limit(1),
+          app.db
+            .select({ id: schema.catalogueTemplatePoseWorkflows.poseAssetId })
+            .from(schema.catalogueTemplatePoseWorkflows)
+            .innerJoin(
+              schema.workflowTemplates,
+              eq(
+                schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+                schema.workflowTemplates.id,
+              ),
+            )
+            .where(
+              and(
+                inArray(schema.catalogueTemplatePoseWorkflows.poseAssetId, poseIds),
+                isNotNull(nodeField),
+              ),
+            )
+            .limit(1),
+        ]);
 
-        if (supportingPoses.length === 0) return { type, tree: [] };
+        if (defaultSupporting.length === 0 && mappedSupporting.length === 0) {
+          return { type, tree: [] };
+        }
 
         // Return all active catalog items of this type/gender
         const conditions = [
