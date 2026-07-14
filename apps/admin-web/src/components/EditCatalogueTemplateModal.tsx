@@ -23,6 +23,15 @@ interface LookRow {
   key: string; // stable React key — random per row, independent of the eventual saved id
   poseAssetId: string;
   backgroundId: string;
+  // Drives the shotType sent the next time this row's pose image is (re-)uploaded.
+  // `null` = not tagged (a legacy pose that predates this feature, or a row the admin
+  // hasn't touched yet) — distinct from 'full', never silently coerced to it, so an
+  // untagged pose doesn't look already-correct when it's actually unresolved. The
+  // select stays editable at all times regardless of whether poseAssetId is already
+  // set — picking a different value here doesn't retroactively change an
+  // already-uploaded pose, but it's exactly what lets an admin correct a mis-tagged
+  // pose: pick the right value, then re-upload.
+  shotType: 'full' | 'half' | 'closeup' | null;
 }
 
 /** Click-to-upload tile — no picking from existing assets, every look uploads fresh. */
@@ -179,6 +188,7 @@ export function EditCatalogueTemplateModal({
   const backgroundFileInputRef = useRef<HTMLInputElement>(null);
   const backgroundUploadRowKeyRef = useRef<string | null>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Existing looks load once per template; pose assets are already seeded before this effect runs.
   useEffect(() => {
     if (!isEditing || !template) return;
     apiFetch<{ items: { id: string; poseAssetId: string; backgroundId: string }[] }>(
@@ -190,11 +200,16 @@ export function EditCatalogueTemplateModal({
             key: l.id,
             poseAssetId: l.poseAssetId,
             backgroundId: l.backgroundId,
+            shotType: localPoseAssets.find((p) => p.id === l.poseAssetId)?.shotType ?? null,
           })),
         );
       })
       .catch(() => setLooks([]))
       .finally(() => setLooksLoaded(true));
+    // localPoseAssets is intentionally excluded — this effect should only re-run when
+    // isEditing/template change, reading whatever localPoseAssets holds at that point
+    // (already seeded from the poseAssets prop before this effect can fire).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing, template]);
 
   const poseAssetById = new Map(localPoseAssets.map((p) => [p.id, p]));
@@ -207,6 +222,7 @@ export function EditCatalogueTemplateModal({
         key: crypto.randomUUID(),
         poseAssetId: '',
         backgroundId: '',
+        shotType: 'full',
       },
     ]);
   }
@@ -227,6 +243,12 @@ export function EditCatalogueTemplateModal({
   async function handlePoseFileSelected(file: File) {
     const rowKey = poseUploadRowKeyRef.current;
     if (!rowKey) return;
+    // Snapshot now, before any await — this is what "shot type at the moment this
+    // upload started" means, and it must not be recomputed after the network calls
+    // below, since the admin can still edit this row's selector while they're in
+    // flight (the selector is disabled only for the row currently uploading, which is
+    // this one, but that guard is enforced by the render, not by this closure).
+    const rowShotType = looks.find((l) => l.key === rowKey)?.shotType ?? null;
     setUploadingPoseForRow(rowKey);
     try {
       const presign = await apiFetch<{
@@ -250,6 +272,9 @@ export function EditCatalogueTemplateModal({
           thumbnailKey: presign.thumbnailKey,
           genderSlug,
           scope: 'template',
+          // shotType is optional server-side — omit it entirely rather than sending
+          // null, since the API's Zod schema validates it as an enum, not nullable.
+          ...(rowShotType ? { shotType: rowShotType } : {}),
         }),
       });
       setLocalPoseAssets((prev) => [...prev, created]);
@@ -530,6 +555,30 @@ export function EditCatalogueTemplateModal({
                         loading={uploadingBackgroundForRow === row.key}
                         onClick={() => openBackgroundUpload(row.key)}
                       />
+                      <div className="field" style={{ margin: 0, width: 120 }}>
+                        <label style={{ fontSize: 10 }}>Shot type</label>
+                        <select
+                          className="select"
+                          style={{ fontSize: 12, padding: '3px 6px', height: 30 }}
+                          value={row.shotType ?? ''}
+                          disabled={saving || uploadingPoseForRow === row.key}
+                          title={
+                            uploadingPoseForRow === row.key
+                              ? 'Wait for the current upload to finish before changing this'
+                              : "Applies the next time this row's pose image is (re-)uploaded — picking a value here alone does not retag an already-uploaded pose"
+                          }
+                          onChange={(e) =>
+                            updateLookRow(row.key, {
+                              shotType: (e.target.value || null) as LookRow['shotType'],
+                            })
+                          }
+                        >
+                          <option value="">— not tagged —</option>
+                          <option value="full">Full pose</option>
+                          <option value="half">Half pose</option>
+                          <option value="closeup">Closeup</option>
+                        </select>
+                      </div>
                       <button
                         type="button"
                         className="iconbtn"
