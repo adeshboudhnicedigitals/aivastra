@@ -267,6 +267,17 @@ export async function processJob(
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
     return;
   }
+  const [tmplRoles] = await db
+    .select({
+      faceNodeId: schema.workflowTemplates.faceNodeId,
+      bgNodeId: schema.workflowTemplates.bgNodeId,
+      upperNodeIds: schema.workflowTemplates.upperNodeIds,
+    })
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const needsFace = !!tmplRoles?.faceNodeId;
+  const needsBg = !!tmplRoles?.bgNodeId;
+  const needsUpper = (tmplRoles?.upperNodeIds.length ?? 0) > 0;
   jobLog.info(
     { faceSideKey, bgKeyResolved: bgKey, bgSource, poseKey, workflowTemplateId },
     'resolved R2 keys for ComfyUI upload',
@@ -356,26 +367,22 @@ export async function processJob(
 
     // 4. Upload only the images that ComfyUI actually needs.
     // Display images (faceRow.r2Key, bgRow.r2Key) are UI-only and never sent to ComfyUI.
-    jobLog.info('uploading inputs to ComfyUI');
-    const baseTasks: Promise<string>[] = [
-      uploadToComfy(inputs.upperGarmentKey, 'garment'),
-      uploadToComfy(faceSideKey, 'face'),
-      uploadToComfy(poseKey, 'pose'),
-      uploadToComfy(bgKey, 'bg'),
-    ];
+    jobLog.info({ needsFace, needsBg, needsUpper }, 'uploading inputs to ComfyUI');
+    const baseTasks: Promise<string>[] = [uploadToComfy(poseKey, 'pose')];
+    if (needsUpper && inputs.upperGarmentKey)
+      baseTasks.push(uploadToComfy(inputs.upperGarmentKey, 'garment'));
+    if (needsFace) baseTasks.push(uploadToComfy(faceSideKey, 'face'));
+    if (needsBg) baseTasks.push(uploadToComfy(bgKey, 'bg'));
     if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
     if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
     const uploaded = await Promise.all(baseTasks);
 
     let idx = 0;
-    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
-    const upperGarmentFile = uploaded[idx++]!;
-    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
-    const faceSideFile = uploaded[idx++]!;
-    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
+    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces the pose entry first
     const poseFile = uploaded[idx++]!;
-    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
-    const backgroundFile = uploaded[idx++]!;
+    const upperGarmentFile = needsUpper && inputs.upperGarmentKey ? uploaded[idx++] : undefined;
+    const faceSideFile = needsFace ? uploaded[idx++] : undefined;
+    const backgroundFile = needsBg ? uploaded[idx++] : undefined;
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
     jobLog.info(
@@ -503,6 +510,24 @@ export async function processJob(
     recordJobOutcome('success', startedAt);
     jobLog.info('job completed successfully');
   } catch (err) {
+    if (
+      err instanceof Error &&
+      /no .* image was provided|no .* garment image was provided/.test(err.message)
+    ) {
+      jobLog.error({ err: err.message }, 'missing garment input for a mapped workflow role');
+      await setWorkerStatus(redis, w.id, 'IDLE');
+      await markFailed(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'MISSING_GARMENT_INPUT',
+        jobLog,
+        startedAt,
+      );
+      return;
+    }
     jobLog.error({ err }, 'job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -540,6 +565,19 @@ async function processTryonDirectJob(
 
   if (!workflowTemplateId) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
+    return;
+  }
+  if (!garmentKey) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MISSING_GARMENT_INPUT',
+      jobLog,
+      startedAt,
+    );
     return;
   }
 
@@ -997,6 +1035,21 @@ async function processWidgetJob(
     return;
   }
   const customerPhotoKey = job.customerPhotoKey;
+  if (!inputs.upperGarmentKey) {
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'MISSING_GARMENT_INPUT',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+  const upperGarmentKey = inputs.upperGarmentKey;
 
   // Resolve the per-job tryon workflow template — kiosk resolves this at job-creation
   // time via garment type -> tryon_categories -> workflow_templates, the SAME mechanism
@@ -1090,7 +1143,7 @@ async function processWidgetJob(
 
     const [customerPhotoBytes, garmentBytes] = await Promise.all([
       r2Download(customerPhotoKey),
-      r2Download(inputs.upperGarmentKey),
+      r2Download(upperGarmentKey),
     ]);
 
     // Upload to widget ComfyUI VPS (Basic Auth, not X-Api-Key)
@@ -1113,7 +1166,7 @@ async function processWidgetJob(
       return json.name;
     }
 
-    const garmentExt = inputs.upperGarmentKey.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const garmentExt = upperGarmentKey.split('.').pop()?.toLowerCase() ?? 'jpg';
     const garmentMime =
       garmentExt === 'png' ? 'image/png' : garmentExt === 'webp' ? 'image/webp' : 'image/jpeg';
     const photoExt = customerPhotoKey.split('.').pop()?.toLowerCase() ?? 'jpg';
