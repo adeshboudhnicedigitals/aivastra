@@ -184,6 +184,9 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           and(
             eq(schema.modelPoseAssets.genderSlug, sub.genderSlug ?? ''),
             isNull(schema.modelPoseAssets.deletedAt),
+            // Template-scoped poses belong to "2. Catalogue templates" above —
+            // this panel is standalone poses for "Create your own look" only.
+            eq(schema.modelPoseAssets.scope, 'general'),
           ),
         )
         .orderBy(asc(schema.modelPoseAssets.sortOrder), asc(schema.modelPoseAssets.label));

@@ -23,14 +23,11 @@ interface LookRow {
   key: string; // stable React key — random per row, independent of the eventual saved id
   poseAssetId: string;
   backgroundId: string;
-  // Drives the shotType sent the next time this row's pose image is (re-)uploaded.
-  // `null` = not tagged (a legacy pose that predates this feature, or a row the admin
-  // hasn't touched yet) — distinct from 'full', never silently coerced to it, so an
-  // untagged pose doesn't look already-correct when it's actually unresolved. The
-  // select stays editable at all times regardless of whether poseAssetId is already
-  // set — picking a different value here doesn't retroactively change an
-  // already-uploaded pose, but it's exactly what lets an admin correct a mis-tagged
-  // pose: pick the right value, then re-upload.
+  // Sent on Save (PUT .../looks) to retag this row's pose in place, and also on
+  // (re-)upload of a fresh pose image. `null` = not tagged (a legacy pose that
+  // predates this feature, or a row the admin hasn't touched yet) — distinct from
+  // 'full', never silently coerced to it, so an untagged pose doesn't look
+  // already-correct when it's actually unresolved.
   shotType: 'full' | 'half' | 'closeup' | null;
 }
 
@@ -392,7 +389,11 @@ export function EditCatalogueTemplateModal({
         body: JSON.stringify({
           looks: looks
             .filter((l) => l.poseAssetId && l.backgroundId)
-            .map((l) => ({ poseAssetId: l.poseAssetId, backgroundId: l.backgroundId })),
+            .map((l) => ({
+              poseAssetId: l.poseAssetId,
+              backgroundId: l.backgroundId,
+              ...(l.shotType ? { shotType: l.shotType } : {}),
+            })),
         }),
       });
 
@@ -565,7 +566,7 @@ export function EditCatalogueTemplateModal({
                           title={
                             uploadingPoseForRow === row.key
                               ? 'Wait for the current upload to finish before changing this'
-                              : "Applies the next time this row's pose image is (re-)uploaded — picking a value here alone does not retag an already-uploaded pose"
+                              : 'Saved when you click "Save template" below'
                           }
                           onChange={(e) =>
                             updateLookRow(row.key, {

@@ -430,6 +430,9 @@ export const PutCatalogueTemplateLooksBody = z.object({
       z.object({
         poseAssetId: z.string().uuid(),
         backgroundId: z.string().uuid(),
+        // Optional: retags the pose's shot type in place (no re-upload needed).
+        // Omitted/undefined leaves the pose's existing shot_type untouched.
+        shotType: z.enum(['full', 'half', 'closeup']).optional(),
       }),
     )
     .max(20),
