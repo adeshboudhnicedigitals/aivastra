@@ -6,6 +6,7 @@ import {
   Card,
   InlineStack,
   Layout,
+  Modal,
   Page,
   SkeletonBodyText,
   Text,
@@ -93,6 +94,8 @@ export default function DashboardPage() {
   const [confirming, setConfirming] = useState(false);
   const [openingEditor, setOpeningEditor] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [showDisconnect, setShowDisconnect] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const navigate = useNavigate();
 
   const load = useCallback(() => {
@@ -130,6 +133,20 @@ export default function DashboardPage() {
       setError((err as Error).message);
     } finally {
       setOpeningEditor(false);
+    }
+  }
+
+  async function disconnectAccount() {
+    setDisconnecting(true);
+    setError(null);
+    try {
+      await apiFetch('/v1/shopify/store/account/unlink', { method: 'POST' });
+      // Full reload so App.tsx re-fetches /v1/shopify/me from scratch and
+      // re-gates to LinkAccountGate now that ownerUserId is cleared server-side.
+      window.location.reload();
+    } catch (err) {
+      setError((err as Error).message);
+      setDisconnecting(false);
     }
   }
 
@@ -393,17 +410,43 @@ export default function DashboardPage() {
           </div>
 
           <Card>
-            <InlineStack align="space-between">
-              <Button onClick={() => navigate('/products')}>Manage Products</Button>
-              {me?.store.connectedSince && (
-                <Text as="p" tone="subdued">
-                  Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
-                </Text>
-              )}
+            <InlineStack align="space-between" blockAlign="center">
+              <InlineStack gap="200" blockAlign="center">
+                <Button onClick={() => navigate('/products')}>Manage Products</Button>
+                {me?.store.connectedSince && (
+                  <Text as="p" tone="subdued">
+                    Connected since {new Date(me.store.connectedSince).toLocaleDateString()}
+                  </Text>
+                )}
+              </InlineStack>
+              <Button variant="plain" tone="critical" onClick={() => setShowDisconnect(true)}>
+                Disconnect account
+              </Button>
             </InlineStack>
           </Card>
         </Layout.Section>
       </Layout>
+
+      <Modal
+        open={showDisconnect}
+        onClose={() => setShowDisconnect(false)}
+        title="Disconnect your AiVastra account"
+        primaryAction={{
+          content: disconnecting ? 'Disconnecting…' : 'Disconnect',
+          destructive: true,
+          loading: disconnecting,
+          onAction: disconnectAccount,
+        }}
+        secondaryActions={[{ content: 'Cancel', onAction: () => setShowDisconnect(false) }]}
+      >
+        <Modal.Section>
+          <Text as="p">
+            This unlinks the current AiVastra account from this store. You'll be asked to link an
+            account again before you can use try-on. Your products, sync status, and funnel setup
+            aren't affected.
+          </Text>
+        </Modal.Section>
+      </Modal>
     </Page>
   );
 }
