@@ -1,3 +1,17 @@
+## 2026-07-15 - Fix: GET /v1/assets 500s with 2+ uploads (assets page crash)
+
+### Done
+- Root-caused a live crash on the catalogues-web Assets page: `GET /v1/assets` threw `TypeError: b.uploadedAt.getTime is not a function` whenever a user had 2+ non-excluded garment uploads. Confirmed empirically that Drizzle's `sql<Date>`/`sql<number>` generics are TypeScript-only - raw `sql\`MAX(...)\`\`/`sql\`COUNT(...)\`` fragments accessed through `db.select()` actually return plain Postgres strings at runtime (verified: identical raw postgres.js template query correctly returns a `Date`, but the same expression through Drizzle's query builder returns a string), unlike this project's usual pattern of real Drizzle columns which the ORM does parse correctly.
+- Same root cause silently affected `jobCount` too (`COUNT()` returns a string) - `existing.jobCount += row.jobCount` was doing string concatenation instead of addition whenever an r2Key appeared in both the upper and lower garment sets, previously non-crashing but silently wrong.
+- Fixed by coercing both values (`new Date(...)`, `Number(...)`) immediately where the raw driver row is read in `apps/api/src/modules/jobs/routes.ts`'s `/v1/assets` handler, before either the comparison or map-insertion.
+- This bug predated today's merge work (present verbatim in the pre-merge code) but was never caught because the only existing test for this route produced at most 1 non-excluded result, and `Array.prototype.sort`'s comparator is never invoked on a 0-1 element array. Added a new test seeding 2 real uploads for one user to force the comparator to run; confirmed it reproduces the 500 before the fix and passes after.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-15 - Fix: template-scoped poses leaking into "Custom look poses"
 
 ### Done
