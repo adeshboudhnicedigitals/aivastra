@@ -51,6 +51,18 @@ export function GarmentTypesTab() {
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
   const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
 
+  // Suggested "append at the end" position for a new garment type of this
+  // gender - just a starting point shown in the field; picking a lower number
+  // still works and pushes existing ones down (server-side auto-shift).
+  const nextSortOrderFor = useCallback(
+    (gender: GenderSlug) =>
+      garmentTypes.reduce(
+        (max, g) => (g.genderSlug === gender ? Math.max(max, g.sortOrder) : max),
+        0,
+      ) + 1,
+    [garmentTypes],
+  );
+
   // Add garment type modal
   const [showSubcatModal, setShowSubcatModal] = useState(false);
   const [subcatForm, setSubcatForm] = useState({
@@ -58,6 +70,7 @@ export function GarmentTypesTab() {
     label: '',
     genderSlug: 'men' as GenderSlug,
     requiresLowerUpload: false,
+    sortOrder: 0,
   });
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
@@ -273,6 +286,7 @@ export function GarmentTypesTab() {
                   label: '',
                   genderSlug: 'men',
                   requiresLowerUpload: false,
+                  sortOrder: nextSortOrderFor('men'),
                 });
                 setShowSubcatModal(true);
               }}
@@ -611,15 +625,38 @@ export function GarmentTypesTab() {
                   className="select"
                   value={subcatForm.genderSlug}
                   disabled={subcatSaving}
-                  onChange={(e) =>
-                    setSubcatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug }))
-                  }
+                  onChange={(e) => {
+                    const genderSlug = e.target.value as GenderSlug;
+                    setSubcatForm((f) => ({
+                      ...f,
+                      genderSlug,
+                      sortOrder: nextSortOrderFor(genderSlug),
+                    }));
+                  }}
                 >
                   <option value="men">Men</option>
                   <option value="women">Women</option>
                   <option value="boys">Boys</option>
                   <option value="girls">Girls</option>
                 </select>
+              </div>
+              <div className="field">
+                <label>
+                  Sort order{' '}
+                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
+                    (1 shows first; picking a taken position pushes the rest down)
+                  </span>
+                </label>
+                <input
+                  className="input"
+                  type="number"
+                  step={1}
+                  value={subcatForm.sortOrder}
+                  disabled={subcatSaving}
+                  onChange={(e) =>
+                    setSubcatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))
+                  }
+                />
               </div>
               <div className="field">
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -730,7 +767,9 @@ export function GarmentTypesTab() {
                       method: 'POST',
                       body: JSON.stringify({ ...subcatForm, thumbnailKey }),
                     });
-                    setGarmentTypes((prev) => [...prev, row]);
+                    // A collision at the chosen sortOrder shifts other rows of this
+                    // gender server-side - refetch instead of patching just this one.
+                    await loadGarmentTypes();
                     toast({ title: `${row.label} created` });
                     setShowSubcatModal(false);
                     setSubcatImageFile(null);
@@ -756,11 +795,11 @@ export function GarmentTypesTab() {
           tryonCategories={tryonCategories}
           workflows={workflows}
           storagePublicUrl={storagePublicUrl}
-          onSaved={(patch) =>
-            setGarmentTypes((prev) =>
-              prev.map((s) => (s.id === editingSubcat.id ? { ...s, ...patch } : s)),
-            )
-          }
+          onSaved={() => {
+            // A sortOrder change shifts other rows of this gender server-side -
+            // refetch instead of patching just the edited row.
+            void loadGarmentTypes();
+          }}
           onClose={() => setEditingSubcat(null)}
           toast={toast}
         />
