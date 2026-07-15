@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, asc, eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminAuthHeader } from '../helpers/admin.js';
 import { buildTestApp, type TestApp } from '../helpers/api.js';
