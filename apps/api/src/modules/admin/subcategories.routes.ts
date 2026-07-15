@@ -7,7 +7,7 @@ import {
   PresignGarmentTypeBody,
   PresignGarmentTypeInstructionBody,
 } from '@aivastra/types';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -20,7 +20,10 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
   const uuidParam = z.object({ id: z.string().uuid() });
 
   app.get('/admin/assets/garment-types', { preHandler: RW }, async () => {
-    const rows = await app.db.select().from(schema.garmentSubcategories);
+    const rows = await app.db
+      .select()
+      .from(schema.garmentSubcategories)
+      .orderBy(asc(schema.garmentSubcategories.sortOrder), asc(schema.garmentSubcategories.label));
     return {
       items: rows.map((r) => ({
         ...r,
@@ -80,23 +83,47 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         genderSlug: string;
         slug: string;
         label: string;
-        sortOrder: number;
+        sortOrder?: number;
         thumbnailKey?: string;
         requiresLowerUpload?: boolean;
         tryonCategoryId?: string | null;
       };
-      const [row] = await app.db
-        .insert(schema.garmentSubcategories)
-        .values({
-          genderSlug,
-          slug,
-          label,
-          sortOrder,
-          thumbnailKey,
-          requiresLowerUpload: requiresLowerUpload ?? false,
-          tryonCategoryId: tryonCategoryId ?? null,
-        })
-        .returning();
+      const row = await app.db.transaction(async (tx) => {
+        let targetSortOrder = sortOrder;
+        if (targetSortOrder === undefined) {
+          const [maxRow] = await tx
+            .select({ max: sql<number | null>`MAX(${schema.garmentSubcategories.sortOrder})` })
+            .from(schema.garmentSubcategories)
+            .where(eq(schema.garmentSubcategories.genderSlug, genderSlug));
+          targetSortOrder = Number(maxRow?.max ?? 0) + 1;
+        } else {
+          // Make room at the target position - anything already there (and
+          // after) shifts up by one, so inserting acts like a positional
+          // list insert rather than silently colliding.
+          await tx
+            .update(schema.garmentSubcategories)
+            .set({ sortOrder: sql`${schema.garmentSubcategories.sortOrder} + 1` })
+            .where(
+              and(
+                eq(schema.garmentSubcategories.genderSlug, genderSlug),
+                gte(schema.garmentSubcategories.sortOrder, targetSortOrder),
+              ),
+            );
+        }
+        const [inserted] = await tx
+          .insert(schema.garmentSubcategories)
+          .values({
+            genderSlug,
+            slug,
+            label,
+            sortOrder: targetSortOrder,
+            thumbnailKey,
+            requiresLowerUpload: requiresLowerUpload ?? false,
+            tryonCategoryId: tryonCategoryId ?? null,
+          })
+          .returning();
+        return inserted;
+      });
       return row;
     },
   );
@@ -118,6 +145,59 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
           .where(eq(schema.garmentSubcategories.id, id));
         if (current?.instructionImageKey) {
           await app.storage.deleteObject(current.instructionImageKey).catch(() => {});
+        }
+      }
+
+      // genderSlug isn't patchable, so a sortOrder move never has to cross
+      // gender boundaries - the shifted range is always within one gender's list.
+      const requestedSortOrder = typeof body.sortOrder === 'number' ? body.sortOrder : null;
+      if (requestedSortOrder !== null) {
+        const [current] = await app.db
+          .select({
+            genderSlug: schema.garmentSubcategories.genderSlug,
+            sortOrder: schema.garmentSubcategories.sortOrder,
+          })
+          .from(schema.garmentSubcategories)
+          .where(eq(schema.garmentSubcategories.id, id));
+        if (!current) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+
+        if (requestedSortOrder !== current.sortOrder) {
+          await app.db.transaction(async (tx) => {
+            if (requestedSortOrder > current.sortOrder) {
+              // Moving later: close the gap left behind by decrementing
+              // everything between the old spot (exclusive) and the new one.
+              await tx
+                .update(schema.garmentSubcategories)
+                .set({ sortOrder: sql`${schema.garmentSubcategories.sortOrder} - 1` })
+                .where(
+                  and(
+                    eq(schema.garmentSubcategories.genderSlug, current.genderSlug),
+                    ne(schema.garmentSubcategories.id, id),
+                    gt(schema.garmentSubcategories.sortOrder, current.sortOrder),
+                    lte(schema.garmentSubcategories.sortOrder, requestedSortOrder),
+                  ),
+                );
+            } else {
+              // Moving earlier: open a gap by incrementing everything from
+              // the new spot up to (exclusive) the old one.
+              await tx
+                .update(schema.garmentSubcategories)
+                .set({ sortOrder: sql`${schema.garmentSubcategories.sortOrder} + 1` })
+                .where(
+                  and(
+                    eq(schema.garmentSubcategories.genderSlug, current.genderSlug),
+                    ne(schema.garmentSubcategories.id, id),
+                    gte(schema.garmentSubcategories.sortOrder, requestedSortOrder),
+                    lt(schema.garmentSubcategories.sortOrder, current.sortOrder),
+                  ),
+                );
+            }
+            await tx
+              .update(schema.garmentSubcategories)
+              .set({ ...body, updatedAt: new Date() })
+              .where(eq(schema.garmentSubcategories.id, id));
+          });
+          return { ok: true };
         }
       }
 
