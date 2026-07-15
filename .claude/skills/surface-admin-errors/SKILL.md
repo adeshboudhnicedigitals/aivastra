@@ -112,8 +112,11 @@ N matches = X fixed + Y reported + Z ok
 
 ## Step 5 — Verify and report coverage
 
-- Run: `pnpm --filter @aivastra/admin typecheck` — must pass.
+- Run: `pnpm --filter @aivastra/admin build` — must pass. (`apps/admin-web` has
+  no dedicated `typecheck` script; `build` runs `tsc -b && vite build`, and
+  `tsc -b` performs the full type-check since `noEmit: true` is set in its
+  tsconfig — this is the working equivalent for this package.)
 - Print the coverage line and confirm the partition balances:
   `N matches = X fixed + Y reported + Z ok`.
-- You are NOT done until typecheck passes AND every enumerated site is in one
-  bucket AND the tally balances.
+- You are NOT done until the build (type-check) passes AND every enumerated
+  site is in one bucket AND the tally balances.
