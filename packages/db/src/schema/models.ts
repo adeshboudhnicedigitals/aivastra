@@ -73,6 +73,21 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   // Admin-fixed pose used by merchant catalogue-manager's constrained "flat garment
   // -> catalogue image" generation. Null = generation unavailable for this type.
   defaultPoseId: uuid('default_pose_id'),
+  // Flat Saree (and any future two-pass garment type): gates a one-time,
+  // 0-credit "mannequin" generation job before the normal per-pose jobs run.
+  // See docs/superpowers/specs/2026-07-14-flat-saree-two-step-workflow-design.md.
+  requiresMannequinStep: boolean('requires_mannequin_step').notNull().default(false),
+  // Step-1 workflow: drapes the uploaded garment onto the selected face, once per job.
+  mannequinWorkflowTemplateId: uuid('mannequin_workflow_template_id').references(
+    () => workflowTemplates.id,
+    { onDelete: 'set null' },
+  ),
+  // Step-2 workflow: used for EVERY pose in a job for this garment type, overriding
+  // the normal per-pose pose_garment_configs/model_pose_assets.workflowTemplateId lookup.
+  sareeStep2WorkflowTemplateId: uuid('saree_step2_workflow_template_id').references(
+    () => workflowTemplates.id,
+    { onDelete: 'set null' },
+  ),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

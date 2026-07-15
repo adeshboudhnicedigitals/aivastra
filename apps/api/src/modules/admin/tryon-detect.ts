@@ -6,6 +6,9 @@
 //   - input titles are "person"/"garment", not "face"/"upper_garment"
 import { classifyNode, normaliseTitle, type ParsedNode } from './workflow-detect.js';
 
+const PERSON_TITLES = new Set(['person', 'face']);
+const GARMENT_TITLES = new Set(['garment', 'upper_garment', 'saree', 'flat_saree']);
+
 export interface DetectedTryonMappings {
   personNodeId?: string;
   garmentNodeId?: string;
@@ -69,8 +72,8 @@ export function detectTryonMappings(json: Record<string, unknown>): {
 
     if (category === 'image') {
       allImageNodes.push({ id: nodeId, class_type: classType, title, category });
-      if (norm === 'person') detected.personNodeId = nodeId;
-      else if (norm === 'garment') detected.garmentNodeId = nodeId;
+      if (PERSON_TITLES.has(norm)) detected.personNodeId = nodeId;
+      else if (GARMENT_TITLES.has(norm)) detected.garmentNodeId = nodeId;
     } else if (category === 'prompt') {
       allPromptNodes.push({ id: nodeId, class_type: classType, title, category });
       if (norm === 'positive_prompt') detected.positivePromptNode = nodeId;

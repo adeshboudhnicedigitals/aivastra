@@ -275,11 +275,22 @@ export default function WorkflowsPage({ toast }: Props) {
                         background:
                           wf.workflowType === 'tryon'
                             ? 'rgba(236,72,153,0.12)'
-                            : 'rgba(37,99,235,0.1)',
-                        color: wf.workflowType === 'tryon' ? '#be185d' : '#1d4ed8',
+                            : wf.workflowType === 'saree_step1'
+                              ? 'rgba(217,119,6,0.12)'
+                              : 'rgba(37,99,235,0.1)',
+                        color:
+                          wf.workflowType === 'tryon'
+                            ? '#be185d'
+                            : wf.workflowType === 'saree_step1'
+                              ? '#b45309'
+                              : '#1d4ed8',
                       }}
                     >
-                      {wf.workflowType === 'tryon' ? 'Tryon' : 'Catalogue workflows'}
+                      {wf.workflowType === 'tryon'
+                        ? 'Tryon'
+                        : wf.workflowType === 'saree_step1'
+                          ? 'Saree Step 1'
+                          : 'Catalogue workflows'}
                     </span>
                   </td>
                   <td>
@@ -432,7 +443,8 @@ export default function WorkflowsPage({ toast }: Props) {
                       fontSize: 13,
                     }}
                   >
-                    {(viewingDetail.workflowType === 'tryon'
+                    {(viewingDetail.workflowType === 'tryon' ||
+                    viewingDetail.workflowType === 'saree_step1'
                       ? [
                           ['Person node', viewingDetail.tryonPersonNodeId ?? '—'],
                           ['Garment node', viewingDetail.tryonGarmentNodeId ?? '—'],
