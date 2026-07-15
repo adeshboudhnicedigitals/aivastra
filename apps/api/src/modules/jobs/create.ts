@@ -25,6 +25,38 @@ import { promptGuard } from './sanitize.js';
 
 export { assertOwnsUploadKey } from '../../lib/upload-ownership.js';
 
+/**
+ * Resolves a completed saree-mannequin job (see createSareeMannequinJob) to its
+ * output R2 key, for use as a step-2 job's upperGarmentKey. Mirrors
+ * assertOwnsUploadKey's ownership check, but against a job's own output rather
+ * than a presigned-upload Redis binding.
+ */
+export async function resolveMannequinGarmentKey(
+  app: FastifyInstance,
+  userId: string,
+  mannequinJobId: string,
+): Promise<string> {
+  const [row] = await app.db
+    .select({
+      userId: schema.jobs.userId,
+      status: schema.jobs.status,
+      kind: sql<string>`${schema.jobInputs.params}->>'kind'`.as('kind'),
+    })
+    .from(schema.jobs)
+    .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .where(eq(schema.jobs.id, mannequinJobId));
+  if (!row || row.userId !== userId) {
+    throw new AppError('FORBIDDEN', 403, 'mannequin job not owned by caller');
+  }
+  if (row.kind !== 'saree_mannequin') {
+    throw new AppError('VALIDATION', 400, 'job is not a mannequin generation job');
+  }
+  if (row.status !== 'COMPLETED') {
+    throw new AppError('VALIDATION', 400, 'mannequin generation not yet complete');
+  }
+  return keys.output(mannequinJobId);
+}
+
 export async function createJob(
   app: FastifyInstance,
   userId: string,
@@ -36,6 +68,7 @@ export async function createJob(
     garmentTypeId,
     catalogueTemplateMappingId,
     upperGarmentKey,
+    mannequinJobId,
     lowerCatalogId,
     lowerGarmentKey,
     shoeCatalogId,
@@ -71,6 +104,53 @@ export async function createJob(
   const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
   const COST = await getResolutionCreditCost(app, resolution);
 
+  // Flat-saree (and any future two-pass) garment types resolve their garment
+  // input from a completed mannequin job instead of a fresh upload, and use a
+  // single fixed step-2 workflow for every pose (its own lowerNodeId/shoeNodeId
+  // govern validation below) instead of each pose's own default workflow or any
+  // pose_garment_configs override.
+  let requiresMannequinStep = false;
+  let sareeStep2: {
+    workflowTemplateId: string | null;
+    upperNodeIds: string[] | null;
+    lowerNodeId: string | null;
+    shoeNodeId: string | null;
+    sizeNodeIds: string[] | null;
+  } | null = null;
+  if (garmentTypeId) {
+    const [gtRow] = await app.db
+      .select({
+        requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+        sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
+        sareeStep2UpperNodeIds: schema.workflowTemplates.upperNodeIds,
+        sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
+        sareeStep2ShoeNodeId: schema.workflowTemplates.shoeNodeId,
+        sareeStep2SizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+      })
+      .from(schema.garmentSubcategories)
+      .leftJoin(
+        schema.workflowTemplates,
+        eq(schema.workflowTemplates.id, schema.garmentSubcategories.sareeStep2WorkflowTemplateId),
+      )
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    requiresMannequinStep = gtRow?.requiresMannequinStep ?? false;
+    if (requiresMannequinStep) {
+      sareeStep2 = {
+        workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
+        upperNodeIds: gtRow?.sareeStep2UpperNodeIds ?? null,
+        lowerNodeId: gtRow?.sareeStep2LowerNodeId ?? null,
+        shoeNodeId: gtRow?.sareeStep2ShoeNodeId ?? null,
+        sizeNodeIds: gtRow?.sareeStep2SizeNodeIds ?? null,
+      };
+    }
+  }
+  if (requiresMannequinStep && !mannequinJobId) {
+    throw new AppError('VALIDATION', 400, 'mannequinJobId required for this garment type');
+  }
+  if (!requiresMannequinStep && mannequinJobId) {
+    throw new AppError('VALIDATION', 400, 'mannequinJobId not valid for this garment type');
+  }
+
   // H2: keys are format-pinned by zod, but the format alone does not prove the
   // caller owns the object — another user's key has the same shape. Verify each
   // garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
@@ -82,7 +162,18 @@ export async function createJob(
     }
     await assertOwnsUploadKey(app, userId, key);
   }
-  if (upperGarmentKey) await verifyGarmentKey(upperGarmentKey);
+  // The garment image actually used for this job's upper — either a fresh
+  // presigned upload (verified above via verifyGarmentKey, trusted-key aware for
+  // regeneration) or a completed saree-mannequin job's output (resolveMannequinGarmentKey
+  // does its own ownership check against jobs.userId, no Redis-binding TTL involved,
+  // so it doesn't need verifyGarmentKey's trusted-key bypass).
+  let resolvedUpperGarmentKey: string | undefined;
+  if (mannequinJobId) {
+    resolvedUpperGarmentKey = await resolveMannequinGarmentKey(app, userId, mannequinJobId);
+  } else if (upperGarmentKey) {
+    await verifyGarmentKey(upperGarmentKey);
+    resolvedUpperGarmentKey = upperGarmentKey;
+  }
   if (lowerGarmentKey) await verifyGarmentKey(lowerGarmentKey);
 
   // Normalize to a single per-look list. This only rejects "neither form present" —
@@ -363,28 +454,37 @@ export async function createJob(
     throw new AppError('BAD_CATALOG', 400, 'one or more poses not found or inactive');
   }
 
-  const poseWorkflows =
-    mappingPoseWorkflows ??
-    poseWorkflowRows.map((r) => ({
-      poseId: r.poseId,
-      workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
-      promptGarmentPhase: null,
-      upperNodeIds:
-        r.configWorkflowTemplateId != null
-          ? (r.overrideUpperNodeIds ?? [])
-          : (r.defaultUpperNodeIds ?? []),
-      lowerNodeId:
-        r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
-      shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
-      sizeNodeIds:
-        r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
-    }));
+  const poseWorkflows = requiresMannequinStep
+    ? distinctPoseIds.map((poseId) => ({
+        poseId,
+        workflowTemplateId: sareeStep2?.workflowTemplateId ?? null,
+        promptGarmentPhase: null,
+        upperNodeIds: sareeStep2?.upperNodeIds ?? [],
+        lowerNodeId: sareeStep2?.lowerNodeId ?? null,
+        shoeNodeId: sareeStep2?.shoeNodeId ?? null,
+        sizeNodeIds: sareeStep2?.sizeNodeIds ?? null,
+      }))
+    : (mappingPoseWorkflows ??
+      poseWorkflowRows.map((r) => ({
+        poseId: r.poseId,
+        workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+        promptGarmentPhase: null,
+        upperNodeIds:
+          r.configWorkflowTemplateId != null
+            ? (r.overrideUpperNodeIds ?? [])
+            : (r.defaultUpperNodeIds ?? []),
+        lowerNodeId:
+          r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
+        shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+        sizeNodeIds:
+          r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
+      })));
 
   // Build map for O(1) lookup in the insert loop
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
 
   for (const pw of poseWorkflows) {
-    if (pw.upperNodeIds.length > 0 && !upperGarmentKey) {
+    if (pw.upperNodeIds.length > 0 && !resolvedUpperGarmentKey) {
       throw new AppError('VALIDATION', 400, 'upper garment required for this pose');
     }
     if (pw.lowerNodeId) {
@@ -430,8 +530,8 @@ export async function createJob(
 
       // Only store inputs the workflow actually supports — strips irrelevant fields
       // so the dispatcher never receives/resolves data it won't use.
-      const effectiveUpperGarmentKey =
-        pw?.upperNodeIds && pw.upperNodeIds.length > 0 ? upperGarmentKey : null;
+      const lookUpperGarmentKey =
+        pw?.upperNodeIds && pw.upperNodeIds.length > 0 ? (resolvedUpperGarmentKey ?? null) : null;
       const effectiveLowerCatalogId =
         pw?.lowerNodeId && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
       const effectiveLowerGarmentKey = pw?.lowerNodeId && lowerGarmentKey ? lowerGarmentKey : null;
@@ -455,7 +555,7 @@ export async function createJob(
       await atomicDeduct(tx as unknown as DB, userId, COST, job.id);
       await tx.insert(schema.jobInputs).values({
         jobId: job.id,
-        upperGarmentKey: effectiveUpperGarmentKey,
+        upperGarmentKey: lookUpperGarmentKey,
         faceId,
         backgroundId: look.backgroundId,
         poseId: look.poseId,

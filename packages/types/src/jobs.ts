@@ -35,7 +35,12 @@ export const INPUT_GARMENT_KEY =
 
 export const CreateTryOnJobInputs = z
   .object({
+    // Exactly one of upperGarmentKey (a fresh presigned upload) or mannequinJobId
+    // (a completed saree-mannequin job's output, see createSareeMannequinJob) is
+    // required — enforced below. mannequinJobId is only valid for garment types
+    // with requiresMannequinStep=true (enforced server-side in createJob).
     upperGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
+    mannequinJobId: z.string().uuid().optional(),
     faceId: z.string().uuid(),
     // Legacy/custom form: a single shared background applied to every pose.
     backgroundId: z.string().uuid().optional(),
@@ -60,6 +65,10 @@ export const CreateTryOnJobInputs = z
   })
   .refine((d) => Boolean(d.backgroundId && d.poseIds) !== Boolean(d.looks), {
     message: 'Provide either (backgroundId + poseIds) or looks, not both',
+  })
+  .refine((d) => Boolean(d.upperGarmentKey) !== Boolean(d.mannequinJobId), {
+    message: 'Provide either upperGarmentKey or mannequinJobId, not both',
+    path: ['upperGarmentKey'],
   });
 
 export const CreateTryOnJobRequest = z.object({
@@ -87,6 +96,12 @@ export const SIMPLE_TRYON_COST = 5;
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),
   sourceJobId: z.string().uuid(),
+});
+
+export const CreateSareeMannequinJobRequest = z.object({
+  garmentTypeId: z.string().uuid(),
+  garmentKey: z.string().regex(INPUT_GARMENT_KEY),
+  faceId: z.string().uuid(),
 });
 
 export const PresignUploadBody = z.object({

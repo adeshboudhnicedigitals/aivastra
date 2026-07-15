@@ -165,12 +165,12 @@ export const CreateWorkflowBody = z
       ),
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'tryon']).default('regular'),
+    workflowType: z.enum(['regular', 'tryon', 'saree_step1']).default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
     bgNodeId: z.string().min(1).optional(),
-    upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
+    upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
@@ -189,13 +189,13 @@ export const CreateWorkflowBody = z
     tryonOutputNodeId: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
-    if (val.workflowType === 'tryon') {
+    if (val.workflowType === 'tryon' || val.workflowType === 'saree_step1') {
       for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
         if (!val[field]) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [field],
-            message: `${field} is required for tryon workflows`,
+            message: `${field} is required for ${val.workflowType} workflows`,
           });
         }
       }
@@ -235,7 +235,7 @@ export const CreateWorkflowBody = z
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'tryon']).optional(),
+  workflowType: z.enum(['regular', 'tryon', 'saree_step1']).optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -251,7 +251,7 @@ export const UpdateWorkflowBody = z.object({
   faceNodeId: z.string().min(1).optional(),
   poseNodeId: z.string().min(1).optional(),
   bgNodeId: z.string().min(1).optional(),
-  upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
+  upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
@@ -399,6 +399,9 @@ export const PatchGarmentTypeBody = z.object({
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
   defaultPoseId: z.string().uuid().nullable().optional(),
+  requiresMannequinStep: z.boolean().optional(),
+  mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,

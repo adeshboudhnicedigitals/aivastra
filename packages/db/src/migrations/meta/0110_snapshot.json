@@ -1,6 +1,6 @@
 {
-  "id": "0c358c36-6e18-4909-b7c7-6cff7611cadc",
-  "prevId": "61ce5054-8856-4eb2-b04e-f23569cf6151",
+  "id": "61ce5054-8856-4eb2-b04e-f23569cf6151",
+  "prevId": "1bdb69ca-b389-4a6b-bcc4-7a4dcebe4100",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2753,13 +2753,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'manual'"
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2974,99 +2967,6 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.garment_shot_type_workflows": {
-      "name": "garment_shot_type_workflows",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "garment_type_id": {
-          "name": "garment_type_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "shot_type": {
-          "name": "shot_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "workflow_template_id": {
-          "name": "workflow_template_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "garment_shot_type_workflows_garment_type_id_idx": {
-          "name": "garment_shot_type_workflows_garment_type_id_idx",
-          "columns": [
-            {
-              "expression": "garment_type_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "garment_shot_type_workflows_garment_type_id_garment_subcategories_id_fk": {
-          "name": "garment_shot_type_workflows_garment_type_id_garment_subcategories_id_fk",
-          "tableFrom": "garment_shot_type_workflows",
-          "tableTo": "garment_subcategories",
-          "columnsFrom": ["garment_type_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "garment_shot_type_workflows_workflow_template_id_workflow_templates_id_fk": {
-          "name": "garment_shot_type_workflows_workflow_template_id_workflow_templates_id_fk",
-          "tableFrom": "garment_shot_type_workflows",
-          "tableTo": "workflow_templates",
-          "columnsFrom": ["workflow_template_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "garment_shot_type_workflows_garment_type_shot_type_unique": {
-          "name": "garment_shot_type_workflows_garment_type_shot_type_unique",
-          "nullsNotDistinct": false,
-          "columns": ["garment_type_id", "shot_type"]
-        }
-      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -3435,12 +3335,6 @@
         },
         "pose_variant": {
           "name": "pose_variant",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "shot_type": {
-          "name": "shot_type",
           "type": "text",
           "primaryKey": false,
           "notNull": false
