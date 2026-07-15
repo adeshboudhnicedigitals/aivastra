@@ -127,22 +127,24 @@ export function SelectGridModal<T extends SelectableItem>({
                         width: '100%',
                         height: aspect ? undefined : cardHeight,
                         aspectRatio: aspect,
-                        borderRadius: 8,
-                        overflow: 'hidden',
-                        position: 'relative',
-                        border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
-                        backgroundImage: selected
-                          ? 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)'
-                          : 'none',
-                        padding: selected ? 2 : 0,
+                        background: selected
+                          ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box`
+                          : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
+                        border: '3px solid transparent',
+                        borderRadius: 12,
+                        padding: 0,
                         boxSizing: 'border-box',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
                       }}
                     >
                       <div
                         style={{
                           width: '100%',
                           height: '100%',
-                          borderRadius: 6,
+                          borderRadius: 10,
                           overflow: 'hidden',
                           background: C.lighter,
                         }}
@@ -186,7 +188,7 @@ export function SelectGridModal<T extends SelectableItem>({
                             width: 20,
                             height: 20,
                             borderRadius: '50%',
-                            background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+                            background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -220,7 +222,7 @@ export function SelectGridModal<T extends SelectableItem>({
               type="button"
               onClick={onClose}
               style={{
-                background: 'linear-gradient(90deg, #F55C7A 0%, #F6B553 100%)',
+                background: 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)',
                 color: C.white,
                 border: 'none',
                 borderRadius: 8,

@@ -1,3 +1,558 @@
+## 2026-07-15 - Studio Left Panel Theme & Sidebar Upgrades
+
+### Done
+- Redesigned the left sidebar (`apps/catalogues-web/src/components/sidebar.tsx`) to implement the updated design specs:
+  - Changed sidebar width to `200px` and sidebar background to deep navy `#080C18`.
+  - Grouped and displayed sidebar navigation links horizontally in rows under category headers.
+  - Wrapped "Need more credits?" card in a Link pointing to `/pricing` with custom border and magenta button hover effects.
+  - Redesigned the theme toggler to render active theme labels/icons.
+  - Replaced sidebar active/hover left borders with an inset box shadow (`box-shadow: inset 3px 0 0 0 #BD2587`), preventing shape distortions and matching dashboard design specs.
+- Restyled components in the Studio page (`apps/catalogues-web/src/app/(app)/studio/page.tsx`):
+  - Refactored `GenderCard` to use the layout-stable `padding-box`/`border-box` gradient border technique, resolving hover border shifts.
+  - Aligned selection card border colors, continue buttons, and checkmark badges inside the "View All" Modal (`select-modal.tsx`) to use the new pink-to-magenta brand gradient.
+- Upgraded the AI Generation Panel (`apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`):
+  - Unified the 3 columns inside the AI Processing block into a single outer row wrapper styled with a subtle gradient background (`linear-gradient(135deg, rgba(189,37,135,0.03), rgba(255,91,148,0.01))`).
+  - Added vertical divider lines between columns, positioning the brand-colored chevron arrow circles right on top of them.
+  - Updated the loading/checklist progress icons and bars to use the brand steps gradient.
+  - Removed Select All and card checkbox selection overlays on generated images to avoid overlapping with the Best Match tag.
+  - Refactored card item styles in the Variations Grid to use the layout-stable gradient border technique.
+  - Optimized the actions buttons row font configuration (`fontSize: 9.5`, `letterSpacing: '-0.04em'`) and columns gap (`gap: 12px`) to prevent wrapping.
+  - Updated the Tip banner container to use the brand magenta theme (`rgba(189, 37, 135, 0.06)` background and dashed border).
+- Verified that the entire project compiles and builds successfully via `pnpm build`.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+---
+
+## 2026-07-15 - Studio Dual-Block Generation Panel UI Upgrade
+
+### Done
+- Redesigned the right-side GenerationPanel in the studio page (`apps/catalogues-web/src/app/(app)/studio/generation-panel.tsx`) to implement the updated 2-block design layout:
+  - **AI Processing Block**: Includes a header with Cancel button (triggers parent reset), and three columns in a row (Input Image showing garment preview, dynamic AI Processing checklist with checkmarks/spinners based on overall progress percentage, and Preview Output showing either blurred preview or completed look).
+  - **Generated Results Block**: Includes a header with subtitle, "Select All" and "Download All" buttons, a 4-column grid of look cards (each with checkbox, Best Match badge for the first look, like/favorite heart toggle, and specific actions: Download, Upscale mock, and Variations mock), and a lightbulb tip banner at the bottom.
+- Integrated the updated GenerationPanel inside `apps/catalogues-web/src/app/(app)/studio/page.tsx` and updated the right-side wrapper container styling to enable overflow vertical scrolling so the new stacked layout fits perfectly.
+- Kept all original API integration, TanStack Query, and WebSocket/SSE streaming logic intact as requested.
+- Verified that `pnpm --filter @aivastra/web typecheck` passes cleanly.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Upscale and Variations actions are visual mockups as there is no current backend/frontend logic for these specific actions on this page.
+
+---
+
+## 2026-07-14 - Myntra Mobile Navbar and CTA Correction
+
+### Done
+- Updated the active Myntra mobile framed preview header to show:
+  - Back icon.
+  - Official Myntra mark.
+  - Compact search field.
+  - Wishlist and bag icons.
+- Removed the product brand/title block from the mobile navbar so it no longer shows `FURBO` in the header.
+- Updated the sticky bottom CTA row from `WISHLIST` / `ADD TO BAG` to `ADD TO CART` / `BUY NOW`.
+- Kept the existing product-level wishlist/share controls in the content area.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified `git diff --check` passes for the touched preview file.
+
+### Failed / Not Done
+- No browser screenshot was captured in this pass.
+
+### Open Questions / Decisions
+- Left all other platform previews unchanged.
+
+---
+
+## 2026-07-14 - Mobile Marketplace Header Alignment
+
+### Done
+- Reworked the active AJIO, Meesho, and Nykaa mobile preview headers into a consistent three-zone grid:
+  - Fixed-width back-button cell.
+  - Stable left-aligned logo area.
+  - Right-aligned search/share/wishlist/bag icon group.
+- Centered the back arrow icon inside a 28px touch target so it aligns cleanly with the logo baseline.
+- Preserved Amazon, Flipkart, Shopify, and all approved preview frames/content.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified `git diff --check` passes for the touched preview file.
+
+### Failed / Not Done
+- No browser screenshot was captured in this pass.
+
+### Open Questions / Decisions
+- Kept the existing platform data additions unchanged and focused only on the visible mobile header alignment issue.
+
+---
+
+## 2026-07-14 - Mobile Preview Back Icon Cleanup
+
+### Done
+- Added a reusable SVG `ArrowBackIcon` for marketplace mobile preview headers.
+- Replaced the raw text `<` back control in the active Myntra, AJIO, Meesho, and Nykaa mobile framed previews with the proper icon.
+- Left Amazon, Flipkart, and Shopify mobile previews unchanged as requested.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified `git diff --check` passes for the touched preview file.
+
+### Failed / Not Done
+- No browser screenshot was captured in this pass.
+
+### Open Questions / Decisions
+- Used a clean app-style back-arrow icon instead of hamburger menus because these are product-detail mobile previews.
+
+---
+
+## 2026-07-14 - Platform Preview Content and Action Completeness
+
+### Done
+- Added a shared `ShareIcon` for marketplace preview headers and product action rows.
+- Added missing share and wishlist/save actions across active Amazon, Flipkart, Myntra, AJIO, Meesho, Nykaa, and Shopify web/mobile preview renderers.
+- Added compact platform-specific content blocks so previews include more native details:
+  - Amazon: wish list, share, list action, and About this item bullets.
+  - Flipkart: share/wishlist actions, delivery/service details, replacement/COD/GST trust copy.
+  - Myntra: share/save controls plus Size & Fit and Material & Care details.
+  - AJIO: share action plus returns/authenticity details.
+  - Meesho: share/wishlist actions plus value, delivery, payment, and supplier trust copy.
+  - Nykaa: share/wishlist actions plus genuine-product, returns, delivery, and beauty-store trust copy.
+  - Shopify: storefront wishlist/share actions plus secure checkout, shipping, returns, and saved/shareable product support copy.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified `git diff --check` passes for the touched preview/progress files.
+
+### Failed / Not Done
+- No browser screenshot was captured in this pass; validation was through typecheck/build and focused source review.
+
+### Open Questions / Decisions
+- Kept the approved preview frames, platform logos, routes, and product data unchanged; this pass only filled missing platform-specific actions and detail content.
+
+---
+
+## 2026-07-14 - AJIO Wordmark Reference Match
+
+### Done
+- Updated `ajio-logo.svg` to better match the provided original AJIO reference with:
+  - Larger wordmark proportions.
+  - Lighter geometric text weight.
+  - Wider letter spacing.
+  - Sampled blue-grey logo color near `#2C4152`.
+- Increased AJIO logo render sizes in active desktop/mobile/fallback preview headers so the wordmark scale aligns more closely with the reference screenshot.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+
+### Failed / Not Done
+- No authenticated browser screenshot was captured in this session.
+
+### Open Questions / Decisions
+- Left all non-AJIO preview details unchanged.
+
+---
+
+## 2026-07-14 - Final Meesho and AJIO Logo Corrections
+
+### Done
+- Updated `meesho-wordmark.svg` to use the sampled purple from the provided reference image: `#570D48`.
+- Replaced `ajio-logo.svg` with a corrected four-letter `AJIO` wordmark so it no longer renders as `AIJIO`.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+
+### Failed / Not Done
+- No authenticated browser screenshot was captured in this session.
+
+### Open Questions / Decisions
+- Left all other previews unchanged per request.
+
+---
+
+## 2026-07-14 - Targeted Flipkart, Meesho, and AJIO Logo Corrections
+
+### Done
+- Restored the active framed Flipkart web and mobile headers to the previous blue navbar style with the white `Flipkart` wordmark and yellow `Explore Plus` treatment.
+- Restored the Flipkart mobile search strip to sit on the blue navbar background.
+- Updated `apps/catalogues-web/public/assets/platform-logos/meesho-wordmark.svg` with a brighter Meesho-style pink and a rounder/heavier wordmark stack.
+- Widened `apps/catalogues-web/public/assets/platform-logos/ajio-logo.svg` and increased AJIO logo render widths in active desktop/mobile/fallback preview headers so the `O` no longer clips.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+
+### Failed / Not Done
+- No authenticated browser screenshot was captured in this session.
+
+### Open Questions / Decisions
+- Left the broader typography cleanup and all other platform previews unchanged.
+
+---
+
+## 2026-07-14 - Preview Logo and Typography Fidelity Cleanup
+
+### Done
+- Replaced the active Flipkart logo path with a current Flipkart site wordmark image at `apps/catalogues-web/public/assets/platform-logos/flipkart-logo-current.png`.
+- Added a magenta Meesho wordmark asset at `apps/catalogues-web/public/assets/platform-logos/meesho-wordmark.svg` and switched active Meesho previews away from the square app-icon asset.
+- Reduced overly heavy text weights across active platform preview renderers so product titles, section labels, CTAs, and supporting text no longer render as uniformly bold.
+- Reduced Myntra-specific heavy text from `900`/`800` style weights to a closer Myntra hierarchy: brand/action emphasis at bold, title/supporting text lighter, and section labels semibold.
+- Replaced remaining fallback text logos for Meesho and AJIO with the shared local logo renderer.
+- Verified no `fontWeight: 800`, `fontWeight: 850`, or `fontWeight: 900` usages remain in the preview template.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+
+### Failed / Not Done
+- No authenticated browser screenshot was captured in this session.
+- Direct download of Meesho's site SVG logo was blocked by the CDN, so a local magenta wordmark SVG was added to replace the previous inaccurate square app icon.
+
+### Open Questions / Decisions
+- Kept the already accepted preview-window presentation unchanged and focused this pass on logos, text weights, and platform-specific typography fidelity.
+
+---
+
+## 2026-07-14 - Flipkart Logo and Marketplace Typography Pass
+
+### Done
+- Replaced the poorly fitting Flipkart SVG usage with a tighter local official Flipkart PNG render at `apps/catalogues-web/public/assets/platform-logos/flipkart-logo.png`.
+- Updated the active Flipkart web and mobile preview headers to use a current white/light header treatment so the original blue/yellow Flipkart logo remains readable and correctly proportioned.
+- Adjusted Flipkart color tokens toward the current lighter Flipkart surface: deeper brand blue, light search background, darker primary text, softer muted text, and lighter page background.
+- Added shared marketplace font tokens for Amazon, Flipkart, Myntra, AJIO, Meesho, Nykaa, and Shopify storefront previews.
+- Replaced active preview root font-family literals with the shared platform-specific typography tokens.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+
+### Failed / Not Done
+- No authenticated browser screenshot was captured in this session.
+
+### Open Questions / Decisions
+- Kept the accepted preview-window/frame layout unchanged and limited this pass to logo, color, and typography fidelity.
+
+---
+
+## 2026-07-14 - Marketplace Preview Logo Assets
+
+### Done
+- Added local platform logo assets for Amazon, Flipkart, AJIO, Meesho, and Nykaa under `apps/catalogues-web/public/assets/platform-logos/`.
+- Added a shared `MarketplaceLogo` renderer in `templates.tsx` so active marketplace preview headers use fixed local assets instead of styled text placeholders.
+- Updated Amazon desktop/mobile, Flipkart desktop/mobile, AJIO desktop/mobile, Meesho desktop/mobile, and Nykaa desktop/mobile preview headers to use the local logo assets while keeping the existing preview-window presentation unchanged.
+- Kept the already-correct Myntra mark-only logo and Shopify storefront wordmark behavior unchanged.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified modified files with `git diff --check`.
+
+### Failed / Not Done
+- No authenticated browser screenshot was captured in this session.
+
+### Open Questions / Decisions
+- Shopify remains a configurable storefront brand preview rather than using Shopify corporate branding as the main store logo.
+- AJIO uses a local wordmark SVG asset because the direct AJIO source site blocked logo retrieval during asset collection.
+
+---
+
+## 2026-07-14 - Myntra Preview Logo Mark-Only Fix
+
+### Done
+- Cropped the local official Myntra source image to a mark-only asset at `apps/catalogues-web/public/assets/myntra-mark-official.png`.
+- Updated `MyntraLogo` in `templates.tsx` to render the mark-only asset directly, removing the partial wordmark text that was visible in the header.
+- Kept the preview window/frame and the Myntra marketplace layout unchanged.
+- Verified the cropped mark visually.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified modified files with `git diff --check`.
+
+### Failed / Not Done
+- No authenticated browser screenshot was captured in this session.
+
+### Open Questions / Decisions
+- Kept the full logo source image in assets as the local source used to produce the mark-only crop.
+
+---
+
+## 2026-07-14 - Corrected Myntra Preview Logo Asset
+
+### Done
+- Replaced the custom inline `MyntraLogo` SVG approximation in `templates.tsx` with a local image-based renderer using the official Myntra logo source image.
+- Added `apps/catalogues-web/public/assets/myntra-logo-official.png`.
+- Cropped the rendered image container to show the official multicolour Myntra `M` mark in the marketplace header without stretching or changing the rest of the Myntra preview layout.
+- Verified the downloaded logo asset visually.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified modified files with `git diff --check`.
+
+### Failed / Not Done
+- No authenticated browser screenshot was captured in this session.
+
+### Open Questions / Decisions
+- Used a local copy of the Wikimedia-hosted Myntra logo image so the preview does not depend on a remote URL at runtime.
+
+---
+
+## 2026-07-14 - Reverted Shared Device Frame and Logo Refactor
+
+### Done
+- Reverted the last task's shared `PlatformLogo` component and local platform logo asset directory.
+- Restored the active Live Platform Preview Web View wrapper from the laptop-style frame back to the previous browser-frame presentation.
+- Restored the shared `PhoneShell` from the enhanced hardware/status-bar version back to the previous simple phone frame.
+- Restored Amazon, Flipkart, Myntra, AJIO, Meesho, and Nykaa header logo markup to the state before the last task.
+- Removed the previous `Shared Device Frames and Platform Logo Assets` progress entry.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+
+### Failed / Not Done
+- No screenshot capture was performed for this revert.
+
+### Open Questions / Decisions
+- Existing unrelated workspace changes were left untouched.
+
+---
+
+## 2026-07-14 - Framed Shopify Storefront Live Platform Preview
+
+### Done
+- Reused the existing standalone Live Platform Preview route, toolbar, Web/Mobile toggle, preview stage, browser frame, phone frame, and platform renderer already used by Flipkart, Myntra, AJIO, Meesho, and Nykaa.
+- Added `FramedShopifyDesktopTemplate` and `FramedShopifyMobileTemplate` in `templates.tsx` without changing the accepted marketplace framed templates.
+- Updated the Shopify platform switch in `apps/catalogues-web/src/app/catalogues/[id]/preview/page.tsx` so Shopify now renders inside the shared browser/phone mockups instead of the older Shopify templates.
+- Built a customer-facing Shopify storefront preview, not a Shopify Admin screen, with:
+  - Configurable `AVASTRA` storefront identity, announcement bar, premium header navigation, search, account, and cart count.
+  - Storefront theme tokens for brand, accent, soft background, text, border, success, and sale colors.
+  - Product gallery, vendor/collection label, serif product title, rating, price/compare-at price, sale badge, color swatches, size selector, quantity selector, Add to Cart, Buy It Now, trust messages, and product accordions.
+- Built a Shopify mobile storefront inside the existing phone frame with announcement bar, mobile header, generated product image, product details, variants, quantity selector, trust copy, accordions, and sticky Add to Cart / Buy It Now actions.
+- Added coherent Shopify product metadata from `gender` and `garmentName` so title, collection, variants, material, care, pricing, and image context stay aligned.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified modified preview files with `git diff --check`.
+
+### Failed / Not Done
+- Did not capture an authenticated in-browser screenshot in this session. The implementation was verified by compile/build checks and structured as a premium Shopify-powered DTC storefront rather than a fixed marketplace or admin UI.
+
+### Open Questions / Decisions
+- Used a text-based `AVASTRA` storefront wordmark and locally scoped theme tokens instead of external Shopify or brand assets.
+
+---
+
+## 2026-07-14 - Framed Nykaa Live Platform Preview
+
+### Done
+- Reused the existing standalone Live Platform Preview route, toolbar, Web/Mobile toggle, preview stage, browser frame, phone frame, and platform renderer already used by Flipkart, Myntra, AJIO, and Meesho.
+- Added `FramedNykaaDesktopTemplate` and `FramedNykaaMobileTemplate` in `templates.tsx` without changing the accepted Flipkart, Myntra, AJIO, or Meesho framed templates.
+- Updated the Nykaa platform switch in `apps/catalogues-web/src/app/catalogues/[id]/preview/page.tsx` so Nykaa Fashion now renders inside the shared browser/phone mockups instead of the older Nykaa templates.
+- Built a compact Nykaa desktop PDP inside the frame with:
+  - Nykaa wordmark, utility links, `Search on Nykaa`, account, wishlist, bag, and Nykaa category navigation.
+  - Nykaa-specific pink, neutral, success, and divider tokens rather than reusing Myntra, Flipkart, AJIO, Meesho, or Amazon styling.
+  - Thumbnail strip, contained primary image, brand/title/description, rating, price/MRP/discount, offer, variant selector, Add to Bag, Wishlist, delivery check, and product details.
+- Built a compact Nykaa mobile PDP inside the existing phone frame with Nykaa header, generated image, rating, pricing, variant selector, delivery/details, and sticky Wishlist/Add to Bag actions.
+- Added category-aware Nykaa product metadata so garment-generated jobs stay coherent with Nykaa Fashion data, while jobs without garment context fall back to a beauty-product PDP with shade swatches and cosmetics details.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified modified preview files with `git diff --check`.
+
+### Failed / Not Done
+- Did not capture an authenticated in-browser screenshot in this session. The implementation was verified by compile/build checks and structured against Nykaa public site cues and the accepted framed preview architecture.
+
+### Open Questions / Decisions
+- Kept a clean text-based Nykaa wordmark approximation to avoid importing protected external logo assets.
+
+---
+
+## 2026-07-14 - Framed Meesho Live Platform Preview
+
+### Done
+- Reused the existing standalone Live Platform Preview route, toolbar, Web/Mobile toggle, preview stage, browser frame, phone frame, and platform renderer already used by Flipkart, Myntra, and AJIO.
+- Added `FramedMeeshoDesktopTemplate` and `FramedMeeshoMobileTemplate` in `templates.tsx` without changing the accepted Flipkart, Myntra, or AJIO framed templates.
+- Updated the Meesho platform switch in `apps/catalogues-web/src/app/catalogues/[id]/preview/page.tsx` so Meesho now renders inside the shared browser/phone mockups instead of the older Meesho templates.
+- Built a compact Meesho desktop PDP inside the frame with:
+  - Meesho wordmark, broad search field with `Try Saree, Kurti or Search by Product Code`, Download App, Become a Supplier, Newsroom, Profile, Cart, and Meesho category navigation.
+  - Magenta brand styling with Meesho-specific tokens rather than Myntra pink, Flipkart blue, AJIO gold, or Amazon yellow.
+  - Thumbnail strip, large contained product image, title, rating chip, price/MRP/discount, free delivery, first-order discount, size selector, Buy Now, Add to Cart, delivery check, product details, and supplier block.
+- Built a compact Meesho mobile PDP inside the existing phone frame with Meesho header, generated image, product title, rating, price, free delivery, size selector, delivery/details, supplier info, and sticky Buy Now/Add to Cart actions.
+- Added coherent Meesho product metadata generation from `gender` and `garmentName` so breadcrumb, category, title, sizes, fabric, pattern, supplier details, and specs match the generated catalogue context.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified modified preview files with `git diff --check`.
+
+### Failed / Not Done
+- Could not capture an authenticated in-browser screenshot in this session. The implementation was verified by compile/build checks and structured against Meesho public site cues and the accepted framed preview architecture.
+
+### Open Questions / Decisions
+- Kept a clean text-based Meesho wordmark approximation to avoid importing protected external logo assets.
+
+---
+
+## 2026-07-14 - Framed AJIO Live Platform Preview
+
+### Done
+- Reused the existing standalone Live Platform Preview route, toolbar, Web/Mobile toggle, preview stage, browser frame, phone frame, and platform renderer used by Flipkart and Myntra.
+- Added `FramedAjioDesktopTemplate` and `FramedAjioMobileTemplate` in `templates.tsx` without changing the accepted Flipkart or Myntra framed templates.
+- Updated the AJIO platform switch in `apps/catalogues-web/src/app/catalogues/[id]/preview/page.tsx` so AJIO now renders inside the shared browser/phone mockups instead of the older AJIO templates.
+- Built a compact AJIO desktop PDP inside the frame with:
+  - Utility row, AJIO wordmark, `MEN`, `WOMEN`, `KIDS`, `BEAUTY`, `HOME AND KITCHEN` navigation, `Search AJIO`, wishlist, and bag controls.
+  - White/dark/gold styling using AJIO-specific tokens rather than Myntra pink or Flipkart blue.
+  - Thumbnail strip, large contained product image, brand/title/rating, price/MRP/discount, offer block, colour, size selector, Add to Bag, Wishlist, pincode delivery check, and product details.
+- Built a compact AJIO mobile PDP inside the existing phone frame with AJIO header, generated product image, product data, offer, size selector, delivery/details, and sticky Wishlist/Add to Bag actions.
+- Added coherent AJIO product metadata generation from `gender` and `garmentName` so breadcrumb, category, title, description, sizes, color, pricing, and specs match the generated catalogue context.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified modified preview files with `git diff --check`.
+
+### Failed / Not Done
+- Could not capture an authenticated in-browser screenshot in this session. The implementation was verified by compile/build checks and structured against AJIO public visual references and the accepted framed preview architecture.
+
+### Open Questions / Decisions
+- Kept the existing text-based AJIO wordmark approximation to avoid importing protected brand assets.
+
+---
+
+## 2026-07-14 - Corrected Myntra Preview Logo
+
+### Done
+- Replaced the placeholder polygon `MyntraLogo` SVG in `templates.tsx` with a closer curved ribbon-style Myntra mark using pink, orange, and red overlapping segments.
+- Kept the logo self-contained as project SVG code instead of importing external/protected brand assets.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+
+### Failed / Not Done
+- No browser screenshot captured in this session.
+
+### Open Questions / Decisions
+- None.
+
+---
+
+## 2026-07-14 - Framed Myntra Live Platform Preview
+
+### Done
+- Reused the existing standalone `/catalogues/[id]/preview` page, toolbar, Web/Mobile toggle, preview stage, browser frame, phone frame, clipping, and platform renderer that were already working for Flipkart.
+- Added `FramedMyntraDesktopTemplate` and `FramedMyntraMobileTemplate` in `templates.tsx` without changing the working Flipkart framed templates.
+- Updated the Myntra platform switch in `apps/catalogues-web/src/app/catalogues/[id]/preview/page.tsx` so Myntra now renders inside the same framed browser/phone mockups instead of using the older full-page Myntra templates.
+- Built a compact Myntra desktop PDP inside the frame with:
+  - Myntra logo, `MEN`, `WOMEN`, `KIDS`, `HOME`, `BEAUTY`, `GENZ` navigation, wide search bar, and Profile/Wishlist/Bag controls.
+  - White header, subtle shadow, dense marketplace spacing, and Myntra token colors.
+  - Two-column product image gallery, breadcrumb, strong brand, lighter product title, rating block, price/MRP/discount, inclusive-tax text, size selector, Add to Bag, Wishlist, delivery options, and short product details.
+- Built a Myntra mobile PDP inside the existing phone mockup with compact header, image area, product information, rating, price, size selector, delivery/details, and sticky bottom Wishlist/Add to Bag actions.
+- Added reusable coherent Myntra product metadata generation from `gender` and `garmentName` so product title, breadcrumb, category, sizes, pricing, and image context stay aligned.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes.
+- Verified modified preview files with `git diff --check`.
+
+### Failed / Not Done
+- Could not capture a browser screenshot in this session because the available browser-control surface failed to initialize earlier and no authenticated catalogue preview session/URL was available through the tool. Local web and API ports were confirmed running.
+
+### Open Questions / Decisions
+- Kept the shared browser-window frame for Myntra to match the accepted Flipkart framed presentation exactly.
+
+---
+
+## 2026-07-14 - Framed Live Platform Preview and Flipkart Mockup
+
+### Done
+- Moved `/catalogues/[id]/preview` out of the `(app)` route group into `apps/catalogues-web/src/app/catalogues/[id]/preview/page.tsx` so the live preview no longer inherits the admin sidebar/app shell.
+- Rebuilt the preview page as a minimal standalone experience with `Live Platform Preview` toolbar, back navigation, Web View/Mobile View toggle, bordered preview stage, and centered framed device/window renderer.
+- Removed the full-page marketplace rendering path from the live preview renderer; web previews now render inside the browser-window mockup and mobile previews render inside the phone mockup.
+- Added reusable page-level components in the new route: `LivePlatformPreviewPage`, `PreviewToolbar`, `PreviewStage`, `DeviceFrame`, `BrowserFrame`, and `PlatformPreviewRenderer`.
+- Added new framed Flipkart web/mobile templates in `templates.tsx` and wired Flipkart to use them for live previews:
+  - Flipkart blue header, search bar, Login/More/Cart controls, category strip, product gallery, orange/yellow CTAs, seller/purchase box, offers, delivery, highlights, and details.
+  - Mobile Flipkart preview inside the existing phone frame with compact header, search, image carousel dots, product info, offers, delivery, and CTAs.
+- Added coherent Flipkart product data generation from `gender` and `garmentName`, avoiding stale mismatches like a men's generated image paired with a women's peplum-top title.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified `pnpm --filter @aivastra/web build` passes and Next now builds `/catalogues/[id]/preview` as a standalone route outside the app shell.
+
+### Failed / Not Done
+- Could not capture interactive browser screenshots in this session because the in-app browser control failed during initialization before it could attach to a browser. Local web/API ports were running, but no authenticated browser preview session was available through the tool.
+
+### Open Questions / Decisions
+- Kept the existing browser-window frame rather than adding a separate laptop shell, because the user allowed either a laptop mockup or browser-window mockup and the existing frame matches the Amazon-style embedded preview pattern.
+
+---
+
+## 2026-07-14 - Refactored Myntra Desktop Preview PDP Layout & Coherent Product Metadata
+
+### Done
+- Updated API endpoint `GET /v1/catalogues/:id` to retrieve the `genderSlug` and `label` fields by left-joining `garment_subcategories` on `job_inputs.garmentTypeId`, returning them as `gender` and `garmentName` in the response.
+- Updated interface `CatalogueDetail` in `preview/page.tsx` and `TemplateProps` in `templates.tsx` to include `gender` and `garmentName`.
+- Bypassed the browser shell for the Myntra platform desktop view in `preview/page.tsx`, rendering it full-bleed with custom page container overriding padding and background color.
+- Re-designed the Myntra desktop header to match the real storefront:
+  - SVG Myntra logo using exact overlapping polygon graphics.
+  - Categories: `Men`, `Women`, `Kids`, `Home`, `Beauty`, `Genz` (replacing `Studio`).
+  - Search input box styled in `#f5f5f6` and expanded in width.
+  - Profile, Wishlist, and Bag controls with centered SVG icons and small bold labels.
+- Implemented a two-column 2x2 product image gallery occupying approximately 58% page width on desktop with 10px spacing, featuring an elegant hover scale zoom and shimmers/placeholders for empty slots.
+- Restructured the product information column to follow the Myntra PDP hierarchy:
+  - Dynamically resolved breadcrumbs, brand name bold, product title in grey (`#535766`).
+  - Ratings pill showing a compact star value.
+  - Pricing row with discounted price, MRP line-through, and discount percentage (`#ff905a`).
+  - Inclusive of taxes text in green `#03a685`.
+  - Circular size buttons with a 50px touch target, hover active states, and validation message when trying to add to bag without a selected size.
+  - Primary Add to Bag button in pink `#ff3f6c` with Bag icon and Wishlist button.
+  - Delivery options section including pin code checker and delivery estimation messages.
+  - Details and Specifications grid dynamically populated matching the product's gender.
+- Fixed the gender/product data mismatch by dynamically generating titles, descriptions, breadcrumbs, category, and size ranges matching the actual gender of the generated images, preventing Men's shirts from showing Women's peplum top descriptions.
+- Ran Biome formatter and linter checks to ensure clean formatting and zero warning status, and verified Next.js production builds compile successfully.
+- Resolved Next.js runtime error (ENOENT on stale vendor-chunk `@tanstack+query-core`) by running `pnpm install`, clearing the stale `.next` webpack cache directory, and performing a clean production rebuild.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+---
+
+## 2026-07-14 - Live Preview Templates for All Publishing Platforms
+
+### Done
+- Implemented high-fidelity mobile and desktop mockup preview templates for all publishing platforms supported by the application in `templates.tsx`:
+  - **Amazon** (already existed)
+  - **Flipkart** (blue `#2874f0` theme, explore Plus star icon, F-Assured badge, orange/yellow CTA buttons)
+  - **Myntra** (crimson pink `#ff3f6c` branding, ratings pill, circular size selectors, Wishlist/Bag CTA buttons)
+  - **AJIO** (dark slate-grey `#2f4254` and gold `#b19975` styling, EPICSELLER offer block, Wishlist/Bag CTA buttons)
+  - **Meesho** (Meesho pink `#9f206c` UI headers, rating badges, round size pills, Add to Cart/Buy Now CTA buttons)
+  - **Nykaa Fashion** (signature fuchsia `#fc2779` theme, brand/title hierarchy, Add to Bag CTA button)
+  - **Shopify** (clean minimalist store header, Shop Pay CTA button in purple `#5a31f4`)
+- Integrated all new platform templates dynamically in `preview/page.tsx` based on the catalogue's configured platform (`catalogue.platform`).
+- Updated the desktop browser-shell address bar to use the selected platform's domain instead of always showing `amazon.in`.
+- Added the active platform name to the live-preview subtitle so users can immediately confirm which marketplace styling is being shown.
+- Restored Sentry's required `onRouterTransitionStart` export in `instrumentation-client.ts`, removing the Next/Sentry build warning.
+- Verified build and syntax correctness: formatted all modified files using Biome, verified clean typechecks, and verified successful Next.js production builds.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+---
+
+## 2026-07-14 - Dynamic Catalogue Preview Platform
+
+### Done
+- Fixed the catalogue detail API response to include the stored job `platform` from `job_inputs.params`.
+- Confirmed the preview page switches to the platform-specific desktop/mobile templates for Amazon, Flipkart, Myntra, AJIO, Meesho, Nykaa Fashion, and Shopify.
+- Verified `pnpm --filter @aivastra/api typecheck` and `pnpm --filter @aivastra/web typecheck`.
+
+### Failed / Not Done
+- Did not run a browser smoke test; the running dev API must be restarted for the preview page to receive the new `platform` field.
+
+### Open Questions / Decisions
+- None.
+
+---
+
+## 2026-07-14 - Full Sleeve Shirt Lower/Shoe Catalog Fix
+
+### Done
+- Diagnosed the Studio "Choose your look" empty Lower Garment and Footwear lists for men / Full Sleeve Shirt.
+- Confirmed the local DB has the expected mappings: 10 active lower items, 9 active shoe items, and 113 active Full Sleeve Shirt pose configs supporting both lower and shoes.
+- Fixed `/v1/catalog/:type` so lower/shoe support checks use the effective per-garment-type workflow override from `pose_garment_configs`, matching `/v1/models/poses`.
+- Limited lower/shoe catalog results to items mapped through `catalog_item_subcategories` when a `garmentTypeId` is supplied, plus the garment type default item if configured.
+- Rebuilt `@aivastra/db` so API typecheck sees the latest schema exports after the pending migration.
+- Verified `pnpm --filter @aivastra/api typecheck`.
+
+### Failed / Not Done
+- Did not run the full API integration suite.
+- The running `pnpm dev` API process must be restarted before the browser sees this route change.
+
+### Open Questions / Decisions
+- None.
+
+---
+
 ## 2026-07-15 - Fix: could not create/edit lower-only workflows ("upperNodeIds must contain at least 1 element")
 
 ### Done
