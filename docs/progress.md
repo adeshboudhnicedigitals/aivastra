@@ -1,3 +1,68 @@
+## 2026-07-15 - Studio: pre-select all of a template's poses by default
+
+### Done
+- `handleCatalogueTemplateSelect` used to clear look selection (`setSelectedLookIds([])`) whenever a template was picked, requiring the customer to manually check every pose they wanted. Now looks up the selected template (already in the in-scope `catalogueTemplates` memo) and pre-selects all of its look IDs; the customer deselects individual ones via the existing `handleLookToggle`. Stays empty for 'custom' (no looks) and any not-yet-loaded template, matching prior behavior for those cases.
+
+### Failed / Not Done
+- None. Verified via typecheck/lint only, not a live browser session.
+
+### Open Questions / Decisions
+- The job-submission schema (`CreateTryOnJobInputs.looks`) caps at `.max(12)`, while the admin can create templates with up to 20 looks. All current real templates only have 3-4 looks, so this isn't live today, but pre-selecting a future 13+-look template would push a customer over that limit before they touch anything. Not addressed since it wasn't asked for and doesn't affect current data - flagged for awareness if template sizes grow.
+
+## 2026-07-15 - Studio "Select Poses" (template mode): remove card names
+
+### Done
+- Made `SelCard`'s visible caption (a `<div>{label}</div>` below the thumbnail) conditionally rendered instead of always-on, so omitting `label` no longer leaves an empty gapped div - backward compatible for every other call site, which still passes `label` and is unaffected.
+- Removed the `label={pose · background}` prop from the template-mode "Select Poses" look cards specifically (the ones rendered from `activeTemplate.looks`) - only that section's cards lose their captions; every other `SelCard` usage (garment types, backgrounds, custom-mode poses, catalogue templates, lower/shoe items) keeps its label unchanged.
+
+### Failed / Not Done
+- None. Verified via typecheck/lint only, not a live browser session.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-15 - Fix: two admin-web staleness bugs + studio "Create your own look" card pinning
+
+### Done
+- Fixed two frontend staleness bugs surfaced by the new garment-type sortOrder auto-shift: the "Add garment type" success handler only appended the new row to local state, and the "Edit garment type" `onSaved` callback only patched the one edited row - neither reflected the *other* rows the server-side auto-shift also changed, so they stayed stale until a manual page reload. Both now call the existing `loadGarmentTypes()` refetch instead, matching the precedent already used elsewhere in this file for the identical class of bug (commit `ea806a4a`).
+- Fixed `apps/catalogues-web`'s studio "Create Your Look or Choose Ready-Made Poses" section: `catalogueTemplates[0]` (the "Create your own look" / `custom` entry) is meant to always sit first, but selecting a template from the "View more" modal that wasn't already in the visible 5 was computed as `[selected, ...firstN].slice(...)` - prepending the selection *before* firstN (which already had `custom` at its own index 0), bumping `custom` to position 2+. Fixed by pinning `custom` explicitly at index 0 and inserting the selected template right after it instead, so it's always visible in the first slot with the customer's pick landing in slot 2.
+- Removed the redundant `custom` entry from the "View more" modal's item list (`items={catalogueTemplates}` → filtered) - it's always visible in the main row already, showing it again in the modal was confusing.
+
+### Failed / Not Done
+- None. Frontend-only changes verified via typecheck/lint and manual logic trace, not a live browser session - asked the user to confirm in their already-running dev instance rather than duplicating it.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-15 - Garment-type sortOrder: 1-indexed, auto-shift on collision
+
+### Done
+- Found (via user testing the just-shipped sortOrder UI) that assigning a taken position silently produced duplicate values with no error - e.g. setting Blazer to the same sortOrder Shirt already had. Confirmed this had already happened for real in the local dev DB (most `men` garment types had collapsed to `sort_order: 1`).
+- Renumbered all existing garment types to 1-indexed via a new migration (`0112_renumber_garment_type_sort_order.sql`) using `ROW_NUMBER() OVER (PARTITION BY gender_slug ORDER BY sort_order, label)` - this both converts 0-indexed to 1-indexed and deduplicates any existing collisions into a clean dense sequence in one pass, rather than a naive `+1` shift which would have preserved the duplicates.
+- Added auto-shift, scoped per gender, to both the create and edit routes: `POST /admin/assets/garment-types` with an explicit `sortOrder` now shifts anything at or after that position up by one before inserting (list-insert semantics); omitting `sortOrder` computes `max(sortOrder for that gender) + 1` (append at the end) instead of always defaulting to `0`. `PATCH .../garment-types/:id` changing `sortOrder` shifts the range between the old and new position by ±1 (excluding the moved row itself) before applying the value - the standard "move within an ordered list" algorithm. Both are transactional. genderSlug isn't patchable, so a move never needs to cross gender boundaries.
+- Admin UI: the "Add garment type" modal now suggests the next append position (recomputed whenever gender changes in the form) instead of hardcoding `0`; both modals' help text now describes the auto-shift behavior instead of the old (never-quite-true) "ties break alphabetically" line.
+- Added a new integration test file (`garment-types-auto-shift.test.ts`, one test per gender to keep the four scenarios from interfering with each other): create-with-collision shifts existing rows up, create-without-sortOrder appends at max+1, patch-move-later shifts the intermediate range down, patch-move-earlier shifts it up. All four written and confirmed failing before the route changes, passing after.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Deleting a garment type does not close the resulting gap in its gender's sequence (e.g. 1,2,4,5 after deleting what was 3) - harmless for ordering/functionality, purely cosmetic, left as-is since it wasn't part of what was asked.
+
+## 2026-07-15 - Add garment-type sortOrder: admin UI + display ordering
+
+### Done
+- Verified `garment_subcategories.sort_order` had real, meaningfully-seeded values (not all 0) but was never actually used to order any list: both `GET /v1/models/garment-types` (drives the studio wizard's garment-type cards and its auto-selected default) and `GET /admin/assets/garment-types` had no `ORDER BY` at all, so display order was undefined/arbitrary Postgres row order. Also confirmed the admin UI had no field to view or set it — `CreateGarmentTypeBody`/`PatchGarmentTypeBody` already accepted `sortOrder` server-side, but neither the "Add garment type" nor "Edit garment type" modal exposed an input for it.
+- Added `.orderBy(asc(sortOrder), asc(label))` to both routes (label as a deterministic tiebreak, since new garment types all start at `sortOrder: 0` until adjusted).
+- Added a "Sort order" number input to both the create and edit garment-type modals in `apps/admin-web`, wired into the existing create POST / diff-based PATCH payloads (no new endpoints needed - the backend already supported the field).
+- Added a new integration test file asserting both routes return items ordered by sortOrder-then-label; confirmed it fails without the ordering fix and passes with it.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-15 - Fix: could not create/edit lower-only workflows ("upperNodeIds must contain at least 1 element")
 
 ### Done
