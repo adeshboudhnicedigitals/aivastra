@@ -345,6 +345,7 @@ export function EditGarmentTypeModal({
   toast,
 }: Props) {
   const [label, setLabel] = useState(garmentType.label);
+  const [sortOrder, setSortOrder] = useState(garmentType.sortOrder);
   const [requiresLowerUpload, setRequiresLowerUpload] = useState(garmentType.requiresLowerUpload);
   const [defaultLowerId, setDefaultLowerId] = useState(garmentType.defaultLowerCatalogId ?? '');
   const [defaultShoeId, setDefaultShoeId] = useState(garmentType.defaultShoeCatalogId ?? '');
@@ -386,6 +387,7 @@ export function EditGarmentTypeModal({
     !!instructionFile ||
     removeInstructionImage ||
     label.trim() !== garmentType.label.trim() ||
+    sortOrder !== garmentType.sortOrder ||
     requiresLowerUpload !== garmentType.requiresLowerUpload ||
     defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '') ||
     defaultShoeId !== (garmentType.defaultShoeCatalogId ?? '') ||
@@ -426,6 +428,7 @@ export function EditGarmentTypeModal({
         patchBody.instructionImageKey = null;
       }
       if (label.trim() !== garmentType.label.trim()) patchBody.label = label.trim();
+      if (sortOrder !== garmentType.sortOrder) patchBody.sortOrder = sortOrder;
       if (requiresLowerUpload !== garmentType.requiresLowerUpload) {
         patchBody.requiresLowerUpload = requiresLowerUpload;
       }
@@ -518,6 +521,22 @@ export function EditGarmentTypeModal({
                   value={label}
                   disabled={saving}
                   onChange={(e) => setLabel(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>
+                  Sort order{' '}
+                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
+                    (1 shows first; picking a taken position pushes the rest down)
+                  </span>
+                </label>
+                <input
+                  className="input"
+                  type="number"
+                  step={1}
+                  value={sortOrder}
+                  disabled={saving}
+                  onChange={(e) => setSortOrder(Number(e.target.value))}
                 />
               </div>
               <div className="setting-row" style={{ padding: 0, border: 0 }}>

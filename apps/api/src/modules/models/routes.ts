@@ -31,6 +31,10 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.garmentSubcategories.genderSlug, gender),
             eq(schema.garmentSubcategories.isActive, true),
           ),
+        )
+        .orderBy(
+          asc(schema.garmentSubcategories.sortOrder),
+          asc(schema.garmentSubcategories.label),
         );
       return {
         items: items.map((i) => ({
