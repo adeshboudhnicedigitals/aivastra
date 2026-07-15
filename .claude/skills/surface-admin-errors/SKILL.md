@@ -41,17 +41,17 @@ invent an error string.
 
 ## Step 1 — Enumerate (the no-miss guarantee)
 
-Run each pattern from the repo root. Capture the full match list; you will
-account for every line.
+Run each pattern below (paths are relative to the repo root; each command
+targets apps/admin-web/src directly, independent of your current shell's cwd).
+Capture the full match list; you will account for every line.
 
 ```bash
-cd apps/admin-web/src
-grep -rEn '[^a-z]catch \{'            --include=*.ts --include=*.tsx .   # catch, no binding
-grep -rEn '\} catch \('              --include=*.ts --include=*.tsx .   # catch, bound
-grep -rEn '\.catch\('                --include=*.ts --include=*.tsx .   # promise handlers
-grep -rEn '!res\.ok|!response\.ok'   --include=*.ts --include=*.tsx .   # manual ok checks
-grep -rEn 'console\.(error|warn)'    --include=*.ts --include=*.tsx .   # logged-only
-grep -rEn 'setError\('               --include=*.ts --include=*.tsx .   # state, maybe unrendered
+grep -rEn '[^a-z]catch \{'            --include=*.ts --include=*.tsx apps/admin-web/src   # catch, no binding
+grep -rEn '\} catch \('              --include=*.ts --include=*.tsx apps/admin-web/src   # catch, bound
+grep -rEn '\.catch\('                --include=*.ts --include=*.tsx apps/admin-web/src   # promise handlers
+grep -rEn '!res\.ok|!response\.ok'   --include=*.ts --include=*.tsx apps/admin-web/src   # manual ok checks
+grep -rEn 'console\.(error|warn)'    --include=*.ts --include=*.tsx apps/admin-web/src   # logged-only
+grep -rEn 'setError\('               --include=*.ts --include=*.tsx apps/admin-web/src   # state, maybe unrendered
 ```
 
 Build a worklist: one row per unique site (`file:line`). De-dupe overlaps (a
