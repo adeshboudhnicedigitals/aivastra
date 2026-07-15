@@ -389,7 +389,10 @@ export const CreateGarmentTypeBody = z.object({
     .max(80)
     .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
   label: z.string().min(1).max(120),
-  sortOrder: z.number().int().default(0),
+  // Omitted = append at the end (server computes max(sortOrder) + 1 for this
+  // gender). Provided = insert at that position, shifting anything already
+  // there (and after) up by one - see the route handler.
+  sortOrder: z.number().int().optional(),
   thumbnailKey: z.string().optional(),
   requiresLowerUpload: z.boolean().optional().default(false),
   tryonCategoryId: z.string().uuid().nullable().optional(),

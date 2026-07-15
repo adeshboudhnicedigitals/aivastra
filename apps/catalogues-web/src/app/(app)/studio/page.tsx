@@ -1248,7 +1248,11 @@ export default function StudioPage(): React.ReactElement {
   }
   function handleCatalogueTemplateSelect(id: string) {
     setCatalogueTemplateId(id);
-    setSelectedLookIds([]);
+    // All of the template's looks are selected by default - the customer
+    // deselects individual ones they don't want via handleLookToggle. Empty
+    // for 'custom' (no looks) and for any not-yet-loaded template.
+    const template = catalogueTemplates.find((t) => t.id === id);
+    setSelectedLookIds(template ? template.looks.map((look) => look.id) : []);
     setBackgroundId('');
     setPoseIds([]);
     setLowerCatalogId('');
@@ -2294,7 +2298,7 @@ export default function StudioPage(): React.ReactElement {
             {/* ── Ready-made catalogue templates ── */}
             <section className="studio-section-card" style={sectionCardStyle}>
               <SectionHead
-                title="Select a Ready-Made Catalogue Template"
+                title="Create Your Look or Choose Ready-Made Poses"
                 right={
                   catalogueTemplates.length > templateVisibleCount && (
                     <button
@@ -2312,7 +2316,7 @@ export default function StudioPage(): React.ReactElement {
                       }}
                     >
                       <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                        View All
+                        View more
                       </span>
                     </button>
                   )
@@ -2320,14 +2324,17 @@ export default function StudioPage(): React.ReactElement {
               />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
                 {(() => {
-                  const firstN = catalogueTemplates.slice(0, templateVisibleCount);
-                  const selected = catalogueTemplates.find(
-                    (template) => template.id === catalogueTemplateId,
-                  );
-                  const visibleTemplates =
-                    selected && !firstN.some((template) => template.id === selected.id)
-                      ? [selected, ...firstN].slice(0, templateVisibleCount)
-                      : firstN;
+                  // "Create your own look" (catalogueTemplates[0], id 'custom') is always
+                  // pinned first - a selected template that isn't already visible is
+                  // inserted right after it, never displacing it from the front.
+                  const [custom, ...rest] = catalogueTemplates;
+                  const firstNRest = rest.slice(0, templateVisibleCount - 1);
+                  const selected = rest.find((template) => template.id === catalogueTemplateId);
+                  const visibleRest =
+                    selected && !firstNRest.some((template) => template.id === selected.id)
+                      ? [selected, ...firstNRest].slice(0, templateVisibleCount - 1)
+                      : firstNRest;
+                  const visibleTemplates = custom ? [custom, ...visibleRest] : visibleRest;
                   return visibleTemplates.map((template) => (
                     <SelCard
                       key={template.id}
@@ -2390,7 +2397,7 @@ export default function StudioPage(): React.ReactElement {
               {templateModalOpen && (
                 <SelectGridModal
                   title="Select a Ready-Made Catalogue Template"
-                  items={catalogueTemplates}
+                  items={catalogueTemplates.filter((template) => template.id !== 'custom')}
                   selectedIds={[catalogueTemplateId]}
                   aspect={215.2 / 282}
                   columns={5}
@@ -2759,7 +2766,7 @@ export default function StudioPage(): React.ReactElement {
             {catalogueTemplateId !== 'custom' && (
               <section>
                 <SectionHead
-                  title="Choose Looks"
+                  title="Select Poses"
                   titleSuffix={
                     selectedLookIds.length > 0 && (
                       <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
@@ -2780,7 +2787,6 @@ export default function StudioPage(): React.ReactElement {
                         selected={selectedLookIds.includes(look.id)}
                         onClick={() => handleLookToggle(look.id)}
                         imageUrl={look.poseThumbnailUrl}
-                        label={`${look.poseLabel} · ${look.backgroundLabel}`}
                         w="100%"
                         ratio={215.2 / 282}
                       />
