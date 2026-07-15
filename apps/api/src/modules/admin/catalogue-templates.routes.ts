@@ -177,6 +177,17 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
           );
         }
 
+        // Retag a pose's shot type in place — lets an admin correct an existing
+        // look's category without re-uploading its image. Must run before the
+        // resolve call below so the cascade sees the new value.
+        for (const l of looks) {
+          if (!l.shotType) continue;
+          await tx
+            .update(schema.modelPoseAssets)
+            .set({ shotType: l.shotType })
+            .where(eq(schema.modelPoseAssets.id, l.poseAssetId));
+        }
+
         // Every pose upload in this builder is fresh (a new pose_asset_id), so
         // "correct a mis-tagged pose by re-uploading it" — or simply removing a
         // look — always leaves the old pose's workflow row behind with nothing

@@ -1,3 +1,30 @@
+## 2026-07-15 - Fix: template-scoped poses leaking into "Custom look poses"
+
+### Done
+- Root-caused a reported UX issue: the garment-type setup page's "3. Custom look poses" panel (standalone poses for "Create your own look") was also showing poses uploaded through the catalogue-template look builder. `GET /admin/assets/garment-types/:id/pose-configs` filtered only by gender and non-deleted, never by `scope`, so `scope: 'template'` rows leaked in alongside `scope: 'general'` ones.
+- Added `eq(schema.modelPoseAssets.scope, 'general')` to that query's filter. No frontend change needed — the existing "2. Catalogue templates" section already covers per-template pose workflow config, so the page's two intended views (template vs. custom) now separate correctly with no new UI.
+- Added a test proving a template-scoped pose is excluded while a general-scope pose is included; confirmed it fails without the fix (reverted the fix, reran, saw the template pose leak) and passes with it. Typecheck and Biome clean.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-15 - Fix: shot-type tag not persisted when editing an existing template look
+
+### Done
+- Root-caused a reported bug: on the templates admin page's edit card, changing a look's shot-type selector for an already-uploaded pose silently discarded the change. The `PUT .../looks` save payload never included `shotType`, and the backend route didn't accept it — the design had only ever wired shot-type persistence through the pose-(re-)upload path, not a plain edit.
+- Extended `PutCatalogueTemplateLooksBody` with an optional per-look `shotType`, and the `PUT /admin/assets/catalogue-templates/:id/looks` handler now updates `model_pose_assets.shot_type` for any look carrying one, inside the same transaction, before the existing `resolveForTemplate` cascade — so a retag both persists and immediately re-resolves against the live category default.
+- Updated `EditCatalogueTemplateModal.tsx` to send each row's `shotType` on save and corrected the now-stale selector tooltip/comment claiming the value only applied on re-upload.
+- Added a failing-then-passing integration test (`PUT template looks persists shotType on an existing pose and cascades resolve`) reproducing the bug before the fix; all 26 shot-type tests + 3 catalogue-template CRUD tests + 6 subcategory tests pass (35/35). API, admin-web typecheck and biome checks clean.
+
+### Failed / Not Done
+- No browser click-through performed from the terminal environment.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-14 - Pose Shot-Type Default Workflows
 
 ### Done

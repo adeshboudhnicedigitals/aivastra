@@ -727,6 +727,49 @@ describe('shot-type workflow resolve', () => {
       expect(newRow.workflowTemplateId).toBe(workflow.id);
     });
 
+    it('PUT template looks persists shotType on an existing pose and cascades resolve', async () => {
+      const { garmentType, template, mapping, pose, background } = await seedMappedPose({
+        shotType: null,
+      });
+      const workflow = await seedWorkflow('Retag default');
+      await app.db.insert(schema.garmentShotTypeWorkflows).values({
+        garmentTypeId: garmentType.id,
+        shotType: 'closeup',
+        workflowTemplateId: workflow.id,
+      });
+
+      // Admin retags the existing look's shot type without re-uploading the pose
+      // image — this must persist on model_pose_assets and immediately resolve
+      // against the live category default, not silently no-op.
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/admin/assets/catalogue-templates/${template.id}/looks`,
+        headers,
+        payload: {
+          looks: [{ poseAssetId: pose.id, backgroundId: background.id, shotType: 'closeup' }],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+
+      const [updatedPose] = await app.db
+        .select({ shotType: schema.modelPoseAssets.shotType })
+        .from(schema.modelPoseAssets)
+        .where(eq(schema.modelPoseAssets.id, pose.id));
+      expect(updatedPose.shotType).toBe('closeup');
+
+      const [row] = await app.db
+        .select()
+        .from(schema.catalogueTemplatePoseWorkflows)
+        .where(
+          and(
+            eq(schema.catalogueTemplatePoseWorkflows.mappingId, mapping.id),
+            eq(schema.catalogueTemplatePoseWorkflows.poseAssetId, pose.id),
+          ),
+        );
+      expect(row.workflowTemplateId).toBe(workflow.id);
+      expect(row.source).toBe('auto');
+    });
+
     it('PATCH templates mapped:true resolves the new mapping against existing defaults', async () => {
       const [garmentType] = await app.db
         .insert(schema.garmentSubcategories)

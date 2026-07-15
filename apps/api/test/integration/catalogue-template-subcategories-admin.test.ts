@@ -368,4 +368,42 @@ describe('admin garment-type <-> catalogue-template mapping', () => {
     });
     expect(getResponse.json().items[0].promptGarmentPhase).toBeNull();
   });
+
+  it('GET pose-configs excludes template-scoped poses, keeps general-scope poses', async () => {
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `pose-configs-${Date.now()}`, label: 'Shirt' })
+      .returning();
+    const [generalPose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'General pose',
+        genderSlug: 'men',
+        r2Key: `general-${Date.now()}.jpg`,
+        thumbnailKey: 'general-thumb.jpg',
+        scope: 'general',
+      })
+      .returning();
+    const [templatePose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'Template-scoped pose',
+        genderSlug: 'men',
+        r2Key: `template-scoped-${Date.now()}.jpg`,
+        thumbnailKey: 'template-scoped-thumb.jpg',
+        scope: 'template',
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/admin/assets/garment-types/${garmentType.id}/pose-configs`,
+      headers,
+    });
+    expect(res.statusCode).toBe(200);
+    const { items } = res.json();
+
+    expect(items.find((p: { id: string }) => p.id === generalPose.id)).toBeTruthy();
+    expect(items.find((p: { id: string }) => p.id === templatePose.id)).toBeUndefined();
+  });
 });
