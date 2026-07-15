@@ -202,6 +202,33 @@ describe('jobs-create', () => {
     expect(keys).not.toContain('outputs/some-source-job/result.png');
   });
 
+  it('assets list sorts two or more real uploads by recency without crashing', async () => {
+    const { token, userId } = await registerUser('assets-sort@x.com');
+
+    const insertedJobs = await app.db
+      .insert(schema.jobs)
+      .values([
+        { userId, status: 'COMPLETED', creditsCharged: 1 },
+        { userId, status: 'COMPLETED', creditsCharged: 1 },
+      ])
+      .returning();
+
+    await app.db.insert(schema.jobInputs).values([
+      { jobId: insertedJobs[0]!.id, upperGarmentKey: 'inputs/older/garment.jpg', params: {} },
+      { jobId: insertedJobs[1]!.id, upperGarmentKey: 'inputs/newer/garment.jpg', params: {} },
+    ]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/assets',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const keys = (res.json() as Array<{ r2Key: string }>).map((a) => a.r2Key);
+    expect(keys).toContain('inputs/older/garment.jpg');
+    expect(keys).toContain('inputs/newer/garment.jpg');
+  });
+
   it('returns 402 when balance is 0', async () => {
     const { token, userId } = await registerUser('job2@x.com');
     await grantCredits(userId, 0);

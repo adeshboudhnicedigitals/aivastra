@@ -486,19 +486,21 @@ export async function jobsRoutes(app: FastifyInstance) {
     // Merge, de-duplicating by r2Key - a garment could theoretically appear as
     // both an upper and lower upload across different jobs. Keep the most
     // recent uploadedAt and sum jobCount when a key appears in both sets.
+    // Raw sql`` fragments (MAX/COUNT above) come back from the driver as strings
+    // regardless of the sql<Date>/sql<number> type annotations — those generics
+    // are TypeScript-only and do nothing at runtime — so both must be coerced
+    // here rather than trusted as already being a Date/number.
     const merged = new Map<string, { r2Key: string; uploadedAt: Date; jobCount: number }>();
     for (const row of [...upperRows, ...lowerRows]) {
       if (!row.r2Key) continue;
+      const uploadedAt = new Date(row.uploadedAt);
+      const jobCount = Number(row.jobCount);
       const existing = merged.get(row.r2Key);
       if (existing) {
-        existing.jobCount += row.jobCount;
-        if (row.uploadedAt > existing.uploadedAt) existing.uploadedAt = row.uploadedAt;
+        existing.jobCount += jobCount;
+        if (uploadedAt > existing.uploadedAt) existing.uploadedAt = uploadedAt;
       } else {
-        merged.set(row.r2Key, {
-          r2Key: row.r2Key,
-          uploadedAt: row.uploadedAt,
-          jobCount: row.jobCount,
-        });
+        merged.set(row.r2Key, { r2Key: row.r2Key, uploadedAt, jobCount });
       }
     }
     const result = [...merged.values()].sort(
