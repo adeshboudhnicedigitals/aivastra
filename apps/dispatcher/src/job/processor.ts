@@ -1933,17 +1933,21 @@ async function terminateJob(
 
   await db.transaction(async (tx) => {
     // Insert ledger row first — unique index on (job_id, reason) prevents double-refund.
+    // A conflict (already refunded, e.g. this job was retried via admin after a prior
+    // terminal fail) must only skip the balance update — the status transition below
+    // still has to run, or the job is left orphaned in a non-terminal status forever.
     if (creditsCharged > 0) {
       const inserted = await tx
         .insert(schema.creditLedger)
         .values({ userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId })
         .onConflictDoNothing()
         .returning({ id: schema.creditLedger.id });
-      if (!inserted.length) return; // already refunded — skip balance update too
-      await tx
-        .update(schema.userCredits)
-        .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
-        .where(eq(schema.userCredits.userId, userId));
+      if (inserted.length) {
+        await tx
+          .update(schema.userCredits)
+          .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+          .where(eq(schema.userCredits.userId, userId));
+      }
     }
 
     // Status transition — inlined so it's atomic with the refund above
