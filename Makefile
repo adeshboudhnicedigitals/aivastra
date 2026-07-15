@@ -1,12 +1,21 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev
+.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev
 
 setup:
 	cp .env.example .env
 	pnpm install
 	$(MAKE) docker-up
+	$(MAKE) db-generate
+	$(MAKE) db-migrate
+
+# Bring an existing (possibly stale/other-dev's) checkout up to date:
+# pull latest master, reinstall deps, regenerate + apply any new migrations.
+# Does NOT touch .env or docker volumes -- run docker-up separately if infra is down.
+sync:
+	git pull
+	pnpm install
 	$(MAKE) db-generate
 	$(MAKE) db-migrate
 
