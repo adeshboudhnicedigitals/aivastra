@@ -170,7 +170,10 @@ export const CreateWorkflowBody = z
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
     bgNodeId: z.string().min(1).optional(),
-    upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+    // No .min(1) here — an empty array is how the client represents a
+    // lower-only workflow (upperNodeIds omitted in favor of lowerNodeId).
+    // "at least one garment role" is enforced below by superRefine instead.
+    upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
@@ -251,7 +254,10 @@ export const UpdateWorkflowBody = z.object({
   faceNodeId: z.string().min(1).optional(),
   poseNodeId: z.string().min(1).optional(),
   bgNodeId: z.string().min(1).optional(),
-  upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+  // No .min(1) here — [] is how the client clears/represents "no upper role",
+  // e.g. converting to lower-only. The route handler enforces "at least one
+  // garment role remains" using the merged upperNodeIds/lowerNodeId together.
+  upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),

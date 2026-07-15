@@ -1,3 +1,15 @@
+## 2026-07-15 - Fix: could not create/edit lower-only workflows ("upperNodeIds must contain at least 1 element")
+
+### Done
+- Root-caused a self-inflicted regression from the earlier origin merge: `CreateWorkflowBody`/`UpdateWorkflowBody` in `packages/types/src/admin.ts` had `.min(1)` restored on `upperNodeIds` during conflict resolution, reasoning it was a harmless improvement carried over from origin. It wasn't - origin's own branch never supported lower-only workflows (their validation unconditionally required upperNodeIds), so `.min(1)` was safe only in that context. Local's flexible-workflow-roles feature explicitly supports lower-only workflows, where the admin UI legitimately sends `upperNodeIds: []` (not omitted) whenever `lowerNodeId` is set instead - Zod's array `.min(1)` rejects that unconditionally regardless of the correct "at least one garment role" check already enforced at the object level (superRefine on create, an explicit check in the PATCH handler).
+- Removed `.min(1)` from both schemas, restoring exactly what existed pre-merge. Confirmed via an already-existing (pre-merge, previously passing) integration test - `admin-workflows.test.ts`'s "PATCH rejects clearing the last garment role, and allows converting to lower-only" - that this test was in fact failing after the merge (`expected 400 to be 200`) and passes again after the fix.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-15 - Fix: GET /v1/assets 500s with 2+ uploads (assets page crash)
 
 ### Done
