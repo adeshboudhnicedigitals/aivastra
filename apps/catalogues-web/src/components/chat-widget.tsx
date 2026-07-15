@@ -155,13 +155,30 @@ export function ChatWidget() {
           border: 'none',
           cursor: 'pointer',
           zIndex: 1000,
-          background: 'linear-gradient(135deg, #ec4899, #8b5cf6)',
+          background: '#521D9C',
           color: '#fff',
-          fontSize: '24px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 4px 12px rgba(82,29,156,0.25)',
         }}
       >
-        {open ? '✕' : '💬'}
+        {open ? (
+          '✕'
+        ) : (
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        )}
       </button>
 
       {open && (

@@ -152,12 +152,23 @@ const BRAND_CONFIG: Record<string, BrandConfig> = {
   Shopify: { ratios: ['1:1', '2:3', '4:5'], default: '1:1' },
 };
 const PLATFORMS = Object.keys(BRAND_CONFIG);
-const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5'];
+const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
+  Amazon: { src: `${BASE}/assets/platform-logos/amazon-logo.svg`, h: 18 },
+  Flipkart: { src: `${BASE}/assets/platform-logos/flipkart-logo-current.png`, h: 18 },
+  Myntra: { src: `${BASE}/assets/myntra-mark-official.png`, h: 20 },
+  AJIO: { src: `${BASE}/assets/platform-logos/ajio-logo.svg`, h: 18 },
+  Meesho: { src: `${BASE}/assets/platform-logos/meesho-wordmark.svg`, h: 16 },
+  'Nykaa Fashion': { src: `${BASE}/assets/platform-logos/nykaa-logo.svg`, h: 16 },
+  Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
+};
+const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
 const ASPECT_DIMS: Record<string, string> = {
   '1:1': '2048 × 2048 px',
   '2:3': '1365 × 2048 px',
   '3:4': '1331 × 1774 px',
   '4:5': '1375 × 1718 px',
+  '9:16': '1152 × 2048 px',
+  '16:9': '2048 × 1152 px',
 };
 const ASPECT_PX: Record<string, { w: number; h: number }> = {
   '1:1': { w: 2048, h: 2048 },
@@ -199,38 +210,49 @@ function VisualCard({
     <button
       type="button"
       onClick={onClick}
+      className="visual-card-wrapper"
       style={{
         cursor: 'pointer',
         textAlign: 'center',
         flexShrink: 0,
-        width: typeof width === 'string' ? width : undefined,
-        background: 'none',
-        border: 'none',
+        width: typeof width === 'string' ? '100%' : width,
+        background: selected
+          ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box`
+          : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
+        border: '1.5px solid transparent',
+        borderRadius: 12,
         padding: 0,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        transition: 'box-shadow 0.2s, transform 0.2s',
+        boxShadow: selected ? '0px 2px 10px rgba(189, 37, 135, 0.1)' : 'none',
+        overflow: 'hidden',
       }}
     >
       <div
         style={{
-          width: typeof width === 'string' ? '100%' : width,
-          aspectRatio: ratio,
-          borderRadius: 8,
+          width: '100%',
+          height: '100%',
+          borderRadius: 10,
+          background: C.card,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
           overflow: 'hidden',
-          position: 'relative',
-          border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
-          backgroundImage: selected
-            ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))'
-            : 'none',
-          padding: selected ? 2 : 0,
-          boxSizing: 'border-box',
         }}
       >
         <div
+          className="visual-card-image"
           style={{
             width: '100%',
-            height: '100%',
-            borderRadius: 6,
+            aspectRatio: ratio,
+            borderRadius: '10px 10px 0 0',
             overflow: 'hidden',
+            position: 'relative',
             background: C.lighter,
+            boxSizing: 'border-box',
           }}
         >
           {img ? (
@@ -263,40 +285,43 @@ function VisualCard({
               {label}
             </div>
           )}
+          {selected && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)', // Gradient matching steps!
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 2,
+              }}
+            >
+              <CheckIcon color="#fff" size={11} />
+            </div>
+          )}
         </div>
-        {selected && (
+        {label && (
           <div
             style={{
-              position: 'absolute',
-              top: 6,
-              right: 6,
-              width: 20,
-              height: 20,
-              borderRadius: '50%',
-              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              fontSize: 12,
+              fontWeight: 600,
+              color: C.text,
+              padding: '8px 4px 6px',
+              width: '100%',
+              textAlign: 'center',
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
             }}
           >
-            <CheckIcon color={C.white} size={11} />
+            {label}
           </div>
         )}
       </div>
-      {label && (
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 500,
-            color: C.text,
-            marginTop: 8,
-            overflowWrap: 'anywhere',
-            wordBreak: 'break-word',
-          }}
-        >
-          {label}
-        </div>
-      )}
     </button>
   );
 }
@@ -319,17 +344,22 @@ function GenderCard({
     <button
       type="button"
       onClick={onClick}
+      className="gender-card-hover"
       style={{
         cursor: 'pointer',
-        background: selected ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))' : C.white,
-        borderRadius: 8,
-        padding: selected ? 1 : 0,
-        border: selected ? 'none' : `1px solid ${C.border}`,
-        boxShadow: selected ? '0px 2px 15px 0px rgba(246,181,83,0.08)' : 'none',
+        background: selected
+          ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box`
+          : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
+        border: '1.5px solid transparent',
+        borderRadius: 12,
+        padding: 0,
+        boxShadow: selected ? '0px 2px 10px rgba(189, 37, 135, 0.1)' : 'none',
         height: 72,
         boxSizing: 'border-box',
         width: '100%',
         textAlign: 'left',
+        transition: 'box-shadow 0.2s, transform 0.2s',
+        overflow: 'hidden',
       }}
     >
       <div
@@ -337,58 +367,52 @@ function GenderCard({
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          background: C.white,
-          borderRadius: selected ? 7 : 8,
+          background: selected
+            ? 'linear-gradient(135deg, rgba(189,37,135,0.06) 0%, rgba(255,91,148,0.04) 100%)'
+            : C.card,
+          borderRadius: 10,
           padding: '0 12px',
           position: 'relative',
           height: '100%',
+          width: '100%',
+          boxSizing: 'border-box',
         }}
       >
-        {/* Circular image — gradient ring when selected, grey when not */}
+        {/* Image — direct without circular ring, matching updated UI */}
         <div
           style={{
             flexShrink: 0,
             width: 40,
             height: 40,
-            borderRadius: 100,
-            padding: 1,
-            background: selected ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))' : C.mid,
+            borderRadius: '50%',
+            overflow: 'hidden',
+            background: C.lighter,
             boxSizing: 'border-box',
           }}
         >
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              borderRadius: 100,
-              overflow: 'hidden',
-              background: C.lighter,
-            }}
-          >
-            {img && (
-              // eslint-disable-next-line @next/next/no-img-element
-              // biome-ignore lint/performance/noImgElement: small UI thumbnail, Next Image not needed
-              <img
-                src={img}
-                alt={label}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  objectPosition: 'top center',
-                  transform: 'scale(1.35)',
-                  transformOrigin: 'center 5%',
-                }}
-              />
-            )}
-          </div>
+          {img && (
+            // eslint-disable-next-line @next/next/no-img-element
+            // biome-ignore lint/performance/noImgElement: small UI thumbnail, Next Image not needed
+            <img
+              src={img}
+              alt={label}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'top center',
+                transform: 'scale(1.35)',
+                transformOrigin: 'center 5%',
+              }}
+            />
+          )}
         </div>
 
         {/* Label */}
         <span
           style={{
             fontFamily: 'Poppins, sans-serif',
-            fontWeight: 500,
+            fontWeight: 600,
             fontSize: 14,
             lineHeight: '18px',
             letterSpacing: 0,
@@ -413,7 +437,7 @@ function GenderCard({
               width: 20,
               height: 20,
               borderRadius: '50%',
-              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
+              background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -462,94 +486,122 @@ function SelCard({
         cursor: 'pointer',
         textAlign: 'center',
         flexShrink: 0,
-        width: fluid ? w : undefined,
+        width: typeof w === 'string' ? '100%' : w,
+        background: selected
+          ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box`
+          : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
+        border: '1.5px solid transparent',
+        borderRadius: 12,
+        padding: 0,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        transition: 'box-shadow 0.2s, transform 0.2s',
+        boxShadow: selected ? '0px 2px 10px rgba(189, 37, 135, 0.1)' : 'none',
+        overflow: 'hidden',
       }}
     >
       <div
         style={{
-          width: fluid ? '100%' : w,
-          aspectRatio: fluid ? ratio : undefined,
-          height: fluid ? undefined : h,
-          borderRadius: 8,
+          width: '100%',
+          height: '100%',
+          borderRadius: 10,
+          background: C.card,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
           overflow: 'hidden',
-          position: 'relative',
-          border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
-          background: selected
-            ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))'
-            : 'transparent',
-          padding: selected ? 2 : 0,
-          boxSizing: 'border-box',
         }}
       >
         <div
+          className="sel-card-image"
           style={{
             width: '100%',
-            height: '100%',
-            borderRadius: 6,
+            aspectRatio: fluid ? ratio : undefined,
+            height: fluid ? undefined : h - 30,
+            borderRadius: '10px 10px 0 0',
             overflow: 'hidden',
+            position: 'relative',
             background: C.lighter,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            boxSizing: 'border-box',
           }}
         >
-          {imageUrl ? (
-            <div data-zoom style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {/* biome-ignore lint/performance/noImgElement: small selection card thumbnail */}
-              <img
-                src={imageUrl}
-                alt={label}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            </div>
-          ) : emptyContent ? (
-            emptyContent
-          ) : (
-            <span
-              style={{
-                fontSize: 28,
-                fontWeight: 700,
-                color: C.mid,
-                textTransform: 'uppercase',
-                lineHeight: 1,
-              }}
-            >
-              {label?.charAt(0)}
-            </span>
-          )}
-        </div>
-        {selected && (
           <div
             style={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              width: 20,
-              height: 20,
-              borderRadius: '50%',
-              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
+              width: '100%',
+              height: '100%',
+              borderRadius: '10px 10px 0 0',
+              overflow: 'hidden',
+              background: C.lighter,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <CheckIcon color={C.white} size={11} />
+            {imageUrl ? (
+              <div data-zoom style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {/* biome-ignore lint/performance/noImgElement: small selection card thumbnail */}
+                <img
+                  src={imageUrl}
+                  alt={label}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </div>
+            ) : emptyContent ? (
+              emptyContent
+            ) : (
+              <span
+                style={{
+                  fontSize: 28,
+                  fontWeight: 700,
+                  color: C.mid,
+                  textTransform: 'uppercase',
+                  lineHeight: 1,
+                }}
+              >
+                {label?.charAt(0)}
+              </span>
+            )}
+          </div>
+          {selected && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)', // Gradient matching steps!
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 2,
+              }}
+            >
+              <CheckIcon color="#fff" size={11} />
+            </div>
+          )}
+          {badges}
+        </div>
+        {label && (
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: C.text,
+              padding: '8px 4px 6px',
+              width: '100%',
+              textAlign: 'center',
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
+            }}
+          >
+            {label}
           </div>
         )}
-        {badges}
-      </div>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: C.text,
-          marginTop: 8,
-          overflowWrap: 'anywhere',
-          wordBreak: 'break-word',
-        }}
-      >
-        {label}
       </div>
     </div>
   );
@@ -557,10 +609,14 @@ function SelCard({
 
 function SectionHead({
   title,
+  subtitle,
+  stepNumber,
   titleSuffix,
   right,
 }: {
   title: string;
+  subtitle?: string;
+  stepNumber?: number;
   titleSuffix?: React.ReactNode;
   right?: React.ReactNode;
 }) {
@@ -570,18 +626,65 @@ function SectionHead({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 14,
+        marginBottom: 16,
         position: 'relative',
+        width: '100%',
       }}
     >
-      <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
-        {title}
-        {titleSuffix}
-      </h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {stepNumber && (
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)',
+              color: '#FFFFFF',
+              fontSize: 13,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            {stepNumber}
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <h3
+            style={{
+              fontWeight: 600,
+              fontSize: 15,
+              color: C.text,
+              margin: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            {title}
+            {titleSuffix}
+          </h3>
+          {subtitle && <span style={{ fontSize: 11, color: C.mid }}>{subtitle}</span>}
+        </div>
+      </div>
       {right}
     </div>
   );
 }
+
+const sectionCardStyle: React.CSSProperties = {
+  background: C.card,
+  borderRadius: 16,
+  border: `1px solid ${C.border}`,
+  boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+  padding: '24px 20px',
+  display: 'flex',
+  flexDirection: 'column',
+  width: '100%',
+  boxSizing: 'border-box',
+};
 
 // ── Garment upload tips — hover popover ──
 
@@ -596,6 +699,36 @@ const pill = (active: boolean): React.CSSProperties => ({
   fontWeight: 500,
   cursor: 'pointer',
 });
+
+function AspectRatioIcon({ ratio, active }: { ratio: string; active?: boolean }) {
+  if (ratio === 'custom') {
+    return (
+      <span style={{ fontSize: 16, lineHeight: 1, fontWeight: 300, display: 'inline-flex' }}>
+        +
+      </span>
+    );
+  }
+  let w = 12;
+  let h = 12;
+  if (ratio === '2:3' || ratio === '3:4' || ratio === '4:5' || ratio === '9:16') {
+    w = 9;
+    h = 13;
+  } else if (ratio === '16:9') {
+    w = 14;
+    h = 9;
+  }
+  return (
+    <div
+      style={{
+        width: w,
+        height: h,
+        border: `1.5px solid ${active ? C.pink : C.mid}`,
+        borderRadius: 2,
+        opacity: active ? 1 : 0.6,
+      }}
+    />
+  );
+}
 export default function StudioPage(): React.ReactElement {
   const qc = useQueryClient();
   const [gender, setGender] = useState('women');
@@ -772,6 +905,12 @@ export default function StudioPage(): React.ReactElement {
     setToast(m);
     toastTimerRef.current = setTimeout(() => setToast(''), 5000);
   }, []);
+
+  const { data: creditsData } = useQuery<{ balance: number }>({
+    queryKey: ['credits'],
+    queryFn: () => api.get('/v1/credits'),
+  });
+  const userCredits = creditsData?.balance ?? 0;
 
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({
     queryKey: ['garmentTypes', gender],
@@ -1384,11 +1523,81 @@ export default function StudioPage(): React.ReactElement {
 
   return (
     <>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+        :root {
+          --c-pink: #BD2587 !important;
+          --c-amber: #e044a2 !important;
+          --c-studio-bg: #F8F8F8;
+        }
+        html.dark {
+          --c-pink: #BD2587 !important;
+          --c-amber: #e044a2 !important;
+          --c-studio-bg: #0c101b;
+        }
+
+        .studio-section-card {
+          transition: box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+        }
+        .studio-section-card:hover {
+          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05) !important;
+          border-color: #BD258733 !important;
+        }
+        
+        .visual-card-wrapper {
+          transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+        }
+        .visual-card-wrapper:hover {
+          background: linear-gradient(var(--c-card), var(--c-card)) padding-box,
+                      linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box !important;
+          box-shadow: 0 4px 12px rgba(189, 37, 135, 0.15) !important;
+        }
+        
+        .garment-card {
+          transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+        }
+        .garment-card:hover {
+          background: linear-gradient(var(--c-card), var(--c-card)) padding-box,
+                      linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box !important;
+          box-shadow: 0 4px 12px rgba(189, 37, 135, 0.15) !important;
+        }
+        
+        .gender-card-hover {
+          transition: box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+        }
+        .gender-card-hover:hover {
+          border-color: #BD2587 !important;
+          box-shadow: 0 4px 12px rgba(189, 37, 135, 0.1) !important;
+        }
+
+        *:focus,
+        *:focus-visible,
+        button:focus,
+        button:focus-visible,
+        div:focus,
+        div:focus-visible,
+        a:focus,
+        a:focus-visible {
+          outline: none !important;
+        }
+      `,
+        }}
+      />
       <TopBar
         title="Studio"
         subtitle="Create premium AI catalogue shoots from flat lay garments in minutes."
       />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 20, padding: '24px 28px' }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          gap: 20,
+          padding: '24px 28px',
+          background: 'var(--c-studio-bg)',
+        }}
+      >
         <div
           style={{
             flex: '1 1 0',
@@ -1406,12 +1615,16 @@ export default function StudioPage(): React.ReactElement {
               paddingRight: 8,
               display: 'flex',
               flexDirection: 'column',
-              gap: 28,
+              gap: 20,
             }}
           >
             {/* ── Setup ── */}
-            <section>
-              <SectionHead title="Catalogue For" />
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead
+                title="Create Catalogue For"
+                subtitle="Choose your target audience"
+                stepNumber={1}
+              />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
                 {GENDERS.map((g) => (
                   <GenderCard
@@ -1430,65 +1643,44 @@ export default function StudioPage(): React.ReactElement {
               </div>
             </section>
 
-            <section>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 14,
-                }}
-              >
-                <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
-                  Garment Type
-                </h3>
-                {garmentTypes && garmentTypes.items.length > garmentVisibleCount && (
-                  <button
-                    type="button"
-                    onClick={() => setGarmentModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      height: 16,
-                    }}
-                  >
-                    <span
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead
+                title="Outfit Type"
+                subtitle="Select the garment category"
+                stepNumber={2}
+                right={
+                  garmentTypes &&
+                  garmentTypes.items.length > garmentVisibleCount && (
+                    <button
+                      type="button"
+                      onClick={() => setGarmentModalOpen(true)}
                       style={{
-                        fontFamily: 'var(--font-poppins), Poppins, sans-serif',
-                        fontWeight: 600,
-                        fontSize: 12,
-                        lineHeight: '16px',
-                        color: '#626262',
-                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        height: 16,
                       }}
                     >
-                      View more
-                    </span>
-                    <svg
-                      width="8"
-                      height="5"
-                      viewBox="0 0 8 5"
-                      fill="none"
-                      aria-hidden="true"
-                      xmlns="http://www.w3.org/2000/svg"
-                      style={{ transform: 'rotate(-90deg)' }}
-                    >
-                      <path
-                        d="M1 1L4 4L7 1"
-                        stroke="#626262"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
-                )}
-              </div>
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                          fontWeight: 600,
+                          fontSize: 12,
+                          lineHeight: '16px',
+                          color: '#626262',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        View All
+                      </span>
+                    </button>
+                  )
+                }
+              />
               {!gender ? (
                 <p style={{ fontSize: 13, color: C.mid }}>Select a segment first.</p>
               ) : !garmentTypes ? (
@@ -1556,9 +1748,11 @@ export default function StudioPage(): React.ReactElement {
               )}
             </section>
 
-            <section>
+            <section className="studio-section-card" style={sectionCardStyle}>
               <SectionHead
                 title={requiresLowerUpload ? 'Upload Garment Images' : 'Upload Garment Image'}
+                subtitle="Upload a clean flat lay garment image"
+                stepNumber={3}
               />
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 {/* Dashed upload box — single zone or split into two */}
@@ -2003,37 +2197,34 @@ export default function StudioPage(): React.ReactElement {
             </section>
 
             {/* ── Model ── */}
-            <section>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 14,
-                }}
-              >
-                <SectionHead title="Choose your model" />
-                {filteredFaces.length > modelVisibleCount && (
-                  <button
-                    type="button"
-                    onClick={() => setModelModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      height: 16,
-                    }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                      View more
-                    </span>
-                  </button>
-                )}
-              </div>
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead
+                title="Choose AI Model"
+                subtitle="Select the fashion model for your catalogue"
+                stepNumber={4}
+                right={
+                  filteredFaces.length > modelVisibleCount && (
+                    <button
+                      type="button"
+                      onClick={() => setModelModalOpen(true)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        height: 16,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                        View All
+                      </span>
+                    </button>
+                  )
+                }
+              />
               {facesError ? (
                 <ErrorState
                   compact
@@ -2101,37 +2292,32 @@ export default function StudioPage(): React.ReactElement {
             </section>
 
             {/* ── Ready-made catalogue templates ── */}
-            <section>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 14,
-                }}
-              >
-                <SectionHead title="Select a Ready-Made Catalogue Template" />
-                {catalogueTemplates.length > templateVisibleCount && (
-                  <button
-                    type="button"
-                    onClick={() => setTemplateModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      height: 16,
-                    }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                      View more
-                    </span>
-                  </button>
-                )}
-              </div>
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead
+                title="Select a Ready-Made Catalogue Template"
+                right={
+                  catalogueTemplates.length > templateVisibleCount && (
+                    <button
+                      type="button"
+                      onClick={() => setTemplateModalOpen(true)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        height: 16,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                        View All
+                      </span>
+                    </button>
+                  )
+                }
+              />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
                 {(() => {
                   const firstN = catalogueTemplates.slice(0, templateVisibleCount);
@@ -2162,6 +2348,11 @@ export default function StudioPage(): React.ReactElement {
                               gap: 10,
                               padding: 16,
                               color: C.text,
+                              width: '100%',
+                              height: '100%',
+                              boxSizing: 'border-box',
+                              position: 'absolute',
+                              inset: 0,
                             }}
                           >
                             <span
@@ -2184,6 +2375,7 @@ export default function StudioPage(): React.ReactElement {
                                 fontSize: 12,
                                 fontWeight: 600,
                                 lineHeight: 1.35,
+                                textAlign: 'center',
                               }}
                             >
                               Create your own look
@@ -2213,41 +2405,36 @@ export default function StudioPage(): React.ReactElement {
 
             {/* ── Background (custom mode only) ── */}
             {catalogueTemplateId === 'custom' && (
-              <section>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 14,
-                  }}
-                >
-                  <SectionHead title="Select Background" />
-                  {(backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBackgroundItemFilter('');
-                        setBackgroundTagFilter('');
-                        setBackgroundModalOpen(true);
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        cursor: 'pointer',
-                        height: 16,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                        View more
-                      </span>
-                    </button>
-                  )}
-                </div>
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead
+                  title="Select Background"
+                  right={
+                    (backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBackgroundItemFilter('');
+                          setBackgroundTagFilter('');
+                          setBackgroundModalOpen(true);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          height: 16,
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                          View All
+                        </span>
+                      </button>
+                    )
+                  }
+                />
                 {backgroundsError ? (
                   <ErrorState
                     compact
@@ -2471,48 +2658,39 @@ export default function StudioPage(): React.ReactElement {
 
             {/* ── Poses (custom mode only) ── */}
             {catalogueTemplateId === 'custom' && (
-              <section>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 14,
-                  }}
-                >
-                  <SectionHead
-                    title="Choose Poses"
-                    titleSuffix={
-                      poseIds.length > 0 && (
-                        <span
-                          style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}
-                        >
-                          ({poseIds.length} selected)
-                        </span>
-                      )
-                    }
-                  />
-                  {(poses?.items.length ?? 0) > poseVisibleCount && (
-                    <button
-                      type="button"
-                      onClick={() => setPoseModalOpen(true)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        cursor: 'pointer',
-                        height: 16,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                        View more
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead
+                  title="Choose Poses"
+                  titleSuffix={
+                    poseIds.length > 0 && (
+                      <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
+                        ({poseIds.length} selected)
                       </span>
-                    </button>
-                  )}
-                </div>
+                    )
+                  }
+                  right={
+                    (poses?.items.length ?? 0) > poseVisibleCount && (
+                      <button
+                        type="button"
+                        onClick={() => setPoseModalOpen(true)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          height: 16,
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                          View All
+                        </span>
+                      </button>
+                    )
+                  }
+                />
                 {posesError ? (
                   <ErrorState
                     compact
@@ -2788,7 +2966,7 @@ export default function StudioPage(): React.ReactElement {
                 );
               })()}
 
-            <section>
+            <section className="studio-section-card" style={sectionCardStyle}>
               <SectionHead title="Publishing Platform" />
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {PLATFORMS.map((p) => (
@@ -2796,16 +2974,38 @@ export default function StudioPage(): React.ReactElement {
                     type="button"
                     key={p}
                     onClick={() => handlePlatformChange(p)}
-                    style={pill(platform === p)}
+                    style={{
+                      ...pill(platform === p),
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      minWidth: 80,
+                      justifyContent: 'center',
+                    }}
                   >
-                    {p}
+                    {PLATFORM_LOGOS[p] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={PLATFORM_LOGOS[p].src}
+                        alt={p}
+                        style={{
+                          height: PLATFORM_LOGOS[p].h,
+                          width: 'auto',
+                          maxWidth: 72,
+                          objectFit: 'contain',
+                          display: 'block',
+                        }}
+                      />
+                    ) : (
+                      p
+                    )}
                   </button>
                 ))}
               </div>
             </section>
 
-            <section>
-              <SectionHead title="Aspect Ratio" />
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead title="Aspect Ratio" subtitle="Match your platform requirements" />
 
               {/* ── Pill row: hide presets when custom is active ── */}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -2819,9 +3019,13 @@ export default function StudioPage(): React.ReactElement {
                         onClick={supported ? () => setAspect(r) : undefined}
                         style={{
                           ...pill(aspect === r),
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
                           ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
                         }}
                       >
+                        <AspectRatioIcon ratio={r} active={aspect === r} />
                         {r}
                       </button>
                     );
@@ -2834,9 +3038,15 @@ export default function StudioPage(): React.ReactElement {
                     setCustomWStr('');
                     setCustomHStr('');
                   }}
-                  style={pill(aspect === 'custom')}
+                  style={{
+                    ...pill(aspect === 'custom'),
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
                 >
-                  Custom
+                  <AspectRatioIcon ratio="custom" active={aspect === 'custom'} />
+                  Custom Ratio
                 </button>
               </div>
 
@@ -2958,7 +3168,7 @@ export default function StudioPage(): React.ReactElement {
 
             {/* ── Resolution (read-only, auto-derived from output dims) ── */}
             {resolution && (
-              <section>
+              <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
                   title="Output Resolution"
                   right={
@@ -3031,15 +3241,19 @@ export default function StudioPage(): React.ReactElement {
             )}
           </div>
 
-          {/* Footer (pinned, left column only) */}
+          {/* Footer (pinned, left column only, block effect) */}
           <div
             style={{
-              borderTop: `1px solid ${C.border}`,
-              paddingTop: 16,
+              background: C.card,
+              border: `1.5px solid ${C.border}`,
+              borderRadius: 16,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
+              padding: '16px 20px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 10,
+              gap: 12,
               flexShrink: 0,
+              marginTop: 16,
             }}
           >
             {submitError && (
@@ -3056,51 +3270,105 @@ export default function StudioPage(): React.ReactElement {
                 {submitError}
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {creditCost > 0 && (
-                  <>
-                    <span style={{ color: C.pink, display: 'flex' }}>
-                      <SparkleIcon />
-                    </span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
-                      {creditCost} Credits Required to Generate
-                    </span>
-                  </>
-                )}
-              </div>
-              <Tooltip tip={generateBlocker || undefined}>
-                <GradBtn
-                  onClick={handleSubmit}
-                  disabled={!canGenerate}
-                  style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 16,
+              }}
+            >
+              {/* Left side: Credit Info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {/* Credit Icon */}
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 8,
+                    border: '1.5px solid rgba(189, 37, 135, 0.15)', // light pink border using new theme
+                    background: 'rgba(189, 37, 135, 0.05)', // light pink background
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
                 >
-                  {isSubmitting || generationInProgress ? (
-                    <>
-                      <SpinnerIcon size={16} /> Generating…
-                    </>
-                  ) : isUploading ? (
-                    <>
-                      <SpinnerIcon size={16} /> Uploading…
-                    </>
-                  ) : (
-                    <>
-                      <SparkleIcon /> Create Catalogue
-                    </>
-                  )}
-                </GradBtn>
-              </Tooltip>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {/* biome-ignore lint/performance/noImgElement: credit icon */}
+                  <img src={`${BASE}/assets/credit.png`} alt="" width={20} height={20} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+                    {creditCost} credits required
+                  </span>
+                  <span style={{ fontSize: 12, color: C.mid }}>
+                    You have {userCredits} credits (
+                    {creditCost > 0 ? Math.floor(userCredits / creditCost) : 0} generations)
+                  </span>
+                </div>
+              </div>
+
+              {/* Right side: Button + ETA */}
+              <div
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}
+              >
+                <Tooltip tip={generateBlocker || undefined}>
+                  <GradBtn
+                    onClick={handleSubmit}
+                    disabled={!canGenerate}
+                    style={{
+                      padding: '12px 32px',
+                      gap: 8,
+                      fontSize: 15,
+                      borderRadius: 8,
+                      background: canGenerate
+                        ? 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)'
+                        : '#d1d1d6',
+                      boxShadow: canGenerate ? '0 4px 12px rgba(124, 58, 237, 0.2)' : 'none',
+                    }}
+                  >
+                    {isSubmitting || generationInProgress ? (
+                      <>
+                        <SpinnerIcon size={16} /> Generating…
+                      </>
+                    ) : isUploading ? (
+                      <>
+                        <SpinnerIcon size={16} /> Uploading…
+                      </>
+                    ) : (
+                      <>
+                        <SparkleIcon /> Generate Catalogue
+                      </>
+                    )}
+                  </GradBtn>
+                </Tooltip>
+                <span style={{ fontSize: 11, color: C.light }}>Estimated Time:- 25 seconds</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div style={{ flex: '1 1 0', minWidth: 0, maxWidth: 880 }}>
+        <div
+          style={{
+            flex: '1 1 0',
+            minWidth: 0,
+            maxWidth: 880,
+            overflowY: 'auto',
+            maxHeight: '100%',
+            paddingRight: 4,
+          }}
+        >
           {activeGeneration ? (
             <GenerationPanel
               catalogueId={activeGeneration.catalogueId}
               jobs={activeGeneration.jobs}
               garmentPreviewUrl={garmentPreviewUrl}
               onAllSettled={() => setGenerationInProgress(false)}
+              onCancel={() => {
+                setActiveGeneration(null);
+                setGenerationInProgress(false);
+              }}
             />
           ) : (
             <PreviewPanel />

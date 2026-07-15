@@ -43,8 +43,6 @@ const NAV: {
     icon: `${BASE}/assets/catalog-icon.svg`,
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
-  // Merchant virtual try-on catalogue management — backend wired up but not
-  // fully complete yet. Hidden from the sidebar in production until it's ready.
   {
     id: 'catalogue-manager',
     href: '/catalogue-manager',
@@ -53,8 +51,6 @@ const NAV: {
     devOnly: true,
   },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
-  // Placeholder content (dummy videos) — hidden from the sidebar in production
-  // until real tutorials are recorded. Route itself is also blocked, see middleware.ts.
   {
     id: 'tutorials',
     href: '/tutorials',
@@ -65,7 +61,7 @@ const NAV: {
   { id: 'contact', href: '/contact-us', label: 'Contact Us', icon: 'phone' },
 ];
 
-const SIDEBAR_WIDTH = 100;
+const SIDEBAR_WIDTH = 200;
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -83,7 +79,6 @@ export function Sidebar() {
     localStorage.setItem('theme', next ? 'dark' : 'light');
   }
 
-  // Prefetch a route's primary data on hover/focus so the page opens from cache.
   function prefetchRoute(id: string) {
     if (id === 'catalogues') {
       qc.prefetchQuery({ queryKey: ['catalogues'], queryFn: () => api.get('/v1/catalogues') });
@@ -111,238 +106,345 @@ export function Sidebar() {
   const visibleNav =
     process.env.NODE_ENV === 'production' ? NAV.filter((item) => !item.devOnly) : NAV;
 
+  const groups = [
+    {
+      title: 'CREATE',
+      items: visibleNav.filter((item) =>
+        ['studio', 'tryon', 'saree', 'catalogues', 'assets', 'catalogue-manager'].includes(item.id),
+      ),
+    },
+    {
+      title: 'BUSINESS',
+      items: visibleNav.filter((item) => ['pricing'].includes(item.id)),
+    },
+    {
+      title: 'HELP',
+      items: visibleNav.filter((item) => ['tutorials', 'contact'].includes(item.id)),
+    },
+  ];
+
   return (
     <div
       style={{
         width: SIDEBAR_WIDTH,
         minWidth: SIDEBAR_WIDTH,
         height: '100vh',
-        background: C.dark,
+        background: '#080C18',
         display: 'flex',
         flexDirection: 'column',
-        borderRight: `1px solid ${C.dark2}`,
+        borderRight: '1px solid rgba(57, 61, 70, 0.4)',
         position: 'sticky',
         top: 0,
         flexShrink: 0,
         overflow: 'hidden',
       }}
     >
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+        .sidebar-link-hover:hover {
+          background-color: rgba(189, 37, 135, 0.08) !important;
+          box-shadow: inset 3px 0 0 0 rgba(189, 37, 135, 0.4) !important;
+          color: #FFFFFF !important;
+        }
+        .sidebar-credits-card:hover {
+          border-color: rgba(189, 37, 135, 0.8) !important;
+          background: #11172a !important;
+        }
+        .sidebar-theme-btn:hover {
+          background-color: rgba(189, 37, 135, 0.08) !important;
+          border-color: rgba(189, 37, 135, 0.4) !important;
+        }
+        .sidebar-link-hover:focus,
+        .sidebar-link-hover:focus-visible,
+        .sidebar-theme-btn:focus,
+        .sidebar-theme-btn:focus-visible,
+        a:focus,
+        a:focus-visible,
+        button:focus,
+        button:focus-visible {
+          outline: none !important;
+        }
+      `,
+        }}
+      />
+
       {/* Logo row */}
       <div
         style={{
           height: 76,
-          borderBottom: '1px solid rgba(255,255,255,0.07)',
+          borderBottom: '1px solid rgba(57, 61, 70, 0.4)',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          paddingLeft: 20,
           boxSizing: 'border-box',
           flexShrink: 0,
         }}
       >
-        <Link href="/studio" style={{ display: 'flex', alignItems: 'center' }}>
+        <Link href="/studio" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {/* biome-ignore lint/performance/noImgElement: sidebar logo */}
           <img
             src={`${BASE}/assets/logo.svg`}
             alt="Ai Vastra"
             style={{ height: 28, width: 'auto', flexShrink: 0 }}
           />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`${BASE}/assets/logo-text.svg`}
+            alt="Ai Vastra"
+            style={{ height: 20, width: 'auto', flexShrink: 0 }}
+          />
         </Link>
       </div>
 
-      {/* Nav */}
-      <nav
-        style={{
-          padding: '16px 10px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
-        {visibleNav.map((item) => {
-          const isActive = activeId === item.id;
-          const linkContent = (
-            <div
-              style={{
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              {'badge' in item && item.badge && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: -4,
-                    right: -8,
-                    background: 'linear-gradient(180deg, #7c3aed 0%, #66479c 100%)',
-                    borderRadius: 4,
-                    padding: '1px 4px',
-                    fontSize: 7,
-                    fontWeight: 600,
-                    color: '#fff',
-                    lineHeight: '11px',
-                    pointerEvents: 'none',
-                  }}
-                >
-                  {item.badge}
-                </div>
-              )}
-              <span style={{ opacity: isActive ? 1 : 0.6, display: 'flex', flexShrink: 0 }}>
-                {item.icon === 'monitor-play' ? (
-                  <MonitorPlay size={20} />
-                ) : item.icon === 'phone' ? (
-                  <Phone size={20} />
-                ) : item.icon === 'package' ? (
-                  <Package size={20} />
-                ) : (
-                  <>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {/* biome-ignore lint/performance/noImgElement: sidebar nav icon */}
-                    <img
-                      src={item.icon}
-                      alt=""
-                      width={20}
-                      height={20}
-                      style={item.id === 'saree' ? { filter: 'invert(1)' } : undefined}
-                    />
-                  </>
-                )}
-              </span>
-              <span
-                style={{
-                  opacity: isActive ? 1 : 0.8,
-                  fontSize: 10,
-                  lineHeight: 1.2,
-                  textAlign: 'center',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {item.label}
-              </span>
-            </div>
-          );
-
-          if (isActive) {
-            return (
-              <div
-                key={item.id}
-                style={{
-                  borderRadius: 8,
-                  padding: 1,
-                  background:
-                    'linear-gradient(90deg, rgba(245, 92, 122, 0.5) 0%, rgba(246, 181, 83, 0.5) 100%)',
-                  boxSizing: 'border-box',
-                  overflow: 'hidden',
-                }}
-              >
-                <Link
-                  href={item.href}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 4,
-                    padding: '8px 4px',
-                    borderRadius: 7,
-                    textDecoration: 'none',
-                    justifyContent: 'center',
-                    width: '100%',
-                    backgroundColor: '#141414',
-                    backgroundImage:
-                      'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 100%)',
-                    color: C.onDark,
-                    fontWeight: 500,
-                  }}
-                >
-                  {linkContent}
-                </Link>
-              </div>
-            );
-          }
-
-          return (
-            <Link
-              key={item.id}
-              href={item.href}
-              className={isActive ? '' : 'hover-surface-sidebar'}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 4,
-                padding: '8px 4px',
-                borderRadius: 8,
-                textDecoration: 'none',
-                justifyContent: 'center',
-                background: 'transparent',
-                color: isActive ? C.onDark : '#EEEEEE',
-                fontWeight: 500,
-                transition: 'background .15s',
-              }}
-              onMouseEnter={() => prefetchRoute(item.id)}
-              onFocus={() => prefetchRoute(item.id)}
-            >
-              {linkContent}
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Theme toggle */}
+      {/* Nav groups */}
       <div
         style={{
-          marginTop: 'auto',
-          padding: '10px',
+          flex: 1,
+          overflowY: 'auto',
+          padding: '16px 12px',
           display: 'flex',
-          flexDirection: 'row',
-          gap: 4,
-          justifyContent: 'center',
+          flexDirection: 'column',
+          gap: 16,
         }}
+      >
+        {groups.map((group) => {
+          if (group.items.length === 0) return null;
+          return (
+            <div key={group.title} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 500,
+                  color: '#B2B4B7',
+                  paddingLeft: 12,
+                  letterSpacing: '0.05em',
+                }}
+              >
+                {group.title}
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {group.items.map((item) => {
+                  const isActive = activeId === item.id;
+                  const linkContent = (
+                    <>
+                      <span style={{ display: 'flex', flexShrink: 0 }}>
+                        {item.icon === 'monitor-play' ? (
+                          <MonitorPlay
+                            size={16}
+                            style={{ color: isActive ? '#FFFFFF' : '#BABABB' }}
+                          />
+                        ) : item.icon === 'phone' ? (
+                          <Phone size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
+                        ) : item.icon === 'package' ? (
+                          <Package size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={item.icon}
+                            alt=""
+                            width={16}
+                            height={16}
+                            style={{
+                              filter: isActive ? 'brightness(0) invert(1)' : 'none',
+                              ...(item.id === 'saree' && !isActive
+                                ? { filter: 'invert(0.6)' }
+                                : {}),
+                            }}
+                          />
+                        )}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: isActive ? 600 : 500,
+                          color: isActive ? '#FFFFFF' : '#B2B4B7',
+                        }}
+                      >
+                        {item.label}
+                      </span>
+                      {'badge' in item && item.badge && (
+                        <span
+                          style={{
+                            marginLeft: 'auto',
+                            background: 'linear-gradient(180deg, #7c3aed 0%, #66479c 100%)',
+                            borderRadius: 4,
+                            padding: '1px 6px',
+                            fontSize: 8,
+                            fontWeight: 600,
+                            color: '#fff',
+                            lineHeight: '12px',
+                          }}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+                    </>
+                  );
+
+                  if (isActive) {
+                    return (
+                      <Link
+                        key={item.id}
+                        href={item.href}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '10px 16px',
+                          borderRadius: 8,
+                          textDecoration: 'none',
+                          border: 'none',
+                          boxShadow: 'inset 3px 0 0 0 #BD2587',
+                          background:
+                            'linear-gradient(90deg, rgba(189, 37, 135, 0.15) 0%, rgba(189, 37, 135, 0) 100%)',
+                          boxSizing: 'border-box',
+                          width: '100%',
+                        }}
+                        onMouseEnter={() => prefetchRoute(item.id)}
+                        onFocus={() => prefetchRoute(item.id)}
+                      >
+                        {linkContent}
+                      </Link>
+                    );
+                  }
+
+                  return (
+                    <Link
+                      key={item.id}
+                      href={item.href}
+                      className="sidebar-link-hover"
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '10px 16px',
+                        borderRadius: 8,
+                        textDecoration: 'none',
+                        background: 'transparent',
+                        border: 'none',
+                        boxShadow: 'none',
+                        width: '100%',
+                        boxSizing: 'border-box',
+                        transition: 'box-shadow 0.2s, background-color 0.2s',
+                      }}
+                      onMouseEnter={() => prefetchRoute(item.id)}
+                      onFocus={() => prefetchRoute(item.id)}
+                    >
+                      {linkContent}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Credits Card Linked to Pricing */}
+      <div
+        style={{ padding: '0 12px 16px', width: '100%', boxSizing: 'border-box', flexShrink: 0 }}
+      >
+        <Link
+          href="/pricing"
+          style={{
+            textDecoration: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+            padding: 16,
+            borderRadius: 12,
+            border: '1px solid rgba(57, 61, 70, 0.7)',
+            background: '#0d1222',
+            boxSizing: 'border-box',
+            width: '100%',
+            transition: 'all 0.2s',
+          }}
+          className="sidebar-credits-card"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 500, color: '#FFFFFF' }}>
+              Need more credits?
+            </span>
+            <span style={{ fontSize: 11, color: '#B2B4B7', lineHeight: 1.4 }}>
+              Get credit packages at the best price.
+            </span>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              height: 36,
+              background: 'rgba(189, 37, 135, 0.15)',
+              border: '1px solid rgba(189, 37, 135, 0.5)',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#FFFFFF',
+            }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#BD2587"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+            </svg>
+            View Plans
+          </div>
+        </Link>
+      </div>
+
+      {/* Theme Toggler */}
+      <div
+        style={{ padding: '0 12px 16px', width: '100%', boxSizing: 'border-box', flexShrink: 0 }}
       >
         <button
           type="button"
-          onClick={() => toggleTheme()}
-          title="Light mode"
+          onClick={toggleTheme}
+          className="sidebar-theme-btn"
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            padding: 8,
+            justifyContent: 'space-between',
+            padding: '10px 16px',
             borderRadius: 8,
-            border: 'none',
+            background: 'rgba(57, 61, 70, 0.2)',
+            border: '1px solid rgba(57, 61, 70, 0.5)',
+            color: '#FFFFFF',
+            width: '100%',
             cursor: 'pointer',
-            background: !darkMode
-              ? 'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 5%)'
-              : 'transparent',
-            color: !darkMode ? C.onDark : 'rgba(255,255,255,0.4)',
-            transition: 'background .15s, color .15s',
+            fontSize: 12,
+            fontWeight: 500,
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+            transition: 'all 0.2s',
           }}
         >
-          <SunIcon />
-        </button>
-        <button
-          type="button"
-          onClick={() => toggleTheme()}
-          title="Dark mode"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 8,
-            borderRadius: 8,
-            border: 'none',
-            cursor: 'pointer',
-            background: darkMode
-              ? 'linear-gradient(90deg, rgba(245, 92, 122, 0.15) 0%, rgba(246, 181, 83, 0.15) 5%)'
-              : 'transparent',
-            color: darkMode ? C.onDark : 'rgba(255,255,255,0.4)',
-            transition: 'background .15s, color .15s',
-          }}
-        >
-          <MoonIcon />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {darkMode ? <MoonIcon /> : <SunIcon />}
+            <span>{darkMode ? 'Dark Theme' : 'Light Theme'}</span>
+          </div>
+          <div>
+            {darkMode ? (
+              <span style={{ opacity: 0.5, display: 'flex' }}>
+                <SunIcon />
+              </span>
+            ) : (
+              <span style={{ opacity: 0.5, display: 'flex' }}>
+                <MoonIcon />
+              </span>
+            )}
+          </div>
         </button>
       </div>
     </div>
