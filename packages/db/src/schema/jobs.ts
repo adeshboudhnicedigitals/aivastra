@@ -8,6 +8,7 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
+import { apiKeys } from './api-keys.js';
 import { catalogItems } from './catalog.js';
 import { kioskDevices } from './kiosk.js';
 import { merchants } from './merchant.js';
@@ -28,7 +29,7 @@ export const jobs = pgTable('jobs', {
   creditsCharged: integer('credits_charged').notNull().default(1),
   attempts: integer('attempts').notNull().default(0),
   errorCode: text('error_code'),
-  // Which flow created this job — 'catalog' | 'tryon' | 'saree' | 'shopify'.
+  // Which flow created this job — 'catalog' | 'tryon' | 'saree' | 'shopify' | 'api'.
   // Null for kiosk jobs (attributed via merchants.userId instead, see the
   // admin credit-analysis routes) and for historical rows not yet backfilled.
   source: text('source'),
@@ -37,6 +38,9 @@ export const jobs = pgTable('jobs', {
   merchantId: uuid('merchant_id').references(() => merchants.id, {
     onDelete: 'set null',
   }),
+  // Set only by /v1/dev/* jobs — stamps which API key created the job so the
+  // developer dashboard can report per-key usage without a second credit balance.
+  apiKeyId: uuid('api_key_id').references(() => apiKeys.id, { onDelete: 'set null' }),
   kioskDeviceId: uuid('kiosk_device_id').references(() => kioskDevices.id, {
     onDelete: 'set null',
   }),

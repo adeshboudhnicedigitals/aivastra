@@ -25,6 +25,8 @@ interface GarmentType {
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
   requiresMannequinStep?: boolean;
+  upperUploadLabel?: string | null;
+  lowerUploadLabel?: string | null;
 }
 interface FaceItem {
   id: string;
@@ -1972,7 +1974,8 @@ export default function StudioPage(): React.ReactElement {
                               }}
                             >
                               {requiresLowerUpload
-                                ? (selectedGarmentType?.upperUploadLabel || `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`)
+                                ? selectedGarmentType?.upperUploadLabel ||
+                                  `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
                                 : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
                             </span>
                             <span

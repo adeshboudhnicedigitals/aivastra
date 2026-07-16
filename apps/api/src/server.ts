@@ -6,10 +6,13 @@ import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
+import swagger from '@fastify/swagger';
+import scalar from '@scalar/fastify-api-reference';
 import * as Sentry from '@sentry/node';
 import { and, isNull, sql } from 'drizzle-orm';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
+  jsonSchemaTransform,
   serializerCompiler,
   validatorCompiler,
   type ZodTypeProvider,
@@ -41,11 +44,13 @@ import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
+import { devRoutes } from './modules/dev/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { kioskAuthRoutes } from './modules/kiosk/auth.routes.js';
 import { kioskCatalogRoutes } from './modules/kiosk/catalog.routes.js';
 import { kioskJobsRoutes } from './modules/kiosk/jobs.routes.js';
 import { kioskResultsRoutes } from './modules/kiosk/results.routes.js';
+import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
@@ -58,6 +63,7 @@ import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
 import { authPlugin } from './plugins/auth.js';
 import { dbPlugin } from './plugins/db.js';
+import { devApiAuthPlugin } from './plugins/dev-api-auth.js';
 import { metricsPlugin } from './plugins/metrics.js';
 import { portalAuthPlugin } from './plugins/portal-auth.js';
 import { redisPlugin } from './plugins/redis.js';
@@ -79,6 +85,9 @@ export async function buildServer(env: Env) {
       directives: {
         'img-src': ["'self'", 'data:', r2Origin],
         'connect-src': ["'self'", r2Origin],
+        // Scalar's docs page (/v1/dev/docs) inlines a static bootstrap script
+        // (Scalar.createApiReference(...)) — hash-pin it rather than 'unsafe-inline'.
+        'script-src': ["'self'", "'sha256-CbaFUsnqQe6vIwwkHIa6fmTcpDWG7gvFxSRaU1GSCAI='"],
       },
     },
   });
@@ -145,6 +154,36 @@ export async function buildServer(env: Env) {
   await app.register(portalAuthPlugin);
   await app.register(shopifyAuthPlugin);
   await app.register(shopifyWidgetAuthPlugin);
+  await app.register(devApiAuthPlugin);
+
+  await app.register(swagger, {
+    openapi: {
+      info: {
+        title: 'Try-On API',
+        description: 'Generate a virtual try-on image from a person image and a garment image.',
+        version: '1.0.0',
+      },
+      components: {
+        securitySchemes: {
+          apiKey: { type: 'http', scheme: 'bearer', description: 'Your sk_live_… API key' },
+        },
+      },
+      security: [{ apiKey: [] }],
+    },
+    // The spec is public, so it must describe ONLY the developer surface. Every
+    // route without the 'dev' tag is hidden — admin/auth/merchant routes must never
+    // appear here.
+    transform: ({ schema: s, url }) => {
+      const out = jsonSchemaTransform({ schema: s, url });
+      if (!s?.tags?.includes('dev')) out.schema = { ...out.schema, hide: true };
+      return out;
+    },
+  });
+  await app.register(scalar, {
+    routePrefix: '/v1/dev/docs',
+    configuration: { url: '/v1/dev/openapi.json' },
+  });
+  app.get('/v1/dev/openapi.json', { schema: { hide: true } }, async () => app.swagger());
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {
@@ -190,6 +229,8 @@ export async function buildServer(env: Env) {
   await app.register(merchantCatalogRoutes);
   await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantPaymentsRoutes);
+  await app.register(merchantApiKeysRoutes);
+  await app.register(devRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
   await app.register(modelsRoutes);

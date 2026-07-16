@@ -3,7 +3,7 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
-import { apiFetch } from '../../lib/data';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type {
   GarmentType,
@@ -86,8 +86,12 @@ export function GarmentTypesTab() {
           `/admin/assets/garment-types/${garmentTypeId}/pose-configs`,
         );
         setPoseConfigs(res.items);
-      } catch {
-        toast({ kind: 'error', title: 'Failed to load pose configs' });
+      } catch (e) {
+        toast({
+          kind: 'error',
+          title: 'Failed to load pose configs',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
       } finally {
         setConfigsLoading(false);
       }
@@ -167,8 +171,12 @@ export function GarmentTypesTab() {
         ),
       );
       toast({ title: 'Config saved' });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to save config' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save config',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSavingConfigId(null);
     }
@@ -190,8 +198,12 @@ export function GarmentTypesTab() {
           : prev,
       );
       toast({ title: 'Default pose updated' });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update default pose' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update default pose',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSavingDefaultPose(false);
     }
@@ -220,9 +232,13 @@ export function GarmentTypesTab() {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
-    } catch {
+    } catch (e) {
       setPoseConfigs((prev) => prev.map((p) => (p.id === poseAssetId && prevItem ? prevItem : p)));
-      toast({ kind: 'error', title: 'Failed to update pose' });
+      toast({
+        kind: 'error',
+        title: 'Failed to update pose',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -234,8 +250,12 @@ export function GarmentTypesTab() {
       await apiFetch(`/admin/assets/garment-types/${id}`, { method: 'DELETE' });
       setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
       toast({ title: `${label} deleted` });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to delete garment type' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to delete garment type',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -489,13 +509,17 @@ export function GarmentTypesTab() {
                             toast({
                               title: `${sub.label} ${sub.isActive ? 'deactivated' : 'activated'}`,
                             });
-                          } catch {
+                          } catch (e) {
                             setGarmentTypes((prev) =>
                               prev.map((s) =>
                                 s.id === sub.id ? { ...s, isActive: sub.isActive } : s,
                               ),
                             );
-                            toast({ kind: 'error', title: 'Failed to update garment type' });
+                            toast({
+                              kind: 'error',
+                              title: 'Failed to update garment type',
+                              body: apiErrorMessage(e, 'Please try again.'),
+                            });
                           }
                         }}
                       />
@@ -773,8 +797,12 @@ export function GarmentTypesTab() {
                     toast({ title: `${row.label} created` });
                     setShowSubcatModal(false);
                     setSubcatImageFile(null);
-                  } catch {
-                    toast({ kind: 'error', title: 'Failed to create garment type' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Failed to create garment type',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setSubcatSaving(false);
                   }
