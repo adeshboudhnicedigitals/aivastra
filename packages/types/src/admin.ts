@@ -403,6 +403,8 @@ export const PatchGarmentTypeBody = z.object({
   sortOrder: z.number().int().optional(),
   thumbnailKey: z.string().nullable().optional(),
   requiresLowerUpload: z.boolean().optional(),
+  upperUploadLabel: z.string().max(80).nullable().optional(),
+  lowerUploadLabel: z.string().max(80).nullable().optional(),
   defaultLowerCatalogId: z.string().uuid().nullable().optional(),
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
