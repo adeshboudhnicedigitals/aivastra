@@ -165,6 +165,7 @@ export default function FunnelSetupPage() {
                   {item.rule.mode === 'automated' && (
                     <BlockStack gap="200">
                       {item.rule.conditions.map((cond, index) => (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: order is stable
                         <InlineStack key={index} gap="200">
                           <div style={{ width: '180px' }}>
                             <Select

@@ -574,7 +574,8 @@ export function EditGarmentTypeModal({
                       onChange={(e) => setUpperUploadLabel(e.target.value)}
                     />
                     <span className="hint">
-                      Shown in studio as the title of the top-wear upload box. Leave blank to use the garment type name.
+                      Shown in studio as the title of the top-wear upload box. Leave blank to use
+                      the garment type name.
                     </span>
                   </div>
                   <div className="field">

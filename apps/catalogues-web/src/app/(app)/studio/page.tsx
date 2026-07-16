@@ -22,6 +22,8 @@ interface GarmentType {
   thumbnailUrl?: string | null;
   instructionImageUrl?: string | null;
   requiresLowerUpload: boolean;
+  upperUploadLabel?: string | null;
+  lowerUploadLabel?: string | null;
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
   requiresMannequinStep?: boolean;
@@ -1972,7 +1974,8 @@ export default function StudioPage(): React.ReactElement {
                               }}
                             >
                               {requiresLowerUpload
-                                ? (selectedGarmentType?.upperUploadLabel || `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`)
+                                ? selectedGarmentType?.upperUploadLabel ||
+                                  `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
                                 : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
                             </span>
                             <span
