@@ -10,6 +10,8 @@ This plan's task-by-task granularity (6 migrations) is for reviewability while e
 
 **Tech Stack:** Drizzle ORM 0.36 (`packages/db/src/schema/models.ts`), drizzle-kit 0.28 (`pnpm db:generate`), Vitest 4 + `postgres` driver against the docker-compose Postgres (NOT testcontainers — see Known Issue below).
 
+**A note on migration numbers below:** as of this plan's writing, the highest existing migration is `0112`, so the tasks below reference `0113` through `0118`. Those numbers are illustrative, not load-bearing — if another migration has landed on `master` by the time this plan is executed, `drizzle-kit generate` will assign whatever the actual next number is, and that's correct; don't rename files to force them to match this document (see CLAUDE.md's "Migration Index Conflicts" section). The `git add` commands in each task stage the whole `migrations/` and `migrations/meta/` directories rather than number-specific globs for exactly this reason — a glob like `0114_*.sql` would silently match nothing (and stage nothing) if the real number turns out to be different.
+
 **Known issue found during planning (not fixed by this plan):** `packages/db/test/models-schema.test.ts` references `schema.modelPoses` and `schema.subcategoryTemplates`, both of which were dropped from `models.ts` (migration `0047_drop_model_poses.sql` and the `catalogueTemplates` redesign). `packages/db`'s `tsconfig.json` excludes `test/` from typecheck (`"include": ["src/**/*"]`), so `pnpm typecheck` doesn't catch this, but `pnpm --filter @aivastra/db test` runs it via Vitest's default file discovery and it will fail at runtime. This is pre-existing and unrelated to this plan — every test command below scopes to the new file specifically (`vitest run garment-taxonomy`) to avoid confusing an unrelated pre-existing failure with a regression. Fixing `models-schema.test.ts` is out of scope here; flag it to the user separately.
 
 ---
@@ -146,7 +148,7 @@ Expected: PASS (2 tests).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/db/src/schema/models.ts packages/db/src/migrations/0113_*.sql packages/db/src/migrations/meta/ packages/db/test/garment-taxonomy.test.ts
+git add packages/db/src/schema/models.ts packages/db/src/migrations/ packages/db/test/garment-taxonomy.test.ts
 git commit -m "feat(db): add garment_families table"
 ```
 
@@ -345,7 +347,7 @@ Expected: PASS (4 tests total).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/db/src/schema/models.ts packages/db/src/migrations/0114_*.sql packages/db/src/migrations/meta/ packages/db/test/garment-taxonomy.test.ts
+git add packages/db/src/schema/models.ts packages/db/src/migrations/ packages/db/test/garment-taxonomy.test.ts
 git commit -m "feat(db): add workflow_profiles and workflow_profile_stages tables"
 ```
 
@@ -447,7 +449,7 @@ Expected: PASS (5 tests total).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/db/src/schema/models.ts packages/db/src/migrations/0115_*.sql packages/db/src/migrations/meta/ packages/db/test/garment-taxonomy.test.ts
+git add packages/db/src/schema/models.ts packages/db/src/migrations/ packages/db/test/garment-taxonomy.test.ts
 git commit -m "feat(db): add workflow_profile_shot_types table"
 ```
 
@@ -622,7 +624,7 @@ Expected: PASS (10 tests total).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/db/src/schema/models.ts packages/db/src/migrations/0116_*.sql packages/db/src/migrations/meta/ packages/db/test/garment-taxonomy.test.ts
+git add packages/db/src/schema/models.ts packages/db/src/migrations/ packages/db/test/garment-taxonomy.test.ts
 git commit -m "feat(db): add family/profile/capabilities/audience columns to garment_subcategories"
 ```
 
@@ -707,7 +709,7 @@ Expected: PASS (11 tests total).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/db/src/schema/models.ts packages/db/src/migrations/0117_*.sql packages/db/src/migrations/meta/
+git add packages/db/src/schema/models.ts packages/db/src/migrations/
 git commit -m "feat(db): add poseCapabilities column to model_pose_assets"
 ```
 
@@ -744,7 +746,7 @@ describe('garment_families seed data', () => {
 
 Add `inArray` to the existing `drizzle-orm` import at the top of the test file (currently there is no top-level `drizzle-orm` import in this file other than `drizzle`/`migrate` from submodules — add a new import line: `import { inArray } from 'drizzle-orm';`).
 
-Note: this test's own `beforeAll` already inserts a real `slug: 'upper'` / `slug: 'lower'` row in Task 1's tests, but those use randomized/fixed slugs that collide with the seed data's slugs (`'upper'`, `'lower'`) — since Task 1's tests run in the SAME migrated database as this one and insert those exact slugs, the seed migration's `ON CONFLICT (slug) DO NOTHING` (Step 2 below) will find them already present. Go back to Task 1's test and change its literal slugs from `'upper'`/`'lower'` to `'upper-manual-test'`/`'lower-manual-test'` so they don't collide with the seed data:
+Note: Task 1's tests insert rows with `slug: 'upper'` / `slug: 'lower'`, which collide with the seed data's slugs (`'upper'`, `'lower'`) — since every task's tests run against the same migrated database within a test run, the seed migration's `ON CONFLICT (slug) DO NOTHING` (Step 2 below) would find them already present and silently skip seeding, and this task's own assertions would then be unable to tell "seed data exists" apart from "Task 1's manual test rows happen to have the same slugs." Go back to Task 1's test and change its literal slugs from `'upper'`/`'lower'` to `'upper-manual-test'`/`'lower-manual-test'` so they don't collide with the seed data. This keeps the two concerns independently verifiable: Task 1 proves the table mechanics (insert, unique constraint) work regardless of seed data, and this task proves the seed data itself is correct — a manual test row should never be able to masquerade as a production seed row:
 
 ```ts
 // In Task 1's test, change:
@@ -805,7 +807,7 @@ Expected: PASS (12 tests total).
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/db/src/migrations/0118_garment_families_seed.sql packages/db/src/migrations/meta/_journal.json packages/db/test/garment-taxonomy.test.ts
+git add packages/db/src/migrations/ packages/db/test/garment-taxonomy.test.ts
 git commit -m "feat(db): seed baseline garment_families rows"
 ```
 
