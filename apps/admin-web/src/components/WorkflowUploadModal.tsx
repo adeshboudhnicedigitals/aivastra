@@ -330,7 +330,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       }
     : null;
 
-  // Count how many required fields are auto-detected (regular only)
+  // Count of auto-filled fields, for the "Auto-detected" summary box below —
+  // purely informational, not a required/optional judgment (see requiredMissing).
   const detectedCount =
     parsed && workflowType === 'regular'
       ? [
@@ -342,7 +343,25 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           (parsed.detected as DetectedMappings).negativePromptNode,
         ].filter(Boolean).length
       : 0;
-  const requiredCount = 6;
+
+  // What canSubmit (below) actually treats as required for a regular workflow:
+  // pose + positive prompt always; a garment role (upper OR lower, not
+  // specifically upper); negative prompt only if a face node is present. face
+  // and background are otherwise fully optional. Evaluated against the raw
+  // auto-detect result, not the live (possibly hand-edited) form state.
+  const requiredMissing =
+    parsed && workflowType === 'regular'
+      ? [
+          !(parsed.detected as DetectedMappings).poseNodeId && 'pose',
+          !(parsed.detected as DetectedMappings).positivePromptNode && 'positive prompt',
+          ((parsed.detected as DetectedMappings).upperNodeIds?.length ?? 0) === 0 &&
+            !(parsed.detected as DetectedMappings).lowerNodeId &&
+            'a garment role (upper or lower)',
+          (parsed.detected as DetectedMappings).faceNodeId &&
+            !(parsed.detected as DetectedMappings).negativePromptNode &&
+            'negative prompt (a face node was detected)',
+        ].filter((x): x is string => typeof x === 'string')
+      : [];
 
   const canSubmit =
     !saving &&
@@ -537,16 +556,16 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 style={{
                   fontSize: 12,
                   color:
-                    detectedCount === requiredCount
+                    requiredMissing.length === 0
                       ? 'var(--success, #4caf50)'
                       : 'var(--warning, #f59e0b)',
                   marginTop: 4,
                   display: 'block',
                 }}
               >
-                {detectedCount === requiredCount
-                  ? `✓ All ${requiredCount} required nodes auto-detected`
-                  : `⚠ ${detectedCount}/${requiredCount} required nodes auto-detected — manually set the rest below`}
+                {requiredMissing.length === 0
+                  ? '✓ All required nodes auto-detected'
+                  : `⚠ Missing: ${requiredMissing.join(', ')} — set manually below`}
               </span>
             )}
           </div>
