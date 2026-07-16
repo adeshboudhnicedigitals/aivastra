@@ -48,14 +48,12 @@ const NAV: {
     href: '/catalogue-manager',
     label: 'My Catalogue',
     icon: 'package',
-    devOnly: true,
   },
   {
     id: 'developers',
     href: '/developers',
     label: 'Developers',
     icon: 'key',
-    devOnly: true,
   },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
   {
