@@ -4,7 +4,13 @@ import type { Containers } from './containers';
 
 export type TestApp = Awaited<ReturnType<typeof buildTestApp>>;
 
-export async function buildTestApp(c: Containers, envOverrides: Partial<Env> = {}) {
+export async function buildTestApp(
+  c: Containers,
+  envOverrides: Partial<Env> = {},
+  opts: {
+    beforeListen?: (app: Awaited<ReturnType<typeof buildServer>>) => void | Promise<void>;
+  } = {},
+) {
   const app = await buildServer({
     NODE_ENV: 'test',
     LOG_LEVEL: 'silent',
@@ -24,6 +30,10 @@ export async function buildTestApp(c: Containers, envOverrides: Partial<Env> = {
     COOKIE_SECRET: 'test-cookie-secret-0123456789abcdef-32min',
     ...envOverrides,
   } as Env);
+  // Some tests need a throwaway route registered on the instance before it starts
+  // listening (e.g. to hit a preHandler in isolation before any real route using it
+  // exists yet). Fastify refuses new routes once listening, so this must run first.
+  if (opts.beforeListen) await opts.beforeListen(app);
   await app.listen({ port: 0 });
   return app;
 }

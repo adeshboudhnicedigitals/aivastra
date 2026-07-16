@@ -58,6 +58,7 @@ import { supportRoutes } from './modules/support/routes.js';
 import { uploadsRoutes } from './modules/uploads/routes.js';
 import { authPlugin } from './plugins/auth.js';
 import { dbPlugin } from './plugins/db.js';
+import { devApiAuthPlugin } from './plugins/dev-api-auth.js';
 import { metricsPlugin } from './plugins/metrics.js';
 import { portalAuthPlugin } from './plugins/portal-auth.js';
 import { redisPlugin } from './plugins/redis.js';
@@ -145,6 +146,7 @@ export async function buildServer(env: Env) {
   await app.register(portalAuthPlugin);
   await app.register(shopifyAuthPlugin);
   await app.register(shopifyWidgetAuthPlugin);
+  await app.register(devApiAuthPlugin);
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {
