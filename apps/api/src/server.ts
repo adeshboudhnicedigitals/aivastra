@@ -41,6 +41,7 @@ import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
+import { devRoutes } from './modules/dev/routes.js';
 import { jobsRoutes } from './modules/jobs/routes.js';
 import { kioskAuthRoutes } from './modules/kiosk/auth.routes.js';
 import { kioskCatalogRoutes } from './modules/kiosk/catalog.routes.js';
@@ -192,6 +193,7 @@ export async function buildServer(env: Env) {
   await app.register(merchantCatalogRoutes);
   await app.register(merchantKioskDevicesRoutes);
   await app.register(merchantPaymentsRoutes);
+  await app.register(devRoutes);
   await app.register(shopifyRoutes);
   await app.register(shopifyCustomerRoutes);
   await app.register(modelsRoutes);
