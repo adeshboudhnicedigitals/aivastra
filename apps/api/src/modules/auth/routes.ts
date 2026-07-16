@@ -464,7 +464,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (!user) throw new AppError('NOT_FOUND', 404, 'user not found');
     const { passwordHash, ...rest } = user;
 
-    const [{ hasShopifyStore }] = await app.db
+    const [{ hasShopifyStore, isMerchant }] = await app.db
       .select({
         hasShopifyStore: exists(
           app.db
@@ -477,12 +477,20 @@ export async function authRoutes(app: FastifyInstance) {
               ),
             ),
         ),
+        isMerchant: exists(
+          app.db
+            .select()
+            .from(schema.merchants)
+            .where(
+              and(eq(schema.merchants.userId, req.userId), eq(schema.merchants.isActive, true)),
+            ),
+        ),
       })
       .from(schema.users)
       .where(eq(schema.users.id, req.userId))
       .limit(1);
 
-    return { ...rest, hasPassword: passwordHash !== null, hasShopifyStore };
+    return { ...rest, hasPassword: passwordHash !== null, hasShopifyStore, isMerchant };
   });
 
   app.patch(
