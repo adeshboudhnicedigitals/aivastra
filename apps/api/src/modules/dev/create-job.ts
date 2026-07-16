@@ -73,7 +73,6 @@ export async function createDevTryonJob(
       .insert(schema.jobs)
       .values({
         userId: params.merchantUserId,
-        merchantId: params.merchantId,
         apiKeyId: params.apiKeyId,
         catalogueId,
         status: 'QUEUED',

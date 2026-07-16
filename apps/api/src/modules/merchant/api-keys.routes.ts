@@ -128,7 +128,7 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
       .innerJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.jobs.apiKeyId))
       .where(
         and(
-          eq(schema.jobs.merchantId, req.merchantClientId as string),
+          eq(schema.apiKeys.merchantId, req.merchantClientId as string),
           eq(schema.jobs.source, 'api'),
         ),
       )

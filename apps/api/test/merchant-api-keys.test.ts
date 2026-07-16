@@ -171,10 +171,11 @@ describe('GET /v1/merchant/api-usage', () => {
       })
     ).json();
 
+    // No merchantId on the job row — dev-API jobs identify their owning merchant
+    // solely via apiKeyId → api_keys.merchantId (see dev-tryon-create.test.ts).
     const [job] = await app.db
       .insert(schema.jobs)
       .values({
-        merchantId: _merchantId,
         apiKeyId: created.id,
         status: 'COMPLETED',
         source: 'api',
@@ -204,7 +205,6 @@ describe('GET /v1/merchant/api-usage', () => {
       })
     ).json();
     await app.db.insert(schema.jobs).values({
-      merchantId: other.merchantId,
       apiKeyId: otherKey.id,
       status: 'COMPLETED',
       source: 'api',
@@ -224,7 +224,6 @@ describe('GET /v1/merchant/api-usage', () => {
     const [catalogJob] = await app.db
       .insert(schema.jobs)
       .values({
-        merchantId: _merchantId,
         apiKeyId: own.id,
         status: 'COMPLETED',
         source: 'catalog',
