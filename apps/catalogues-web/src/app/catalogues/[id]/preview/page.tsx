@@ -372,6 +372,7 @@ function LivePlatformPreviewPage({ id }: { id: string }): React.ReactElement {
   const platform = catalogue?.platform ?? 'Amazon';
   const browserDomain = PLATFORM_DOMAINS[platform] ?? PLATFORM_DOMAINS.Amazon ?? 'amazon.in';
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll position reset on view change
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [viewMode, platform]);

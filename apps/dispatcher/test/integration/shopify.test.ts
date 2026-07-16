@@ -93,6 +93,7 @@ describe('dispatcher shopify job routing', () => {
       })
       .returning();
 
+    // biome-ignore lint/suspicious/noExplicitAny: db insert mocking
     const [job] = await (env.db.insert(schema.jobs).values as any)({
       userId: user.id,
       shopifyStoreId: store.id,
@@ -101,6 +102,7 @@ describe('dispatcher shopify job routing', () => {
       creditsCharged: 2,
     }).returning();
 
+    // biome-ignore lint/suspicious/noExplicitAny: db insert mocking
     await (env.db.insert(schema.jobInputs).values as any)({
       jobId: job?.id,
       upperGarmentKey: `shopify-garments/${store.id}/garment.jpg`,
@@ -197,6 +199,7 @@ describe('dispatcher shopify job routing', () => {
       funnelAssignmentSource: funnelTemplateIdToAssign ? 'manual' : null,
     });
 
+    // biome-ignore lint/suspicious/noExplicitAny: db insert mocking
     const [job] = await (env.db.insert(schema.jobs).values as any)({
       userId: user.id,
       shopifyStoreId: store.id,
@@ -266,6 +269,7 @@ describe('dispatcher shopify job routing', () => {
       customerPhotoKey: 'widget-inputs/x/photo.jpg',
       status: 'QUEUED',
       creditsCharged: 5,
+      // biome-ignore lint/suspicious/noExplicitAny: mock type
     } as any);
 
     await env.db.insert(schema.jobInputs).values({
@@ -275,6 +279,7 @@ describe('dispatcher shopify job routing', () => {
       backgroundId: null,
       poseId: null,
       params: { kind: 'shopify' },
+      // biome-ignore lint/suspicious/noExplicitAny: mock type
     } as any);
 
     return { jobId, userId: user.id, storeId: store.id };
