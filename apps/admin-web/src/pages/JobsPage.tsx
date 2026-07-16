@@ -6,7 +6,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAdminJobStream } from '../hooks/use-admin-job-stream';
-import { apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { Job } from '../types';
 
 const PAGE_SIZE = 25;
@@ -176,8 +176,13 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         const data = await apiFetch<{ items: Job[]; total: number }>(`/admin/jobs?${params}`);
         setJobs(data.items);
         setTotal(data.total);
-      } catch {
-        if (!silent) toast({ kind: 'error', title: 'Failed to load jobs' });
+      } catch (e) {
+        if (!silent)
+          toast({
+            kind: 'error',
+            title: 'Failed to load jobs',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
       } finally {
         if (!silent) setLoading(false);
       }
@@ -197,8 +202,13 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       .then((job) => {
         if (!cancelled) setDetail(job);
       })
-      .catch(() => {
-        if (!cancelled) toast({ kind: 'error', title: 'Failed to load job detail' });
+      .catch((e) => {
+        if (!cancelled)
+          toast({
+            kind: 'error',
+            title: 'Failed to load job detail',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
       })
       .finally(() => {
         if (!cancelled) setDetailLoading(false);
@@ -218,8 +228,12 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
         title: `Flushed ${res.flushed} queued job${res.flushed !== 1 ? 's' : ''} and refunded credits`,
       });
       void load();
-    } catch {
-      toast({ kind: 'error', title: 'Flush failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Flush failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setFlushing(false);
       setConfirmFlush(false);
@@ -279,8 +293,12 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
     try {
       const full = await apiFetch<JobDetail>(`/admin/jobs/${j.id}`);
       setDetail(full);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load job detail' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load job detail',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setDetailLoading(false);
     }
@@ -297,8 +315,12 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       setJobs((prev) =>
         prev.map((j) => (j.id === confirmCancel ? { ...j, status: 'CANCELLED' } : j)),
       );
-    } catch {
-      toast({ kind: 'error', title: 'Cancel failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Cancel failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setActioning(false);
     }
@@ -314,8 +336,12 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
       setJobs((prev) =>
         prev.map((j) => (j.id === id ? { ...j, status: 'QUEUED', errorCode: undefined } : j)),
       );
-    } catch {
-      toast({ kind: 'error', title: 'Retry failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Retry failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setActioning(false);
     }

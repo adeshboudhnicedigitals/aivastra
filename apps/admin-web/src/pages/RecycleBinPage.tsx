@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pager } from '../components/Pager';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { ModelBackground, ModelFace, ModelPoseAsset } from '../types';
 
 const PAGE_SIZE = 50;
@@ -92,8 +92,12 @@ export default function RecycleBinPage({ toast }: Props) {
       setFacePage(0);
       setBgPage(0);
       setPaPage(0);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load recycle bin' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load recycle bin',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -112,8 +116,12 @@ export default function RecycleBinPage({ toast }: Props) {
       });
       toast({ title: `${label} restored` });
       void load();
-    } catch {
-      toast({ kind: 'error', title: 'Restore failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Restore failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setWorking(false);
     }
@@ -603,8 +611,12 @@ export default function RecycleBinPage({ toast }: Props) {
                     setPermDel(null);
                     setPermDelText('');
                     void load();
-                  } catch {
-                    toast({ kind: 'error', title: 'Delete failed' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Delete failed',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setWorking(false);
                   }

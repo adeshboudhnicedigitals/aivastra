@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import type { CatalogCategory, CategoryTag, ModelBackground } from '../types';
 import { Icon } from './Icons';
 
@@ -71,8 +71,12 @@ export function EditBackgroundModal({
       onSaved(updated);
       toast({ title: `${form.label} updated` });
       onClose();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update background' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update background',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSaving(false);
     }
@@ -116,8 +120,12 @@ export function EditBackgroundModal({
       setReplaceFile(null);
       setReplacePreview(null);
       toast({ title: 'Image replaced' });
-    } catch {
-      toast({ kind: 'error', title: 'Image replace failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Image replace failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setReplaceUploading(false);
     }

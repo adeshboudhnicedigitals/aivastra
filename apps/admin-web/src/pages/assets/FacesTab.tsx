@@ -4,7 +4,7 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { EditFaceModal } from '../../components/EditFaceModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
-import { apiFetch } from '../../lib/data';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { ModelFace } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
@@ -79,9 +79,13 @@ export function FacesTab() {
         body: JSON.stringify({ isActive: next }),
       });
       toast({ title: `${item.label} ${item.isActive ? 'deactivated' : 'activated'}` });
-    } catch {
+    } catch (e) {
       setFaces((prev) => prev.map((f) => (f.id === id ? { ...f, isActive: item.isActive } : f)));
-      toast({ kind: 'error', title: 'Failed to update face' });
+      toast({
+        kind: 'error',
+        title: 'Failed to update face',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -99,8 +103,12 @@ export function FacesTab() {
       setFaces((prev) => prev.filter((f) => !ids.includes(f.id)));
       setSelectedFaceIds((prev) => prev.filter((id) => !ids.includes(id)));
       toast({ title: `${res.deleted} face${res.deleted !== 1 ? 's' : ''} moved to recycle bin` });
-    } catch {
-      toast({ kind: 'error', title: 'Bulk delete failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -291,8 +299,12 @@ export function FacesTab() {
                     await apiFetch(`/admin/assets/faces/${id}`, { method: 'DELETE' });
                     setFaces((prev) => prev.filter((f) => f.id !== id));
                     toast({ title: `${label} moved to recycle bin` });
-                  } catch {
-                    toast({ kind: 'error', title: 'Failed to delete face' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Failed to delete face',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   }
                 }}
               >
