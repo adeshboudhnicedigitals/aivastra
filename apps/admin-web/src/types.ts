@@ -51,6 +51,8 @@ export interface GarmentType {
   requiresMannequinStep?: boolean;
   mannequinWorkflowTemplateId?: string | null;
   sareeStep2WorkflowTemplateId?: string | null;
+  upperUploadLabel?: string | null;
+  lowerUploadLabel?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
