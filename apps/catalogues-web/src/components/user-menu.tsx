@@ -184,14 +184,15 @@ export function UserMenu() {
             style={{
               width: 40,
               height: 40,
-              borderRadius: 8,
-              background: '#FCE8CA',
+              borderRadius: '50%',
+              background:
+                'linear-gradient(rgba(0,0,0,0.15), rgba(0,0,0,0.15)), linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: 13,
               fontWeight: 600,
-              color: C.dark,
+              color: C.white,
               flexShrink: 0,
             }}
           >

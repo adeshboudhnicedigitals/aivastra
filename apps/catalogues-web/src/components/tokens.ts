@@ -49,7 +49,7 @@ export const M = {
   blueTint: 'var(--c-merchant-blue-tint)',
 } as const;
 
-export const grad = 'linear-gradient(135deg, var(--c-pink), var(--c-amber))';
+export const grad = 'linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)';
 export const gradSubtle = 'var(--c-grad-subtle)';
 
 export const BG_TINTS = [

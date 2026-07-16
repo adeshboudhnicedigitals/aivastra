@@ -541,7 +541,7 @@ function ImageCard({
                     borderRadius: 8,
                     background: downloading
                       ? C.border
-                      : 'linear-gradient(135deg, var(--c-pink), var(--c-amber))',
+                      : 'linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)',
                     cursor: downloading ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',

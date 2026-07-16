@@ -1051,13 +1051,13 @@ export default function PricingPage(): React.ReactElement {
                   {[
                     {
                       icon: <Image size={14} color="#fff" />,
-                      iconBg: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                      iconBg: grad,
                       count: '2,500',
                       label: 'AI Catalogue Images',
                     },
                     {
                       icon: <Shirt size={14} color="#fff" />,
-                      iconBg: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                      iconBg: grad,
                       count: '25,000',
                       label: 'Virtual Try-On Sessions',
                     },
@@ -1258,7 +1258,8 @@ export default function PricingPage(): React.ReactElement {
                     padding: 11,
                     borderRadius: 10,
                     border: 'none',
-                    background: 'linear-gradient(to right, #F55C7A, #F6B553)',
+                    background:
+                      'linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)',
                     color: '#fff',
                     fontFamily: 'inherit',
                     fontWeight: 700,
@@ -1503,7 +1504,7 @@ export default function PricingPage(): React.ReactElement {
                               height: 20,
                               borderRadius: '50%',
                               background: meta.checkGrad
-                                ? 'linear-gradient(to right, #F55C7A, #F6B553)'
+                                ? grad
                                 : `color-mix(in srgb, ${accent} 16%, transparent)`,
                               display: 'inline-flex',
                               alignItems: 'center',
@@ -1534,7 +1535,7 @@ export default function PricingPage(): React.ReactElement {
                                 height: 20,
                                 borderRadius: '50%',
                                 background: meta.checkGrad
-                                  ? 'linear-gradient(to right, #F55C7A, #F6B553)'
+                                  ? grad
                                   : `color-mix(in srgb, ${accent} 16%, transparent)`,
                                 display: 'inline-flex',
                                 alignItems: 'center',
