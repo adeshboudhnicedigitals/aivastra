@@ -20,6 +20,7 @@ interface SelectGridModalProps<T extends SelectableItem> {
   aspect?: number;
   columns?: number;
   continueLabel?: string;
+  hideLabels?: boolean;
 }
 
 export function SelectGridModal<T extends SelectableItem>({
@@ -33,6 +34,7 @@ export function SelectGridModal<T extends SelectableItem>({
   aspect,
   columns = 4,
   continueLabel,
+  hideLabels = false,
 }: SelectGridModalProps<T>) {
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: click-outside-to-dismiss backdrop; keyboard users have the visible Close button below
@@ -198,9 +200,11 @@ export function SelectGridModal<T extends SelectableItem>({
                         </div>
                       )}
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>
-                      {item.label}
-                    </div>
+                    {!hideLabels && (
+                      <div style={{ fontSize: 12, fontWeight: 500, color: C.text, marginTop: 8 }}>
+                        {item.label}
+                      </div>
+                    )}
                   </button>
                 );
               })}

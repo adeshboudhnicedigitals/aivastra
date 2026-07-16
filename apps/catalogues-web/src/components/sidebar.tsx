@@ -24,7 +24,7 @@ const NAV: {
     href: '/tryon',
     label: 'Try-On',
     icon: `${BASE}/assets/tryon-icon.svg`,
-    badge: 'New',
+    badge: 'Beta',
   },
   // Standalone saree feature — superseded by the flat-saree garment type in
   // Studio. Not removed (still fully functional, kept for historical-data
@@ -267,13 +267,16 @@ export function Sidebar() {
                         <span
                           style={{
                             marginLeft: 'auto',
+                            flexShrink: 0,
                             background: 'linear-gradient(180deg, #7c3aed 0%, #66479c 100%)',
-                            borderRadius: 4,
-                            padding: '1px 6px',
-                            fontSize: 8,
-                            fontWeight: 600,
+                            borderRadius: 20,
+                            padding: '2px 8px',
+                            fontSize: 10,
+                            fontWeight: 700,
                             color: '#fff',
-                            lineHeight: '12px',
+                            lineHeight: '14px',
+                            letterSpacing: 0.3,
+                            textTransform: 'uppercase',
                           }}
                         >
                           {item.badge}
