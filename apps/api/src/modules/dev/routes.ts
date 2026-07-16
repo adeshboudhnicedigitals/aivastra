@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
+import { DevJobParams } from '@aivastra/types';
+import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { createDevTryonJob } from './create-job.js';
@@ -104,4 +107,70 @@ export async function devRoutes(app: FastifyInstance) {
       return reply.code(202).send({ jobId, status: 'QUEUED' });
     },
   );
+
+  app.get(
+    '/v1/dev/jobs/:id',
+    { preHandler: app.requireApiKey, config: rateLimitConfig, schema: { params: DevJobParams } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [job] = await app.db
+        .select({
+          id: schema.jobs.id,
+          status: schema.jobs.status,
+          errorCode: schema.jobs.errorCode,
+          merchantId: schema.jobs.merchantId,
+          // NOTE: the column is `result_key` / resultKey — job_outputs has no r2Key.
+          outputKey: schema.jobOutputs.resultKey,
+        })
+        .from(schema.jobs)
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(and(eq(schema.jobs.id, id), eq(schema.jobs.source, 'api')))
+        .limit(1);
+
+      // Scoped by merchant, not by key: a merchant that rotates keys must still be
+      // able to read its older jobs. 404 (not 403) on someone else's job so job IDs
+      // are not enumerable.
+      if (!job || job.merchantId !== req.merchantId) {
+        throw new AppError('NOT_FOUND', 404, 'job not found');
+      }
+
+      if (job.status === 'COMPLETED' && job.outputKey) {
+        // Presigned + short-lived: API results stay private to the owning merchant.
+        const { url } = await app.storage.presignGet(job.outputKey, 900);
+        return { jobId: job.id, status: job.status, imageUrl: url };
+      }
+      if (job.status === 'FAILED') {
+        return { jobId: job.id, status: job.status, error: job.errorCode ?? 'JOB_FAILED' };
+      }
+      return { jobId: job.id, status: job.status };
+    },
+  );
+
+  app.get(
+    '/v1/dev/categories',
+    { preHandler: app.requireApiKey, config: rateLimitConfig },
+    async () => {
+      const rows = await app.db
+        .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
+        .from(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.isActive, true))
+        .orderBy(asc(schema.tryonCategories.sortOrder));
+      return { categories: rows };
+    },
+  );
+
+  app.get('/v1/dev/me', { preHandler: app.requireApiKey, config: rateLimitConfig }, async (req) => {
+    const [row] = await app.db
+      .select({
+        merchantId: schema.merchants.id,
+        companyName: schema.merchants.companyName,
+        credits: schema.userCredits.balance,
+      })
+      .from(schema.merchants)
+      .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+      .where(eq(schema.merchants.id, req.merchantId as string))
+      .limit(1);
+    if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+    return { merchantId: row.merchantId, companyName: row.companyName, credits: row.credits ?? 0 };
+  });
 }
