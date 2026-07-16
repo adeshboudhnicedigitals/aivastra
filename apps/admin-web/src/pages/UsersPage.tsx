@@ -83,8 +83,12 @@ export default function UsersPage({ onNav, toast }: Props) {
       const data = await apiFetch<{ items: User[]; total: number }>(`/admin/users?${params}`);
       setUsers(data.items);
       setTotal(data.total);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load users' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load users',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -97,7 +101,13 @@ export default function UsersPage({ onNav, toast }: Props) {
   useEffect(() => {
     apiFetch<CreditPlan[]>('/admin/credit-plans')
       .then((rows) => setTierOptions(rows.filter((plan) => plan.isActive).map((plan) => plan.slug)))
-      .catch(() => toast({ kind: 'error', title: 'Failed to load credit plan tiers' }));
+      .catch((e) =>
+        toast({
+          kind: 'error',
+          title: 'Failed to load credit plan tiers',
+          body: apiErrorMessage(e, 'Please try again.'),
+        }),
+      );
   }, [toast]);
 
   const handleSearch = (q: string) => {
@@ -135,8 +145,12 @@ export default function UsersPage({ onNav, toast }: Props) {
       setDetail(full);
       setSelectedTier(full.tier);
       setSelectedMaxDevices(String(full.maxActiveDevices ?? 1));
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load user detail' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load user detail',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setDetailLoading(false);
     }
@@ -188,8 +202,12 @@ export default function UsersPage({ onNav, toast }: Props) {
       setDetail({ ...detail, isBanned: willBan });
       setUsers((prev) => prev.map((u) => (u.id === detail.id ? { ...u, isBanned: willBan } : u)));
       toast({ title: `User ${willBan ? 'suspended' : 'unsuspended'}` });
-    } catch {
-      toast({ kind: 'error', title: 'Action failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Action failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
     setConfirmSuspend(null);
   };
@@ -422,8 +440,12 @@ export default function UsersPage({ onNav, toast }: Props) {
                       prev.map((x) => (x.id === u.id ? { ...x, isAdmin: true } : x)),
                     );
                     toast({ title: `${u.displayName ?? u.email} granted admin access` });
-                  } catch {
-                    toast({ kind: 'error', title: 'Failed to grant admin access' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Failed to grant admin access',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setAdminActioning(false);
                   }
@@ -445,8 +467,12 @@ export default function UsersPage({ onNav, toast }: Props) {
                       prev.map((x) => (x.id === u.id ? { ...x, isAdmin: false } : x)),
                     );
                     toast({ title: `${u.displayName ?? u.email} admin access revoked` });
-                  } catch {
-                    toast({ kind: 'error', title: 'Failed to revoke admin access' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Failed to revoke admin access',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setAdminActioning(false);
                   }
@@ -660,16 +686,20 @@ export default function UsersPage({ onNav, toast }: Props) {
                                 className={`badge ${
                                   j.jobType === 'widget'
                                     ? 'accent'
-                                    : j.jobType === 'tryon'
-                                      ? 'info'
-                                      : ''
+                                    : j.jobType === 'api'
+                                      ? 'success'
+                                      : j.jobType === 'tryon'
+                                        ? 'info'
+                                        : ''
                                 }`}
                               >
                                 {j.jobType === 'widget'
                                   ? 'Merchant'
-                                  : j.jobType === 'tryon'
-                                    ? 'Try-On'
-                                    : 'Studio'}
+                                  : j.jobType === 'api'
+                                    ? 'API'
+                                    : j.jobType === 'tryon'
+                                      ? 'Try-On'
+                                      : 'Studio'}
                               </span>
                               <span className="mono sub">{j.id.slice(0, 8)}&hellip;</span>
                             </div>

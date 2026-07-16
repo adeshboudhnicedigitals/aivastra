@@ -211,7 +211,7 @@ export interface User {
     startedAt?: string | null;
     completedAt?: string | null;
     creditsCharged: number;
-    jobType: 'catalogue' | 'tryon' | 'widget';
+    jobType: 'catalogue' | 'tryon' | 'widget' | 'api';
   }[];
   merchant?: UserMerchant | null;
 }
@@ -244,7 +244,7 @@ export interface Job {
   poseLabel?: string | null;
   hasLower: boolean;
   hasShoe: boolean;
-  jobType?: 'catalogue' | 'tryon' | 'widget';
+  jobType?: 'catalogue' | 'tryon' | 'widget' | 'api';
   outputUrl?: string;
   userHint?: string;
 }

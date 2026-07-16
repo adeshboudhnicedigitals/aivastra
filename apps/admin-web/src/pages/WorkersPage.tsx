@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { Switch } from '../components/Switch';
-import { apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 
 type JobType = 'catalogue' | 'tryon' | 'saree' | 'shopify';
 
@@ -50,8 +50,12 @@ export default function WorkersPage({ toast }: Props) {
     try {
       const data = await apiFetch<Worker[]>('/admin/workers');
       setWorkers(data);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load workers' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load workers',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -135,8 +139,12 @@ export default function WorkersPage({ toast }: Props) {
       });
       toast({ title: `Worker ${w.id} ${w.isActive ? 'deactivated' : 'activated'}` });
       void load();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update worker' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update worker',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }
 
@@ -145,8 +153,12 @@ export default function WorkersPage({ toast }: Props) {
       await apiFetch(`/admin/workers/${w.id}/drain`, { method: 'POST' });
       toast({ title: `Worker ${w.id} draining` });
       void load();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to drain worker' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to drain worker',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }
 
@@ -155,8 +167,12 @@ export default function WorkersPage({ toast }: Props) {
       await apiFetch(`/admin/workers/${w.id}/undrain`, { method: 'POST' });
       toast({ title: `Worker ${w.id} back to IDLE` });
       void load();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to undrain worker' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to undrain worker',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }
 

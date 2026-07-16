@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type {
   CatalogCategory,
@@ -470,8 +470,12 @@ export function EditGarmentTypeModal({
       }
       toast({ title: `${(patchBody.label as string) ?? garmentType.label} updated` });
       onClose();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to save' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSaving(false);
     }
@@ -574,7 +578,8 @@ export function EditGarmentTypeModal({
                       onChange={(e) => setUpperUploadLabel(e.target.value)}
                     />
                     <span className="hint">
-                      Shown in studio as the title of the top-wear upload box. Leave blank to use the garment type name.
+                      Shown in studio as the title of the top-wear upload box. Leave blank to use
+                      the garment type name.
                     </span>
                   </div>
                   <div className="field">
