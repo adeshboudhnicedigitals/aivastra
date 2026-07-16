@@ -61,6 +61,8 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   requiresLowerUpload: boolean('requires_lower_upload').notNull().default(false),
+  upperUploadLabel: text('upper_upload_label'),
+  lowerUploadLabel: text('lower_upload_label'),
   defaultLowerCatalogId: uuid('default_lower_catalog_id').references(() => catalogItems.id, {
     onDelete: 'set null',
   }),

@@ -396,13 +396,20 @@ export async function jobsRoutes(app: FastifyInstance) {
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
           lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
           lowerCatalogId: schema.jobInputs.lowerCatalogId,
+          genderSlug: schema.garmentSubcategories.genderSlug,
+          garmentLabel: schema.garmentSubcategories.label,
         })
         .from(schema.jobInputs)
         .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.jobInputs.garmentTypeId, schema.garmentSubcategories.id),
+        )
         .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
         .limit(1);
       const aspectRatio =
         (anyInput?.params as { aspectRatio?: string } | null)?.aspectRatio ?? null;
+      const platform = (anyInput?.params as { platform?: string } | null)?.platform ?? null;
 
       let garmentUrl: string | null = null;
       const heroKey = anyInput?.upperGarmentKey ?? anyInput?.lowerGarmentKey ?? null;
@@ -433,7 +440,16 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(eq(schema.users.id, req.userId));
       const currentPlanWatermark = planRow?.watermark ?? false;
 
-      return { catalogueId: id, jobs, aspectRatio, garmentUrl, currentPlanWatermark };
+      return {
+        catalogueId: id,
+        jobs,
+        aspectRatio,
+        platform,
+        garmentUrl,
+        currentPlanWatermark,
+        gender: anyInput?.genderSlug ?? null,
+        garmentName: anyInput?.garmentLabel ?? null,
+      };
     },
   );
 

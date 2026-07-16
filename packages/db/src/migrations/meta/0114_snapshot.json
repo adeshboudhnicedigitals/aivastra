@@ -1,6 +1,6 @@
 {
-  "id": "3691e264-064c-4d28-bbf2-632129e85f4a",
-  "prevId": "a21f5321-4b73-4b2c-99bc-fab53cd2ec72",
+  "id": "2c9355b1-2453-414c-95cf-eaf614684db5",
+  "prevId": "3691e264-064c-4d28-bbf2-632129e85f4a",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -74,6 +74,85 @@
           "name": "admin_users_user_id_unique",
           "nullsNotDistinct": false,
           "columns": ["user_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.api_keys": {
+      "name": "api_keys",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "merchant_id": {
+          "name": "merchant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_hash": {
+          "name": "key_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_prefix": {
+          "name": "key_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "api_keys_merchant_id_merchants_id_fk": {
+          "name": "api_keys_merchant_id_merchants_id_fk",
+          "tableFrom": "api_keys",
+          "tableTo": "merchants",
+          "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "api_keys_key_hash_unique": {
+          "name": "api_keys_key_hash_unique",
+          "nullsNotDistinct": false,
+          "columns": ["key_hash"]
         }
       },
       "policies": {},
@@ -1589,6 +1668,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "api_key_id": {
+          "name": "api_key_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "kiosk_device_id": {
           "name": "kiosk_device_id",
           "type": "uuid",
@@ -1643,6 +1728,15 @@
           "tableFrom": "jobs",
           "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "jobs_api_key_id_api_keys_id_fk": {
+          "name": "jobs_api_key_id_api_keys_id_fk",
+          "tableFrom": "jobs",
+          "tableTo": "api_keys",
+          "columnsFrom": ["api_key_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
