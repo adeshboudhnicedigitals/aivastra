@@ -94,6 +94,31 @@ describe('GET /v1/dev/jobs/:id', () => {
     expect(body.error).toBe('COMFY_TIMEOUT');
   });
 
+  // Regression: DevJobStatus only exposes QUEUED/RUNNING/COMPLETED/FAILED, but
+  // the dispatcher's internal status column also has PREPROCESSING/GENERATING/
+  // UPLOADING — a raw passthrough of job.status previously 500'd (response
+  // schema validation failure) for the entire duration a job was processing.
+  it.each([
+    'PREPROCESSING',
+    'GENERATING',
+    'UPLOADING',
+  ])('maps internal status %s to the public RUNNING status', async (internalStatus) => {
+    const id = await makeJob(internalStatus);
+    const res = await get(`/v1/dev/jobs/${id}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe('RUNNING');
+  });
+
+  it('maps CANCELLED to FAILED with a JOB_CANCELLED error', async () => {
+    const id = await makeJob('CANCELLED');
+    const res = await get(`/v1/dev/jobs/${id}`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe('FAILED');
+    expect(body.error).toBe('JOB_CANCELLED');
+  });
+
   // Security: cross-merchant reads must be indistinguishable from nonexistent
   // jobs, or job IDs become an enumeration oracle.
   it("returns 404 for another merchant's job", async () => {

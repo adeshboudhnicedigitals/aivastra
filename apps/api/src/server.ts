@@ -85,6 +85,9 @@ export async function buildServer(env: Env) {
       directives: {
         'img-src': ["'self'", 'data:', r2Origin],
         'connect-src': ["'self'", r2Origin],
+        // Scalar's docs page (/v1/dev/docs) inlines a static bootstrap script
+        // (Scalar.createApiReference(...)) — hash-pin it rather than 'unsafe-inline'.
+        'script-src': ["'self'", "'sha256-CbaFUsnqQe6vIwwkHIa6fmTcpDWG7gvFxSRaU1GSCAI='"],
       },
     },
   });

@@ -694,10 +694,9 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                   <Th k="userEmail" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     User
                   </Th>
-                  <Th k="faceLabel" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
-                    Face / Pose
+                  <Th k="jobType" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
+                    Job Type
                   </Th>
-                  <th>Add-ons</th>
                   <Th k="status" sortKey={sortKey} sortDir={sortDir} onSort={handleSort}>
                     Status
                   </Th>
@@ -725,56 +724,33 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       <span className="semi">{j.userEmail ?? '—'}</span>
                     </td>
                     <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {j.faceThumbnailUrl && (
-                          // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
-                          <img
-                            src={j.faceThumbnailUrl}
-                            alt=""
-                            style={{
-                              width: 32,
-                              height: 32,
-                              objectFit: 'cover',
-                              borderRadius: 4,
-                              border: '1px solid var(--border)',
-                              flexShrink: 0,
-                            }}
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        )}
-                        <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span className="semi">{j.faceLabel ?? '—'}</span>
-                            {j.jobType === 'tryon' && (
-                              <span
-                                className="badge dot"
-                                style={{
-                                  background: 'rgba(124,58,237,0.12)',
-                                  color: 'rgb(124,58,237)',
-                                  borderColor: 'rgba(124,58,237,0.3)',
-                                }}
-                              >
-                                Try-On
-                              </span>
-                            )}
-                            {j.jobType === 'widget' && (
-                              <span className="badge dot accent">Widget</span>
-                            )}
-                          </div>
-                          <span className="sub" style={{ display: 'block' }}>
-                            {j.poseLabel ?? '—'}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {j.hasLower && <span className="badge dot accent">Lower</span>}
-                        {j.hasShoe && <span className="badge dot warn">Shoe</span>}
-                        {!j.hasLower && !j.hasShoe && <span className="sub">—</span>}
-                      </div>
+                      {j.jobType === 'api' ? (
+                        <span
+                          className="badge dot"
+                          style={{
+                            background: 'rgba(16,185,129,0.12)',
+                            color: 'rgb(16,185,129)',
+                            borderColor: 'rgba(16,185,129,0.3)',
+                          }}
+                        >
+                          API
+                        </span>
+                      ) : j.jobType === 'tryon' ? (
+                        <span
+                          className="badge dot"
+                          style={{
+                            background: 'rgba(124,58,237,0.12)',
+                            color: 'rgb(124,58,237)',
+                            borderColor: 'rgba(124,58,237,0.3)',
+                          }}
+                        >
+                          Tryon
+                        </span>
+                      ) : j.jobType === 'widget' ? (
+                        <span className="badge dot accent">Widget</span>
+                      ) : (
+                        <span className="badge dot">Catalog</span>
+                      )}
                     </td>
                     <td>
                       <StatusBadge status={j.status} />

@@ -6,6 +6,7 @@ import {
   DevJobParams,
   DevJobResponse,
   DevMeResponse,
+  DevTryonJsonBody,
   DevTryonResponse,
 } from '@aivastra/types';
 import { and, asc, eq } from 'drizzle-orm';
@@ -43,12 +44,19 @@ export async function devRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
+      // Base64 inflates each 10MB image to ~13.4MB of JSON text; the two-image
+      // JSON path needs more than Fastify's 1MB default. Multipart is unaffected —
+      // @fastify/multipart streams via its own `fileSize` limit above, not this.
+      bodyLimit: 30 * 1024 * 1024,
       schema: {
         tags: ['dev'],
         summary: 'Create a try-on job',
         description:
-          'Upload a person image and a garment image as multipart/form-data. Returns a job id to poll.',
-        consumes: ['multipart/form-data'],
+          'Upload a person image and a garment image, either as multipart/form-data ' +
+          '(fields: category, person, garment) or as a JSON body with base64-encoded ' +
+          'images (fields: category, person, garment — plain base64 or a data: URI). ' +
+          'Returns a job id to poll.',
+        consumes: ['multipart/form-data', 'application/json'],
         response: { 202: DevTryonResponse },
       },
     },
@@ -60,35 +68,66 @@ export async function devRoutes(app: FastifyInstance) {
       let categorySlug: string | undefined;
       const files: Record<string, { buf: Buffer; mime: string }> = {};
 
-      // The global multipart limit is 2.5GB (server.ts) for the admin zip-import
-      // route, so this route MUST set its own limits — it does not inherit a safe
-      // default.
-      const parts = req.parts({ limits: { fileSize: MAX_FILE_BYTES, files: 2 } });
-      for await (const part of parts) {
-        if (part.type === 'field' && part.fieldname === 'category') {
-          categorySlug = String(part.value);
-          continue;
-        }
-        if (part.type !== 'file') continue;
-        if (part.fieldname !== 'person' && part.fieldname !== 'garment') {
-          throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
-        }
-        const buf = await part.toBuffer().catch(() => {
-          throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
-        });
-        if (part.file.truncated) {
-          throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
-        }
-        // Magic bytes only — part.mimetype is client-declared and untrusted.
-        const mime = sniffImageMime(buf);
-        if (!mime) {
+      const isJson = (req.headers['content-type'] ?? '').startsWith('application/json');
+
+      if (isJson) {
+        const parsed = DevTryonJsonBody.safeParse(req.body);
+        if (!parsed.success) {
           throw new AppError(
             'VALIDATION',
             400,
-            `${part.fieldname} must be a JPEG, PNG, or WebP image`,
+            parsed.error.issues[0]?.message ?? 'invalid request body',
           );
         }
-        files[part.fieldname] = { buf, mime };
+        categorySlug = parsed.data.category;
+        for (const fieldname of ['person', 'garment'] as const) {
+          const raw = parsed.data[fieldname].replace(/^data:[^;]+;base64,/, '');
+          const buf = Buffer.from(raw, 'base64');
+          if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
+            throw new AppError('VALIDATION', 400, `${fieldname} exceeds the 10MB limit`);
+          }
+          // Magic bytes only — decoding garbage base64 still yields *some* buffer.
+          const mime = sniffImageMime(buf);
+          if (!mime) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${fieldname} must be a JPEG, PNG, or WebP image`,
+            );
+          }
+          files[fieldname] = { buf, mime };
+        }
+      } else {
+        // The global multipart limit is 2.5GB (server.ts) for the admin zip-import
+        // route, so this route MUST set its own limits — it does not inherit a safe
+        // default.
+        const parts = req.parts({ limits: { fileSize: MAX_FILE_BYTES, files: 2 } });
+        for await (const part of parts) {
+          if (part.type === 'field' && part.fieldname === 'category') {
+            categorySlug = String(part.value);
+            continue;
+          }
+          if (part.type !== 'file') continue;
+          if (part.fieldname !== 'person' && part.fieldname !== 'garment') {
+            throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
+          }
+          const buf = await part.toBuffer().catch(() => {
+            throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
+          });
+          if (part.file.truncated) {
+            throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
+          }
+          // Magic bytes only — part.mimetype is client-declared and untrusted.
+          const mime = sniffImageMime(buf);
+          if (!mime) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${part.fieldname} must be a JPEG, PNG, or WebP image`,
+            );
+          }
+          files[part.fieldname] = { buf, mime };
+        }
       }
 
       if (!categorySlug) throw new AppError('VALIDATION', 400, 'category is required');
@@ -164,12 +203,22 @@ export async function devRoutes(app: FastifyInstance) {
       if (job.status === 'COMPLETED' && job.outputKey) {
         // Presigned + short-lived: API results stay private to the owning merchant.
         const { url } = await app.storage.presignGet(job.outputKey, 900);
-        return { jobId: job.id, status: job.status, imageUrl: url };
+        return { jobId: job.id, status: 'COMPLETED' as const, imageUrl: url };
       }
       if (job.status === 'FAILED') {
-        return { jobId: job.id, status: job.status, error: job.errorCode ?? 'JOB_FAILED' };
+        return { jobId: job.id, status: 'FAILED' as const, error: job.errorCode ?? 'JOB_FAILED' };
       }
-      return { jobId: job.id, status: job.status };
+      if (job.status === 'CANCELLED') {
+        return { jobId: job.id, status: 'FAILED' as const, error: 'JOB_CANCELLED' };
+      }
+      // Internal pipeline stages (PREPROCESSING/GENERATING/UPLOADING) collapse to
+      // RUNNING on the public surface — DevJobStatus only exposes QUEUED/RUNNING/
+      // COMPLETED/FAILED, so a raw passthrough of job.status here would fail response
+      // schema validation with a 500 for the entire duration a job is processing.
+      return {
+        jobId: job.id,
+        status: job.status === 'QUEUED' ? ('QUEUED' as const) : ('RUNNING' as const),
+      };
     },
   );
 

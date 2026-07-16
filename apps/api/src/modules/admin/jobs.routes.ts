@@ -76,7 +76,9 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
         hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
         outputKey: schema.jobOutputs.resultKey,
-        jobType: sql<string>`CASE WHEN ${schema.jobs.merchantId} IS NOT NULL THEN 'widget' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
+        jobType: sql<
+          'catalogue' | 'tryon' | 'widget' | 'api'
+        >`CASE WHEN ${schema.jobs.merchantId} IS NOT NULL THEN 'widget' WHEN ${schema.jobs.apiKeyId} IS NOT NULL THEN 'api' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
       })
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
