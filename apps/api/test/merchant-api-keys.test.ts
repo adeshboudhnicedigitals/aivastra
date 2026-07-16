@@ -161,3 +161,64 @@ describe('DELETE /v1/merchant/api-keys/:id', () => {
     expect(still.status).toBe(200);
   });
 });
+
+describe('GET /v1/merchant/api-usage', () => {
+  it('returns recent api-sourced jobs for this merchant, joined with the key used', async () => {
+    const created = await (
+      await call('/v1/merchant/api-keys', {
+        method: 'POST',
+        body: JSON.stringify({ label: 'usage-test' }),
+      })
+    ).json();
+
+    const [job] = await app.db
+      .insert(schema.jobs)
+      .values({
+        merchantId: _merchantId,
+        apiKeyId: created.id,
+        status: 'COMPLETED',
+        source: 'api',
+        creditsCharged: 3,
+      })
+      .returning();
+    if (!job) throw new Error('failed to seed test job');
+
+    const body = await (await call('/v1/merchant/api-usage')).json();
+    const row = body.usage.find((u: { jobId: string }) => u.jobId === job.id);
+    expect(row).toBeTruthy();
+    expect(row.status).toBe('COMPLETED');
+    expect(row.creditsCharged).toBe(3);
+    expect(row.keyLabel).toBe('usage-test');
+    expect(row.keyPrefix).toBe(created.keyPrefix);
+    expect(typeof row.createdAt).toBe('string');
+  });
+
+  it('excludes jobs from other merchants and non-api sources', async () => {
+    const other = await createTestMerchant(app);
+    const otherToken = await tokenFor(other.userId);
+    const otherKey = await (
+      await fetch(`${base}/v1/merchant/api-keys`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${otherToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ label: 'other' }),
+      })
+    ).json();
+    await app.db.insert(schema.jobs).values({
+      merchantId: other.merchantId,
+      apiKeyId: otherKey.id,
+      status: 'COMPLETED',
+      source: 'api',
+      creditsCharged: 1,
+    });
+
+    const body = await (await call('/v1/merchant/api-usage')).json();
+    for (const u of body.usage) {
+      expect(u.keyLabel).not.toBe('other');
+    }
+  });
+
+  it('requires merchant auth', async () => {
+    const res = await fetch(`${base}/v1/merchant/api-usage`);
+    expect(res.status).toBe(401);
+  });
+});

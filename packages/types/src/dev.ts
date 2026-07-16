@@ -38,6 +38,7 @@ export const ApiKeyCreateResponse = z.object({
   keyPrefix: z.string(),
   createdAt: z.string(),
 });
+export type ApiKeyCreateResponse = z.infer<typeof ApiKeyCreateResponse>;
 
 export const ApiKeyListResponse = z.object({
   keys: z.array(
@@ -50,3 +51,20 @@ export const ApiKeyListResponse = z.object({
     }),
   ),
 });
+export type ApiKeyListResponse = z.infer<typeof ApiKeyListResponse>;
+export type ApiKey = ApiKeyListResponse['keys'][number];
+
+export const ApiUsageResponse = z.object({
+  usage: z.array(
+    z.object({
+      jobId: z.string().uuid(),
+      status: z.string(),
+      creditsCharged: z.number().int(),
+      createdAt: z.string(),
+      keyLabel: z.string(),
+      keyPrefix: z.string(),
+    }),
+  ),
+});
+export type ApiUsageResponse = z.infer<typeof ApiUsageResponse>;
+export type ApiUsageRow = ApiUsageResponse['usage'][number];
