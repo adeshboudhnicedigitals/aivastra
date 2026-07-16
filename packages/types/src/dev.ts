@@ -16,6 +16,15 @@ export const DevJobResponse = z.object({
 
 export const DevJobParams = z.object({ id: z.string().uuid() });
 
+// JSON/base64 alternative to the multipart/form-data upload — same three
+// logical inputs, for callers whose stack can't easily build multipart bodies.
+// `person`/`garment` accept a raw base64 string or a `data:image/...;base64,` URI.
+export const DevTryonJsonBody = z.object({
+  category: z.string().min(1),
+  person: z.string().min(1),
+  garment: z.string().min(1),
+});
+
 export const DevCategoriesResponse = z.object({
   categories: z.array(z.object({ slug: z.string(), name: z.string() })),
 });

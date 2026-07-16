@@ -40,6 +40,22 @@ const post = (fd: FormData, token = key) =>
     body: fd,
   });
 
+function jsonBody(opts: { category?: string; person?: string; garment?: string } = {}) {
+  const b64 = jpegBytes().toString('base64');
+  return {
+    category: opts.category ?? 'upper',
+    person: opts.person ?? b64,
+    garment: opts.garment ?? b64,
+  };
+}
+
+const postJson = (body: unknown, token = key) =>
+  fetch(`${base}/v1/dev/tryon`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
 beforeAll(async () => {
   c = await startContainers();
   app = await buildTestApp(c);
@@ -173,5 +189,66 @@ describe('POST /v1/dev/tryon', () => {
     const body = await res.json();
     expect(body.error.code).toBe('INSUFFICIENT_CREDITS');
     await setCredits(100);
+  });
+});
+
+describe('POST /v1/dev/tryon (JSON/base64 body)', () => {
+  it('creates a queued job, deducts credits, and writes the tryon job shape', async () => {
+    const before = await balance();
+    const res = await postJson(jsonBody());
+    expect(res.status).toBe(202);
+    const body = await res.json();
+    expect(body.status).toBe('QUEUED');
+
+    const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, body.jobId));
+    expect(job?.source).toBe('api');
+    // Same dispatcher-routing precondition as the multipart path — see the
+    // comment on the multipart test above.
+    expect(job?.merchantId).toBeNull();
+    expect(job?.apiKeyId).toBeTruthy();
+    expect(await balance()).toBe(before - job!.creditsCharged);
+  });
+
+  it('accepts a data: URI prefix on the base64 fields', async () => {
+    const b64 = jpegBytes().toString('base64');
+    const res = await postJson(jsonBody({ person: `data:image/jpeg;base64,${b64}` }));
+    expect(res.status).toBe(202);
+  });
+
+  it('rejects an unauthenticated request with 401', async () => {
+    const res = await fetch(`${base}/v1/dev/tryon`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(jsonBody()),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects a request missing the garment field with 400', async () => {
+    const res = await postJson({ category: 'upper', person: jpegBytes().toString('base64') });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects an unknown category with 400 and does not move credits', async () => {
+    const before = await balance();
+    const res = await postJson(jsonBody({ category: 'nope' }));
+    expect(res.status).toBe(400);
+    expect(await balance()).toBe(before);
+  });
+
+  // Security regression: base64 content is attacker-controlled — decoding to
+  // non-image bytes must still be rejected regardless of the claimed field.
+  it('rejects a non-image disguised as base64', async () => {
+    const before = await balance();
+    const res = await postJson(
+      jsonBody({ person: Buffer.from('#!/bin/sh\nrm -rf /', 'utf8').toString('base64') }),
+    );
+    expect(res.status).toBe(400);
+    expect(await balance()).toBe(before);
+  });
+
+  it('rejects malformed base64 with 400', async () => {
+    const res = await postJson(jsonBody({ garment: '!!!not-base64!!!' }));
+    expect(res.status).toBe(400);
   });
 });

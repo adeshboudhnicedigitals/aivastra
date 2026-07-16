@@ -686,16 +686,20 @@ export default function UsersPage({ onNav, toast }: Props) {
                                 className={`badge ${
                                   j.jobType === 'widget'
                                     ? 'accent'
-                                    : j.jobType === 'tryon'
-                                      ? 'info'
-                                      : ''
+                                    : j.jobType === 'api'
+                                      ? 'success'
+                                      : j.jobType === 'tryon'
+                                        ? 'info'
+                                        : ''
                                 }`}
                               >
                                 {j.jobType === 'widget'
                                   ? 'Merchant'
-                                  : j.jobType === 'tryon'
-                                    ? 'Try-On'
-                                    : 'Studio'}
+                                  : j.jobType === 'api'
+                                    ? 'API'
+                                    : j.jobType === 'tryon'
+                                      ? 'Try-On'
+                                      : 'Studio'}
                               </span>
                               <span className="mono sub">{j.id.slice(0, 8)}&hellip;</span>
                             </div>
