@@ -10,7 +10,7 @@ import { UsagePanel } from './UsagePanel';
 // apps/catalogues-web/src/lib/api.ts. This link points at the Fastify API's
 // own Swagger UI (apps/api/src/server.ts, routePrefix '/v1/dev/docs'), not a
 // frontend route, so NEXT_PUBLIC_BASE_PATH does not apply here.
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'https://app.aivastra.com';
 
 const CURL_EXAMPLE = `curl -X POST ${API_URL}/v1/dev/tryon \\
   -H "Authorization: Bearer sk_live_..." \\
