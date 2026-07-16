@@ -52,7 +52,7 @@ await db.transaction(async (tx) => {
       passwordHash: await hashPassword(PASSWORD),
       displayName: DISPLAY_NAME,
       companyName: null,
-      emailVerified: true,   // skip verification email
+      emailVerified: true, // skip verification email
       tier: 'free',
     })
     .returning({ id: schema.users.id });
