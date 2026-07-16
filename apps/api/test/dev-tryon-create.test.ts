@@ -85,7 +85,11 @@ describe('POST /v1/dev/tryon', () => {
 
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, body.jobId));
     expect(job?.source).toBe('api');
-    expect(job?.merchantId).toBe(merchantId);
+    // Dispatcher routing precondition (apps/dispatcher/src/job/processor.ts:122-134):
+    // merchantId must stay null — a non-null merchantId misroutes the job into
+    // processWidgetJob instead of processTryonDirectJob. apiKeyId is the only
+    // column that identifies the owning merchant for dev-API jobs.
+    expect(job?.merchantId).toBeNull();
     expect(job?.apiKeyId).toBeTruthy();
     expect(await balance()).toBe(before - job!.creditsCharged);
 
@@ -97,7 +101,9 @@ describe('POST /v1/dev/tryon', () => {
     expect(params.personKey).toBeTruthy();
     expect(params.workflowTemplateId).toBeTruthy();
     expect(inputs!.upperGarmentKey).toBeTruthy();
-    // The absence of these is what routes the job to the dispatcher's tryon path.
+    // The absence of these, plus params.personKey above, is what routes the job to
+    // the dispatcher's tryon-direct path (processTryonDirectJob) rather than the
+    // widget or regular pipelines.
     expect(inputs!.faceId).toBeNull();
     expect(inputs!.backgroundId).toBeNull();
     expect(inputs!.poseId).toBeNull();

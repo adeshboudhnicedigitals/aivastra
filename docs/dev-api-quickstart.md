@@ -17,7 +17,7 @@ Authorization: Bearer sk_live_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 Get a key from the **Developers** dashboard (`/developers` in the web app) after your
 merchant account has been activated by an admin. Click **Create key** — the full key is
-shown **exactly once**, at creation time. It is stored server-side only as a salted hash;
+shown **exactly once**, at creation time. It is stored server-side only as a SHA-256 hash;
 if you lose the key, revoke it and create a new one, you cannot recover the original value.
 
 Treat the key like any other server secret:

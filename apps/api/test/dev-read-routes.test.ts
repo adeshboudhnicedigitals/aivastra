@@ -14,6 +14,7 @@ let base: string;
 let key: string;
 let merchantId: string;
 let userId: string;
+let apiKeyId: string;
 let otherKey: string;
 
 beforeAll(async () => {
@@ -26,7 +27,7 @@ beforeAll(async () => {
   const m = await createTestMerchant(app, { balance: 42 });
   merchantId = m.merchantId;
   userId = m.userId;
-  ({ key } = await createTestApiKey(app, merchantId));
+  ({ key, id: apiKeyId } = await createTestApiKey(app, merchantId));
 
   const other = await createTestMerchant(app);
   ({ key: otherKey } = await createTestApiKey(app, other.merchantId));
@@ -53,7 +54,7 @@ async function makeJob(status: string, opts: { withOutput?: boolean; errorCode?:
     .insert(schema.jobs)
     .values({
       userId,
-      merchantId,
+      apiKeyId,
       status,
       source: 'api',
       creditsCharged: 1,

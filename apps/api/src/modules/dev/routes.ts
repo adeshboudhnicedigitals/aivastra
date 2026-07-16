@@ -144,19 +144,20 @@ export async function devRoutes(app: FastifyInstance) {
           id: schema.jobs.id,
           status: schema.jobs.status,
           errorCode: schema.jobs.errorCode,
-          merchantId: schema.jobs.merchantId,
+          apiKeyMerchantId: schema.apiKeys.merchantId,
           // NOTE: the column is `result_key` / resultKey — job_outputs has no r2Key.
           outputKey: schema.jobOutputs.resultKey,
         })
         .from(schema.jobs)
+        .innerJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.jobs.apiKeyId))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
         .where(and(eq(schema.jobs.id, id), eq(schema.jobs.source, 'api')))
         .limit(1);
 
-      // Scoped by merchant, not by key: a merchant that rotates keys must still be
-      // able to read its older jobs. 404 (not 403) on someone else's job so job IDs
-      // are not enumerable.
-      if (!job || job.merchantId !== req.merchantId) {
+      // Scoped by merchant (via the owning API key), not by key itself: a merchant
+      // that rotates keys must still be able to read its older jobs. 404 (not 403)
+      // on someone else's job so job IDs are not enumerable.
+      if (!job || job.apiKeyMerchantId !== req.merchantId) {
         throw new AppError('NOT_FOUND', 404, 'job not found');
       }
 
