@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { Icon } from '../components/Icons';
 import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
-import { ApiError, apiFetch } from '../lib/data';
+import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
 
 interface WorkflowDetail extends WorkflowOption {
@@ -54,8 +54,12 @@ export default function WorkflowsPage({ toast }: Props) {
     try {
       const data = await apiFetch<WorkflowOption[]>('/admin/workflows');
       setWorkflows(data);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load workflows' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load workflows',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -98,8 +102,12 @@ export default function WorkflowsPage({ toast }: Props) {
         prev.map((w) => (w.id === wf.id ? { ...w, isActive: !w.isActive } : w)),
       );
       toast({ title: `Workflow "${wf.label}" ${wf.isActive ? 'deactivated' : 'activated'}` });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update workflow' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update workflow',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setTogglingId(null);
     }
@@ -143,8 +151,12 @@ export default function WorkflowsPage({ toast }: Props) {
     try {
       const detail = await apiFetch<WorkflowDetail>(`/admin/workflows/${id}`);
       setViewingDetail(detail);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load workflow detail' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load workflow detail',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setDetailLoading(false);
     }

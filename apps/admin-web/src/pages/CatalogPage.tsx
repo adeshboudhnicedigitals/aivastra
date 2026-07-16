@@ -6,7 +6,7 @@ import { Switch } from '../components/Switch';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { CatalogItem } from '../types';
 
@@ -75,8 +75,12 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
         setItems(itemsRes);
         setCategories(catsRes);
       })
-      .catch(() => {
-        toast({ kind: 'error', title: 'Failed to load catalog' });
+      .catch((e) => {
+        toast({
+          kind: 'error',
+          title: 'Failed to load catalog',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
       })
       .finally(() => setLoading(false));
   }, [toast]);
@@ -124,9 +128,13 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
         body: JSON.stringify({ isActive: next }),
       });
       toast({ title: `${item.label} ${item.isActive ? 'deactivated' : 'activated'}` });
-    } catch {
+    } catch (e) {
       setItems((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: item.isActive } : c)));
-      toast({ kind: 'error', title: 'Failed to update item' });
+      toast({
+        kind: 'error',
+        title: 'Failed to update item',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -187,8 +195,12 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       setEditReplaceFile(null);
       setEditReplacePreview(null);
       toast({ title: 'Image replaced' });
-    } catch {
-      toast({ kind: 'error', title: 'Image replace failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Image replace failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setEditReplaceUploading(false);
     }
@@ -215,8 +227,12 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       );
       toast({ title: `${editLabel || editItem.label} updated` });
       setEditItem(null);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to save changes' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save changes',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setEditSaving(false);
     }
@@ -230,8 +246,12 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
       await apiFetch(`/admin/catalog/items/${confirmDelete}`, { method: 'DELETE' });
       setItems((prev) => prev.filter((c) => c.id !== confirmDelete));
       toast({ title: `${item?.label ?? confirmDelete} deleted` });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to delete item' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to delete item',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -560,8 +580,12 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
             setItems((prev) => [...prev, ...added]);
             apiFetch<CatalogItem[]>('/admin/catalog/items')
               .then(setItems)
-              .catch(() => {
-                toast({ kind: 'error', title: 'Items added but failed to refresh list' });
+              .catch((e) => {
+                toast({
+                  kind: 'error',
+                  title: 'Items added but failed to refresh list',
+                  body: apiErrorMessage(e, 'Please try again.'),
+                });
               });
           }}
           onClose={() => setShowUpload(false)}

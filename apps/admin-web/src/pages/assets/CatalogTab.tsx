@@ -3,7 +3,12 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { BatchCatalogUploadModal } from '../../components/BatchCatalogUploadModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../../lib/data';
+import {
+  apiErrorMessage,
+  apiFetch,
+  UPLOAD_NETWORK_ERROR,
+  uploadErrorMessage,
+} from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type { CatalogCategory, CatalogItem, GenderSlug } from '../../types';
 import { useAssetsContext } from './AssetsContext';
@@ -100,8 +105,12 @@ export function CatalogTab() {
       ]);
       setCatalogCategories(cats.filter((c) => c.typeSlug === typeSlug));
       setCatalogTypeIds(Object.fromEntries(types.map((t) => [t.slug, t.id])));
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load categories' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load categories',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }, [typeSlug, toast]);
 
@@ -115,8 +124,12 @@ export function CatalogTab() {
         const qs = params.toString() ? `?${params.toString()}` : '';
         const items = await apiFetch<CatalogItem[]>(`/admin/catalog/items${qs}`);
         setCatalogItems(items);
-      } catch {
-        toast({ kind: 'error', title: 'Failed to load catalog' });
+      } catch (e) {
+        toast({
+          kind: 'error',
+          title: 'Failed to load catalog',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
       } finally {
         setLoading(false);
       }
@@ -308,13 +321,17 @@ export function CatalogTab() {
                             method: 'PATCH',
                             body: JSON.stringify({ isActive: next }),
                           });
-                        } catch {
+                        } catch (e) {
                           setCatalogCategories((prev) =>
                             prev.map((c) =>
                               c.id === cat.id ? { ...c, isActive: cat.isActive } : c,
                             ),
                           );
-                          toast({ kind: 'error', title: 'Failed to update' });
+                          toast({
+                            kind: 'error',
+                            title: 'Failed to update',
+                            body: apiErrorMessage(e, 'Please try again.'),
+                          });
                         }
                       }}
                     />
@@ -471,11 +488,15 @@ export function CatalogTab() {
                               method: 'PATCH',
                               body: JSON.stringify({ isActive: next }),
                             });
-                          } catch {
+                          } catch (e) {
                             setCatalogItems((prev) =>
                               prev.map((x) => (x.id === c.id ? { ...x, isActive: c.isActive } : x)),
                             );
-                            toast({ kind: 'error', title: 'Failed' });
+                            toast({
+                              kind: 'error',
+                              title: 'Failed',
+                              body: apiErrorMessage(e, 'Please try again.'),
+                            });
                           }
                         }}
                       />
@@ -546,8 +567,12 @@ export function CatalogTab() {
                     await apiFetch(`/admin/catalog/items/${id}`, { method: 'DELETE' });
                     setCatalogItems((prev) => prev.filter((c) => c.id !== id));
                     toast({ title: 'Item deleted' });
-                  } catch {
-                    toast({ kind: 'error', title: 'Failed to delete item' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Failed to delete item',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   }
                 }}
               >
@@ -633,8 +658,12 @@ export function CatalogTab() {
                     toast({
                       title: `Unmapped ${ids.length} item${ids.length !== 1 ? 's' : ''} from all garment types`,
                     });
-                  } catch {
-                    toast({ kind: 'error', title: 'Unmap failed' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Unmap failed',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setBulkUnmappingCatalog(false);
                   }
@@ -675,8 +704,12 @@ export function CatalogTab() {
                     setCatalogItems((prev) => prev.filter((c) => !ids.includes(c.id)));
                     setSelectedCatalogItemIds([]);
                     toast({ title: `${ids.length} item${ids.length !== 1 ? 's' : ''} deleted` });
-                  } catch {
-                    toast({ kind: 'error', title: 'Delete failed' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Delete failed',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   }
                 }}
               >
@@ -1081,8 +1114,12 @@ export function CatalogTab() {
                     setEditingCategory(null);
                     setEditCatImageFile(null);
                     toast({ title: 'Category updated' });
-                  } catch {
-                    toast({ kind: 'error', title: 'Update failed' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Update failed',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setEditCatSaving(false);
                   }
@@ -1332,8 +1369,12 @@ export function CatalogTab() {
                             setCatalogReplaceFile(null);
                             setCatalogReplacePreview(null);
                             toast({ title: 'Image replaced' });
-                          } catch {
-                            toast({ kind: 'error', title: 'Image replace failed' });
+                          } catch (e) {
+                            toast({
+                              kind: 'error',
+                              title: 'Image replace failed',
+                              body: apiErrorMessage(e, 'Please try again.'),
+                            });
                           } finally {
                             setCatalogReplaceUploading(false);
                           }
@@ -1382,8 +1423,12 @@ export function CatalogTab() {
                     );
                     toast({ title: `${editingCatalogItem.label} updated` });
                     setEditingCatalogItem(null);
-                  } catch {
-                    toast({ kind: 'error', title: 'Failed to update item' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Failed to update item',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setEditCatalogSaving(false);
                   }
@@ -1512,8 +1557,12 @@ export function CatalogTab() {
                     toast({
                       title: `Mapped ${selectedCatalogItemIds.length} items to ${subcategoryIds.length} garment type${subcategoryIds.length !== 1 ? 's' : ''}`,
                     });
-                  } catch {
-                    toast({ kind: 'error', title: 'Mapping failed' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Mapping failed',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setBulkMappingCatalog(false);
                   }
