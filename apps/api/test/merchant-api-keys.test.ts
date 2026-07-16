@@ -1,0 +1,163 @@
+import { schema } from '@aivastra/db';
+import { eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { signAccess } from '../src/modules/auth/service.js';
+import { buildTestApp, type TestApp } from './helpers/api.js';
+import { type Containers, startContainers } from './helpers/containers.js';
+import { createTestMerchant } from './helpers/merchant.js';
+
+let c: Containers;
+let app: TestApp;
+let base: string;
+let token: string;
+let _merchantId: string;
+
+async function tokenFor(userId: string) {
+  return signAccess(
+    new TextEncoder().encode(app.env.JWT_SECRET),
+    userId,
+    { kind: 'access' },
+    app.env.JWT_EXPIRY,
+    'user',
+  );
+}
+
+beforeAll(async () => {
+  c = await startContainers();
+  app = await buildTestApp(c);
+  await app.ready();
+  const addr = app.server.address();
+  base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+
+  const m = await createTestMerchant(app);
+  _merchantId = m.merchantId;
+  token = await tokenFor(m.userId);
+});
+
+afterAll(async () => {
+  await app.close();
+  await c.stop();
+});
+
+const call = (path: string, init: RequestInit = {}) =>
+  fetch(`${base}${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${token}`,
+      'content-type': 'application/json',
+      ...(init.headers ?? {}),
+    },
+  });
+
+describe('POST /v1/merchant/api-keys', () => {
+  it('creates a key and returns the plaintext exactly once', async () => {
+    const res = await call('/v1/merchant/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ label: 'production' }),
+    });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.key).toMatch(/^sk_live_[A-Za-z0-9_-]{43}$/);
+    expect(body.keyPrefix).toBe(body.key.slice(0, 12));
+
+    // The plaintext key must never be stored — only its hash.
+    const [row] = await app.db.select().from(schema.apiKeys).where(eq(schema.apiKeys.id, body.id));
+    expect(row?.keyHash).not.toBe(body.key);
+    expect(row?.keyHash).toHaveLength(64);
+
+    // ...and must never be retrievable again.
+    const list = await (await call('/v1/merchant/api-keys')).json();
+    expect(JSON.stringify(list)).not.toContain(body.key);
+  });
+
+  it('rejects an empty label with 400', async () => {
+    const res = await call('/v1/merchant/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ label: '' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('requires merchant auth', async () => {
+    const res = await fetch(`${base}/v1/merchant/api-keys`, { method: 'POST' });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('GET /v1/merchant/api-keys', () => {
+  it('lists only this merchant keys, without plaintext', async () => {
+    const other = await createTestMerchant(app);
+    const otherToken = await tokenFor(other.userId);
+    await fetch(`${base}/v1/merchant/api-keys`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${otherToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'theirs' }),
+    });
+
+    const body = await (await call('/v1/merchant/api-keys')).json();
+    for (const k of body.keys) {
+      expect(k.label).not.toBe('theirs');
+      expect(k).not.toHaveProperty('key');
+      expect(k).not.toHaveProperty('keyHash');
+    }
+  });
+
+  it('excludes revoked keys', async () => {
+    const created = await (
+      await call('/v1/merchant/api-keys', {
+        method: 'POST',
+        body: JSON.stringify({ label: 'temp' }),
+      })
+    ).json();
+    await call(`/v1/merchant/api-keys/${created.id}`, { method: 'DELETE' });
+    const body = await (await call('/v1/merchant/api-keys')).json();
+    expect(body.keys.map((k: { id: string }) => k.id)).not.toContain(created.id);
+  });
+});
+
+describe('DELETE /v1/merchant/api-keys/:id', () => {
+  it('revokes a key so it stops authenticating', async () => {
+    const created = await (
+      await call('/v1/merchant/api-keys', {
+        method: 'POST',
+        body: JSON.stringify({ label: 'doomed' }),
+      })
+    ).json();
+
+    const before = await fetch(`${base}/v1/dev/me`, {
+      headers: { authorization: `Bearer ${created.key}` },
+    });
+    expect(before.status).toBe(200);
+
+    expect((await call(`/v1/merchant/api-keys/${created.id}`, { method: 'DELETE' })).status).toBe(
+      204,
+    );
+
+    const after = await fetch(`${base}/v1/dev/me`, {
+      headers: { authorization: `Bearer ${created.key}` },
+    });
+    expect(after.status).toBe(401);
+  });
+
+  // Security: revoking must be scoped to the caller's own keys.
+  it("cannot revoke another merchant's key", async () => {
+    const other = await createTestMerchant(app);
+    const otherToken = await tokenFor(other.userId);
+    const theirs = await (
+      await fetch(`${base}/v1/merchant/api-keys`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${otherToken}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ label: 'theirs' }),
+      })
+    ).json();
+
+    expect((await call(`/v1/merchant/api-keys/${theirs.id}`, { method: 'DELETE' })).status).toBe(
+      404,
+    );
+
+    const still = await fetch(`${base}/v1/dev/me`, {
+      headers: { authorization: `Bearer ${theirs.key}` },
+    });
+    expect(still.status).toBe(200);
+  });
+});
