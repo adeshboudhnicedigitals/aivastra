@@ -33,9 +33,10 @@ A missing, malformed, or revoked key returns `401 UNAUTHORIZED` (see the error t
 
 1. **`GET /v1/dev/categories`** — list the garment categories your merchant account can
    submit jobs for. Pick a `slug` from the response.
-2. **`POST /v1/dev/tryon`** — multipart upload: a `person` image, a `garment` image, and the
-   chosen `category` slug. Returns `202` with a `jobId` immediately; generation happens
-   asynchronously.
+2. **`POST /v1/dev/tryon`** — a `person` image, a `garment` image, and the chosen `category`
+   slug, sent either as a **multipart/form-data** upload or as a **JSON body with
+   base64-encoded images** (see §3b) — pick whichever your stack finds easier. Returns
+   `202` with a `jobId` immediately; generation happens asynchronously.
 3. **`GET /v1/dev/jobs/:id`** — poll until `status` is `COMPLETED` (with an `imageUrl`) or
    `FAILED` (with an `error`).
 
@@ -71,6 +72,32 @@ curl -s "$API_URL/v1/dev/jobs/5f2b1a3e-9c4d-4e2a-8f1b-1234567890ab" \
 `imageUrl` is a presigned URL valid for **15 minutes**. If it expires before you download
 it, call `GET /v1/dev/jobs/:id` again — it reissues a fresh presigned URL for the same
 completed job.
+
+## 3b. curl example — JSON/base64 instead of multipart
+
+If your stack can't easily build a multipart body (some serverless/no-code platforms,
+certain HTTP clients), send the same three fields as JSON with base64-encoded images
+instead. Everything else — job creation, polling, credits, errors — is identical.
+
+```bash
+python3 -c "
+import json, base64
+person = base64.b64encode(open('person.jpg', 'rb').read()).decode()
+garment = base64.b64encode(open('garment.jpg', 'rb').read()).decode()
+print(json.dumps({'category': 'upper', 'person': person, 'garment': garment}))
+" > body.json
+
+curl -s -X POST "$API_URL/v1/dev/tryon" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @body.json
+# => {"jobId": "...", "status": "QUEUED"}
+```
+
+`person`/`garment` accept either a raw base64 string or a `data:image/jpeg;base64,...` URI
+(the `data:` prefix is stripped automatically if present). Same 10MB-per-image limit and
+magic-byte content check as the multipart path — base64 inflates the wire size by ~33%, so
+a 10MB image becomes a ~13.4MB JSON field.
 
 ## 4. Node.js example — `FormData` + `fetch` with a backing-off poll loop
 
@@ -165,6 +192,10 @@ Every error response has the same envelope:
 A `500 INTERNAL` is also possible on unexpected server errors; if you see one repeatedly,
 contact support with the `jobId` (if any) and approximate timestamp.
 
+`GET /v1/dev/jobs/:id` only ever reports `status` as `QUEUED`, `RUNNING`, `COMPLETED`, or
+`FAILED` — the internal processing stages (preprocessing, generation, upload) all collapse
+to `RUNNING`, and a cancelled job reports as `FAILED` with `error: "JOB_CANCELLED"`.
+
 ## 6. Limits
 
 | Limit | Value |
@@ -173,6 +204,7 @@ contact support with the `jobId` (if any) and approximate timestamp.
 | Max image size | 10MB per file (`person` and `garment` each) |
 | Accepted image types | JPEG, PNG, WebP — detected by file content (magic bytes), not by the filename or the `Content-Type` you send |
 | Files per request | Exactly 2 (`person` and `garment`) |
+| Max JSON body size | 30MB (only relevant to the base64 upload path in §3b — two 10MB images base64-encoded is ~27MB) |
 | Result URL expiry | Presigned `imageUrl` is valid for 900 seconds (15 minutes). If it expires, call `GET /v1/dev/jobs/:id` again for a fresh one — the underlying result doesn't disappear, only the signed link does. |
 
 ## 7. Credits
