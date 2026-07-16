@@ -113,4 +113,29 @@ export async function merchantApiKeysRoutes(app: FastifyInstance) {
       return reply.code(204).send();
     },
   );
+
+  app.get('/v1/merchant/api-usage', { preHandler: app.requireMerchant }, async (req) => {
+    const rows = await app.db
+      .select({
+        jobId: schema.jobs.id,
+        status: schema.jobs.status,
+        creditsCharged: schema.jobs.creditsCharged,
+        createdAt: schema.jobs.createdAt,
+        keyLabel: schema.apiKeys.label,
+        keyPrefix: schema.apiKeys.keyPrefix,
+      })
+      .from(schema.jobs)
+      .innerJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.jobs.apiKeyId))
+      .where(
+        and(
+          eq(schema.jobs.merchantId, req.merchantClientId as string),
+          eq(schema.jobs.source, 'api'),
+        ),
+      )
+      .orderBy(desc(schema.jobs.createdAt))
+      .limit(50);
+    return {
+      usage: rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+    };
+  });
 }
