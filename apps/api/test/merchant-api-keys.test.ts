@@ -211,10 +211,33 @@ describe('GET /v1/merchant/api-usage', () => {
       creditsCharged: 1,
     });
 
+    // Same merchant/key as the "usage-test" job above, but created via the
+    // catalog flow rather than the dev API — must be excluded by the
+    // route's `eq(schema.jobs.source, 'api')` filter, not just the
+    // merchantId scoping exercised above.
+    const own = await (
+      await call('/v1/merchant/api-keys', {
+        method: 'POST',
+        body: JSON.stringify({ label: 'non-api-source' }),
+      })
+    ).json();
+    const [catalogJob] = await app.db
+      .insert(schema.jobs)
+      .values({
+        merchantId: _merchantId,
+        apiKeyId: own.id,
+        status: 'COMPLETED',
+        source: 'catalog',
+        creditsCharged: 2,
+      })
+      .returning();
+    if (!catalogJob) throw new Error('failed to seed test job');
+
     const body = await (await call('/v1/merchant/api-usage')).json();
     for (const u of body.usage) {
       expect(u.keyLabel).not.toBe('other');
     }
+    expect(body.usage.map((u: { jobId: string }) => u.jobId)).not.toContain(catalogJob.id);
   });
 
   it('requires merchant auth', async () => {
