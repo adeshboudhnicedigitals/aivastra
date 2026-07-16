@@ -209,28 +209,6 @@ export function GenerationPanel({
             </h3>
             <span style={{ fontSize: 13, color: C.mid }}>Our AI is working its magic</span>
           </div>
-          {onCancel && (
-            <button
-              onClick={onCancel}
-              type="button"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'transparent',
-                border: `1px solid ${C.border2}`,
-                borderRadius: 8,
-                padding: '6px 12px',
-                fontSize: 13,
-                fontWeight: 500,
-                color: C.text,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-              }}
-            >
-              Cancel <XIcon size={14} />
-            </button>
-          )}
         </div>
 
         <div
@@ -742,34 +720,13 @@ export function GenerationPanel({
                     </>
                   )}
 
-                  {/* Best Match badge on top left */}
-                  {isBestMatch && (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: 8,
-                        left: 8,
-                        fontSize: 9,
-                        fontWeight: 700,
-                        color: '#FEFEFE',
-                        background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
-                        padding: '3px 8px',
-                        borderRadius: 4,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                        zIndex: 2,
-                      }}
-                    >
-                      Best Match
-                    </span>
-                  )}
-
-                  {/* Heart/Like icon on top right */}
+                  {/* Download icon on top right */}
                   <button
                     type="button"
+                    disabled={!isCompleted || !resultUrl}
                     onClick={(e) => {
                       e.stopPropagation();
-                      toggleFavorite(job.id);
+                      if (resultUrl) downloadImage(resultUrl, job.id);
                     }}
                     style={{
                       position: 'absolute',
@@ -784,206 +741,19 @@ export function GenerationPanel({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      cursor: 'pointer',
-                      fontSize: 13,
+                      cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
+                      opacity: isCompleted && resultUrl ? 1 : 0.45,
+                      color: C.text,
                       boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
                       zIndex: 2,
                     }}
                   >
-                    {favorites.includes(job.id) ? (
-                      <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="currentColor"
-                        style={{ color: '#f55c7a' }}
-                      >
-                        <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-                      </svg>
-                    ) : (
-                      <svg
-                        width="15"
-                        height="15"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        style={{ color: C.mid }}
-                      >
-                        <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-
-                {/* Actions row */}
-                <div
-                  style={{
-                    display: 'flex',
-                    borderTop: `1px solid ${C.border2}`,
-                    background: C.card,
-                  }}
-                >
-                  {/* Download */}
-                  <button
-                    type="button"
-                    disabled={!isCompleted || !resultUrl}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (resultUrl) downloadImage(resultUrl, job.id);
-                    }}
-                    style={{
-                      flex: 1,
-                      border: 'none',
-                      borderRight: `1px solid ${C.border2}`,
-                      background: 'transparent',
-                      padding: '10px 2px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
-                      opacity: isCompleted && resultUrl ? 1 : 0.45,
-                      fontSize: 9.5,
-                      fontWeight: 600,
-                      color: C.text,
-                      fontFamily: 'inherit',
-                      letterSpacing: '-0.04em',
-                      lineHeight: 1,
-                    }}
-                  >
                     <DownloadIcon size={14} />
-                    Download
-                  </button>
-
-                  {/* Upscale */}
-                  <button
-                    type="button"
-                    disabled={!isCompleted}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // Visual only action, shows friendly alert
-                      alert('Upscaling image...');
-                    }}
-                    style={{
-                      flex: 1,
-                      border: 'none',
-                      borderRight: `1px solid ${C.border2}`,
-                      background: 'transparent',
-                      padding: '10px 2px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      cursor: isCompleted ? 'pointer' : 'not-allowed',
-                      opacity: isCompleted ? 1 : 0.45,
-                      fontSize: 9.5,
-                      fontWeight: 600,
-                      color: C.text,
-                      fontFamily: 'inherit',
-                      letterSpacing: '-0.04em',
-                      lineHeight: 1,
-                    }}
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="15 3 21 3 21 9" />
-                      <polyline points="9 21 3 21 3 15" />
-                      <line x1="21" y1="3" x2="14" y2="10" />
-                      <line x1="3" y1="21" x2="10" y2="14" />
-                    </svg>
-                    Upscale
-                  </button>
-
-                  {/* Variations */}
-                  <button
-                    type="button"
-                    disabled={!isCompleted}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      // Visual only action, shows friendly alert
-                      alert('Generating variations for this look...');
-                    }}
-                    style={{
-                      flex: 1,
-                      border: 'none',
-                      background: 'transparent',
-                      padding: '10px 2px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 4,
-                      cursor: isCompleted ? 'pointer' : 'not-allowed',
-                      opacity: isCompleted ? 1 : 0.45,
-                      fontSize: 9.5,
-                      fontWeight: 600,
-                      color: C.text,
-                      fontFamily: 'inherit',
-                      letterSpacing: '-0.04em',
-                      lineHeight: 1,
-                    }}
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <line x1="4" y1="21" x2="4" y2="14" />
-                      <line x1="4" y1="10" x2="4" y2="3" />
-                      <line x1="12" y1="21" x2="12" y2="12" />
-                      <line x1="12" y1="8" x2="12" y2="3" />
-                      <line x1="20" y1="21" x2="20" y2="16" />
-                      <line x1="20" y1="12" x2="20" y2="3" />
-                      <line x1="2" y1="14" x2="6" y2="14" />
-                      <line x1="10" y1="8" x2="14" y2="8" />
-                      <line x1="18" y1="16" x2="22" y2="16" />
-                    </svg>
-                    Variations
                   </button>
                 </div>
               </div>
             );
           })}
-        </div>
-
-        {/* Tip Banner */}
-        <div
-          style={{
-            background: 'rgba(189, 37, 135, 0.06)',
-            border: `1px dashed rgba(189, 37, 135, 0.35)`,
-            borderRadius: 10,
-            padding: '12px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            fontSize: 13,
-            fontWeight: 500,
-            color: C.text,
-          }}
-        >
-          <span style={{ fontSize: 16, display: 'flex' }}>💡</span>
-          <span>
-            <strong>Tip:</strong> You can download, upscale or generate more variations of any
-            result
-          </span>
         </div>
       </div>
       <Link

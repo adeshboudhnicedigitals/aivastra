@@ -155,7 +155,7 @@ const PLATFORMS = Object.keys(BRAND_CONFIG);
 const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   Amazon: { src: `${BASE}/assets/platform-logos/amazon-logo.svg`, h: 18 },
   Flipkart: { src: `${BASE}/assets/platform-logos/flipkart-logo-current.png`, h: 18 },
-  Myntra: { src: `${BASE}/assets/myntra-mark-official.png`, h: 20 },
+  Myntra: { src: `${BASE}/assets/myntra-logo-official.png`, h: 20 },
   AJIO: { src: `${BASE}/assets/platform-logos/ajio-logo.svg`, h: 18 },
   Meesho: { src: `${BASE}/assets/platform-logos/meesho-wordmark.svg`, h: 16 },
   'Nykaa Fashion': { src: `${BASE}/assets/platform-logos/nykaa-logo.svg`, h: 16 },
@@ -357,6 +357,7 @@ function GenderCard({
         height: 72,
         boxSizing: 'border-box',
         width: '100%',
+        minWidth: 0,
         textAlign: 'left',
         transition: 'box-shadow 0.2s, transform 0.2s',
         overflow: 'hidden',
@@ -462,6 +463,9 @@ function SelCard({
   ratio,
   badges,
   emptyContent,
+  borderWidth,
+  fillHeight,
+  imageObjectPosition = 'center',
 }: {
   selected: boolean;
   onClick: () => void;
@@ -472,6 +476,9 @@ function SelCard({
   ratio?: number;
   badges?: React.ReactNode;
   emptyContent?: React.ReactNode;
+  borderWidth?: number;
+  fillHeight?: boolean;
+  imageObjectPosition?: string;
 }) {
   const fluid = typeof w === 'string';
   return (
@@ -490,7 +497,7 @@ function SelCard({
         background: selected
           ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box`
           : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
-        border: '1.5px solid transparent',
+        border: `${borderWidth ?? 1.5}px solid transparent`,
         borderRadius: 12,
         padding: 0,
         boxSizing: 'border-box',
@@ -518,9 +525,10 @@ function SelCard({
           className="sel-card-image"
           style={{
             width: '100%',
-            aspectRatio: fluid ? ratio : undefined,
+            aspectRatio: fluid && !fillHeight ? ratio : undefined,
+            flex: fillHeight ? 1 : undefined,
             height: fluid ? undefined : h - 30,
-            borderRadius: '10px 10px 0 0',
+            borderRadius: fillHeight ? 10 : '10px 10px 0 0',
             overflow: 'hidden',
             position: 'relative',
             background: C.lighter,
@@ -531,7 +539,7 @@ function SelCard({
             style={{
               width: '100%',
               height: '100%',
-              borderRadius: '10px 10px 0 0',
+              borderRadius: fillHeight ? 10 : '10px 10px 0 0',
               overflow: 'hidden',
               background: C.lighter,
               display: 'flex',
@@ -546,7 +554,12 @@ function SelCard({
                 <img
                   src={imageUrl}
                   alt={label}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    objectPosition: imageObjectPosition,
+                  }}
                 />
               </div>
             ) : emptyContent ? (
@@ -1525,6 +1538,24 @@ export default function StudioPage(): React.ReactElement {
             ? 'Enter valid width and height for custom size'
             : '';
 
+  // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
+  // are always visible and keep their static stepNumber. Everything after that is
+  // conditionally rendered (template mode vs custom mode, optional lower/shoe
+  // roles, resolution not yet resolved), so step numbers are assigned dynamically
+  // from DOM order to avoid gaps/duplicates depending on what's actually shown.
+  const hasCatalogueTemplates = catalogueTemplates.length > 1;
+  const extraSectionKeys = [
+    hasCatalogueTemplates && 'templates',
+    catalogueTemplateId === 'custom' && 'background',
+    catalogueTemplateId === 'custom' && 'poses',
+    needsLower && !requiresLowerUpload && 'lower',
+    needsShoes && 'shoes',
+    'platform',
+    'aspect',
+    resolution && 'resolution',
+  ].filter((key): key is string => !!key);
+  const stepNumberOf = (key: string) => extraSectionKeys.indexOf(key) + 5;
+
   return (
     <>
       <style
@@ -2296,125 +2327,167 @@ export default function StudioPage(): React.ReactElement {
             </section>
 
             {/* ── Ready-made catalogue templates ── */}
-            <section className="studio-section-card" style={sectionCardStyle}>
-              <SectionHead
-                title="Create Your Look or Choose Ready-Made Poses"
-                right={
-                  catalogueTemplates.length > templateVisibleCount && (
-                    <button
-                      type="button"
-                      onClick={() => setTemplateModalOpen(true)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        cursor: 'pointer',
-                        height: 16,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                        View more
-                      </span>
-                    </button>
-                  )
-                }
-              />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-                {(() => {
-                  // "Create your own look" (catalogueTemplates[0], id 'custom') is always
-                  // pinned first - a selected template that isn't already visible is
-                  // inserted right after it, never displacing it from the front.
-                  const [custom, ...rest] = catalogueTemplates;
-                  const firstNRest = rest.slice(0, templateVisibleCount - 1);
-                  const selected = rest.find((template) => template.id === catalogueTemplateId);
-                  const visibleRest =
-                    selected && !firstNRest.some((template) => template.id === selected.id)
-                      ? [selected, ...firstNRest].slice(0, templateVisibleCount - 1)
-                      : firstNRest;
-                  const visibleTemplates = custom ? [custom, ...visibleRest] : visibleRest;
-                  return visibleTemplates.map((template) => (
-                    <SelCard
-                      key={template.id}
-                      selected={catalogueTemplateId === template.id}
-                      onClick={() => handleCatalogueTemplateSelect(template.id)}
-                      imageUrl={template.thumbnailUrl}
-                      label={template.label}
-                      w="100%"
-                      ratio={215.2 / 282}
-                      emptyContent={
-                        template.id === 'custom' ? (
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 10,
-                              padding: 16,
-                              color: C.text,
-                              width: '100%',
-                              height: '100%',
-                              boxSizing: 'border-box',
-                              position: 'absolute',
-                              inset: 0,
-                            }}
+            {hasCatalogueTemplates && (
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead
+                  title="Create Your Look or Choose From Ready Made Poses"
+                  stepNumber={stepNumberOf('templates')}
+                  right={
+                    catalogueTemplates.length > templateVisibleCount && (
+                      <button
+                        type="button"
+                        onClick={() => setTemplateModalOpen(true)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          height: 16,
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                          View more
+                        </span>
+                      </button>
+                    )
+                  }
+                />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                  {(() => {
+                    // "Create your own look" (catalogueTemplates[0], id 'custom') is always
+                    // pinned first - a selected template that isn't already visible is
+                    // inserted right after it, never displacing it from the front.
+                    const [custom, ...rest] = catalogueTemplates;
+                    const firstNRest = rest.slice(0, templateVisibleCount - 1);
+                    const selected = rest.find((template) => template.id === catalogueTemplateId);
+                    const visibleRest =
+                      selected && !firstNRest.some((template) => template.id === selected.id)
+                        ? [selected, ...firstNRest].slice(0, templateVisibleCount - 1)
+                        : firstNRest;
+                    const visibleTemplates = custom ? [custom, ...visibleRest] : visibleRest;
+                    return visibleTemplates.map((template) => (
+                      <SelCard
+                        key={template.id}
+                        selected={catalogueTemplateId === template.id}
+                        onClick={() => handleCatalogueTemplateSelect(template.id)}
+                        imageUrl={template.thumbnailUrl}
+                        label={template.id === 'custom' ? undefined : template.label}
+                        w="100%"
+                        ratio={215.2 / 212.67}
+                        fillHeight={template.id === 'custom'}
+                        emptyContent={
+                          template.id === 'custom' ? (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 10,
+                                padding: 16,
+                                color: C.text,
+                                width: '100%',
+                                height: '100%',
+                                boxSizing: 'border-box',
+                                position: 'absolute',
+                                inset: 0,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: 44,
+                                  height: 44,
+                                  borderRadius: 10,
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                  background: C.white,
+                                  border: `1px solid ${C.border}`,
+                                  color: C.pink,
+                                }}
+                              >
+                                <ImagePlusIcon size={22} />
+                              </span>
+                              <span
+                                style={{
+                                  maxWidth: 110,
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  lineHeight: 1.35,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                Create your own look
+                              </span>
+                            </div>
+                          ) : undefined
+                        }
+                      />
+                    ));
+                  })()}
+                </div>
+                {templateModalOpen && (
+                  <SelectGridModal
+                    title="Select a Ready-Made Catalogue Template"
+                    items={catalogueTemplates.filter((template) => template.id !== 'custom')}
+                    selectedIds={[catalogueTemplateId]}
+                    aspect={215.2 / 282}
+                    columns={5}
+                    onSelect={(id) => {
+                      handleCatalogueTemplateSelect(id);
+                      setTemplateModalOpen(false);
+                    }}
+                    onClose={() => setTemplateModalOpen(false)}
+                  />
+                )}
+                {/* ── Choose Looks (template mode only) ── */}
+                {catalogueTemplateId !== 'custom' && (
+                  <div style={{ marginTop: 16 }}>
+                    <SectionHead
+                      title=""
+                      titleSuffix={
+                        selectedLookIds.length > 0 && (
+                          <span
+                            style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}
                           >
-                            <span
-                              style={{
-                                width: 44,
-                                height: 44,
-                                borderRadius: 10,
-                                display: 'grid',
-                                placeItems: 'center',
-                                background: C.white,
-                                border: `1px solid ${C.border}`,
-                                color: C.pink,
-                              }}
-                            >
-                              <ImagePlusIcon size={22} />
-                            </span>
-                            <span
-                              style={{
-                                maxWidth: 110,
-                                fontSize: 12,
-                                fontWeight: 600,
-                                lineHeight: 1.35,
-                                textAlign: 'center',
-                              }}
-                            >
-                              Create your own look
-                            </span>
-                          </div>
-                        ) : undefined
+                            {selectedLookIds.length} poses selected
+                          </span>
+                        )
                       }
                     />
-                  ));
-                })()}
-              </div>
-              {templateModalOpen && (
-                <SelectGridModal
-                  title="Select a Ready-Made Catalogue Template"
-                  items={catalogueTemplates.filter((template) => template.id !== 'custom')}
-                  selectedIds={[catalogueTemplateId]}
-                  aspect={215.2 / 282}
-                  columns={5}
-                  onSelect={(id) => {
-                    handleCatalogueTemplateSelect(id);
-                    setTemplateModalOpen(false);
-                  }}
-                  onClose={() => setTemplateModalOpen(false)}
-                />
-              )}
-            </section>
+                    {(activeTemplate?.looks.length ?? 0) === 0 ? (
+                      <p style={{ fontSize: 14, color: C.mid }}>
+                        No looks available for this garment type yet.
+                      </p>
+                    ) : (
+                      <div
+                        style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}
+                      >
+                        {(activeTemplate?.looks ?? []).map((look) => (
+                          <SelCard
+                            key={look.id}
+                            selected={selectedLookIds.includes(look.id)}
+                            onClick={() => handleLookToggle(look.id)}
+                            imageUrl={look.poseThumbnailUrl}
+                            w="100%"
+                            ratio={215.2 / 212.67}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* ── Background (custom mode only) ── */}
             {catalogueTemplateId === 'custom' && (
               <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
                   title="Select Background"
+                  stepNumber={stepNumberOf('background')}
                   right={
                     (backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
                       <button
@@ -2488,7 +2561,7 @@ export default function StudioPage(): React.ReactElement {
                           imageUrl={b.thumbnailUrl}
                           label={b.label}
                           w="100%"
-                          ratio={1}
+                          ratio={215.2 / 212.67}
                           badges={<TagBadge tag={b.specialTag} />}
                         />
                       ));
@@ -2636,7 +2709,7 @@ export default function StudioPage(): React.ReactElement {
                               style={{
                                 display: 'grid',
                                 gridTemplateColumns: 'repeat(5, 1fr)',
-                                gap: 12,
+                                gap: 16,
                               }}
                             >
                               {filteredItems.map((i) => (
@@ -2650,7 +2723,8 @@ export default function StudioPage(): React.ReactElement {
                                   imageUrl={i.thumbnailUrl}
                                   label={i.label}
                                   w="100%"
-                                  ratio={1}
+                                  ratio={215.2 / 212.67}
+                                  borderWidth={3}
                                   badges={<TagBadge tag={bgSpecialTagById.get(i.id)} />}
                                 />
                               ))}
@@ -2668,6 +2742,7 @@ export default function StudioPage(): React.ReactElement {
               <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
                   title="Choose Poses"
+                  stepNumber={stepNumberOf('poses')}
                   titleSuffix={
                     poseIds.length > 0 && (
                       <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
@@ -2721,7 +2796,7 @@ export default function StudioPage(): React.ReactElement {
                     No poses for this combination. Go back and try a different background.
                   </p>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
                     {(() => {
                       const firstN = poses.items.slice(0, poseVisibleCount);
                       const offScreenSelected = poseIds
@@ -2738,9 +2813,15 @@ export default function StudioPage(): React.ReactElement {
                           selected={poseIds.includes(p.id)}
                           onClick={() => handlePoseSelect(p.id)}
                           imageUrl={p.thumbnailUrl}
-                          label={p.label}
                           w="100%"
-                          ratio={215.2 / 282}
+                          // No label shown, but the image still fills the same total
+                          // card height other sections get from image + label row
+                          // (~28px) combined - so pose cards stay the same height as
+                          // the rest of the grid without leaving blank space below.
+                          ratio={215.2 / (212.67 + 28)}
+                          // Center-crop was cutting off heads/hair on portrait pose
+                          // shots - anchor the crop to the top instead.
+                          imageObjectPosition="top"
                         />
                       ));
                     })()}
@@ -2752,6 +2833,7 @@ export default function StudioPage(): React.ReactElement {
                     items={poses.items}
                     selectedIds={poseIds}
                     multiSelect
+                    hideLabels
                     aspect={3 / 4}
                     columns={5}
                     onSelect={(id) => handlePoseSelect(id)}
@@ -2762,49 +2844,16 @@ export default function StudioPage(): React.ReactElement {
               </section>
             )}
 
-            {/* ── Choose Looks (template mode only) ── */}
-            {catalogueTemplateId !== 'custom' && (
-              <section>
-                <SectionHead
-                  title="Select Poses"
-                  titleSuffix={
-                    selectedLookIds.length > 0 && (
-                      <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
-                        ({selectedLookIds.length} selected)
-                      </span>
-                    )
-                  }
-                />
-                {(activeTemplate?.looks.length ?? 0) === 0 ? (
-                  <p style={{ fontSize: 14, color: C.mid }}>
-                    No looks available for this garment type yet.
-                  </p>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-                    {(activeTemplate?.looks ?? []).map((look) => (
-                      <SelCard
-                        key={look.id}
-                        selected={selectedLookIds.includes(look.id)}
-                        onClick={() => handleLookToggle(look.id)}
-                        imageUrl={look.poseThumbnailUrl}
-                        w="100%"
-                        ratio={215.2 / 282}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
-
             {needsLower &&
               !requiresLowerUpload &&
               (() => {
                 const lowerNodes = lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
                 const totalItems = lowerNodes.reduce((n, node) => n + flattenNode(node).length, 0);
                 return (
-                  <section>
+                  <section className="studio-section-card" style={sectionCardStyle}>
                     <SectionHead
                       title="Lower Garment"
+                      stepNumber={stepNumberOf('lower')}
                       right={
                         totalItems > lowerVisibleCount && (
                           <button
@@ -2851,7 +2900,7 @@ export default function StudioPage(): React.ReactElement {
                         style={{
                           display: 'grid',
                           gridTemplateColumns: 'repeat(5, 1fr)',
-                          gap: 12,
+                          gap: 16,
                         }}
                       >
                         {(() => {
@@ -2876,7 +2925,7 @@ export default function StudioPage(): React.ReactElement {
                               onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
                               imageUrl={i.thumbnailUrl}
                               w="100%"
-                              ratio={3 / 4}
+                              ratio={215.2 / 212.67}
                             />
                           ));
                         })()}
@@ -2891,9 +2940,10 @@ export default function StudioPage(): React.ReactElement {
                 const shoeNodes = shoesCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
                 const totalItems = shoeNodes.reduce((n, node) => n + flattenNode(node).length, 0);
                 return (
-                  <section>
+                  <section className="studio-section-card" style={sectionCardStyle}>
                     <SectionHead
                       title="Footwear"
+                      stepNumber={stepNumberOf('shoes')}
                       right={
                         totalItems > shoeVisibleCount && (
                           <button
@@ -2938,7 +2988,7 @@ export default function StudioPage(): React.ReactElement {
                         style={{
                           display: 'grid',
                           gridTemplateColumns: 'repeat(5, 1fr)',
-                          gap: 12,
+                          gap: 16,
                         }}
                       >
                         {(() => {
@@ -2962,7 +3012,7 @@ export default function StudioPage(): React.ReactElement {
                               onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
                               imageUrl={i.thumbnailUrl}
                               w="100%"
-                              ratio={1}
+                              ratio={215.2 / 212.67}
                             />
                           ));
                         })()}
@@ -2973,7 +3023,7 @@ export default function StudioPage(): React.ReactElement {
               })()}
 
             <section className="studio-section-card" style={sectionCardStyle}>
-              <SectionHead title="Publishing Platform" />
+              <SectionHead title="Publishing Platform" stepNumber={stepNumberOf('platform')} />
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {PLATFORMS.map((p) => (
                   <button
@@ -2992,6 +3042,7 @@ export default function StudioPage(): React.ReactElement {
                     {PLATFORM_LOGOS[p] ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
+                        className="dark-logo-bg"
                         src={PLATFORM_LOGOS[p].src}
                         alt={p}
                         style={{
@@ -3011,10 +3062,14 @@ export default function StudioPage(): React.ReactElement {
             </section>
 
             <section className="studio-section-card" style={sectionCardStyle}>
-              <SectionHead title="Aspect Ratio" subtitle="Match your platform requirements" />
+              <SectionHead
+                title="Aspect Ratio"
+                subtitle="Match your platform requirements"
+                stepNumber={stepNumberOf('aspect')}
+              />
 
               {/* ── Pill row: hide presets when custom is active ── */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 {aspect !== 'custom' &&
                   ALL_ASPECTS.map((r) => {
                     const supported = brandAspects.includes(r);
@@ -3054,51 +3109,44 @@ export default function StudioPage(): React.ReactElement {
                   <AspectRatioIcon ratio="custom" active={aspect === 'custom'} />
                   Custom Ratio
                 </button>
-              </div>
 
-              {/* ── Custom sub-panel ── */}
-              {aspect === 'custom' &&
-                (() => {
-                  const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
-                  const wErr = customWErr;
-                  const hErr = customHErr;
-                  const wNum = customWNum;
-                  const hNum = customHNum;
+                {/* ── Custom inline options ── */}
+                {aspect === 'custom' &&
+                  (() => {
+                    const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
+                    const wErr = customWErr;
+                    const hErr = customHErr;
 
-                  const handleWChange = (val: string) => {
-                    setCustomWStr(val);
-                    if (rW && rH && val !== '') {
-                      const n = Math.round((Number(val) * rH) / rW);
-                      setCustomHStr(String(n));
-                    }
-                  };
-                  const handleHChange = (val: string) => {
-                    setCustomHStr(val);
-                    if (rW && rH && val !== '') {
-                      const n = Math.round((Number(val) * rW) / rH);
-                      setCustomWStr(String(n));
-                    }
-                  };
+                    const handleWChange = (val: string) => {
+                      setCustomWStr(val);
+                      if (rW && rH && val !== '') {
+                        const n = Math.round((Number(val) * rH) / rW);
+                        setCustomHStr(String(n));
+                      }
+                    };
+                    const handleHChange = (val: string) => {
+                      setCustomHStr(val);
+                      if (rW && rH && val !== '') {
+                        const n = Math.round((Number(val) * rW) / rH);
+                        setCustomWStr(String(n));
+                      }
+                    };
 
-                  const inputBase: React.CSSProperties = {
-                    width: 86,
-                    padding: '6px 8px',
-                    borderRadius: 6,
-                    fontSize: 13,
-                    color: C.text,
-                    background: C.bg,
-                    outline: 'none',
-                  };
+                    const inputBase: React.CSSProperties = {
+                      width: 86,
+                      padding: '6px 8px',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: C.text,
+                      background: C.bg,
+                      outline: 'none',
+                    };
 
-                  return (
-                    <div style={{ marginTop: 12 }}>
-                      <p style={{ fontSize: 11, color: C.light, margin: '0 0 6px' }}>
-                        Select aspect ratio
-                      </p>
-                      {/* Ratio pills + inputs in one aligned row */}
-                      <div
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
-                      >
+                    return (
+                      <>
+                        <span style={{ fontSize: 13, color: C.mid, marginLeft: 4, marginRight: 4 }}>
+                          Select aspect ratio
+                        </span>
                         {ALL_ASPECTS.map((r) => (
                           <button
                             type="button"
@@ -3115,9 +3163,15 @@ export default function StudioPage(): React.ReactElement {
                         ))}
 
                         {customRatio && (
-                          <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div
-                              style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }}
+                              style={{
+                                width: 1,
+                                height: 24,
+                                background: C.border,
+                                flexShrink: 0,
+                                margin: '0 4px',
+                              }}
                             />
 
                             <input
@@ -3143,26 +3197,26 @@ export default function StudioPage(): React.ReactElement {
                                 border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
                               }}
                             />
-                          </>
+                          </div>
                         )}
-                      </div>
+                      </>
+                    );
+                  })()}
+              </div>
 
-                      {customRatio && (
-                        <p
-                          style={{
-                            fontSize: 11,
-                            color: wErr || hErr ? '#F55C7A' : C.light,
-                            margin: '5px 0 0',
-                          }}
-                        >
-                          {wErr || hErr
-                            ? `${(wErr && wNum < 768) || (hErr && hNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
-                            : `Min 768px · Max ${maxOutputPx}px`}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
+              {aspect === 'custom' && customRatio && (
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: customWErr || customHErr ? '#F55C7A' : C.light,
+                    margin: '8px 0 0',
+                  }}
+                >
+                  {customWErr || customHErr
+                    ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
+                    : `Min 768px · Max ${maxOutputPx}px`}
+                </p>
+              )}
 
               {/* ── Dimension hint ── */}
               {aspect !== 'custom' && (
@@ -3177,6 +3231,7 @@ export default function StudioPage(): React.ReactElement {
               <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
                   title="Output Resolution"
+                  stepNumber={stepNumberOf('resolution')}
                   right={
                     <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
                   }
@@ -3522,7 +3577,7 @@ export default function StudioPage(): React.ReactElement {
                     style={{
                       display: 'grid',
                       gridTemplateColumns: 'repeat(5, 1fr)',
-                      gap: 12,
+                      gap: 16,
                     }}
                   >
                     {filteredItems.map((i) => (
@@ -3535,7 +3590,8 @@ export default function StudioPage(): React.ReactElement {
                         }}
                         imageUrl={i.thumbnailUrl}
                         w="100%"
-                        ratio={3 / 4}
+                        ratio={215.2 / 212.67}
+                        borderWidth={3}
                       />
                     ))}
                   </div>
@@ -3649,7 +3705,7 @@ export default function StudioPage(): React.ReactElement {
                     style={{
                       display: 'grid',
                       gridTemplateColumns: 'repeat(5, 1fr)',
-                      gap: 12,
+                      gap: 16,
                     }}
                   >
                     {filteredItems.map((i) => (
@@ -3662,7 +3718,8 @@ export default function StudioPage(): React.ReactElement {
                         }}
                         imageUrl={i.thumbnailUrl}
                         w="100%"
-                        ratio={1}
+                        ratio={215.2 / 212.67}
+                        borderWidth={3}
                       />
                     ))}
                   </div>
