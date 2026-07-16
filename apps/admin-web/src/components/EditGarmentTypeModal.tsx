@@ -347,6 +347,8 @@ export function EditGarmentTypeModal({
   const [label, setLabel] = useState(garmentType.label);
   const [sortOrder, setSortOrder] = useState(garmentType.sortOrder);
   const [requiresLowerUpload, setRequiresLowerUpload] = useState(garmentType.requiresLowerUpload);
+  const [upperUploadLabel, setUpperUploadLabel] = useState(garmentType.upperUploadLabel ?? '');
+  const [lowerUploadLabel, setLowerUploadLabel] = useState(garmentType.lowerUploadLabel ?? '');
   const [defaultLowerId, setDefaultLowerId] = useState(garmentType.defaultLowerCatalogId ?? '');
   const [defaultShoeId, setDefaultShoeId] = useState(garmentType.defaultShoeCatalogId ?? '');
   const [tryonCategoryId, setTryonCategoryId] = useState(garmentType.tryonCategoryId ?? '');
@@ -389,6 +391,8 @@ export function EditGarmentTypeModal({
     label.trim() !== garmentType.label.trim() ||
     sortOrder !== garmentType.sortOrder ||
     requiresLowerUpload !== garmentType.requiresLowerUpload ||
+    upperUploadLabel !== (garmentType.upperUploadLabel ?? '') ||
+    lowerUploadLabel !== (garmentType.lowerUploadLabel ?? '') ||
     defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '') ||
     defaultShoeId !== (garmentType.defaultShoeCatalogId ?? '') ||
     tryonCategoryId !== (garmentType.tryonCategoryId ?? '') ||
@@ -431,6 +435,12 @@ export function EditGarmentTypeModal({
       if (sortOrder !== garmentType.sortOrder) patchBody.sortOrder = sortOrder;
       if (requiresLowerUpload !== garmentType.requiresLowerUpload) {
         patchBody.requiresLowerUpload = requiresLowerUpload;
+      }
+      if (upperUploadLabel !== (garmentType.upperUploadLabel ?? '')) {
+        patchBody.upperUploadLabel = upperUploadLabel.trim() || null;
+      }
+      if (lowerUploadLabel !== (garmentType.lowerUploadLabel ?? '')) {
+        patchBody.lowerUploadLabel = lowerUploadLabel.trim() || null;
       }
       if (defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '')) {
         patchBody.defaultLowerCatalogId = defaultLowerId || null;
@@ -552,6 +562,36 @@ export function EditGarmentTypeModal({
                   disabled={saving}
                 />
               </div>
+              {requiresLowerUpload && (
+                <>
+                  <div className="field">
+                    <label>Top garment upload label</label>
+                    <input
+                      className="input"
+                      placeholder={`e.g. Upload Top (defaults to garment name)`}
+                      value={upperUploadLabel}
+                      disabled={saving}
+                      onChange={(e) => setUpperUploadLabel(e.target.value)}
+                    />
+                    <span className="hint">
+                      Shown in studio as the title of the top-wear upload box. Leave blank to use the garment type name.
+                    </span>
+                  </div>
+                  <div className="field">
+                    <label>Bottom garment upload label</label>
+                    <input
+                      className="input"
+                      placeholder="e.g. Upload Bottom / Pyjama / Trousers"
+                      value={lowerUploadLabel}
+                      disabled={saving}
+                      onChange={(e) => setLowerUploadLabel(e.target.value)}
+                    />
+                    <span className="hint">
+                      Shown in studio as the title of the bottom-wear upload box.
+                    </span>
+                  </div>
+                </>
+              )}
               <div className="field">
                 <label>Tryon Category</label>
                 <select

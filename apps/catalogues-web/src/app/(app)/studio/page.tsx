@@ -1683,7 +1683,7 @@ export default function StudioPage(): React.ReactElement {
 
             <section className="studio-section-card" style={sectionCardStyle}>
               <SectionHead
-                title="Outfit Type"
+                title="Select Your Garment Type"
                 subtitle="Select the garment category"
                 stepNumber={2}
                 right={
@@ -1972,7 +1972,7 @@ export default function StudioPage(): React.ReactElement {
                               }}
                             >
                               {requiresLowerUpload
-                                ? `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
+                                ? (selectedGarmentType?.upperUploadLabel || `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`)
                                 : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
                             </span>
                             <span
@@ -2155,7 +2155,7 @@ export default function StudioPage(): React.ReactElement {
                                   textAlign: 'center',
                                 }}
                               >
-                                Bottom Wear
+                                {selectedGarmentType?.lowerUploadLabel ?? 'Bottom Wear'}
                               </span>
                               <span
                                 style={{
@@ -3447,7 +3447,7 @@ export default function StudioPage(): React.ReactElement {
       {/* Garment Type Modal */}
       {garmentModalOpen && garmentTypes && (
         <SelectGridModal
-          title="Choose Garment Type"
+          title="Select Your Garment Type"
           aspect={1}
           columns={5}
           items={garmentTypes.items.map((s) => ({
