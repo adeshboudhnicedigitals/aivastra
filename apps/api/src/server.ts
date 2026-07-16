@@ -6,10 +6,13 @@ import helmet from '@fastify/helmet';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
+import swagger from '@fastify/swagger';
+import scalar from '@scalar/fastify-api-reference';
 import * as Sentry from '@sentry/node';
 import { and, isNull, sql } from 'drizzle-orm';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
+  jsonSchemaTransform,
   serializerCompiler,
   validatorCompiler,
   type ZodTypeProvider,
@@ -149,6 +152,35 @@ export async function buildServer(env: Env) {
   await app.register(shopifyAuthPlugin);
   await app.register(shopifyWidgetAuthPlugin);
   await app.register(devApiAuthPlugin);
+
+  await app.register(swagger, {
+    openapi: {
+      info: {
+        title: 'Try-On API',
+        description: 'Generate a virtual try-on image from a person image and a garment image.',
+        version: '1.0.0',
+      },
+      components: {
+        securitySchemes: {
+          apiKey: { type: 'http', scheme: 'bearer', description: 'Your sk_live_… API key' },
+        },
+      },
+      security: [{ apiKey: [] }],
+    },
+    // The spec is public, so it must describe ONLY the developer surface. Every
+    // route without the 'dev' tag is hidden — admin/auth/merchant routes must never
+    // appear here.
+    transform: ({ schema: s, url }) => {
+      const out = jsonSchemaTransform({ schema: s, url });
+      if (!s?.tags?.includes('dev')) out.schema = { ...out.schema, hide: true };
+      return out;
+    },
+  });
+  await app.register(scalar, {
+    routePrefix: '/v1/dev/docs',
+    configuration: { url: '/v1/dev/openapi.json' },
+  });
+  app.get('/v1/dev/openapi.json', { schema: { hide: true } }, async () => app.swagger());
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof AppError) {

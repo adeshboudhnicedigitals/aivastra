@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { DevJobParams } from '@aivastra/types';
+import {
+  DevCategoriesResponse,
+  DevJobParams,
+  DevJobResponse,
+  DevMeResponse,
+  DevTryonResponse,
+} from '@aivastra/types';
 import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
@@ -34,7 +40,18 @@ const rateLimitConfig = {
 export async function devRoutes(app: FastifyInstance) {
   app.post(
     '/v1/dev/tryon',
-    { preHandler: app.requireApiKey, config: rateLimitConfig },
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Create a try-on job',
+        description:
+          'Upload a person image and a garment image as multipart/form-data. Returns a job id to poll.',
+        consumes: ['multipart/form-data'],
+        response: { 202: DevTryonResponse },
+      },
+    },
     async (req, reply) => {
       const merchantId = req.merchantId as string;
       const merchantUserId = req.merchantUserId as string;
@@ -110,7 +127,16 @@ export async function devRoutes(app: FastifyInstance) {
 
   app.get(
     '/v1/dev/jobs/:id',
-    { preHandler: app.requireApiKey, config: rateLimitConfig, schema: { params: DevJobParams } },
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Get try-on job status and result',
+        params: DevJobParams,
+        response: { 200: DevJobResponse },
+      },
+    },
     async (req) => {
       const { id } = req.params as { id: string };
       const [job] = await app.db
@@ -148,7 +174,15 @@ export async function devRoutes(app: FastifyInstance) {
 
   app.get(
     '/v1/dev/categories',
-    { preHandler: app.requireApiKey, config: rateLimitConfig },
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'List try-on categories',
+        response: { 200: DevCategoriesResponse },
+      },
+    },
     async () => {
       const rows = await app.db
         .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
@@ -159,18 +193,30 @@ export async function devRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get('/v1/dev/me', { preHandler: app.requireApiKey, config: rateLimitConfig }, async (req) => {
-    const [row] = await app.db
-      .select({
-        merchantId: schema.merchants.id,
-        companyName: schema.merchants.companyName,
-        credits: schema.userCredits.balance,
-      })
-      .from(schema.merchants)
-      .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
-      .where(eq(schema.merchants.id, req.merchantId as string))
-      .limit(1);
-    if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
-    return { merchantId: row.merchantId, companyName: row.companyName, credits: row.credits ?? 0 };
-  });
+  app.get(
+    '/v1/dev/me',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: { tags: ['dev'], summary: 'Get account info', response: { 200: DevMeResponse } },
+    },
+    async (req) => {
+      const [row] = await app.db
+        .select({
+          merchantId: schema.merchants.id,
+          companyName: schema.merchants.companyName,
+          credits: schema.userCredits.balance,
+        })
+        .from(schema.merchants)
+        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, req.merchantId as string))
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      return {
+        merchantId: row.merchantId,
+        companyName: row.companyName,
+        credits: row.credits ?? 0,
+      };
+    },
+  );
 }
