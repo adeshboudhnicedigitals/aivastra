@@ -155,8 +155,11 @@ const PLATFORMS = Object.keys(BRAND_CONFIG);
 const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
   Amazon: { src: `${BASE}/assets/platform-logos/amazon-logo.svg`, h: 18 },
   Flipkart: { src: `${BASE}/assets/platform-logos/flipkart-logo-current.png`, h: 18 },
-  Myntra: { src: `${BASE}/assets/myntra-logo-official.png`, h: 20 },
-  AJIO: { src: `${BASE}/assets/platform-logos/ajio-logo.svg`, h: 18 },
+  Myntra: { src: `${BASE}/assets/myntra-logo-official.png`, h: 26 },
+  AJIO: {
+    src: `data:image/svg+xml;utf8,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22utf-8%22%3F%3E%0A%3C!--%20Generator%3A%20Adobe%20Illustrator%2021.1.0%2C%20SVG%20Export%20Plug-In%20.%20SVG%20Version%3A%206.00%20Build%200)%20%20--%3E%0A%3Csvg%20version%3D%221.1%22%20id%3D%22Layer_1%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20xmlns%3Axlink%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxlink%22%20x%3D%220px%22%20y%3D%220px%22%0A%09%20viewBox%3D%220%200%20462.4%20134.1%22%20style%3D%22enable-background%3Anew%200%200%20462.4%20134.1%3B%22%20xml%3Aspace%3D%22preserve%22%3E%0A%3Cstyle%20type%3D%22text%2Fcss%22%3E%0A%09.st0%7Bfill%3A%232F4254%3B%7D%0A%3C%2Fstyle%3E%0A%3Cpath%20class%3D%22st0%22%20d%3D%22M160.8%2C105.1c4.4%2C4.4%2C9.6%2C6.6%2C15.6%2C6.6c6.2%2C0%2C11.4-2.1%2C15.7-6.4c4.4-4.4%2C6.6-9.6%2C6.6-15.9V0h22.6v89.5%0A%09c0%2C12.3-4.4%2C22.8-13.1%2C31.7c-9%2C8.6-19.6%2C13-31.7%2C13c-12.4%2C0-22.9-4.3-31.7-13L160.8%2C105.1L160.8%2C105.1z%22%2F%3E%0A%3Cpolygon%20class%3D%22st0%22%20points%3D%22267.3%2C0%20289.5%2C0%20289.5%2C134.1%20267.3%2C134.1%20267.3%2C0%20%22%2F%3E%0A%3Cpath%20class%3D%22st0%22%20d%3D%22M426.7%2C98.8c-8.8%2C8.6-19.3%2C12.9-31.5%2C12.9c-12.2%2C0-22.8-4.3-31.7-12.9c-8.6-8.9-12.9-19.5-12.9-31.7%0A%09c0-12.2%2C4.3-22.7%2C12.9-31.5c8.9-8.8%2C19.5-13.1%2C31.7-13.1c12.2%2C0%2C22.7%2C4.4%2C31.5%2C13.1c8.7%2C8.8%2C13.1%2C19.3%2C13.1%2C31.5%0A%09C439.8%2C79.3%2C435.4%2C89.9%2C426.7%2C98.8L426.7%2C98.8z%20M442.5%2C19.7C429.5%2C6.6%2C413.7%2C0%2C395.2%2C0c-18.7%2C0-34.5%2C6.6-47.3%2C19.7%0A%09c-13.1%2C13.2-19.7%2C28.9-19.7%2C47.4c0%2C18.5%2C6.6%2C34.3%2C19.7%2C47.3c13%2C13.2%2C28.8%2C19.7%2C47.3%2C19.7c18.5%2C0%2C34.3-6.6%2C47.3-19.7%0A%09c13.3-12.9%2C19.9-28.7%2C19.9-47.3C462.4%2C48.6%2C455.8%2C32.9%2C442.5%2C19.7L442.5%2C19.7z%22%2F%3E%0A%3Cpath%20class%3D%22st0%22%20d%3D%22M47.4%2C89.4h39.4L67.1%2C50L47.4%2C89.4L47.4%2C89.4z%20M98%2C111.7H36.3l-11.4%2C22.4H0L67.1-0.1l67.1%2C134.2h-24.9L98%2C111.7%0A%09L98%2C111.7z%22%2F%3E%0A%3C%2Fsvg%3E%0A`,
+    h: 13,
+  },
   Meesho: { src: `${BASE}/assets/platform-logos/meesho-wordmark.svg`, h: 16 },
   'Nykaa Fashion': { src: `${BASE}/assets/platform-logos/nykaa-logo.svg`, h: 16 },
   Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
@@ -875,7 +878,7 @@ export default function StudioPage(): React.ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
   const [submitError, setSubmitError] = useState('');
-  const [mannequinWaitState, setMannequinWaitState] = useState<'idle' | 'waiting' | 'error'>(
+  const [_mannequinWaitState, setMannequinWaitState] = useState<'idle' | 'waiting' | 'error'>(
     'idle',
   );
   const mannequinResolverRef = useRef<{
@@ -1968,7 +1971,9 @@ export default function StudioPage(): React.ReactElement {
                                 textAlign: 'center',
                               }}
                             >
-                              {requiresLowerUpload ? 'Top Wear' : 'Upload Top Wear'}
+                              {requiresLowerUpload
+                                ? `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
+                                : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
                             </span>
                             <span
                               style={{
@@ -2377,6 +2382,7 @@ export default function StudioPage(): React.ReactElement {
                         label={template.id === 'custom' ? undefined : template.label}
                         w="100%"
                         ratio={215.2 / 212.67}
+                        imageObjectPosition="top center"
                         fillHeight={template.id === 'custom'}
                         emptyContent={
                           template.id === 'custom' ? (
@@ -2473,6 +2479,7 @@ export default function StudioPage(): React.ReactElement {
                             imageUrl={look.poseThumbnailUrl}
                             w="100%"
                             ratio={215.2 / 212.67}
+                            imageObjectPosition="top center"
                           />
                         ))}
                       </div>
