@@ -743,7 +743,7 @@ export function GenerationPanel({
                       justifyContent: 'center',
                       cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
                       opacity: isCompleted && resultUrl ? 1 : 0.45,
-                      color: C.text,
+                      color: '#141414',
                       boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
                       zIndex: 2,
                     }}

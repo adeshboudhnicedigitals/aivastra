@@ -88,7 +88,7 @@ export function PreviewPanel() {
                   color: C.text,
                 }}
               >
-                Turn garments into catalogue-ready visuals
+                Turn garments into catalogue ready visuals
               </span>
               <span
                 style={{
