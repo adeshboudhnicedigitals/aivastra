@@ -82,6 +82,8 @@ export default function ProductsPage() {
   const [funnelTemplates, setFunnelTemplates] = useState<FunnelTemplateItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const filteredItems = useMemo(() => {
     return items
@@ -105,6 +107,27 @@ export default function ProductsPage() {
 
   useEffect(() => {
     load();
+  }, [load]);
+
+  const refreshProducts = useCallback(async () => {
+    setError(null);
+    setSyncing(true);
+    try {
+      await apiFetch('/v1/shopify/products/sync', { method: 'POST' });
+      setSyncMessage(
+        'Refreshing your catalog from Shopify — this can take a minute for large stores.',
+      );
+      // Sync runs async on the server (Redis-queued, paginated against Shopify's
+      // Admin API) — nothing to await here. Re-poll the list once, giving a
+      // typical single-page catalog time to land before showing it.
+      setTimeout(() => {
+        load();
+        setSyncing(false);
+      }, 4000);
+    } catch (err) {
+      setError((err as Error).message);
+      setSyncing(false);
+    }
   }, [load]);
 
   async function toggleEnabled(shopifyProductId: number, enabled: boolean) {
@@ -137,10 +160,23 @@ export default function ProductsPage() {
   }
 
   return (
-    <Page title="Products" subtitle="Manage which products show the AiVastra try-on widget.">
+    <Page
+      title="Products"
+      subtitle="Manage which products show the AiVastra try-on widget."
+      primaryAction={{
+        content: 'Refresh',
+        onAction: refreshProducts,
+        loading: syncing,
+      }}
+    >
       {error && (
         <Banner tone="critical" title="Something went wrong">
           {error}
+        </Banner>
+      )}
+      {syncMessage && !error && (
+        <Banner tone="info" onDismiss={() => setSyncMessage(null)}>
+          {syncMessage}
         </Banner>
       )}
       <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
