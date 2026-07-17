@@ -42,8 +42,23 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
 
     private fun initView() {
         sareeCatViewmodel = ViewModelProvider(this).get(SareecategoryDataViewModel::class.java)
+        sareeCatViewmodel.error.observe(this) { errorMsg ->
+            if (!errorMsg.isNullOrBlank()) {
+                ViewControll.showMessage(this, errorMsg)
+            }
+        }
         tryOnResultUrl = intent?.extras?.getString(AppConstant.TRY_ON_RESULT).toString()
         tryOnResultId = intent?.extras?.getString(AppConstant.TRY_ON_RESULT_ID).toString()
+        tryOnResultId?.let { id ->
+            sareeCatViewmodel.getTryonJobStatusForResultScreen(id) { liked, inCart ->
+                isProductLike = liked
+                isProductAddedToCart = inCart
+                binding.llLike.imageTintList =
+                    if (liked) ColorStateList.valueOf(ContextCompat.getColor(this, R.color.red)) else null
+                binding.llAddToCart.imageTintList =
+                    if (inCart) ColorStateList.valueOf(ContextCompat.getColor(this, R.color.dark_brown)) else null
+            }
+        }
         try{
             Glide.with(this@VastraTryOnResultActivity)
                 .load(tryOnResultUrl)
