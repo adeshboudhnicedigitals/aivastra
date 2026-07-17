@@ -1,3 +1,27 @@
+## 2026-07-17 - Third Garment Upload
+
+Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tasks 1-10), plus a review pass that found and fixed three real gaps before merge — see Failed/Not Done.
+
+### Done
+- Schema & Types (Task 1): `garment_subcategories.requiresThirdUpload`/`thirdUploadLabel`, `workflow_templates.thirdNodeId`, `job_inputs.thirdGarmentKey` — migration `0115_thin_onslaught.sql`, generated and applied. Corresponding Zod fields added to `CreateGarmentTypeBody`/`PatchGarmentTypeBody`/`CreateWorkflowBody`/`UpdateWorkflowBody`/`CreateTryOnJobInputs`.
+- Admin API (Tasks 2-5): `subcategories.routes.ts` (garment-type toggle), `workflows.routes.ts` (GET/POST/PATCH `thirdNodeId` mapping, mirroring `shoeNodeId` — purely additive, not part of the "at least one garment role" check), `models/routes.ts` (customer-facing `/v1/models/garment-types` now returns the new fields), `jobs/create.ts` (`thirdNodeId` threaded through all three pose-workflow-resolution paths — default, catalogue-template-mapping, saree-step-2 — plus validation and `job_inputs` insert).
+- Dispatcher (Tasks 6-7): `patcher.ts` gained a `thirdGarmentFile`/`thirdNodeId` patch block mirroring `lowerNodeId` (fail-closed if mapped but no file, warn-and-skip if a file is provided but unmapped); `processor.ts` resolves `inputs.thirdGarmentKey` (upload-only, no catalog fallback) and threads it through the ComfyUI upload + `patchWorkflow` call + `COMFY_DISPATCH` debug event.
+- Admin UI (Tasks 8-9): `EditGarmentTypeModal.tsx` "Requires 3rd garment upload" toggle + label input; `WorkflowUploadModal.tsx` manual `thirdNodeId` node-select (no auto-detection — no reliable naming convention exists for an arbitrary 3rd role, unlike `lower_garment`/`shoes`).
+- Studio wizard (Task 10): `apps/catalogues-web/.../studio/page.tsx` — third upload box, state/handler/abort-ref mirroring the lower-garment flow, `thirdGarmentKey` on every `/v1/jobs/tryon` payload.
+
+### Failed / Not Done
+- **Test-runner claim was misleading, not the tests themselves.** `apps/api/vitest.config.ts` has a pre-existing `exclude: ['test/integration/**']` (predates this feature by 3 commits) — `pnpm --filter @aivastra/api test` never executes any integration test, including all the new ones for Tasks 2-5. The first completion report cited this command's "100% passing" as verification, which was true only for tests it actually runs (none of which touch this feature at the API layer). Caught by manually bypassing the exclude and running the integration files directly.
+- **A fabricated test slipped through as a result.** Task 3's first attempt created a new file `workflow-template-third-node.test.ts` instead of extending `admin-workflows.test.ts` as instructed, using fields that don't exist on `workflow_templates` (`pipelineType`, `apiPayload`, `nodeIdOverrides`, `schemaVersion`, `creditCost`) and omitting required ones (`slug`, `jsonContent`, `poseNodeId`, `garmentPhasePromptNode`). It failed deterministically (400 on POST, not-null violation on PATCH) whenever actually run — never caught because of the point above. The underlying route code was correct throughout. Fixed: deleted the fabricated file, added two real cases to `admin-workflows.test.ts` reusing its existing fixtures. All 4 new/extended integration test files (18-20 cases) verified passing via a temporary exclude bypass.
+- **A real layout bug in Task 10.** The generated studio wizard changes gated section title / `flexDirection` / box height / label copy on `requiresLowerUpload` alone. A garment type with `requiresThirdUpload=true` but `requiresLowerUpload=false` would render the upper and third upload boxes crammed side-by-side in row mode instead of stacked. Fixed by introducing `hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload` and switching every layout/copy conditional to it, leaving each box's own render gate and the (unrelated) lower-catalog-picker gate on their original single-flag checks.
+- **Process gap**: three commits (Task 10, an admin-web `types.ts` fix Task 8's commit missed, and this log entry) were left uncommitted after the first pass despite the plan requiring one commit per task. All now committed individually.
+- Not yet done: a real browser walkthrough of the studio wizard (Task 10's manual E2E step) — no browser tool available in this session. Everything up to job submission is covered by the API integration tests (`job_inputs.thirdGarmentKey` persists correctly); the dispatcher's ComfyUI-mock integration suite (`apps/dispatcher/test/integration/`) is excluded from the default `dispatcher test` script by its own vitest config and was not separately run.
+
+### Open Questions / Decisions
+- `apps/dispatcher/test/integration/happy-path.test.ts` has pre-existing schema drift (seeds `job_inputs` with columns — `modelCatalogId`, `poseCatalogId`, `backgroundCatalogId` — that no longer exist on the schema), unrelated to this feature. Not fixed here; flagging for a separate follow-up.
+- `apps/api/vitest.config.ts`'s blanket exclusion of `test/integration/**` from the `test` script (vs. the `test:unit` script, which does the same thing via a redundant CLI flag) means `pnpm --filter @aivastra/api test` cannot currently be trusted as "the full API suite" despite CLAUDE.md describing it that way. Worth fixing in a separate, focused change — out of scope here.
+
+---
+
 ## 2026-07-16 - Developer try-on API (Tasks 1-15): quickstart docs + repo-doc updates
 
 ### Done
