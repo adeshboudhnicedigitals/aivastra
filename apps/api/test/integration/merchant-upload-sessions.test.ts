@@ -103,4 +103,45 @@ describe('merchant upload sessions (merchant-authed side)', () => {
     });
     expect(status.statusCode).toBe(404);
   });
+  it('supports the public presign/complete flow and verifies the object exists', async () => {
+    const { merchantUser } = await createMerchant(app, 'upload-d@example.com');
+    const auth = await authHeader(merchantUser.id);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/upload-sessions',
+      headers: auth,
+    });
+    const { token } = created.json() as { token: string };
+
+    const presigned = await app.inject({
+      method: 'POST',
+      url: `/v1/kiosk-upload-sessions/${token}/presign`,
+      payload: { contentType: 'image/jpeg', contentLength: 5 },
+    });
+    expect(presigned.statusCode).toBe(200);
+    expect(typeof (presigned.json() as { uploadUrl: string }).uploadUrl).toBe('string');
+
+    const complete = await app.inject({
+      method: 'POST',
+      url: `/v1/kiosk-upload-sessions/${token}/complete`,
+    });
+    expect(complete.statusCode).toBe(400);
+    expect((complete.json() as { error: { code: string } }).error.code).toBe('BAD_UPLOAD');
+  });
+
+  it('rejects public presign and complete for an unknown token', async () => {
+    const presigned = await app.inject({
+      method: 'POST',
+      url: '/v1/kiosk-upload-sessions/does-not-exist/presign',
+      payload: { contentType: 'image/jpeg', contentLength: 5 },
+    });
+    expect(presigned.statusCode).toBe(404);
+
+    const completed = await app.inject({
+      method: 'POST',
+      url: '/v1/kiosk-upload-sessions/does-not-exist/complete',
+    });
+    expect(completed.statusCode).toBe(404);
+  });
 });
