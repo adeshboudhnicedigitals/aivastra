@@ -187,10 +187,13 @@ export async function buildServer(env: Env) {
       // Scalar renders this as a base-URL picker on the docs page and in the
       // "Test Request" panel, so switching environments there doesn't require
       // editing anything -- unlike the copy-paste $API_URL in the quickstart doc,
-      // which is necessarily static text.
+      // which is necessarily static text. Localhost is dev-only noise on the
+      // public prod docs page, so it's only listed outside production.
       servers: [
         { url: 'https://app.aivastra.com', description: 'Production' },
-        { url: 'http://localhost:4000', description: 'Local development' },
+        ...(env.NODE_ENV === 'production'
+          ? []
+          : [{ url: 'http://localhost:4000', description: 'Local development' }]),
       ],
       components: {
         securitySchemes: {
