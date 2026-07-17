@@ -9,8 +9,8 @@ automatically, set it yourself to whichever environment you're calling:
 
 | Environment | `API_URL` |
 |---|---|
-| Local dev | `http://localhost:4000` |
 | Production | `https://app.aivastra.com` |
+| Local dev (Aivastra staff only) | `http://localhost:4000` |
 
 > **Interactive reference:** every endpoint below is also documented live at
 > `$API_URL/v1/dev/docs` — a Scalar-rendered page generated straight from the API's
@@ -72,7 +72,7 @@ Optionally call **`GET /v1/dev/me`** any time as a key smoke test — it returns
 
 ```bash
 export API_KEY="sk_live_abc123def456ghi789jkl012mno345pqr678stu9"
-export API_URL="http://localhost:4000"
+export API_URL="https://app.aivastra.com"
 
 # 1. List categories
 curl -s "$API_URL/v1/dev/categories" \
@@ -131,7 +131,7 @@ Requires Node 20+ (global `fetch`, `FormData`, and `Blob` — no extra dependenc
 ```js
 import { readFileSync } from 'node:fs';
 
-const API_URL = process.env.DEV_API_URL ?? 'http://localhost:4000';
+const API_URL = process.env.DEV_API_URL ?? 'https://app.aivastra.com';
 const API_KEY = process.env.DEV_API_KEY; // e.g. "sk_live_abc123def456ghi789jkl012mno345pqr678stu9"
 
 if (!API_KEY) {
