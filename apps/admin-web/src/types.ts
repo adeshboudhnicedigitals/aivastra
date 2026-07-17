@@ -69,6 +69,7 @@ export interface WorkflowOption {
   defaultGarmentPhasePrompt: string;
   lowerNodeId: string | null;
   shoeNodeId: string | null;
+  thirdNodeId: string | null;
   sizeNodeIds: string[];
   tryonPersonNodeId: string | null;
   tryonGarmentNodeId: string | null;
