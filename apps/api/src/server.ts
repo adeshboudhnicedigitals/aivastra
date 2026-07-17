@@ -108,7 +108,7 @@ export async function buildServer(env: Env) {
         'connect-src': ["'self'", r2Origin],
         // Scalar's docs page (/v1/dev/docs) inlines a static bootstrap script
         // (Scalar.createApiReference(...)) — hash-pin it rather than 'unsafe-inline'.
-        'script-src': ["'self'", "'sha256-CbaFUsnqQe6vIwwkHIa6fmTcpDWG7gvFxSRaU1GSCAI='"],
+        'script-src': ["'self'", "'sha256-cWTMliztqFgvzhAh79uXn6mME2QZ5F1J5/jIafVbm1M='"],
       },
     },
   });
