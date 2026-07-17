@@ -184,6 +184,14 @@ export async function buildServer(env: Env) {
         description: loadDevApiDescription(),
         version: '1.0.0',
       },
+      // Scalar renders this as a base-URL picker on the docs page and in the
+      // "Test Request" panel, so switching environments there doesn't require
+      // editing anything -- unlike the copy-paste $API_URL in the quickstart doc,
+      // which is necessarily static text.
+      servers: [
+        { url: 'https://app.aivastra.com', description: 'Production' },
+        { url: 'http://localhost:4000', description: 'Local development' },
+      ],
       components: {
         securitySchemes: {
           apiKey: { type: 'http', scheme: 'bearer', description: 'Your sk_live_… API key' },

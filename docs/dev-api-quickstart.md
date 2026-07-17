@@ -4,8 +4,13 @@ Send a person photo and a garment photo, get back a generated try-on image. This
 server-to-server API — no browser, no cookies, no admin-curated faces/poses. Just two
 images, a category, and a poll loop.
 
-Base URL in this guide: `http://localhost:4000` (dev). In production, use your deployment's
-API host.
+Every command below uses `$API_URL` as a placeholder — it is **not** resolved
+automatically, set it yourself to whichever environment you're calling:
+
+| Environment | `API_URL` |
+|---|---|
+| Local dev | `http://localhost:4000` |
+| Production | `https://app.aivastra.com` |
 
 > **Interactive reference:** every endpoint below is also documented live at
 > `$API_URL/v1/dev/docs` — a Scalar-rendered page generated straight from the API's
