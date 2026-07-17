@@ -349,7 +349,9 @@ export function EditGarmentTypeModal({
   const [requiresLowerUpload, setRequiresLowerUpload] = useState(garmentType.requiresLowerUpload);
   const [upperUploadLabel, setUpperUploadLabel] = useState(garmentType.upperUploadLabel ?? '');
   const [lowerUploadLabel, setLowerUploadLabel] = useState(garmentType.lowerUploadLabel ?? '');
-  const [requiresThirdUpload, setRequiresThirdUpload] = useState(garmentType.requiresThirdUpload ?? false);
+  const [requiresThirdUpload, setRequiresThirdUpload] = useState(
+    garmentType.requiresThirdUpload ?? false,
+  );
   const [thirdUploadLabel, setThirdUploadLabel] = useState(garmentType.thirdUploadLabel ?? '');
   const [defaultLowerId, setDefaultLowerId] = useState(garmentType.defaultLowerCatalogId ?? '');
   const [defaultShoeId, setDefaultShoeId] = useState(garmentType.defaultShoeCatalogId ?? '');
@@ -610,9 +612,7 @@ export function EditGarmentTypeModal({
               <div className="setting-row" style={{ padding: 0, border: 0 }}>
                 <div>
                   <div className="setting-lbl">Requires 3rd Upload (e.g. Scarf/Dupatta)</div>
-                  <div className="setting-desc">
-                    Customers must upload a third image.
-                  </div>
+                  <div className="setting-desc">Customers must upload a third image.</div>
                 </div>
                 <Switch
                   checked={requiresThirdUpload}

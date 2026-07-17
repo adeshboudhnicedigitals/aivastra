@@ -134,7 +134,9 @@ export function applyWorkflowPatch(
 
   if (tmpl.thirdNodeId) {
     if (!inputs.thirdGarmentFile) {
-      throw new Error(`Workflow "${tmpl.slug}" maps a third node but no third garment image was provided`);
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps a third node but no third garment image was provided`,
+      );
     }
     requireNode(workflow, tmpl.thirdNodeId, 'third garment').inputs.image = inputs.thirdGarmentFile;
   } else if (inputs.thirdGarmentFile) {
