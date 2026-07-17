@@ -315,7 +315,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (body.lowerNodeId)
         validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
       if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
-      if (body.thirdNodeId) validateNodeType(body.jsonContent, body.thirdNodeId, 'image', 'third garment');
+      if (body.thirdNodeId)
+        validateNodeType(body.jsonContent, body.thirdNodeId, 'image', 'third garment');
       validateNodeType(body.jsonContent, garmentPhasePromptNode, 'prompt', 'positive prompt');
       if (body.facePhasePromptNode) {
         validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');

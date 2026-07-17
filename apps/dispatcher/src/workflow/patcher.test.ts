@@ -261,7 +261,10 @@ describe('shoes', () => {
 describe('third garment', () => {
   it('patches third node with the provided thirdGarmentFile', () => {
     const wf = makeWorkflow();
-    applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, thirdGarmentFile: 'third_abc123.jpg' });
+    applyWorkflowPatch(wf, makeTemplate(), {
+      ...BASE_INPUTS,
+      thirdGarmentFile: 'third_abc123.jpg',
+    });
     expect(wf['1360']?.inputs.image).toBe('third_abc123.jpg');
   });
 

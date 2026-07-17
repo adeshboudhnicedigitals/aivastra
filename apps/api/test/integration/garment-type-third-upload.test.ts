@@ -44,7 +44,11 @@ describe('garment-type third-upload fields', () => {
     const headers = await adminAuthHeader(app);
     const [gt] = await app.db
       .insert(schema.garmentSubcategories)
-      .values({ genderSlug: 'women', slug: `third-upload-patch-${Date.now()}`, label: 'Patch Test' })
+      .values({
+        genderSlug: 'women',
+        slug: `third-upload-patch-${Date.now()}`,
+        label: 'Patch Test',
+      })
       .returning();
 
     const res = await app.inject({
