@@ -193,6 +193,14 @@ object SareeCategoryDataRepository {
         return JSONObject(responseText)
     }
 
+    suspend fun getTryonPhotoUrl(r2Key: String): String {
+        val encoded = java.net.URLEncoder.encode(r2Key, "UTF-8")
+        val responseText = APICaller.getJsonAuthed(
+            "v1/merchant/tryon/photo-url?r2Key=$encoded",
+            PrefsManager.getAccessToken(),
+        )
+        return JSONObject(responseText).getString("url")
+    }
     suspend fun createTryonJob(merchantCatalogItemId: String, customerPhotoKey: String): String {
         val payload = JSONObject().apply {
             put("merchantCatalogItemId", merchantCatalogItemId)
