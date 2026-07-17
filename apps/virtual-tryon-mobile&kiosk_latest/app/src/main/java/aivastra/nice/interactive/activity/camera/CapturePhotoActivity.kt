@@ -105,8 +105,9 @@ class CapturePhotoActivity : BaseActivity() {
             forKiosk9or12or14()
         }
 
-        binding.llScanPhoto.setOnClickListener{
-//            gotoProductScanActivity()
+        binding.llScanPhoto.setOnClickListener {
+            resetObserver()
+            getQrCodeLinkFromAPI()
         }
 
         binding.imgBack.setOnClickListener{
