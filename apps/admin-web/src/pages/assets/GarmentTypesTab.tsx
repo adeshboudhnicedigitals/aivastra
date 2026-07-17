@@ -70,6 +70,7 @@ export function GarmentTypesTab() {
     label: '',
     genderSlug: 'men' as GenderSlug,
     requiresLowerUpload: false,
+    requiresThirdUpload: false,
     sortOrder: 0,
   });
   const [subcatSaving, setSubcatSaving] = useState(false);
@@ -306,6 +307,7 @@ export function GarmentTypesTab() {
                   label: '',
                   genderSlug: 'men',
                   requiresLowerUpload: false,
+                  requiresThirdUpload: false,
                   sortOrder: nextSortOrderFor('men'),
                 });
                 setShowSubcatModal(true);
@@ -695,6 +697,22 @@ export function GarmentTypesTab() {
                   Requires lower garment upload
                   <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
                     (user uploads bottom wear separately)
+                  </span>
+                </label>
+              </div>
+              <div className="field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={subcatForm.requiresThirdUpload}
+                    disabled={subcatSaving}
+                    onChange={(e) =>
+                      setSubcatForm((f) => ({ ...f, requiresThirdUpload: e.target.checked }))
+                    }
+                  />
+                  Requires 3rd garment upload
+                  <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                    (user uploads a third garment image separately)
                   </span>
                 </label>
               </div>
