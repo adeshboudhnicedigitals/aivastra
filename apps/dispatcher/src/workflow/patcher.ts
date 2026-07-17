@@ -54,6 +54,7 @@ export interface WorkflowInputs {
   backgroundFile?: string;
   lowerGarmentFile?: string;
   shoeGarmentFile?: string;
+  thirdGarmentFile?: string;
   promptFacePhase?: string;
   promptGarmentPhase?: string;
   aspectRatio?: string;
@@ -128,6 +129,19 @@ export function applyWorkflowPatch(
   } else if (inputs.shoeGarmentFile) {
     log?.warn(
       `patchWorkflow: shoe garment provided but workflow "${tmpl.slug}" has no shoe_node_id — skipping`,
+    );
+  }
+
+  if (tmpl.thirdNodeId) {
+    if (!inputs.thirdGarmentFile) {
+      throw new Error(
+        `Workflow "${tmpl.slug}" maps a third node but no third garment image was provided`,
+      );
+    }
+    requireNode(workflow, tmpl.thirdNodeId, 'third garment').inputs.image = inputs.thirdGarmentFile;
+  } else if (inputs.thirdGarmentFile) {
+    log?.warn(
+      `patchWorkflow: third garment provided but workflow "${tmpl.slug}" has no third_node_id — skipping`,
     );
   }
 

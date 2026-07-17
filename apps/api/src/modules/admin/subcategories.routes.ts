@@ -78,6 +78,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         sortOrder,
         thumbnailKey,
         requiresLowerUpload,
+        requiresThirdUpload,
         tryonCategoryId,
       } = req.body as {
         genderSlug: string;
@@ -86,6 +87,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         sortOrder?: number;
         thumbnailKey?: string;
         requiresLowerUpload?: boolean;
+        requiresThirdUpload?: boolean;
         tryonCategoryId?: string | null;
       };
       const row = await app.db.transaction(async (tx) => {
@@ -119,6 +121,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
             sortOrder: targetSortOrder,
             thumbnailKey,
             requiresLowerUpload: requiresLowerUpload ?? false,
+            requiresThirdUpload: requiresThirdUpload ?? false,
             tryonCategoryId: tryonCategoryId ?? null,
           })
           .returning();

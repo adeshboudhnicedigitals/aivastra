@@ -27,6 +27,8 @@ interface GarmentType {
   requiresMannequinStep?: boolean;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
+  requiresThirdUpload?: boolean;
+  thirdUploadLabel?: string | null;
 }
 interface FaceItem {
   id: string;
@@ -839,18 +841,33 @@ export default function StudioPage(): React.ReactElement {
   }, [lowerGarmentPreviewUrl]);
   const [lowerGarmentKey, setLowerGarmentKey] = useState('');
   const [isUploadingLower, setIsUploadingLower] = useState(false);
+  const [thirdGarmentFile, setThirdGarmentFile] = useState<File | null>(null);
+  const thirdGarmentPreviewUrl = useMemo(
+    () => (thirdGarmentFile ? URL.createObjectURL(thirdGarmentFile) : ''),
+    [thirdGarmentFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (thirdGarmentPreviewUrl) URL.revokeObjectURL(thirdGarmentPreviewUrl);
+    };
+  }, [thirdGarmentPreviewUrl]);
+  const [thirdGarmentKey, setThirdGarmentKey] = useState('');
+  const [isUploadingThird, setIsUploadingThird] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lowerFileInputRef = useRef<HTMLInputElement>(null);
+  const thirdFileInputRef = useRef<HTMLInputElement>(null);
   const uploadAbortRef = useRef<AbortController | null>(null);
   const lowerUploadAbortRef = useRef<AbortController | null>(null);
+  const thirdUploadAbortRef = useRef<AbortController | null>(null);
 
   // Abort any in-flight XHR uploads when the component unmounts (user navigates away)
   useEffect(() => {
     return () => {
       uploadAbortRef.current?.abort();
       lowerUploadAbortRef.current?.abort();
+      thirdUploadAbortRef.current?.abort();
     };
   }, []);
   const garmentVisibleCount = 5;
@@ -1248,6 +1265,43 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
+  async function handleThirdGarmentUpload(file: File) {
+    if (isUploadingThird) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setThirdGarmentFile(file);
+    setIsUploadingThird(true);
+    const thirdAbort = new AbortController();
+    thirdUploadAbortRef.current = thirdAbort;
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {}, thirdAbort.signal);
+      setThirdGarmentKey(r2Key);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      const msg = (e as Error).message ?? '';
+      showToast(
+        msg.includes('403')
+          ? 'Upload session expired. Please re-select your image and try again.'
+          : `Third garment upload failed: ${msg}`,
+      );
+      setThirdGarmentFile(null);
+      setThirdGarmentKey('');
+    } finally {
+      setIsUploadingThird(false);
+    }
+  }
+
   function handleFaceSelect(id: string) {
     setFaceId(id);
     setCatalogueTemplateId('custom');
@@ -1364,6 +1418,7 @@ export default function StudioPage(): React.ReactElement {
             lowerCatalogId: effectiveLowerId,
             lowerGarmentKey: lowerGarmentKey || undefined,
             shoeCatalogId: effectiveShoesId,
+            thirdGarmentKey: thirdGarmentKey || undefined,
           }
         : {
             upperGarmentKey: garmentKey,
@@ -1372,6 +1427,7 @@ export default function StudioPage(): React.ReactElement {
             lowerCatalogId: effectiveLowerId,
             lowerGarmentKey: lowerGarmentKey || undefined,
             shoeCatalogId: effectiveShoesId,
+            thirdGarmentKey: thirdGarmentKey || undefined,
           };
       const inputs =
         catalogueTemplateId === 'custom'
@@ -1456,6 +1512,7 @@ export default function StudioPage(): React.ReactElement {
           lowerCatalogId: effectiveLowerId,
           lowerGarmentKey: lowerGarmentKey || undefined,
           shoeCatalogId: effectiveShoesId,
+          thirdGarmentKey: thirdGarmentKey || undefined,
         },
         aspectRatio: effectiveAspect,
         resolution,
@@ -1478,6 +1535,7 @@ export default function StudioPage(): React.ReactElement {
             lowerCatalogId: effectiveLowerId,
             lowerGarmentKey: lowerGarmentKey || undefined,
             shoeCatalogId: effectiveShoesId,
+            thirdGarmentKey: thirdGarmentKey || undefined,
           },
           aspectRatio: effectiveAspect,
           resolution,
@@ -1515,6 +1573,8 @@ export default function StudioPage(): React.ReactElement {
 
   const selectedGarmentType = garmentTypes?.items.find((g) => g.id === garmentTypeId);
   const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
+  const requiresThirdUpload = selectedGarmentType?.requiresThirdUpload ?? false;
+  const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload;
 
   const creditCost = resolution ? RESOLUTION_COSTS[resolution] * selectedCount : 0;
   const canGenerate =
@@ -1526,12 +1586,13 @@ export default function StudioPage(): React.ReactElement {
     !!resolution &&
     !isUploading &&
     !isUploadingLower &&
+    !isUploadingThird &&
     !isSubmitting &&
     !generationInProgress;
 
   const generateBlocker = generationInProgress
     ? 'Generation in progress…'
-    : isUploading
+    : isUploading || isUploadingLower || isUploadingThird
       ? 'Waiting for upload to finish…'
       : !garmentKey
         ? 'Upload a garment image first'
@@ -1790,7 +1851,7 @@ export default function StudioPage(): React.ReactElement {
 
             <section className="studio-section-card" style={sectionCardStyle}>
               <SectionHead
-                title={requiresLowerUpload ? 'Upload Garment Images' : 'Upload Garment Image'}
+                title={hasMultipleUploadBoxes ? 'Upload Garment Images' : 'Upload Garment Image'}
                 subtitle="Upload a clean flat lay garment image"
                 stepNumber={3}
               />
@@ -1816,8 +1877,8 @@ export default function StudioPage(): React.ReactElement {
                     style={{
                       flex: 1,
                       display: 'flex',
-                      flexDirection: requiresLowerUpload ? 'column' : 'row',
-                      gap: requiresLowerUpload ? 8 : 0,
+                      flexDirection: hasMultipleUploadBoxes ? 'column' : 'row',
+                      gap: hasMultipleUploadBoxes ? 8 : 0,
                       height: 210,
                       minWidth: 0,
                     }}
@@ -1827,7 +1888,7 @@ export default function StudioPage(): React.ReactElement {
                       style={{
                         flex: 1,
                         minWidth: 0,
-                        height: requiresLowerUpload ? undefined : 210,
+                        height: hasMultipleUploadBoxes ? undefined : 210,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -1966,14 +2027,14 @@ export default function StudioPage(): React.ReactElement {
                             <span
                               style={{
                                 width: '100%',
-                                fontSize: requiresLowerUpload ? 11 : 12,
+                                fontSize: hasMultipleUploadBoxes ? 11 : 12,
                                 fontWeight: 500,
                                 lineHeight: '100%',
                                 color: C.text,
                                 textAlign: 'center',
                               }}
                             >
-                              {requiresLowerUpload
+                              {hasMultipleUploadBoxes
                                 ? selectedGarmentType?.upperUploadLabel ||
                                   `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
                                 : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
@@ -1988,7 +2049,7 @@ export default function StudioPage(): React.ReactElement {
                                 textAlign: 'center',
                               }}
                             >
-                              {requiresLowerUpload
+                              {hasMultipleUploadBoxes
                                 ? 'JPG, PNG · Max 10MB'
                                 : 'Drag and drop an image here · JPG, PNG · Max 10MB'}
                             </span>
@@ -2203,6 +2264,187 @@ export default function StudioPage(): React.ReactElement {
                           onChange={(e) => {
                             const f = e.target.files?.[0];
                             if (f) handleLowerGarmentUpload(f);
+                          }}
+                        />
+                      </label>
+                    )}
+
+                    {selectedGarmentType?.requiresThirdUpload && (
+                      <label
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 12,
+                          background: C.card,
+                          border: `1px solid ${C.border}`,
+                          borderRadius: 8,
+                          padding: 12,
+                          cursor: 'pointer',
+                          boxSizing: 'border-box',
+                          overflow: 'hidden',
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const f = e.dataTransfer.files?.[0];
+                          if (f && ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
+                            handleThirdGarmentUpload(f);
+                        }}
+                      >
+                        {thirdGarmentFile ? (
+                          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {/* biome-ignore lint/performance/noImgElement: static image, Next Image not needed */}
+                            <img
+                              src={thirdGarmentPreviewUrl}
+                              alt={thirdGarmentFile.name}
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'contain',
+                                borderRadius: 6,
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setThirdGarmentFile(null);
+                                setThirdGarmentKey('');
+                              }}
+                              style={{
+                                position: 'absolute',
+                                top: 6,
+                                right: 6,
+                                width: 24,
+                                height: 24,
+                                borderRadius: '50%',
+                                background: 'rgba(0,0,0,0.5)',
+                                border: 'none',
+                                color: 'white',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              <XIcon size={14} />
+                            </button>
+                            {isUploadingThird && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  bottom: 8,
+                                  left: 8,
+                                  right: 8,
+                                  background: 'rgba(255,255,255,0.95)',
+                                  borderRadius: 8,
+                                  padding: '6px 10px',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    fontSize: 12,
+                                    color: C.text,
+                                  }}
+                                >
+                                  <SpinnerIcon size={14} /> Uploading…
+                                </div>
+                              </div>
+                            )}
+                            {thirdGarmentKey && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: 8,
+                                  left: 8,
+                                  background: C.mint,
+                                  color: 'white',
+                                  borderRadius: 6,
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <CheckIcon color="#fff" size={10} /> Uploaded
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <>
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '100%',
+                                  color: C.text,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                {selectedGarmentType?.thirdUploadLabel ?? 'Upload Third Garment'}
+                              </span>
+                              <span
+                                style={{
+                                  width: '100%',
+                                  fontSize: 10,
+                                  fontWeight: 500,
+                                  lineHeight: '140%',
+                                  color: C.mid,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                JPG, PNG · Max 10MB
+                              </span>
+                            </div>
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                              }}
+                            >
+                              <ImagePlusIcon size={14} />
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  lineHeight: '18px',
+                                  color: C.text,
+                                }}
+                              >
+                                Browse
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        <input
+                          ref={thirdFileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          style={{ display: 'none' }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleThirdGarmentUpload(f);
                           }}
                         />
                       </label>

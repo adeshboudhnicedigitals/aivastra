@@ -63,6 +63,8 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   requiresLowerUpload: boolean('requires_lower_upload').notNull().default(false),
   upperUploadLabel: text('upper_upload_label'),
   lowerUploadLabel: text('lower_upload_label'),
+  requiresThirdUpload: boolean('requires_third_upload').notNull().default(false),
+  thirdUploadLabel: text('third_upload_label'),
   defaultLowerCatalogId: uuid('default_lower_catalog_id').references(() => catalogItems.id, {
     onDelete: 'set null',
   }),
@@ -108,6 +110,7 @@ export const workflowTemplates = pgTable('workflow_templates', {
   upperNodeIds: text('upper_node_ids').array().notNull(),
   lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
   shoeNodeId: text('shoe_node_id'), // nullable — some workflows have no shoe garment
+  thirdNodeId: text('third_node_id'), // nullable — a 3rd, generically-named uploaded garment role
   sizeNodeId: text('size_node_id'), // kept for backward compat — use sizeNodeIds
   sizeNodeIds: text('size_node_ids').array().notNull().default(sql`ARRAY[]::text[]`), // all nodes controlling output dimensions
 

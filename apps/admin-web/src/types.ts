@@ -53,6 +53,8 @@ export interface GarmentType {
   sareeStep2WorkflowTemplateId?: string | null;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
+  requiresThirdUpload?: boolean;
+  thirdUploadLabel?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
@@ -69,6 +71,7 @@ export interface WorkflowOption {
   defaultGarmentPhasePrompt: string;
   lowerNodeId: string | null;
   shoeNodeId: string | null;
+  thirdNodeId: string | null;
   sizeNodeIds: string[];
   tryonPersonNodeId: string | null;
   tryonGarmentNodeId: string | null;
