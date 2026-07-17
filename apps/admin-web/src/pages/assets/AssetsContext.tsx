@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { apiFetch } from '../../lib/data';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type {
   CatalogItem,
   GarmentType,
@@ -96,8 +96,12 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
     try {
       const res = await apiFetch<{ items: ModelFace[] }>('/admin/assets/faces');
       setFaces(res.items);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load faces' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load faces',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -108,8 +112,12 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
     try {
       const res = await apiFetch<{ items: ModelBackground[] }>('/admin/assets/backgrounds');
       setAllBackgrounds(res.items);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load backgrounds' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load backgrounds',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -120,8 +128,12 @@ export function AssetsProvider({ toast, children }: { toast: Toast; children: Re
     try {
       const res = await apiFetch<{ items: GarmentType[] }>('/admin/assets/garment-types');
       setGarmentTypes(res.items);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load garment types' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load garment types',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }

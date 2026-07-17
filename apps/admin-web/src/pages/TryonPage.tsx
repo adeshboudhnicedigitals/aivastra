@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { TryonCategory, WorkflowOption } from '../types';
 
@@ -80,8 +80,12 @@ export default function TryonPage({ toast }: Props) {
       setCategories(cats);
       setTryonWorkflows(wfs.filter((w) => w.workflowType === 'tryon'));
       setSettings(s);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load tryon categories' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load tryon categories',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }

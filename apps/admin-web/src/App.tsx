@@ -4,7 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { ToastStack } from './components/ToastStack';
 import { Topbar } from './components/Topbar';
 import { useAuth } from './context/AuthContext';
-import { apiFetch, patchAdminPreferences } from './lib/data';
+import { apiErrorMessage, apiFetch, patchAdminPreferences } from './lib/data';
 import AssetsPage from './pages/AssetsPage';
 import ChatbotQnaPage from './pages/ChatbotQnaPage';
 import ChatInboxPage from './pages/ChatInboxPage';
@@ -110,9 +110,13 @@ export default function App() {
       const previousTheme = theme;
       setThemeState(nextTheme);
       if (!token) return;
-      patchAdminPreferences({ theme: nextTheme }).catch(() => {
+      patchAdminPreferences({ theme: nextTheme }).catch((e) => {
         setThemeState(previousTheme);
-        toast({ kind: 'error', title: 'Failed to sync theme preference' });
+        toast({
+          kind: 'error',
+          title: 'Failed to sync theme preference',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
       });
     },
     [theme, token, toast],

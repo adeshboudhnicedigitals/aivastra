@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { Icon } from '../components/Icons';
 import { StatusBadge } from '../components/StatusBadge';
-import { apiFetch, getToken } from '../lib/data';
+import { apiErrorMessage, apiFetch, getToken } from '../lib/data';
 import { createAdminSSEConnection } from '../lib/sse';
 
 interface Worker {
@@ -77,8 +77,12 @@ export default function DashboardPage({ onNav, toast }: Props) {
       setStats(data);
       lastFetchRef.current = Date.now();
       setSecsAgo(0);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load stats' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load stats',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }

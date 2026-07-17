@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelFace } from '../types';
 import { Icon } from './Icons';
@@ -39,8 +39,12 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
       onSaved({ ...face, ...form });
       toast({ title: `${form.label} updated` });
       onClose();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update face' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update face',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSaving(false);
     }
@@ -85,8 +89,12 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
       setReplaceFile(null);
       setReplacePreview(null);
       toast({ title: 'Image replaced' });
-    } catch {
-      toast({ kind: 'error', title: 'Image replace failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Image replace failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setReplaceUploading(false);
     }
@@ -118,8 +126,12 @@ export function EditFaceModal({ face, storagePublicUrl, onSaved, onClose, toast 
       setSideFile(null);
       setSidePreview(null);
       toast({ title: 'ComfyUI face image uploaded' });
-    } catch {
-      toast({ kind: 'error', title: 'ComfyUI face image upload failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'ComfyUI face image upload failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSideUploading(false);
     }
