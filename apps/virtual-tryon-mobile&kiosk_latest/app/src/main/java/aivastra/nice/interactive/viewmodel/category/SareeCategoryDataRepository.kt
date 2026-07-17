@@ -84,7 +84,8 @@ object SareeCategoryDataRepository {
     }
 
     private fun parseLoginError(cause: Throwable): Throwable {
-        val raw = cause.message.orEmpty()
+        val raw = (cause as? com.example.facewixlatest.ApiUtils.ApiException.BackendError)?.rawBody
+            ?: cause.message.orEmpty()
         return try {
             val error = JSONObject(raw).optJSONObject("error") ?: return cause
             if (error.optString("code") == "DEVICE_LIMIT_REACHED") {
