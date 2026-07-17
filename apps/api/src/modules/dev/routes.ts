@@ -96,6 +96,13 @@ export async function devRoutes(app: FastifyInstance) {
       // JSON path needs more than Fastify's 1MB default. Multipart is unaffected —
       // @fastify/multipart streams via its own `fileSize` limit above, not this.
       bodyLimit: 30 * 1024 * 1024,
+      // attachValidation, not the default auto-reject: this route handles multipart
+      // and JSON itself (see below) and does its own DevTryonJsonBody.safeParse for
+      // the JSON path. `body` here exists so Scalar/the OpenAPI spec can generate a
+      // real request-body snippet -- Fastify still runs it against the multipart
+      // request too (where it will never match), so its result must stay unused;
+      // wiring it in as the actual gate would 400 every multipart upload.
+      attachValidation: true,
       schema: {
         tags: ['dev'],
         summary: 'Create a try-on job',
@@ -105,6 +112,7 @@ export async function devRoutes(app: FastifyInstance) {
           'images (fields: category, person, garment — plain base64 or a data: URI). ' +
           'Returns a job id to poll.',
         consumes: ['multipart/form-data', 'application/json'],
+        body: DevTryonJsonBody,
         response: { 202: DevTryonResponse },
       },
     },

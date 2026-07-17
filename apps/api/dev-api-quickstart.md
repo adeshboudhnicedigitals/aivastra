@@ -4,13 +4,8 @@ Send a person photo and a garment photo, get back a generated try-on image. This
 server-to-server API — no browser, no cookies, no admin-curated faces/poses. Just two
 images, a category, and a poll loop.
 
-Every command below uses `$API_URL` as a placeholder — it is **not** resolved
-automatically, set it yourself to whichever environment you're calling:
-
-| Environment | `API_URL` |
-|---|---|
-| Production | `https://app.aivastra.com` |
-| Local dev (Aivastra staff only) | `http://localhost:4000` |
+Every command below uses `$API_URL` as a placeholder for `https://app.aivastra.com` — it
+is **not** resolved automatically, set it yourself before running any example.
 
 > **Interactive reference:** every endpoint below is also documented live at
 > `$API_URL/v1/dev/docs` — a Scalar-rendered page generated straight from the API's
@@ -98,7 +93,7 @@ curl -s "$API_URL/v1/dev/jobs/5f2b1a3e-9c4d-4e2a-8f1b-1234567890ab" \
 it, call `GET /v1/dev/jobs/:id` again — it reissues a fresh presigned URL for the same
 completed job.
 
-## 3b. curl example — JSON/base64 instead of multipart
+## 3b. JSON/base64 instead of multipart
 
 If your stack can't easily build a multipart body (some serverless/no-code platforms,
 certain HTTP clients), send the same three fields as JSON with base64-encoded images
