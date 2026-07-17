@@ -39,6 +39,54 @@ const rateLimitConfig = {
 };
 
 export async function devRoutes(app: FastifyInstance) {
+  app.get(
+    '/v1/dev/categories',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'List try-on categories',
+        response: { 200: DevCategoriesResponse },
+      },
+    },
+    async () => {
+      const rows = await app.db
+        .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
+        .from(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.isActive, true))
+        .orderBy(asc(schema.tryonCategories.sortOrder));
+      return { categories: rows };
+    },
+  );
+
+  app.get(
+    '/v1/dev/me',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: { tags: ['dev'], summary: 'Get account info', response: { 200: DevMeResponse } },
+    },
+    async (req) => {
+      const [row] = await app.db
+        .select({
+          merchantId: schema.merchants.id,
+          companyName: schema.merchants.companyName,
+          credits: schema.userCredits.balance,
+        })
+        .from(schema.merchants)
+        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, req.merchantId as string))
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      return {
+        merchantId: row.merchantId,
+        companyName: row.companyName,
+        credits: row.credits ?? 0,
+      };
+    },
+  );
+
   app.post(
     '/v1/dev/tryon',
     {
@@ -218,54 +266,6 @@ export async function devRoutes(app: FastifyInstance) {
       return {
         jobId: job.id,
         status: job.status === 'QUEUED' ? ('QUEUED' as const) : ('RUNNING' as const),
-      };
-    },
-  );
-
-  app.get(
-    '/v1/dev/categories',
-    {
-      preHandler: app.requireApiKey,
-      config: rateLimitConfig,
-      schema: {
-        tags: ['dev'],
-        summary: 'List try-on categories',
-        response: { 200: DevCategoriesResponse },
-      },
-    },
-    async () => {
-      const rows = await app.db
-        .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
-        .from(schema.tryonCategories)
-        .where(eq(schema.tryonCategories.isActive, true))
-        .orderBy(asc(schema.tryonCategories.sortOrder));
-      return { categories: rows };
-    },
-  );
-
-  app.get(
-    '/v1/dev/me',
-    {
-      preHandler: app.requireApiKey,
-      config: rateLimitConfig,
-      schema: { tags: ['dev'], summary: 'Get account info', response: { 200: DevMeResponse } },
-    },
-    async (req) => {
-      const [row] = await app.db
-        .select({
-          merchantId: schema.merchants.id,
-          companyName: schema.merchants.companyName,
-          credits: schema.userCredits.balance,
-        })
-        .from(schema.merchants)
-        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
-        .where(eq(schema.merchants.id, req.merchantId as string))
-        .limit(1);
-      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
-      return {
-        merchantId: row.merchantId,
-        companyName: row.companyName,
-        credits: row.credits ?? 0,
       };
     },
   );

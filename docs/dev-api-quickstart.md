@@ -7,6 +7,24 @@ images, a category, and a poll loop.
 Base URL in this guide: `http://localhost:4000` (dev). In production, use your deployment's
 API host.
 
+> **Interactive reference:** every endpoint below is also documented live at
+> `$API_URL/v1/dev/docs` — a Scalar-rendered page generated straight from the API's
+> OpenAPI spec (`$API_URL/v1/dev/openapi.json`). Use it to explore request/response
+> schemas or try a call from the browser; use this guide for the end-to-end walkthrough.
+
+## 0. Getting a merchant account
+
+There's no public self-serve signup yet — merchant accounts are created by an admin:
+
+1. Contact your Aivastra admin/account manager and ask for a merchant account for your
+   company. Give them your email, company name, and contact details.
+2. The admin creates the account from the internal admin panel (**Merchants → Add
+   merchant**). This activates it immediately — no separate approval wait.
+3. You'll get login credentials (or the admin links an existing account) for the merchant
+   web app.
+4. Log in, go to **Developers** (`/developers`), and continue to §1 below to create your
+   API key.
+
 ## 1. Authentication
 
 Every request carries your API key as a bearer token:
@@ -37,6 +55,8 @@ A missing, malformed, or revoked key returns `401 UNAUTHORIZED` (see the error t
    slug, sent either as a **multipart/form-data** upload or as a **JSON body with
    base64-encoded images** (see §3b) — pick whichever your stack finds easier. Returns
    `202` with a `jobId` immediately; generation happens asynchronously.
+   `person`/`garment` requirements: JPEG, PNG, or WebP, ≤10MB each (see §6) — there is
+   no enforced or recommended framing, pose, or lighting beyond that.
 3. **`GET /v1/dev/jobs/:id`** — poll until `status` is `COMPLETED` (with an `imageUrl`) or
    `FAILED` (with an `error`).
 
