@@ -185,4 +185,94 @@ describe('shopify customer routes', () => {
     });
     expect(otherRes.statusCode).toBe(404);
   });
+
+  it('extends the upload ownership TTL to 24h after a successful job creation', async () => {
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 11);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 11 },
+    });
+    expect(res.statusCode).toBe(201);
+
+    const ttl = await app.redis.ttl(`shopify:upload:${r2Key}`);
+    expect(ttl).toBeGreaterThan(600);
+    expect(ttl).toBeLessThanOrEqual(86400);
+  });
+
+  it('reuses the same photo for a second, different product', async () => {
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await seedGarment(store.id, 12);
+    await seedGarment(store.id, 13);
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 12 },
+    });
+    expect(first.statusCode).toBe(201);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/jobs',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { customerPhotoKey: r2Key, shopifyProductId: 13 },
+    });
+    expect(second.statusCode).toBe(201);
+    expect((second.json() as { jobId: string }).jobId).not.toBe(
+      (first.json() as { jobId: string }).jobId,
+    );
+  });
+
+  it('returns a presigned preview URL for a photo owned by this store', async () => {
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/photo/preview',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { r2Key },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { previewUrl: string };
+    expect(body.previewUrl).toContain(r2Key);
+  });
+
+  it('rejects a preview request for a photo belonging to a different store', async () => {
+    const store = await seedStore(null);
+    const otherStore = await seedStore(null);
+    const r2Key = await uploadCustomerPhoto(otherStore.storeKey, Buffer.from('photo-bytes'));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/photo/preview',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { r2Key },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('rejects a preview request once the ownership marker has expired', async () => {
+    const store = await seedStore(null);
+    const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.from('photo-bytes'));
+    await app.redis.del(`shopify:upload:${r2Key}`);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/customer/photo/preview',
+      headers: { 'x-widget-key': store.storeKey },
+      payload: { r2Key },
+    });
+    expect(res.statusCode).toBe(404);
+  });
 });
