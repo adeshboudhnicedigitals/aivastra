@@ -21,8 +21,11 @@ export async function modelsRoutes(app: FastifyInstance) {
           thumbnailKey: schema.garmentSubcategories.thumbnailKey,
           instructionImageKey: schema.garmentSubcategories.instructionImageKey,
           requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
+          upperUploadLabel: schema.garmentSubcategories.upperUploadLabel,
+          lowerUploadLabel: schema.garmentSubcategories.lowerUploadLabel,
           defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
           defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
+          requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
         })
         .from(schema.garmentSubcategories)
         .where(
@@ -30,6 +33,10 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.garmentSubcategories.genderSlug, gender),
             eq(schema.garmentSubcategories.isActive, true),
           ),
+        )
+        .orderBy(
+          asc(schema.garmentSubcategories.sortOrder),
+          asc(schema.garmentSubcategories.label),
         );
       return {
         items: items.map((i) => ({
@@ -311,13 +318,26 @@ export async function modelsRoutes(app: FastifyInstance) {
     async (req) => {
       const { gender, garmentTypeId } = req.query as { gender: string; garmentTypeId?: string };
 
+      // A template with no mapping row for this garment type is not offered for it at
+      // all (strict opt-in — see catalogue_template_subcategories). Without a
+      // garmentTypeId there's no way to know which templates apply, so fail closed.
+      if (!garmentTypeId) return { items: [] };
+
       const templates = await app.db
         .select({
           id: schema.catalogueTemplates.id,
           label: schema.catalogueTemplates.label,
           thumbnailKey: schema.catalogueTemplates.thumbnailKey,
+          mappingId: schema.catalogueTemplateSubcategories.id,
         })
         .from(schema.catalogueTemplates)
+        .innerJoin(
+          schema.catalogueTemplateSubcategories,
+          and(
+            eq(schema.catalogueTemplateSubcategories.templateId, schema.catalogueTemplates.id),
+            eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId),
+          ),
+        )
         .where(
           and(
             eq(schema.catalogueTemplates.genderSlug, gender),
@@ -361,55 +381,44 @@ export async function modelsRoutes(app: FastifyInstance) {
             isNull(schema.modelBackgrounds.deletedAt),
           ),
         )
-        .leftJoin(
+        .innerJoin(
+          schema.catalogueTemplateSubcategories,
+          and(
+            eq(
+              schema.catalogueTemplateSubcategories.templateId,
+              schema.catalogueTemplateLooks.templateId,
+            ),
+            eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId),
+          ),
+        )
+        .innerJoin(
+          schema.catalogueTemplatePoseWorkflows,
+          and(
+            eq(
+              schema.catalogueTemplatePoseWorkflows.mappingId,
+              schema.catalogueTemplateSubcategories.id,
+            ),
+            eq(
+              schema.catalogueTemplatePoseWorkflows.poseAssetId,
+              schema.catalogueTemplateLooks.poseAssetId,
+            ),
+          ),
+        )
+        .innerJoin(
           schema.workflowTemplates,
-          eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
+          and(
+            eq(
+              schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+              schema.workflowTemplates.id,
+            ),
+            eq(schema.workflowTemplates.isActive, true),
+          ),
         )
         .where(inArray(schema.catalogueTemplateLooks.templateId, templateIds))
         .orderBy(asc(schema.catalogueTemplateLooks.sortOrder));
 
-      // Same per-garmentType override overlay as /v1/models/poses: a config row with
-      // a workflowTemplateId set overrides hasLower/hasShoes; configIsActive:false
-      // hides the look for this garmentType specifically.
-      let configMap = new Map<string, { lowerNodeId: string | null; shoeNodeId: string | null }>();
-      let inactiveForType = new Set<string>();
-      if (garmentTypeId && lookRows.length > 0) {
-        const poseIds = Array.from(new Set(lookRows.map((r) => r.poseId)));
-        const configs = await app.db
-          .select({
-            poseAssetId: schema.poseGarmentConfigs.poseAssetId,
-            workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
-            isActive: schema.poseGarmentConfigs.isActive,
-            lowerNodeId: schema.workflowTemplates.lowerNodeId,
-            shoeNodeId: schema.workflowTemplates.shoeNodeId,
-          })
-          .from(schema.poseGarmentConfigs)
-          .leftJoin(
-            schema.workflowTemplates,
-            eq(schema.poseGarmentConfigs.workflowTemplateId, schema.workflowTemplates.id),
-          )
-          .where(
-            and(
-              inArray(schema.poseGarmentConfigs.poseAssetId, poseIds),
-              eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId),
-            ),
-          );
-        configMap = new Map(
-          configs
-            .filter((c) => c.workflowTemplateId != null)
-            .map((c) => [
-              c.poseAssetId,
-              { lowerNodeId: c.lowerNodeId ?? null, shoeNodeId: c.shoeNodeId ?? null },
-            ]),
-        );
-        inactiveForType = new Set(
-          configs.filter((c) => c.isActive === false).map((c) => c.poseAssetId),
-        );
-      }
-
       const looksByTemplate = new Map<string, typeof lookRows>();
       for (const row of lookRows) {
-        if (inactiveForType.has(row.poseId)) continue;
         if (!looksByTemplate.has(row.templateId)) looksByTemplate.set(row.templateId, []);
         looksByTemplate.get(row.templateId)?.push(row);
       }
@@ -418,9 +427,6 @@ export async function modelsRoutes(app: FastifyInstance) {
         .map((t) => {
           const rows = looksByTemplate.get(t.id) ?? [];
           const looks = rows.map((r) => {
-            const cfg = configMap.get(r.poseId);
-            const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : r.lowerNodeId;
-            const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : r.shoeNodeId;
             return {
               id: r.lookId,
               poseId: r.poseId,
@@ -429,12 +435,13 @@ export async function modelsRoutes(app: FastifyInstance) {
               backgroundId: r.backgroundId,
               backgroundLabel: r.backgroundLabel,
               backgroundThumbnailUrl: app.storage.publicUrl(r.backgroundThumbnailKey),
-              hasLower: lowerNodeId != null,
-              hasShoes: shoeNodeId != null,
+              hasLower: r.lowerNodeId != null,
+              hasShoes: r.shoeNodeId != null,
             };
           });
           return {
             id: t.id,
+            mappingId: t.mappingId,
             label: t.label,
             thumbnailUrl: t.thumbnailKey
               ? app.storage.publicUrl(t.thumbnailKey)

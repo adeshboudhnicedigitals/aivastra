@@ -119,6 +119,10 @@ describe('createJob — atomic multi-background looks[] form', () => {
         },
         aspectRatio: '1:1',
         resolution: '2K',
+        params: {
+          catalogueTemplateMappingId: '00000000-0000-4000-8000-000000000001',
+          workflowTemplateId: '00000000-0000-4000-8000-000000000002',
+        },
       },
     });
     expect(res.statusCode).toBe(201);
@@ -131,6 +135,8 @@ describe('createJob — atomic multi-background looks[] form', () => {
       .where(eq(schema.jobInputs.jobId, jobIds[0]));
     expect(inputsRows[0]?.backgroundId).toBe(bgAId);
     expect(inputsRows[0]?.poseId).toBe(poseAId);
+    expect(inputsRows[0]?.params).not.toHaveProperty('catalogueTemplateMappingId');
+    expect(inputsRows[0]?.params).not.toHaveProperty('workflowTemplateId');
 
     const inputsRows2 = await app.db
       .select()
@@ -151,6 +157,155 @@ describe('createJob — atomic multi-background looks[] form', () => {
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
     expect(bal.balance).toBe(100 - 35 * 2); // 2K = 35 credits each
+  });
+
+  it('validates a mapped template and snapshots its per-pose workflow into the job', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-mapped-workflow@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `mapped-shirt-${poseAId}`, label: 'Mapped shirt' })
+      .returning();
+    const [template] = await app.db
+      .insert(schema.catalogueTemplates)
+      .values({ genderSlug: 'men', label: 'Mapped template' })
+      .returning();
+    await app.db.insert(schema.catalogueTemplateLooks).values({
+      templateId: template.id,
+      poseAssetId: poseAId,
+      backgroundId: bgAId,
+    });
+    const [mapping] = await app.db
+      .insert(schema.catalogueTemplateSubcategories)
+      .values({ templateId: template.id, subcategoryId: garmentType.id })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `mapped-job-workflow-${poseAId}`,
+        label: 'Mapped job workflow',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db.insert(schema.catalogueTemplatePoseWorkflows).values({
+      mappingId: mapping.id,
+      poseAssetId: poseAId,
+      workflowTemplateId: workflow.id,
+      promptGarmentPhase: 'a mapped-template custom prompt',
+    });
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          catalogueTemplateMappingId: mapping.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).toMatchObject({
+      catalogueTemplateMappingId: mapping.id,
+      workflowTemplateId: workflow.id,
+      promptGarmentPhase: 'a mapped-template custom prompt',
+    });
+  });
+
+  it('omits promptGarmentPhase from the snapshot when no override is configured', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-mapped-no-prompt@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `mapped-shirt-noprompt-${poseAId}`,
+        label: 'Mapped shirt',
+      })
+      .returning();
+    const [template] = await app.db
+      .insert(schema.catalogueTemplates)
+      .values({ genderSlug: 'men', label: 'Mapped template no prompt' })
+      .returning();
+    await app.db.insert(schema.catalogueTemplateLooks).values({
+      templateId: template.id,
+      poseAssetId: poseAId,
+      backgroundId: bgAId,
+    });
+    const [mapping] = await app.db
+      .insert(schema.catalogueTemplateSubcategories)
+      .values({ templateId: template.id, subcategoryId: garmentType.id })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `mapped-job-workflow-noprompt-${poseAId}`,
+        label: 'Mapped job workflow no prompt',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db.insert(schema.catalogueTemplatePoseWorkflows).values({
+      mappingId: mapping.id,
+      poseAssetId: poseAId,
+      workflowTemplateId: workflow.id,
+    });
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          catalogueTemplateMappingId: mapping.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.params).not.toHaveProperty('promptGarmentPhase');
   });
 
   it('rejects duplicate (poseId, backgroundId) pairs within one looks[] request', async () => {
@@ -308,5 +463,176 @@ describe('createJob — atomic multi-background looks[] form', () => {
     expect(bal.balance).toBe(100); // fully rolled back — no partial job/charge
     const jobRows = await app.db.select().from(schema.jobs).where(eq(schema.jobs.userId, userId));
     expect(jobRows).toHaveLength(0);
+  });
+
+  it('rejects a lower-only submission against a pose whose workflow requires an upper garment', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-upper-required@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `upper-required-${poseAId}`, label: 'Upper required' })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `upper-required-workflow-${poseAId}`,
+        label: 'Upper required workflow',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: ['4'],
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          lowerGarmentKey: garmentKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('rejects a lowerCatalogId as the sole hero for a lower-primary workflow', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-catalog-hero-rejected@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'men',
+        slug: `catalog-hero-rejected-${poseAId}`,
+        label: 'Catalog hero rejected',
+      })
+      .returning();
+    const [catalogType] = await app.db
+      .insert(schema.catalogTypes)
+      .values({ slug: `lower-${poseAId}`, label: 'Lower' })
+      .returning();
+    const [category] = await app.db
+      .insert(schema.catalogCategories)
+      .values({ typeId: catalogType.id, slug: `pants-${poseAId}`, label: 'Pants' })
+      .returning();
+    const [catalogItem] = await app.db
+      .insert(schema.catalogItems)
+      .values({
+        categoryId: category.id,
+        type: 'lower',
+        genderSlug: 'men',
+        label: 'Test pants',
+        r2Key: 'catalog/pants.jpg',
+        thumbnailKey: 'catalog/pants-thumb.jpg',
+      })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `lower-primary-catalog-${poseAId}`,
+        label: 'Lower primary catalog test',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: [],
+        lowerNodeId: '7',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          faceId,
+          garmentTypeId: garmentType.id,
+          lowerCatalogId: catalogItem.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('strips an irrelevant upper garment key from a lower-only job row', async () => {
+    await seedCreditPlan('free', false);
+    const { token, userId } = await registerUser('looks-strip-upper@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, bgAId } = await seedFaceAndTwoBackgrounds();
+    const { poseAId } = await seedTwoPoses();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'men', slug: `strip-upper-${poseAId}`, label: 'Strip upper' })
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `strip-upper-workflow-${poseAId}`,
+        label: 'Strip upper workflow',
+        jsonContent: {},
+        poseNodeId: '2',
+        upperNodeIds: [],
+        lowerNodeId: '7',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db
+      .update(schema.modelPoseAssets)
+      .set({ workflowTemplateId: workflow.id })
+      .where(eq(schema.modelPoseAssets.id, poseAId));
+    const upperKey = `inputs/${userId}/garment.jpg`;
+    const lowerKey = upperKey;
+    await bindUploadKey(userId, upperKey);
+    await bindUploadKey(userId, lowerKey);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: upperKey,
+          lowerGarmentKey: lowerKey,
+          faceId,
+          garmentTypeId: garmentType.id,
+          looks: [{ poseId: poseAId, backgroundId: bgAId }],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, response.json().jobIds[0]));
+    expect(inputs?.upperGarmentKey).toBeNull();
+    expect(inputs?.lowerGarmentKey).toBe(lowerKey);
   });
 });

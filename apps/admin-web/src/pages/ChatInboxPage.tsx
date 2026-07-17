@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessageT, WsAgentFrameT, WsServerFrameT } from '../lib/chatws';
 import { connectAgentWs, fetchChatbot } from '../lib/chatws';
-import { apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 
 // Renders the light markdown subset the bot model emits (**bold**, numbered/bulleted
 // lists) — mirrors apps/catalogues-web/src/components/chat-widget.tsx so agents see the
@@ -150,8 +150,12 @@ export default function ChatInboxPage({ toast }: Props) {
       await apiFetch(`/admin/chatbot/conversations/${id}/claim`, { method: 'POST' });
       toast({ title: 'Claimed' });
       void load();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to claim conversation' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to claim conversation',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }
 
@@ -160,8 +164,12 @@ export default function ChatInboxPage({ toast }: Props) {
       await apiFetch(`/admin/chatbot/conversations/${id}/takeover`, { method: 'POST' });
       toast({ title: 'Took over' });
       void load();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to take over' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to take over',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }
 
@@ -171,8 +179,12 @@ export default function ChatInboxPage({ toast }: Props) {
       toast({ title: 'Ended' });
       setSelectedConv(null);
       void load();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to end conversation' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to end conversation',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }
 
@@ -183,8 +195,12 @@ export default function ChatInboxPage({ toast }: Props) {
         body: JSON.stringify({ on: !onDuty }),
       });
       setOnDuty(r.on);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to toggle duty' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to toggle duty',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }
 

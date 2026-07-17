@@ -64,20 +64,40 @@ export async function regenerateJob(app: FastifyInstance, userId: string, origin
 
   // Studio/catalogue job — one poseId per job row, reconstruct the multi-pose
   // request shape createJob expects with just that single pose.
-  if (!inputs.poseId || !inputs.faceId || !inputs.backgroundId || !inputs.upperGarmentKey) {
+  if (!inputs.poseId || !inputs.faceId || !inputs.backgroundId) {
     throw new AppError('VALIDATION', 400, 'original job is missing required inputs to regenerate');
   }
+  const mappingId =
+    typeof params.catalogueTemplateMappingId === 'string'
+      ? params.catalogueTemplateMappingId
+      : undefined;
+  if (mappingId && !inputs.garmentTypeId) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      'mapped original job is missing its garment type and cannot be regenerated',
+    );
+  }
+
+  const trustedGarmentKeys = new Set<string>();
+  if (inputs.upperGarmentKey) trustedGarmentKeys.add(inputs.upperGarmentKey);
+  if (inputs.lowerGarmentKey) trustedGarmentKeys.add(inputs.lowerGarmentKey);
+
   const body: z.infer<typeof CreateTryOnJobRequest> = {
     catalogueId: original.job.catalogueId ?? undefined,
     inputs: {
-      upperGarmentKey: inputs.upperGarmentKey,
+      upperGarmentKey: inputs.upperGarmentKey ?? undefined,
       faceId: inputs.faceId,
-      backgroundId: inputs.backgroundId,
-      poseIds: [inputs.poseId],
       garmentTypeId: inputs.garmentTypeId ?? undefined,
       lowerCatalogId: inputs.lowerCatalogId ?? undefined,
       lowerGarmentKey: inputs.lowerGarmentKey ?? undefined,
       shoeCatalogId: inputs.shoeCatalogId ?? undefined,
+      ...(mappingId
+        ? {
+            catalogueTemplateMappingId: mappingId,
+            looks: [{ poseId: inputs.poseId, backgroundId: inputs.backgroundId }],
+          }
+        : { backgroundId: inputs.backgroundId, poseIds: [inputs.poseId] }),
     },
     params: {
       outputWidth: typeof params.outputWidth === 'number' ? params.outputWidth : undefined,
@@ -91,7 +111,7 @@ export async function regenerateJob(app: FastifyInstance, userId: string, origin
     platform: typeof params.platform === 'string' ? params.platform : undefined,
   };
 
-  const result = await createJob(app, userId, body);
+  const result = await createJob(app, userId, body, { trustedGarmentKeys });
   const newJobId = result.jobIds[0];
   await setParentJobId(app, newJobId, originalJobId);
   return { jobId: newJobId, catalogueId: result.catalogueId };

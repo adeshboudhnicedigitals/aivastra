@@ -61,6 +61,8 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   requiresLowerUpload: boolean('requires_lower_upload').notNull().default(false),
+  upperUploadLabel: text('upper_upload_label'),
+  lowerUploadLabel: text('lower_upload_label'),
   defaultLowerCatalogId: uuid('default_lower_catalog_id').references(() => catalogItems.id, {
     onDelete: 'set null',
   }),
@@ -73,6 +75,21 @@ export const garmentSubcategories = pgTable('garment_subcategories', {
   // Admin-fixed pose used by merchant catalogue-manager's constrained "flat garment
   // -> catalogue image" generation. Null = generation unavailable for this type.
   defaultPoseId: uuid('default_pose_id'),
+  // Flat Saree (and any future two-pass garment type): gates a one-time,
+  // 0-credit "mannequin" generation job before the normal per-pose jobs run.
+  // See docs/superpowers/specs/2026-07-14-flat-saree-two-step-workflow-design.md.
+  requiresMannequinStep: boolean('requires_mannequin_step').notNull().default(false),
+  // Step-1 workflow: drapes the uploaded garment onto the selected face, once per job.
+  mannequinWorkflowTemplateId: uuid('mannequin_workflow_template_id').references(
+    () => workflowTemplates.id,
+    { onDelete: 'set null' },
+  ),
+  // Step-2 workflow: used for EVERY pose in a job for this garment type, overriding
+  // the normal per-pose pose_garment_configs/model_pose_assets.workflowTemplateId lookup.
+  sareeStep2WorkflowTemplateId: uuid('saree_step2_workflow_template_id').references(
+    () => workflowTemplates.id,
+    { onDelete: 'set null' },
+  ),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -85,9 +102,9 @@ export const workflowTemplates = pgTable('workflow_templates', {
   jsonContent: jsonb('json_content').notNull().$type<Record<string, unknown>>(),
 
   // Node ID mappings (ComfyUI node IDs as strings — may contain colons e.g. "1345:111")
-  faceNodeId: text('face_node_id').notNull(),
+  faceNodeId: text('face_node_id'),
   poseNodeId: text('pose_node_id').notNull(),
-  bgNodeId: text('bg_node_id').notNull(),
+  bgNodeId: text('bg_node_id'),
   upperNodeIds: text('upper_node_ids').array().notNull(),
   lowerNodeId: text('lower_node_id'), // nullable — some workflows have no lower garment
   shoeNodeId: text('shoe_node_id'), // nullable — some workflows have no shoe garment
@@ -103,7 +120,7 @@ export const workflowTemplates = pgTable('workflow_templates', {
   resultNodeId: text('result_node_id'), // SaveImage node holding the final deliverable image, when ambiguous
 
   // Prompt node IDs
-  facePhasePromptNode: text('face_phase_prompt_node').notNull(),
+  facePhasePromptNode: text('face_phase_prompt_node'),
   garmentPhasePromptNode: text('garment_phase_prompt_node').notNull(),
 
   // Default prompts extracted from JSON at upload time
@@ -131,6 +148,11 @@ export const modelPoseAssets = pgTable('model_pose_assets', {
   label: text('label').notNull(),
   displayName: text('display_name'),
   poseVariant: text('pose_variant'),
+  // 'full' | 'half' | 'closeup' - validated at the Zod layer, not a DB enum, so
+  // adding a category later is a one-line change, not a migration. Set once at
+  // pose-upload time; drives garment_shot_type_workflows auto-resolution for
+  // template-scoped poses.
+  shotType: text('shot_type'),
   r2Key: text('r2_key').notNull(),
   thumbnailKey: text('thumbnail_key').notNull(),
   genderSlug: text('gender_slug'),
@@ -230,5 +252,92 @@ export const catalogueTemplateLooks = pgTable(
   },
   (table) => ({
     templateIdx: index('catalogue_template_looks_template_id_idx').on(table.templateId),
+  }),
+);
+
+// A concrete template-to-garment-type mapping. Its generated ID scopes pose workflows,
+// allowing the same global template to render differently for Shirt, Suit, or another type.
+export const catalogueTemplateSubcategories = pgTable(
+  'catalogue_template_subcategories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    templateId: uuid('template_id')
+      .notNull()
+      .references(() => catalogueTemplates.id, { onDelete: 'cascade' }),
+    subcategoryId: uuid('subcategory_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    uniqTemplateSubcategory: unique(
+      'catalogue_template_subcategories_template_subcategory_unique',
+    ).on(table.templateId, table.subcategoryId),
+    subcategoryIdx: index('catalogue_template_subcategories_subcategory_id_idx').on(
+      table.subcategoryId,
+    ),
+  }),
+);
+
+// Workflow selection for one pose inside one mapped template. Global templates
+// deliberately carry no workflow; the same template pose can therefore use a
+// different workflow when the template is mapped to Shirt, Suit, or another type.
+export const catalogueTemplatePoseWorkflows = pgTable(
+  'catalogue_template_pose_workflows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    mappingId: uuid('mapping_id')
+      .notNull()
+      .references(() => catalogueTemplateSubcategories.id, { onDelete: 'cascade' }),
+    poseAssetId: uuid('pose_asset_id')
+      .notNull()
+      .references(() => modelPoseAssets.id, { onDelete: 'cascade' }),
+    workflowTemplateId: uuid('workflow_template_id')
+      .notNull()
+      .references(() => workflowTemplates.id, { onDelete: 'cascade' }),
+    promptGarmentPhase: text('prompt_garment_phase'),
+    // 'auto' = written or last refreshed by the shot-type-default resolver; safe to
+    // overwrite on the next resolve. 'manual' = an admin picked this explicitly via
+    // the per-pose dropdown; the resolver's ON CONFLICT ... WHERE source = 'auto'
+    // guard means it will never touch this row again until the admin clears it.
+    source: text('source').notNull().default('manual'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqMappingPose: unique('catalogue_template_pose_workflows_mapping_pose_unique').on(
+      table.mappingId,
+      table.poseAssetId,
+    ),
+    mappingIdx: index('catalogue_template_pose_workflows_mapping_id_idx').on(table.mappingId),
+  }),
+);
+
+// The 3-slot default per garment type: "poses tagged X use workflow Y". A join
+// table, not fixed columns on garment_subcategories - a 4th shot type later is new
+// rows, not a migration. Setting/changing a row here immediately re-resolves every
+// matching pose across every template mapped to this garment type - see
+// apps/api/src/modules/admin/shot-type-resolve.ts.
+export const garmentShotTypeWorkflows = pgTable(
+  'garment_shot_type_workflows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    garmentTypeId: uuid('garment_type_id')
+      .notNull()
+      .references(() => garmentSubcategories.id, { onDelete: 'cascade' }),
+    shotType: text('shot_type').notNull(), // 'full' | 'half' | 'closeup'
+    workflowTemplateId: uuid('workflow_template_id')
+      .notNull()
+      .references(() => workflowTemplates.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqGarmentTypeShotType: unique('garment_shot_type_workflows_garment_type_shot_type_unique').on(
+      table.garmentTypeId,
+      table.shotType,
+    ),
+    garmentTypeIdx: index('garment_shot_type_workflows_garment_type_id_idx').on(
+      table.garmentTypeId,
+    ),
   }),
 );

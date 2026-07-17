@@ -165,12 +165,15 @@ export const CreateWorkflowBody = z
       ),
     label: z.string().min(1).max(120),
     jsonContent: z.record(z.any()),
-    workflowType: z.enum(['regular', 'tryon']).default('regular'),
+    workflowType: z.enum(['regular', 'tryon', 'saree_step1']).default('regular'),
     // Regular workflow fields (required when workflowType = 'regular')
     faceNodeId: z.string().min(1).optional(),
     poseNodeId: z.string().min(1).optional(),
     bgNodeId: z.string().min(1).optional(),
-    upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+    // No .min(1) here — an empty array is how the client represents a
+    // lower-only workflow (upperNodeIds omitted in favor of lowerNodeId).
+    // "at least one garment role" is enforced below by superRefine instead.
+    upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
@@ -189,31 +192,53 @@ export const CreateWorkflowBody = z
     tryonOutputNodeId: z.string().min(1).optional(),
   })
   .superRefine((val, ctx) => {
-    const required =
-      val.workflowType === 'regular'
-        ? ([
-            'faceNodeId',
-            'poseNodeId',
-            'bgNodeId',
-            'upperNodeIds',
-            'facePhasePromptNode',
-            'garmentPhasePromptNode',
-          ] as const)
-        : (['facePhasePromptNode', 'garmentPhasePromptNode'] as const);
-    for (const field of required) {
-      if (!val[field]) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: [field],
-          message: `${field} is required for ${val.workflowType} workflows`,
-        });
+    if (val.workflowType === 'tryon' || val.workflowType === 'saree_step1') {
+      for (const field of ['facePhasePromptNode', 'garmentPhasePromptNode'] as const) {
+        if (!val[field]) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field],
+            message: `${field} is required for ${val.workflowType} workflows`,
+          });
+        }
       }
+      return;
+    }
+    if (!val.poseNodeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['poseNodeId'],
+        message: 'poseNodeId is required for regular workflows',
+      });
+    }
+    if (!val.garmentPhasePromptNode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['garmentPhasePromptNode'],
+        message: 'garmentPhasePromptNode is required for regular workflows',
+      });
+    }
+    const hasUpper = (val.upperNodeIds?.length ?? 0) > 0;
+    const hasLower = !!val.lowerNodeId;
+    if (!hasUpper && !hasLower) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['upperNodeIds'],
+        message: 'at least one garment role (upperNodeIds or lowerNodeId) is required',
+      });
+    }
+    if (val.faceNodeId && !val.facePhasePromptNode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['facePhasePromptNode'],
+        message: 'facePhasePromptNode is required when faceNodeId is set',
+      });
     }
   });
 
 export const ParseWorkflowBody = z.object({
   jsonContent: z.record(z.any()),
-  workflowType: z.enum(['regular', 'tryon']).optional(),
+  workflowType: z.enum(['regular', 'tryon', 'saree_step1']).optional(),
 });
 
 export const UpdateWorkflowBody = z.object({
@@ -229,7 +254,10 @@ export const UpdateWorkflowBody = z.object({
   faceNodeId: z.string().min(1).optional(),
   poseNodeId: z.string().min(1).optional(),
   bgNodeId: z.string().min(1).optional(),
-  upperNodeIds: z.array(z.string().min(1)).min(1).max(8).optional(),
+  // No .min(1) here — [] is how the client clears/represents "no upper role",
+  // e.g. converting to lower-only. The route handler enforces "at least one
+  // garment role remains" using the merged upperNodeIds/lowerNodeId together.
+  upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
@@ -361,7 +389,10 @@ export const CreateGarmentTypeBody = z.object({
     .max(80)
     .regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric with hyphens'),
   label: z.string().min(1).max(120),
-  sortOrder: z.number().int().default(0),
+  // Omitted = append at the end (server computes max(sortOrder) + 1 for this
+  // gender). Provided = insert at that position, shifting anything already
+  // there (and after) up by one - see the route handler.
+  sortOrder: z.number().int().optional(),
   thumbnailKey: z.string().optional(),
   requiresLowerUpload: z.boolean().optional().default(false),
   tryonCategoryId: z.string().uuid().nullable().optional(),
@@ -372,11 +403,16 @@ export const PatchGarmentTypeBody = z.object({
   sortOrder: z.number().int().optional(),
   thumbnailKey: z.string().nullable().optional(),
   requiresLowerUpload: z.boolean().optional(),
+  upperUploadLabel: z.string().max(80).nullable().optional(),
+  lowerUploadLabel: z.string().max(80).nullable().optional(),
   defaultLowerCatalogId: z.string().uuid().nullable().optional(),
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),
   instructionImageKey: z.string().nullable().optional(),
   defaultPoseId: z.string().uuid().nullable().optional(),
+  requiresMannequinStep: z.boolean().optional(),
+  mannequinWorkflowTemplateId: z.string().uuid().nullable().optional(),
+  sareeStep2WorkflowTemplateId: z.string().uuid().nullable().optional(),
 });
 export const PresignGarmentTypeBody = z.object({
   contentType: AssetContentType,
@@ -405,6 +441,9 @@ export const PutCatalogueTemplateLooksBody = z.object({
       z.object({
         poseAssetId: z.string().uuid(),
         backgroundId: z.string().uuid(),
+        // Optional: retags the pose's shot type in place (no re-upload needed).
+        // Omitted/undefined leaves the pose's existing shot_type untouched.
+        shotType: z.enum(['full', 'half', 'closeup']).optional(),
       }),
     )
     .max(20),

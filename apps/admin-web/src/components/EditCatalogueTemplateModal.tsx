@@ -2,13 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
-import type {
-  CatalogueTemplate,
-  GenderSlug,
-  ModelBackground,
-  ModelPoseAsset,
-  WorkflowOption,
-} from '../types';
+import type { CatalogueTemplate, GenderSlug, ModelBackground, ModelPoseAsset } from '../types';
 import { Icon } from './Icons';
 
 async function putFile(url: string, file: Blob): Promise<void> {
@@ -29,7 +23,12 @@ interface LookRow {
   key: string; // stable React key — random per row, independent of the eventual saved id
   poseAssetId: string;
   backgroundId: string;
-  workflowTemplateId: string;
+  // Sent on Save (PUT .../looks) to retag this row's pose in place, and also on
+  // (re-)upload of a fresh pose image. `null` = not tagged (a legacy pose that
+  // predates this feature, or a row the admin hasn't touched yet) — distinct from
+  // 'full', never silently coerced to it, so an untagged pose doesn't look
+  // already-correct when it's actually unresolved.
+  shotType: 'full' | 'half' | 'closeup' | null;
 }
 
 /** Click-to-upload tile — no picking from existing assets, every look uploads fresh. */
@@ -176,13 +175,6 @@ export function EditCatalogueTemplateModal({
   useEffect(() => setLocalPoseAssets(poseAssets), [poseAssets]);
   useEffect(() => setLocalBackgrounds(backgrounds), [backgrounds]);
 
-  const [workflows, setWorkflows] = useState<WorkflowOption[]>([]);
-  useEffect(() => {
-    apiFetch<WorkflowOption[]>('/admin/workflows')
-      .then((wfs) => setWorkflows(wfs.filter((w) => w.isActive)))
-      .catch(() => toast({ kind: 'error', title: 'Failed to load workflows' }));
-  }, [toast]);
-
   // Which look row's pose tile is currently uploading, if any (disables that tile).
   const [uploadingPoseForRow, setUploadingPoseForRow] = useState<string | null>(null);
   const poseFileInputRef = useRef<HTMLInputElement>(null);
@@ -193,7 +185,7 @@ export function EditCatalogueTemplateModal({
   const backgroundFileInputRef = useRef<HTMLInputElement>(null);
   const backgroundUploadRowKeyRef = useRef<string | null>(null);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: poseAssets intentionally omitted — only used for the one-time initial mapping below, re-running this fetch on every poseAssets update (e.g. after an in-modal pose upload) would clobber in-progress row edits
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Existing looks load once per template; pose assets are already seeded before this effect runs.
   useEffect(() => {
     if (!isEditing || !template) return;
     apiFetch<{ items: { id: string; poseAssetId: string; backgroundId: string }[] }>(
@@ -205,13 +197,16 @@ export function EditCatalogueTemplateModal({
             key: l.id,
             poseAssetId: l.poseAssetId,
             backgroundId: l.backgroundId,
-            workflowTemplateId:
-              poseAssets.find((p) => p.id === l.poseAssetId)?.workflowTemplateId ?? '',
+            shotType: localPoseAssets.find((p) => p.id === l.poseAssetId)?.shotType ?? null,
           })),
         );
       })
       .catch(() => setLooks([]))
       .finally(() => setLooksLoaded(true));
+    // localPoseAssets is intentionally excluded — this effect should only re-run when
+    // isEditing/template change, reading whatever localPoseAssets holds at that point
+    // (already seeded from the poseAssets prop before this effect can fire).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditing, template]);
 
   const poseAssetById = new Map(localPoseAssets.map((p) => [p.id, p]));
@@ -224,7 +219,7 @@ export function EditCatalogueTemplateModal({
         key: crypto.randomUUID(),
         poseAssetId: '',
         backgroundId: '',
-        workflowTemplateId: workflows[0]?.id ?? '',
+        shotType: 'full',
       },
     ]);
   }
@@ -245,7 +240,12 @@ export function EditCatalogueTemplateModal({
   async function handlePoseFileSelected(file: File) {
     const rowKey = poseUploadRowKeyRef.current;
     if (!rowKey) return;
-    const row = looks.find((l) => l.key === rowKey);
+    // Snapshot now, before any await — this is what "shot type at the moment this
+    // upload started" means, and it must not be recomputed after the network calls
+    // below, since the admin can still edit this row's selector while they're in
+    // flight (the selector is disabled only for the row currently uploading, which is
+    // this one, but that guard is enforced by the render, not by this closure).
+    const rowShotType = looks.find((l) => l.key === rowKey)?.shotType ?? null;
     setUploadingPoseForRow(rowKey);
     try {
       const presign = await apiFetch<{
@@ -268,8 +268,10 @@ export function EditCatalogueTemplateModal({
           r2Key: presign.r2Key,
           thumbnailKey: presign.thumbnailKey,
           genderSlug,
-          workflowTemplateId: row?.workflowTemplateId || undefined,
           scope: 'template',
+          // shotType is optional server-side — omit it entirely rather than sending
+          // null, since the API's Zod schema validates it as an enum, not nullable.
+          ...(rowShotType ? { shotType: rowShotType } : {}),
         }),
       });
       setLocalPoseAssets((prev) => [...prev, created]);
@@ -322,25 +324,6 @@ export function EditCatalogueTemplateModal({
     } finally {
       setUploadingBackgroundForRow(null);
       backgroundUploadRowKeyRef.current = null;
-    }
-  }
-
-  async function handleWorkflowChange(rowKey: string, workflowTemplateId: string) {
-    updateLookRow(rowKey, { workflowTemplateId });
-    const row = looks.find((l) => l.key === rowKey);
-    if (!row?.poseAssetId) return;
-    // Pose's workflow lives on the pose asset itself — keep it in sync so the
-    // dispatcher patches the workflow this row's admin actually chose.
-    try {
-      await apiFetch(`/admin/assets/pose-assets/${row.poseAssetId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ workflowTemplateId: workflowTemplateId || null }),
-      });
-      setLocalPoseAssets((prev) =>
-        prev.map((p) => (p.id === row.poseAssetId ? { ...p, workflowTemplateId } : p)),
-      );
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update workflow for this look' });
     }
   }
 
@@ -406,7 +389,11 @@ export function EditCatalogueTemplateModal({
         body: JSON.stringify({
           looks: looks
             .filter((l) => l.poseAssetId && l.backgroundId)
-            .map((l) => ({ poseAssetId: l.poseAssetId, backgroundId: l.backgroundId })),
+            .map((l) => ({
+              poseAssetId: l.poseAssetId,
+              backgroundId: l.backgroundId,
+              ...(l.shotType ? { shotType: l.shotType } : {}),
+            })),
         }),
       });
 
@@ -569,20 +556,28 @@ export function EditCatalogueTemplateModal({
                         loading={uploadingBackgroundForRow === row.key}
                         onClick={() => openBackgroundUpload(row.key)}
                       />
-                      <div className="field" style={{ flex: 1, minWidth: 0, marginBottom: 0 }}>
-                        <label>Workflow</label>
+                      <div className="field" style={{ margin: 0, width: 120 }}>
+                        <label style={{ fontSize: 10 }}>Shot type</label>
                         <select
                           className="select"
-                          value={row.workflowTemplateId}
-                          disabled={saving}
-                          onChange={(e) => void handleWorkflowChange(row.key, e.target.value)}
+                          style={{ fontSize: 12, padding: '3px 6px', height: 30 }}
+                          value={row.shotType ?? ''}
+                          disabled={saving || uploadingPoseForRow === row.key}
+                          title={
+                            uploadingPoseForRow === row.key
+                              ? 'Wait for the current upload to finish before changing this'
+                              : 'Saved when you click "Save template" below'
+                          }
+                          onChange={(e) =>
+                            updateLookRow(row.key, {
+                              shotType: (e.target.value || null) as LookRow['shotType'],
+                            })
+                          }
                         >
-                          <option value="">— none —</option>
-                          {workflows.map((w) => (
-                            <option key={w.id} value={w.id}>
-                              {w.label}
-                            </option>
-                          ))}
+                          <option value="">— not tagged —</option>
+                          <option value="full">Full pose</option>
+                          <option value="half">Half pose</option>
+                          <option value="closeup">Closeup</option>
                         </select>
                       </div>
                       <button

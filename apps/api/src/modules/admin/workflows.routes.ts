@@ -61,10 +61,12 @@ function extractPromptText(node: WorkflowNode | undefined): string {
 
 function extractDefaultPrompts(
   json: Record<string, unknown>,
-  negativePromptNode: string,
+  negativePromptNode: string | null,
   positivePromptNode: string,
 ): { defaultFacePhasePrompt: string; defaultGarmentPhasePrompt: string } {
-  const negNode = json[negativePromptNode] as WorkflowNode | undefined;
+  const negNode = negativePromptNode
+    ? (json[negativePromptNode] as WorkflowNode | undefined)
+    : undefined;
   const posNode = json[positivePromptNode] as WorkflowNode | undefined;
   return {
     defaultFacePhasePrompt: extractPromptText(negNode),
@@ -135,7 +137,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         throw new AppError('VALIDATION', 400, 'jsonContent must be a JSON object');
       }
 
-      if ((req.body as { workflowType?: string }).workflowType === 'tryon') {
+      const parseWorkflowType = (req.body as { workflowType?: string }).workflowType;
+      if (parseWorkflowType === 'tryon' || parseWorkflowType === 'saree_step1') {
         const { detected, allImageNodes, allPromptNodes } = detectTryonMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
       }
@@ -189,7 +192,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
 
       const workflowType = body.workflowType ?? 'regular';
 
-      if (workflowType === 'tryon') {
+      if (workflowType === 'tryon' || workflowType === 'saree_step1') {
         // Auto-detect node IDs from JSON when not explicitly provided
         const { detected: autoDetected } = detectTryonMappings(body.jsonContent);
         const personNodeId = body.tryonPersonNodeId ?? autoDetected.personNodeId ?? '';
@@ -243,7 +246,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             slug: body.slug,
             label: body.label,
             jsonContent: body.jsonContent,
-            workflowType: 'tryon',
+            workflowType,
             faceNodeId: '',
             poseNodeId: '',
             bgNodeId: '',
@@ -278,21 +281,21 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       // CreateWorkflowBody.superRefine() requires these fields for workflowType 'regular',
       // but the zod type itself keeps them optional — safe to assert here.
       // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-      const faceNodeId = body.faceNodeId!;
-      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const poseNodeId = body.poseNodeId!;
       // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-      const bgNodeId = body.bgNodeId!;
-      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-      const upperNodeIds = body.upperNodeIds!;
-      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
-      const facePhasePromptNode = body.facePhasePromptNode!;
-      // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
       const garmentPhasePromptNode = body.garmentPhasePromptNode!;
+      const upperNodeIds = body.upperNodeIds ?? [];
 
-      validateNodeExists(body.jsonContent, faceNodeId, 'face');
       validateNodeExists(body.jsonContent, poseNodeId, 'pose');
-      validateNodeExists(body.jsonContent, bgNodeId, 'background');
+      validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
+      if (body.faceNodeId) {
+        validateNodeExists(body.jsonContent, body.faceNodeId, 'face');
+        validateNodeType(body.jsonContent, body.faceNodeId, 'image', 'face');
+      }
+      if (body.bgNodeId) {
+        validateNodeExists(body.jsonContent, body.bgNodeId, 'background');
+        validateNodeType(body.jsonContent, body.bgNodeId, 'image', 'background');
+      }
       for (const uid of upperNodeIds) {
         validateNodeExists(body.jsonContent, uid, 'upper garment');
       }
@@ -301,26 +304,26 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       for (const uid of body.sizeNodeIds ?? []) {
         validateNodeExists(body.jsonContent, uid, 'size');
       }
-      validateNodeExists(body.jsonContent, facePhasePromptNode, 'negative prompt');
       validateNodeExists(body.jsonContent, garmentPhasePromptNode, 'positive prompt');
 
-      validateNodeType(body.jsonContent, faceNodeId, 'image', 'face');
-      validateNodeType(body.jsonContent, poseNodeId, 'image', 'pose');
-      validateNodeType(body.jsonContent, bgNodeId, 'image', 'background');
       for (const uid of upperNodeIds) {
         validateNodeType(body.jsonContent, uid, 'image', 'upper garment');
       }
       if (body.lowerNodeId)
         validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
       if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
-      validateNodeType(body.jsonContent, facePhasePromptNode, 'prompt', 'negative prompt');
       validateNodeType(body.jsonContent, garmentPhasePromptNode, 'prompt', 'positive prompt');
+      if (body.facePhasePromptNode) {
+        validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');
+        validateNodeType(body.jsonContent, body.facePhasePromptNode, 'prompt', 'negative prompt');
+      }
 
-      const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
-        body.jsonContent,
-        facePhasePromptNode,
-        garmentPhasePromptNode,
+      const defaultGarmentPhasePrompt = extractPromptText(
+        body.jsonContent[garmentPhasePromptNode] as WorkflowNode | undefined,
       );
+      const defaultFacePhasePrompt = body.facePhasePromptNode
+        ? extractPromptText(body.jsonContent[body.facePhasePromptNode] as WorkflowNode | undefined)
+        : '';
 
       const [row] = await app.db
         .insert(schema.workflowTemplates)
@@ -329,9 +332,9 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           label: body.label,
           jsonContent: body.jsonContent,
           workflowType: 'regular',
-          faceNodeId,
+          faceNodeId: body.faceNodeId ?? null,
           poseNodeId,
-          bgNodeId,
+          bgNodeId: body.bgNodeId ?? null,
           upperNodeIds,
           lowerNodeId: body.lowerNodeId ?? null,
           shoeNodeId: body.shoeNodeId ?? null,
@@ -341,7 +344,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           outputSizeNodeIds: body.outputSizeNodeIds ?? [],
           ...(body.outputMaxPx !== undefined ? { outputMaxPx: body.outputMaxPx } : {}),
           resultNodeId: body.resultNodeId ?? null,
-          facePhasePromptNode,
+          facePhasePromptNode: body.facePhasePromptNode ?? null,
           garmentPhasePromptNode,
           defaultFacePhasePrompt,
           defaultGarmentPhasePrompt,
@@ -357,6 +360,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         poseCount: 0,
         defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
         defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
+        upperNodeIds: row?.upperNodeIds,
         lowerNodeId: row?.lowerNodeId,
         shoeNodeId: row?.shoeNodeId,
         sizeNodeIds: row?.sizeNodeIds,
@@ -465,6 +469,35 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (body.garmentPhasePromptNode) {
         validateNodeExists(json, body.garmentPhasePromptNode, 'positive prompt');
         validateNodeType(json, body.garmentPhasePromptNode, 'prompt', 'positive prompt');
+      }
+
+      const mergedUpperNodeIds = body.upperNodeIds ?? existing.upperNodeIds;
+      const mergedLowerNodeId =
+        body.lowerNodeId !== undefined ? body.lowerNodeId : existing.lowerNodeId;
+      const mergedFaceNodeId =
+        body.faceNodeId !== undefined ? body.faceNodeId : existing.faceNodeId;
+      const mergedFacePhasePromptNode =
+        body.facePhasePromptNode !== undefined
+          ? body.facePhasePromptNode
+          : existing.facePhasePromptNode;
+
+      if (existing.workflowType === 'regular') {
+        const hasUpper = mergedUpperNodeIds.length > 0;
+        const hasLower = !!mergedLowerNodeId;
+        if (!hasUpper && !hasLower) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot clear the last garment role - at least one of upperNodeIds/lowerNodeId must remain set',
+          );
+        }
+        if (mergedFaceNodeId && !mergedFacePhasePromptNode) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'cannot leave faceNodeId set without facePhasePromptNode',
+          );
+        }
       }
 
       const newNegNode = body.facePhasePromptNode ?? existing.facePhasePromptNode;

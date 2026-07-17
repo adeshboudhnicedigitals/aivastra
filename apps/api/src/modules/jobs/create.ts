@@ -18,45 +18,61 @@ import {
   getResolutionCreditCost,
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
+import { assertGarmentObjectValid, assertOwnsUploadKey } from '../../lib/upload-ownership.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { promptGuard } from './sanitize.js';
 
-/** Max accepted garment upload size — mirrors the presign zod cap. */
-const MAX_GARMENT_BYTES = 10 * 1024 * 1024;
+export { assertOwnsUploadKey } from '../../lib/upload-ownership.js';
 
 /**
- * Reject a garment key that was not presigned for this user. The presign route
- * records `upload:owner:<key> -> userId`; a key bound to nobody (expired/never
- * issued) or to another user fails here.
- *
- * Also enforces the upload size (M2): the presigned PUT can't bind size at sign
- * time, so we verify the actually-uploaded object via HEAD before accepting the
- * job. Doubles as an existence check.
+ * Resolves a completed saree-mannequin job (see createSareeMannequinJob) to its
+ * output R2 key, for use as a step-2 job's upperGarmentKey. Mirrors
+ * assertOwnsUploadKey's ownership check, but against a job's own output rather
+ * than a presigned-upload Redis binding.
  */
-export async function assertOwnsUploadKey(app: FastifyInstance, userId: string, key: string) {
-  const owner = await app.redis.get(`upload:owner:${key}`);
-  if (owner !== userId) {
-    throw new AppError('FORBIDDEN', 403, 'upload key not owned by caller');
+export async function resolveMannequinGarmentKey(
+  app: FastifyInstance,
+  userId: string,
+  mannequinJobId: string,
+): Promise<string> {
+  const [row] = await app.db
+    .select({
+      userId: schema.jobs.userId,
+      status: schema.jobs.status,
+      kind: sql<string>`${schema.jobInputs.params}->>'kind'`.as('kind'),
+    })
+    .from(schema.jobs)
+    .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+    .where(eq(schema.jobs.id, mannequinJobId));
+  if (!row || row.userId !== userId) {
+    throw new AppError('FORBIDDEN', 403, 'mannequin job not owned by caller');
   }
-  let head: { contentLength: number };
-  try {
-    head = await app.storage.headObject(key);
-  } catch {
-    throw new AppError('BAD_UPLOAD', 400, 'uploaded garment not found');
+  if (row.kind !== 'saree_mannequin') {
+    throw new AppError('VALIDATION', 400, 'job is not a mannequin generation job');
   }
-  if (head.contentLength > MAX_GARMENT_BYTES) {
-    throw new AppError('BAD_UPLOAD', 413, 'uploaded garment exceeds size limit');
+  if (row.status !== 'COMPLETED') {
+    throw new AppError('VALIDATION', 400, 'mannequin generation not yet complete');
   }
+  return keys.output(mannequinJobId);
 }
 
 export async function createJob(
   app: FastifyInstance,
   userId: string,
   body: z.infer<typeof CreateTryOnJobRequest>,
+  opts?: { trustedGarmentKeys?: Set<string> },
 ) {
-  const { faceId, garmentTypeId, upperGarmentKey, lowerCatalogId, lowerGarmentKey, shoeCatalogId } =
-    body.inputs;
+  const {
+    faceId,
+    garmentTypeId,
+    catalogueTemplateMappingId,
+    upperGarmentKey,
+    mannequinJobId,
+    lowerCatalogId,
+    lowerGarmentKey,
+    shoeCatalogId,
+  } = body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
   const platform: string | undefined = body.platform;
 
@@ -88,12 +104,77 @@ export async function createJob(
   const resolution: Resolution = resolutionFromDims(outputDims.width, outputDims.height);
   const COST = await getResolutionCreditCost(app, resolution);
 
+  // Flat-saree (and any future two-pass) garment types resolve their garment
+  // input from a completed mannequin job instead of a fresh upload, and use a
+  // single fixed step-2 workflow for every pose (its own lowerNodeId/shoeNodeId
+  // govern validation below) instead of each pose's own default workflow or any
+  // pose_garment_configs override.
+  let requiresMannequinStep = false;
+  let sareeStep2: {
+    workflowTemplateId: string | null;
+    upperNodeIds: string[] | null;
+    lowerNodeId: string | null;
+    shoeNodeId: string | null;
+    sizeNodeIds: string[] | null;
+  } | null = null;
+  if (garmentTypeId) {
+    const [gtRow] = await app.db
+      .select({
+        requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+        sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
+        sareeStep2UpperNodeIds: schema.workflowTemplates.upperNodeIds,
+        sareeStep2LowerNodeId: schema.workflowTemplates.lowerNodeId,
+        sareeStep2ShoeNodeId: schema.workflowTemplates.shoeNodeId,
+        sareeStep2SizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+      })
+      .from(schema.garmentSubcategories)
+      .leftJoin(
+        schema.workflowTemplates,
+        eq(schema.workflowTemplates.id, schema.garmentSubcategories.sareeStep2WorkflowTemplateId),
+      )
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    requiresMannequinStep = gtRow?.requiresMannequinStep ?? false;
+    if (requiresMannequinStep) {
+      sareeStep2 = {
+        workflowTemplateId: gtRow?.sareeStep2WorkflowTemplateId ?? null,
+        upperNodeIds: gtRow?.sareeStep2UpperNodeIds ?? null,
+        lowerNodeId: gtRow?.sareeStep2LowerNodeId ?? null,
+        shoeNodeId: gtRow?.sareeStep2ShoeNodeId ?? null,
+        sizeNodeIds: gtRow?.sareeStep2SizeNodeIds ?? null,
+      };
+    }
+  }
+  if (requiresMannequinStep && !mannequinJobId) {
+    throw new AppError('VALIDATION', 400, 'mannequinJobId required for this garment type');
+  }
+  if (!requiresMannequinStep && mannequinJobId) {
+    throw new AppError('VALIDATION', 400, 'mannequinJobId not valid for this garment type');
+  }
+
   // H2: keys are format-pinned by zod, but the format alone does not prove the
   // caller owns the object — another user's key has the same shape. Verify each
   // garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
   // before any credit/DB mutation.
-  await assertOwnsUploadKey(app, userId, upperGarmentKey);
-  if (lowerGarmentKey) await assertOwnsUploadKey(app, userId, lowerGarmentKey);
+  async function verifyGarmentKey(key: string) {
+    if (opts?.trustedGarmentKeys?.has(key)) {
+      await assertGarmentObjectValid(app, key);
+      return;
+    }
+    await assertOwnsUploadKey(app, userId, key);
+  }
+  // The garment image actually used for this job's upper — either a fresh
+  // presigned upload (verified above via verifyGarmentKey, trusted-key aware for
+  // regeneration) or a completed saree-mannequin job's output (resolveMannequinGarmentKey
+  // does its own ownership check against jobs.userId, no Redis-binding TTL involved,
+  // so it doesn't need verifyGarmentKey's trusted-key bypass).
+  let resolvedUpperGarmentKey: string | undefined;
+  if (mannequinJobId) {
+    resolvedUpperGarmentKey = await resolveMannequinGarmentKey(app, userId, mannequinJobId);
+  } else if (upperGarmentKey) {
+    await verifyGarmentKey(upperGarmentKey);
+    resolvedUpperGarmentKey = upperGarmentKey;
+  }
+  if (lowerGarmentKey) await verifyGarmentKey(lowerGarmentKey);
 
   // Normalize to a single per-look list. This only rejects "neither form present" —
   // it does not independently re-enforce "not both", since CreateTryOnJobInputs's
@@ -235,20 +316,112 @@ export async function createJob(
   // Validate that workflow-required inputs are present for every selected pose.
   // If a pose's workflow has a lower garment node → lowerCatalogId is mandatory.
   // Same for shoes. This mirrors what the studio UI shows based on hasLower/hasShoes.
-  // A per-garment-type pose_garment_configs override (when one exists with a
-  // workflowTemplateId set) takes priority over the pose's own default workflow —
-  // must match the resolution used by /v1/models/poses and the dispatcher exactly,
-  // otherwise the UI and the server disagree on what's required.
+  // Mapped template looks resolve only from their mapping-specific pose workflows.
+  // Custom looks continue resolving through pose_garment_configs, where a configured
+  // workflow takes priority over the pose's default.
+  const mappingPoseWorkflows = catalogueTemplateMappingId
+    ? await (async () => {
+        if (!templateLooks || !garmentTypeId) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'catalogueTemplateMappingId requires looks and garmentTypeId',
+          );
+        }
+
+        const rows = await app.db
+          .select({
+            poseId: schema.catalogueTemplateLooks.poseAssetId,
+            backgroundId: schema.catalogueTemplateLooks.backgroundId,
+            workflowTemplateId: schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+            promptGarmentPhase: schema.catalogueTemplatePoseWorkflows.promptGarmentPhase,
+            upperNodeIds: schema.workflowTemplates.upperNodeIds,
+            lowerNodeId: schema.workflowTemplates.lowerNodeId,
+            shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            sizeNodeIds: schema.workflowTemplates.sizeNodeIds,
+          })
+          .from(schema.catalogueTemplateSubcategories)
+          .innerJoin(
+            schema.catalogueTemplateLooks,
+            eq(
+              schema.catalogueTemplateLooks.templateId,
+              schema.catalogueTemplateSubcategories.templateId,
+            ),
+          )
+          .innerJoin(
+            schema.catalogueTemplatePoseWorkflows,
+            and(
+              eq(
+                schema.catalogueTemplatePoseWorkflows.mappingId,
+                schema.catalogueTemplateSubcategories.id,
+              ),
+              eq(
+                schema.catalogueTemplatePoseWorkflows.poseAssetId,
+                schema.catalogueTemplateLooks.poseAssetId,
+              ),
+            ),
+          )
+          .innerJoin(
+            schema.workflowTemplates,
+            and(
+              eq(
+                schema.workflowTemplates.id,
+                schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+              ),
+              eq(schema.workflowTemplates.isActive, true),
+            ),
+          )
+          .where(
+            and(
+              eq(schema.catalogueTemplateSubcategories.id, catalogueTemplateMappingId),
+              eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId),
+            ),
+          );
+
+        const allowedLookKeys = new Set(rows.map((row) => `${row.poseId}::${row.backgroundId}`));
+        if (
+          rows.length === 0 ||
+          looks.some((look) => !allowedLookKeys.has(`${look.poseId}::${look.backgroundId}`))
+        ) {
+          throw new AppError(
+            'BAD_CATALOG',
+            400,
+            'one or more looks are not configured for this template mapping',
+          );
+        }
+
+        const byPose = new Map(rows.map((row) => [row.poseId, row]));
+        return distinctPoseIds.map((poseId) => {
+          const row = byPose.get(poseId);
+          if (!row) {
+            throw new AppError('BAD_CATALOG', 400, 'workflow not configured for template pose');
+          }
+          return {
+            poseId,
+            workflowTemplateId: row.workflowTemplateId,
+            promptGarmentPhase: row.promptGarmentPhase,
+            upperNodeIds: row.upperNodeIds,
+            lowerNodeId: row.lowerNodeId,
+            shoeNodeId: row.shoeNodeId,
+            sizeNodeIds: row.sizeNodeIds,
+          };
+        });
+      })()
+    : null;
+
   const defaultWorkflow = aliasedTable(schema.workflowTemplates, 'default_workflow');
   const overrideWorkflow = aliasedTable(schema.workflowTemplates, 'override_workflow');
   const poseWorkflowRows = await app.db
     .select({
       poseId: schema.modelPoseAssets.id,
+      defaultWorkflowTemplateId: schema.modelPoseAssets.workflowTemplateId,
+      defaultUpperNodeIds: defaultWorkflow.upperNodeIds,
       defaultLowerNodeId: defaultWorkflow.lowerNodeId,
       defaultShoeNodeId: defaultWorkflow.shoeNodeId,
       defaultSizeNodeIds: defaultWorkflow.sizeNodeIds,
       configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
       configIsActive: schema.poseGarmentConfigs.isActive,
+      overrideUpperNodeIds: overrideWorkflow.upperNodeIds,
       overrideLowerNodeId: overrideWorkflow.lowerNodeId,
       overrideShoeNodeId: overrideWorkflow.shoeNodeId,
       overrideSizeNodeIds: overrideWorkflow.sizeNodeIds,
@@ -273,23 +446,56 @@ export async function createJob(
   // A per-garment-type active override can hide a pose for this garment type
   // specifically (see /v1/models/poses) — reject here too so a stale client can't
   // submit a job for a pose+garmentType combo the admin explicitly disabled.
-  if (garmentTypeId && poseWorkflowRows.some((r) => r.configIsActive === false)) {
+  if (
+    !mappingPoseWorkflows &&
+    garmentTypeId &&
+    poseWorkflowRows.some((r) => r.configIsActive === false)
+  ) {
     throw new AppError('BAD_CATALOG', 400, 'one or more poses not found or inactive');
   }
 
-  const poseWorkflows = poseWorkflowRows.map((r) => ({
-    poseId: r.poseId,
-    lowerNodeId: r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
-    shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
-    sizeNodeIds: r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
-  }));
+  const poseWorkflows = requiresMannequinStep
+    ? distinctPoseIds.map((poseId) => ({
+        poseId,
+        workflowTemplateId: sareeStep2?.workflowTemplateId ?? null,
+        promptGarmentPhase: null,
+        upperNodeIds: sareeStep2?.upperNodeIds ?? [],
+        lowerNodeId: sareeStep2?.lowerNodeId ?? null,
+        shoeNodeId: sareeStep2?.shoeNodeId ?? null,
+        sizeNodeIds: sareeStep2?.sizeNodeIds ?? null,
+      }))
+    : (mappingPoseWorkflows ??
+      poseWorkflowRows.map((r) => ({
+        poseId: r.poseId,
+        workflowTemplateId: r.configWorkflowTemplateId ?? r.defaultWorkflowTemplateId,
+        promptGarmentPhase: null,
+        upperNodeIds:
+          r.configWorkflowTemplateId != null
+            ? (r.overrideUpperNodeIds ?? [])
+            : (r.defaultUpperNodeIds ?? []),
+        lowerNodeId:
+          r.configWorkflowTemplateId != null ? r.overrideLowerNodeId : r.defaultLowerNodeId,
+        shoeNodeId: r.configWorkflowTemplateId != null ? r.overrideShoeNodeId : r.defaultShoeNodeId,
+        sizeNodeIds:
+          r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
+      })));
 
   // Build map for O(1) lookup in the insert loop
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
 
   for (const pw of poseWorkflows) {
-    if (pw.lowerNodeId && !lowerCatalogId && !lowerGarmentKey) {
-      throw new AppError('VALIDATION', 400, 'lower garment required for this pose');
+    if (pw.upperNodeIds.length > 0 && !resolvedUpperGarmentKey) {
+      throw new AppError('VALIDATION', 400, 'upper garment required for this pose');
+    }
+    if (pw.lowerNodeId) {
+      if (pw.upperNodeIds.length === 0) {
+        // A sole lower hero must be the customer's upload, not a generic catalog image.
+        if (!lowerGarmentKey) {
+          throw new AppError('VALIDATION', 400, 'lower garment upload required for this pose');
+        }
+      } else if (!lowerCatalogId && !lowerGarmentKey) {
+        throw new AppError('VALIDATION', 400, 'lower garment required for this pose');
+      }
     }
     if (pw.shoeNodeId && !shoeCatalogId) {
       throw new AppError('VALIDATION', 400, 'shoe catalog item required for this pose');
@@ -324,6 +530,8 @@ export async function createJob(
 
       // Only store inputs the workflow actually supports — strips irrelevant fields
       // so the dispatcher never receives/resolves data it won't use.
+      const lookUpperGarmentKey =
+        pw?.upperNodeIds && pw.upperNodeIds.length > 0 ? (resolvedUpperGarmentKey ?? null) : null;
       const effectiveLowerCatalogId =
         pw?.lowerNodeId && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
       const effectiveLowerGarmentKey = pw?.lowerNodeId && lowerGarmentKey ? lowerGarmentKey : null;
@@ -347,7 +555,7 @@ export async function createJob(
       await atomicDeduct(tx as unknown as DB, userId, COST, job.id);
       await tx.insert(schema.jobInputs).values({
         jobId: job.id,
-        upperGarmentKey,
+        upperGarmentKey: lookUpperGarmentKey,
         faceId,
         backgroundId: look.backgroundId,
         poseId: look.poseId,
@@ -366,6 +574,13 @@ export async function createJob(
           ...(effectiveAspectRatio ? { aspectRatio: effectiveAspectRatio } : {}),
           resolution,
           ...(platform ? { platform } : {}),
+          ...(catalogueTemplateMappingId
+            ? {
+                catalogueTemplateMappingId,
+                workflowTemplateId: pw?.workflowTemplateId,
+                ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
+              }
+            : {}),
         },
       });
       created.push(job.id);

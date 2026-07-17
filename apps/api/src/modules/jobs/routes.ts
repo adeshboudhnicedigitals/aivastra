@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
   CreateSareeJobRequest,
+  CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
   CreateTryOnJobRequest,
   SareeConfigResponse,
@@ -14,6 +15,7 @@ import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
 import { createJob, createSimpleTryonJob } from './create.js';
 import { createSareeJob } from './createSaree.js';
+import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
 import { sseHandler, userStreamHandler } from './sse.js';
 
@@ -78,6 +80,26 @@ export async function jobsRoutes(app: FastifyInstance) {
             app,
             req.userId,
             req.body as z.infer<typeof CreateSimpleTryonRequest>,
+          ),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.post(
+    '/v1/jobs/saree-mannequin',
+    { preHandler: app.requireUser, schema: { body: CreateSareeMannequinJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () =>
+          createSareeMannequinJob(
+            app,
+            req.userId,
+            req.body as z.infer<typeof CreateSareeMannequinJobRequest>,
           ),
       );
       reply.code(201);
@@ -278,6 +300,7 @@ export async function jobsRoutes(app: FastifyInstance) {
         and(
           eq(schema.jobs.userId, req.userId),
           sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+          sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
         ),
       )
       .orderBy(desc(schema.jobs.createdAt))
@@ -353,6 +376,7 @@ export async function jobsRoutes(app: FastifyInstance) {
             eq(schema.jobs.catalogueId, id),
             eq(schema.jobs.userId, req.userId),
             sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+            sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
           ),
         )
         .orderBy(schema.jobs.createdAt);
@@ -370,22 +394,38 @@ export async function jobsRoutes(app: FastifyInstance) {
         .select({
           params: schema.jobInputs.params,
           upperGarmentKey: schema.jobInputs.upperGarmentKey,
+          lowerGarmentKey: schema.jobInputs.lowerGarmentKey,
+          lowerCatalogId: schema.jobInputs.lowerCatalogId,
+          genderSlug: schema.garmentSubcategories.genderSlug,
+          garmentLabel: schema.garmentSubcategories.label,
         })
         .from(schema.jobInputs)
         .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .leftJoin(
+          schema.garmentSubcategories,
+          eq(schema.jobInputs.garmentTypeId, schema.garmentSubcategories.id),
+        )
         .where(and(eq(schema.jobs.catalogueId, id), eq(schema.jobs.userId, req.userId)))
         .limit(1);
       const aspectRatio =
         (anyInput?.params as { aspectRatio?: string } | null)?.aspectRatio ?? null;
+      const platform = (anyInput?.params as { platform?: string } | null)?.platform ?? null;
 
       let garmentUrl: string | null = null;
-      if (anyInput?.upperGarmentKey) {
+      const heroKey = anyInput?.upperGarmentKey ?? anyInput?.lowerGarmentKey ?? null;
+      if (heroKey) {
         try {
-          const { url } = await app.storage.presignGet(anyInput.upperGarmentKey, 3600);
+          const { url } = await app.storage.presignGet(heroKey, 3600);
           garmentUrl = url;
         } catch {
           // non-fatal
         }
+      } else if (anyInput?.lowerCatalogId) {
+        const [catalogItem] = await app.db
+          .select({ thumbnailKey: schema.catalogItems.thumbnailKey })
+          .from(schema.catalogItems)
+          .where(eq(schema.catalogItems.id, anyInput.lowerCatalogId));
+        if (catalogItem?.thumbnailKey) garmentUrl = app.storage.publicUrl(catalogItem.thumbnailKey);
       }
 
       // Current plan's watermark entitlement — NOT the per-job snapshot. The UI
@@ -400,45 +440,99 @@ export async function jobsRoutes(app: FastifyInstance) {
         .where(eq(schema.users.id, req.userId));
       const currentPlanWatermark = planRow?.watermark ?? false;
 
-      return { catalogueId: id, jobs, aspectRatio, garmentUrl, currentPlanWatermark };
+      return {
+        catalogueId: id,
+        jobs,
+        aspectRatio,
+        platform,
+        garmentUrl,
+        currentPlanWatermark,
+        gender: anyInput?.genderSlug ?? null,
+        garmentName: anyInput?.garmentLabel ?? null,
+      };
     },
   );
 
   // List user's unique uploaded garments — deduplicated by R2 key
   app.get('/v1/assets', { preHandler: app.requireUser }, async (req) => {
-    const result = await app.db
-      .select({
-        r2Key: schema.jobInputs.upperGarmentKey,
-        uploadedAt: sql<Date>`MAX(${schema.jobs.createdAt})`.as('uploadedAt'),
-        jobCount: sql<number>`COUNT(${schema.jobs.id})`.as('jobCount'),
-      })
-      .from(schema.jobInputs)
-      .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
-      .where(
-        and(
-          eq(schema.jobs.userId, req.userId),
-          // Try-on jobs set upperGarmentKey to keys.output(sourceJobId) — a prior
-          // job's GENERATED result reused as the "garment" input, not a real
-          // upload. Exclude those (identified by params.sourceJobId) so this page
-          // only lists actual product photos.
-          sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
-        ),
-      )
-      .groupBy(schema.jobInputs.upperGarmentKey)
-      .orderBy(desc(sql`MAX(${schema.jobs.createdAt})`));
+    // Try-on jobs set upperGarmentKey to keys.output(sourceJobId) — a prior job's
+    // GENERATED result reused as the "garment" input, not a real upload. Hidden
+    // internal mannequin-generation jobs (see createSareeMannequinJob) are never
+    // a real product photo either. Exclude both so this page only lists actual
+    // product photos.
+    const excludeReuse = and(
+      sql`${schema.jobInputs.params}->>'sourceJobId' is null`,
+      sql`${schema.jobInputs.params}->>'kind' is distinct from 'saree_mannequin'`,
+    );
+    const [upperRows, lowerRows] = await Promise.all([
+      app.db
+        .select({
+          r2Key: schema.jobInputs.upperGarmentKey,
+          uploadedAt: sql<Date>`MAX(${schema.jobs.createdAt})`.as('uploadedAt'),
+          jobCount: sql<number>`COUNT(${schema.jobs.id})`.as('jobCount'),
+        })
+        .from(schema.jobInputs)
+        .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.userId, req.userId),
+            sql`${schema.jobInputs.upperGarmentKey} is not null`,
+            excludeReuse,
+          ),
+        )
+        .groupBy(schema.jobInputs.upperGarmentKey),
+      app.db
+        .select({
+          r2Key: schema.jobInputs.lowerGarmentKey,
+          uploadedAt: sql<Date>`MAX(${schema.jobs.createdAt})`.as('uploadedAt'),
+          jobCount: sql<number>`COUNT(${schema.jobs.id})`.as('jobCount'),
+        })
+        .from(schema.jobInputs)
+        .innerJoin(schema.jobs, eq(schema.jobInputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.userId, req.userId),
+            sql`${schema.jobInputs.lowerGarmentKey} is not null`,
+            excludeReuse,
+          ),
+        )
+        .groupBy(schema.jobInputs.lowerGarmentKey),
+    ]);
+
+    // Merge, de-duplicating by r2Key - a garment could theoretically appear as
+    // both an upper and lower upload across different jobs. Keep the most
+    // recent uploadedAt and sum jobCount when a key appears in both sets.
+    // Raw sql`` fragments (MAX/COUNT above) come back from the driver as strings
+    // regardless of the sql<Date>/sql<number> type annotations — those generics
+    // are TypeScript-only and do nothing at runtime — so both must be coerced
+    // here rather than trusted as already being a Date/number.
+    const merged = new Map<string, { r2Key: string; uploadedAt: Date; jobCount: number }>();
+    for (const row of [...upperRows, ...lowerRows]) {
+      if (!row.r2Key) continue;
+      const uploadedAt = new Date(row.uploadedAt);
+      const jobCount = Number(row.jobCount);
+      const existing = merged.get(row.r2Key);
+      if (existing) {
+        existing.jobCount += jobCount;
+        if (uploadedAt > existing.uploadedAt) existing.uploadedAt = uploadedAt;
+      } else {
+        merged.set(row.r2Key, { r2Key: row.r2Key, uploadedAt, jobCount });
+      }
+    }
+    const result = [...merged.values()].sort(
+      (a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime(),
+    );
 
     // Presign each thumbnail server-side so the client gets URLs in one response
     // instead of firing a /v1/uploads/thumbnail request per asset (N+1).
     return Promise.all(
       result.map(async (asset) => {
         let thumbnailUrl: string | null = null;
-        if (asset.r2Key) {
-          try {
-            const { url } = await app.storage.presignGet(asset.r2Key, 3600);
-            thumbnailUrl = url;
-          } catch {
-            /* missing object — leave null, client shows placeholder */
-          }
+        try {
+          const { url } = await app.storage.presignGet(asset.r2Key, 3600);
+          thumbnailUrl = url;
+        } catch {
+          /* missing object - leave null, client shows placeholder */
         }
         return {
           r2Key: asset.r2Key,

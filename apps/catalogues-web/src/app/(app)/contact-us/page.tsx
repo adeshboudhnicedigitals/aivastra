@@ -74,7 +74,7 @@ export default function ContactUsPage() {
             }}
           >
             <div>
-              <div style={{ fontSize: 26, fontWeight: 600, color: '#1A1A2E' }}>Lets Connect</div>
+              <div style={{ fontSize: 26, fontWeight: 600, color: '#1A1A2E' }}>Let's Connect</div>
               <div style={{ fontSize: 14, color: C.mid, lineHeight: 1.5 }}>
                 Reach out to us through any of the following channels.
               </div>

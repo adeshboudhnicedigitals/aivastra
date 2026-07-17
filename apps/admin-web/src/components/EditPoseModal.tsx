@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
@@ -275,8 +275,12 @@ export function EditPoseModal({
       });
       toast({ title: `${form.label} updated` });
       onClose();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update pose' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update pose',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSaving(false);
     }

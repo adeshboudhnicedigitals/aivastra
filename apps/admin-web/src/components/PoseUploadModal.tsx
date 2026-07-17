@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelPoseAsset, WorkflowOption } from '../types';
 import { Icon } from './Icons';
@@ -98,7 +98,13 @@ export function PoseUploadModal({
           setPromptGarmentPhase(first.defaultGarmentPhasePrompt);
         }
       })
-      .catch(() => toast({ kind: 'error', title: 'Failed to load workflows' }));
+      .catch((e) =>
+        toast({
+          kind: 'error',
+          title: 'Failed to load workflows',
+          body: apiErrorMessage(e, 'Please try again.'),
+        }),
+      );
   }, [toast]);
 
   // cleanup object URLs on unmount only — intentionally omit entries from deps

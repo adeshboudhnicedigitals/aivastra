@@ -33,7 +33,9 @@ export async function catalogRoutes(app: FastifyInstance) {
 
       const poseIds = poseIdsParam ? poseIdsParam.split(',').filter(Boolean) : [];
 
-      // If poseIds provided, check that at least one pose supports lower/shoe (via workflowTemplateId).
+      // If poseIds provided, check that at least one pose supports lower/shoe. When a
+      // garment type is selected, a pose_garment_configs workflow override is the
+      // effective workflow; otherwise use the pose asset's default workflow.
       // Poses are now per-gender and not tied to subcategories, so we return all active catalog
       // items of that type/gender when any selected pose has the required node.
       if (poseIds.length > 0) {
@@ -41,26 +43,95 @@ export async function catalogRoutes(app: FastifyInstance) {
           type === 'lower'
             ? schema.workflowTemplates.lowerNodeId
             : schema.workflowTemplates.shoeNodeId;
-        const supportingPoses = await app.db
-          .select({ id: schema.modelPoseAssets.id })
-          .from(schema.modelPoseAssets)
-          .innerJoin(
-            schema.workflowTemplates,
-            eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
-          )
-          .where(and(inArray(schema.modelPoseAssets.id, poseIds), isNotNull(nodeField)));
+        // A pose "supports" this role via either of two independent workflow-resolution
+        // paths: its own effective workflow — default workflowTemplateId, or a
+        // garment-type-specific pose_garment_configs override which takes priority
+        // over the default when a garment type is selected (used by the custom
+        // "choose your look" flow) — or a per-(catalogue-template-mapping, pose)
+        // workflow assignment (used by the template flow — see
+        // catalogue_template_pose_workflows). A template-scoped pose commonly has no
+        // default workflow of its own, since its entire workflow role comes from the
+        // mapping-specific assignment — checking only the default/config path caused
+        // every template whose poses have no default workflow to see zero lower/shoe
+        // options regardless of what the template's actually resolved workflow
+        // declares.
+        const [poseWorkflowRows, mappedSupporting] = await Promise.all([
+          app.db
+            .select({
+              id: schema.modelPoseAssets.id,
+              lowerNodeId: schema.workflowTemplates.lowerNodeId,
+              shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            })
+            .from(schema.modelPoseAssets)
+            .leftJoin(
+              schema.workflowTemplates,
+              eq(schema.modelPoseAssets.workflowTemplateId, schema.workflowTemplates.id),
+            )
+            .where(inArray(schema.modelPoseAssets.id, poseIds)),
+          app.db
+            .select({ id: schema.catalogueTemplatePoseWorkflows.poseAssetId })
+            .from(schema.catalogueTemplatePoseWorkflows)
+            .innerJoin(
+              schema.workflowTemplates,
+              eq(
+                schema.catalogueTemplatePoseWorkflows.workflowTemplateId,
+                schema.workflowTemplates.id,
+              ),
+            )
+            .where(
+              and(
+                inArray(schema.catalogueTemplatePoseWorkflows.poseAssetId, poseIds),
+                isNotNull(nodeField),
+              ),
+            )
+            .limit(1),
+        ]);
 
-        if (supportingPoses.length === 0) return { type, tree: [] };
+        let configMap = new Map<
+          string,
+          { lowerNodeId: string | null; shoeNodeId: string | null }
+        >();
+        if (garmentTypeId && poseWorkflowRows.length > 0) {
+          const configs = await app.db
+            .select({
+              poseAssetId: schema.poseGarmentConfigs.poseAssetId,
+              workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+              lowerNodeId: schema.workflowTemplates.lowerNodeId,
+              shoeNodeId: schema.workflowTemplates.shoeNodeId,
+            })
+            .from(schema.poseGarmentConfigs)
+            .leftJoin(
+              schema.workflowTemplates,
+              eq(schema.poseGarmentConfigs.workflowTemplateId, schema.workflowTemplates.id),
+            )
+            .where(
+              and(
+                inArray(schema.poseGarmentConfigs.poseAssetId, poseIds),
+                eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId),
+              ),
+            );
 
-        // Return all active catalog items of this type/gender
-        const conditions = [
-          eq(schema.catalogItems.isActive, true),
-          eq(schema.catalogItems.type, type),
-        ];
-        if (gender) conditions.push(eq(schema.catalogItems.genderSlug, gender));
+          configMap = new Map(
+            configs
+              .filter((c) => c.workflowTemplateId != null)
+              .map((c) => [
+                c.poseAssetId,
+                { lowerNodeId: c.lowerNodeId ?? null, shoeNodeId: c.shoeNodeId ?? null },
+              ]),
+          );
+        }
 
-        // Also ensure the garment type's default item is included
+        const hasSupportingPose = poseWorkflowRows.some((pose) => {
+          const cfg = configMap.get(pose.id);
+          const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : pose.lowerNodeId;
+          const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : pose.shoeNodeId;
+          return type === 'lower' ? lowerNodeId != null : shoeNodeId != null;
+        });
+
+        if (!hasSupportingPose && mappedSupporting.length === 0) return { type, tree: [] };
+
         const defaultIds: string[] = [];
+        const mappedIds: string[] = [];
         if (garmentTypeId) {
           const [gt] = await app.db
             .select({
@@ -71,7 +142,25 @@ export async function catalogRoutes(app: FastifyInstance) {
             .where(eq(schema.garmentSubcategories.id, garmentTypeId));
           const defaultId = type === 'lower' ? gt?.defaultLowerCatalogId : gt?.defaultShoeCatalogId;
           if (defaultId) defaultIds.push(defaultId);
+
+          const mappings = await app.db
+            .select({ catalogItemId: schema.catalogItemSubcategories.catalogItemId })
+            .from(schema.catalogItemSubcategories)
+            .where(eq(schema.catalogItemSubcategories.subcategoryId, garmentTypeId));
+          mappedIds.push(...mappings.map((m) => m.catalogItemId));
         }
+
+        const allowedIds = [...new Set([...mappedIds, ...defaultIds])];
+        if (garmentTypeId && allowedIds.length === 0) return { type, tree: [] };
+
+        // Return active catalog items of this type/gender. When a garment type is
+        // selected, limit the result to assets mapped to that type plus its default.
+        const conditions = [
+          eq(schema.catalogItems.isActive, true),
+          eq(schema.catalogItems.type, type),
+        ];
+        if (gender) conditions.push(eq(schema.catalogItems.genderSlug, gender));
+        if (garmentTypeId) conditions.push(inArray(schema.catalogItems.id, allowedIds));
 
         const items = await app.db
           .select()

@@ -7,6 +7,9 @@ pre-commit:
 
 pre-push:
   jobs:
+    - name: no-direct-main-push
+      run: bash scripts/check-no-direct-main-push.sh
+
     - name: migrations-sync
       run: bash scripts/check-migrations-sync.sh
 

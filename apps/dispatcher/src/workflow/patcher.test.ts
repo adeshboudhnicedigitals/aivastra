@@ -75,7 +75,60 @@ const BASE_INPUTS = {
   faceSideFile: 'face_abc123.jpg',
   poseFile: 'pose_abc123.jpg',
   backgroundFile: 'bg_abc123.jpg',
+  lowerGarmentFile: 'lower_abc123.jpg',
+  shoeGarmentFile: 'shoe_abc123.jpg',
 };
+
+describe('fail-closed on missing garment input for a mapped role', () => {
+  it('throws when upperNodeIds is mapped but upperGarmentFile is missing', () => {
+    const wf = makeWorkflow();
+    const { upperGarmentFile, ...inputsWithoutUpper } = BASE_INPUTS;
+    expect(() =>
+      applyWorkflowPatch(
+        wf,
+        makeTemplate({ faceNodeId: null, bgNodeId: null }),
+        inputsWithoutUpper,
+      ),
+    ).toThrow(/upper/i);
+  });
+
+  it('throws when lowerNodeId is mapped but lowerGarmentFile is missing (no fallback to upper)', () => {
+    const wf = makeWorkflow();
+    const { lowerGarmentFile, ...inputsWithoutLower } = BASE_INPUTS;
+    expect(() =>
+      applyWorkflowPatch(wf, makeTemplate({ lowerNodeId: '1331' }), inputsWithoutLower),
+    ).toThrow(/lower/i);
+  });
+
+  it('throws when faceNodeId is mapped but faceSideFile is missing', () => {
+    const wf = makeWorkflow();
+    const { faceSideFile, ...inputsWithoutFace } = BASE_INPUTS;
+    expect(() =>
+      applyWorkflowPatch(wf, makeTemplate({ bgNodeId: null }), inputsWithoutFace),
+    ).toThrow(/face/i);
+  });
+
+  it('does not throw for an unmapped role even when its input is absent', () => {
+    const wf = makeWorkflow();
+    const { upperGarmentFile, ...inputsWithoutUpper } = BASE_INPUTS;
+    expect(() =>
+      applyWorkflowPatch(
+        wf,
+        makeTemplate({ faceNodeId: null, bgNodeId: null, upperNodeIds: [], lowerNodeId: '1331' }),
+        { ...inputsWithoutUpper, lowerGarmentFile: 'lower_abc123.jpg' },
+      ),
+    ).not.toThrow();
+  });
+
+  it('patches the lower node with its own file, not a fallback, when both are provided', () => {
+    const wf = makeWorkflow();
+    applyWorkflowPatch(wf, makeTemplate(), {
+      ...BASE_INPUTS,
+      lowerGarmentFile: 'lower_xyz.jpg',
+    });
+    expect(wf['1331']?.inputs.image).toBe('lower_xyz.jpg');
+  });
+});
 
 // ── Required image nodes — must ALL be patched ────────────────────────────
 
@@ -155,20 +208,6 @@ describe('lower garment', () => {
     expect(wf['1331']?.inputs.image).toBe('lower_abc123.jpg');
   });
 
-  it('falls back to upperGarmentFile (exactly) when lowerNodeId is mapped but no lower garment provided', () => {
-    const wf = makeWorkflow();
-    applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    // Must be the EXACT upperGarmentFile string, not just any truthy value
-    expect(wf['1331']?.inputs.image).toBe(BASE_INPUTS.upperGarmentFile);
-  });
-
-  it('logs a warning when falling back to upper garment', () => {
-    const wf = makeWorkflow();
-    const warn = vi.fn();
-    applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS, { warn });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('falling back to upper garment'));
-  });
-
   it('leaves lower node completely untouched when lowerNodeId is null (no mapping)', () => {
     const wf = makeWorkflow();
     const tmpl = makeTemplate({ lowerNodeId: null });
@@ -200,10 +239,10 @@ describe('shoes', () => {
     expect(wf['1352']?.inputs.image).toBe('shoe_abc123.jpg');
   });
 
-  it('falls back to upperGarmentFile (exactly) when shoeNodeId is mapped but no shoe provided', () => {
+  it('throws when shoeNodeId is mapped but no shoe file is provided', () => {
     const wf = makeWorkflow();
-    applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
-    expect(wf['1352']?.inputs.image).toBe(BASE_INPUTS.upperGarmentFile);
+    const { shoeGarmentFile, ...inputsWithoutShoe } = BASE_INPUTS;
+    expect(() => applyWorkflowPatch(wf, makeTemplate(), inputsWithoutShoe)).toThrow(/shoe/i);
   });
 
   it('leaves shoe node completely untouched when shoeNodeId is null', () => {
