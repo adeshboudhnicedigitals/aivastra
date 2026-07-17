@@ -248,6 +248,7 @@ class SareecategoryDataViewModel : ViewModel() {
         pollingJob?.cancel()
         pollingJob = null
     }
+    suspend fun getTryonPhotoUrlSync(r2Key: String): String = repository.getTryonPhotoUrl(r2Key)
     fun fetchVastraTryOnResultAPI(
         activity: Activity,
         garmentId: String,

@@ -38,6 +38,8 @@ import androidx.core.content.FileProvider
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import com.example.facewixlatest.ApiUtils.ApiErrorPresenter
+import com.example.facewixlatest.ApiUtils.ApiException
 import com.yalantis.ucrop.UCrop
 import com.yalantis.ucrop.util.FileUtils
 import kotlinx.coroutines.Dispatchers
@@ -660,23 +662,52 @@ class CapturePhotoActivity : BaseActivity() {
         }
     }
 
-    private fun checkUserUploadImageStatus(securityCode:String){
-        sareeCatViewmodel.startCheckOfUserImageUpload(securityCode)
+    private fun checkUserUploadImageStatus(token: String) {
+        sareeCatViewmodel.startCheckOfUserImageUpload(token)
         sareeCatViewmodel.uploadUserImageData.observe(this) { uploadUserImageData ->
             LoaderManager.remove(this)
-            if(uploadUserImageData!=null){
+            if (uploadUserImageData != null) {
+                if (!uploadUserImageData.status) {
+                    resetUploadImageObserver()
+                    ViewControll.showMessage(
+                        this,
+                        uploadUserImageData.message.ifBlank { "This QR code expired. Please try again." },
+                    )
+                    finish()
+                    return@observe
+                }
                 resetUploadImageObserver()
-                PrefsManager.saveImageId(this,uploadUserImageData.garment_id)
-                gotoNextScreen(uploadUserImageData.imagePath,AppConstant.ISFROM_SCAN_QR_CODE)
+                LoaderManager.show(this, findViewById(android.R.id.content), true)
+                LoaderManager.setMessage(getString(R.string.fetching_photo))
+                lifecycleScope.launch {
+                    val downloadedFile = try {
+                        downloadUploadedPhotoToCache(uploadUserImageData.imagePath)
+                    } catch (cause: Throwable) {
+                        val (title, message) = ApiErrorPresenter.present(cause)
+                        LoaderManager.remove(this@CapturePhotoActivity)
+                        ViewControll.showMessage(this@CapturePhotoActivity, "$title: $message")
+                        return@launch
+                    }
+                    LoaderManager.remove(this@CapturePhotoActivity)
+                    if (downloadedFile == null) {
+                        ViewControll.showMessage(
+                            this@CapturePhotoActivity,
+                            "App error: could not load the uploaded photo. Please try again.",
+                        )
+                        return@launch
+                    }
+                    PrefsManager.saveImageId(this@CapturePhotoActivity, uploadUserImageData.garment_id)
+                    gotoNextScreen(downloadedFile.absolutePath, AppConstant.ISFROM_SCAN_QR_CODE)
+                }
             }
         }
         sareeCatViewmodel.userOpenQrCodeLink.observe(this) { uploadUserImageData ->
-            if(uploadUserImageData!=null){
-                if(uploadUserImageData.open.equals("yes",true)){
+            if (uploadUserImageData != null) {
+                if (uploadUserImageData.open.equals("yes", true)) {
                     binding.imgQrcode.isVisible = false
                     binding.progressLoader.isVisible = true
                     binding.txtProgressStatus.text = getString(R.string.fetching_photo)
-                }else{
+                } else {
                     binding.imgQrcode.isVisible = true
                     binding.progressLoader.isVisible = false
                     binding.txtProgressStatus.text = getString(R.string.scan_amp_send_photo)
@@ -685,6 +716,50 @@ class CapturePhotoActivity : BaseActivity() {
         }
     }
 
+    private suspend fun downloadUploadedPhotoToCache(r2Key: String): File? {
+        return try {
+            val viewModel = ViewModelProvider(this).get(SareecategoryDataViewModel::class.java)
+            val presignedGetUrl = viewModel.getTryonPhotoUrlSync(r2Key)
+            downloadImageToCacheAsync(this, presignedGetUrl, "qr_upload_${System.currentTimeMillis()}.jpg")
+        } catch (cause: ApiException) {
+            throw cause
+        } catch (cause: IOException) {
+            throw ApiException.NetworkError(cause)
+        } catch (cause: Exception) {
+            throw ApiException.ClientError(cause.message ?: "Could not load the uploaded photo")
+        }
+    }
+
+    private suspend fun downloadImageToCacheAsync(context: Context, url: String, fileName: String): File? {
+        return withContext(Dispatchers.IO) {
+            try {
+                okhttp3.OkHttpClient().newCall(okhttp3.Request.Builder().url(url).build()).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw ApiException.BackendError(
+                            code = "PHOTO_DOWNLOAD_HTTP_${response.code}",
+                            backendMessage = "Photo download failed with HTTP ${response.code}",
+                            httpStatus = response.code,
+                        )
+                    }
+                    val inputStream = response.body?.byteStream()
+                        ?: throw ApiException.ClientError("Photo download returned an empty response")
+                    inputStream.use { stream ->
+                        val bitmap = BitmapFactory.decodeStream(stream)
+                            ?: throw ApiException.ClientError("Photo download returned an invalid image")
+                        val tempFile = File(context.cacheDir, fileName)
+                        FileOutputStream(tempFile).use { out ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+                        }
+                        tempFile
+                    }
+                }
+            } catch (cause: ApiException) {
+                throw cause
+            } catch (cause: IOException) {
+                throw ApiException.NetworkError(cause)
+            }
+        }
+    }
     private fun gotoProductScanActivity(){
         val intent = Intent(this@CapturePhotoActivity, ProductQrScannerActivity::class.java)
         intent.putExtra(AppConstant.VASTRA_FOR,vastraFor)
