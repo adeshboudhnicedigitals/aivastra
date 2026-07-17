@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import cookie from '@fastify/cookie';
@@ -71,6 +74,24 @@ import { sentryPlugin } from './plugins/sentry.js';
 import { shopifyAuthPlugin } from './plugins/shopify-auth.js';
 import { shopifyWidgetAuthPlugin } from './plugins/shopify-widget-auth.js';
 import { storagePlugin } from './plugins/storage.js';
+
+// Scalar renders info.description as markdown on the /v1/dev/docs "Introduction" page.
+// The quickstart is maintained as a standalone doc (readable outside a running server,
+// linkable from GitHub) — read it in as the single source of truth rather than
+// duplicating its content as an inline string here.
+const DEV_API_QUICKSTART_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../docs/dev-api-quickstart.md',
+);
+
+function loadDevApiDescription(): string {
+  try {
+    // Drop the leading H1 — Scalar already renders info.title above this description.
+    return readFileSync(DEV_API_QUICKSTART_PATH, 'utf8').replace(/^#[^\n]*\n+/, '');
+  } catch {
+    return 'Generate a virtual try-on image from a person image and a garment image.';
+  }
+}
 
 export async function buildServer(env: Env) {
   const app = Fastify({ loggerInstance: createLogger('api') }).withTypeProvider<ZodTypeProvider>();
@@ -160,7 +181,7 @@ export async function buildServer(env: Env) {
     openapi: {
       info: {
         title: 'Try-On API',
-        description: 'Generate a virtual try-on image from a person image and a garment image.',
+        description: loadDevApiDescription(),
         version: '1.0.0',
       },
       components: {
