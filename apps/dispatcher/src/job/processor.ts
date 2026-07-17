@@ -406,6 +406,7 @@ export async function processJob(
     if (needsBg) baseTasks.push(uploadToComfy(bgKey, 'bg'));
     if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
     if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
+    if (inputs.thirdGarmentKey) baseTasks.push(uploadToComfy(inputs.thirdGarmentKey, 'third'));
     const uploaded = await Promise.all(baseTasks);
 
     let idx = 0;
@@ -416,6 +417,7 @@ export async function processJob(
     const backgroundFile = needsBg ? uploaded[idx++] : undefined;
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
+    const thirdGarmentFile = inputs.thirdGarmentKey ? uploaded[idx++] : undefined;
     jobLog.info(
       {
         upperGarmentFile,
@@ -424,6 +426,7 @@ export async function processJob(
         backgroundFile,
         lowerGarmentFile,
         shoeGarmentFile,
+        thirdGarmentFile,
       },
       'inputs uploaded',
     );
@@ -445,6 +448,7 @@ export async function processJob(
         backgroundFile,
         lowerGarmentFile,
         shoeGarmentFile,
+        thirdGarmentFile,
         promptFacePhase: effectivePromptFacePhase ?? undefined,
         promptGarmentPhase: effectivePromptGarmentPhase ?? undefined,
         aspectRatio: jobAspectRatio,
@@ -479,6 +483,7 @@ export async function processJob(
           backgroundFile,
           lowerGarmentFile,
           shoeGarmentFile,
+          thirdGarmentFile,
           promptFacePhase: effectivePromptFacePhase ?? null,
           promptGarmentPhase: effectivePromptGarmentPhase ?? null,
           aspectRatio: jobAspectRatio ?? null,
@@ -492,6 +497,7 @@ export async function processJob(
             bgSource,
             lowerKey,
             shoeKey,
+            thirdGarmentKey: inputs.thirdGarmentKey,
           },
         },
         prompt,
