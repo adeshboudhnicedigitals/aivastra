@@ -1,3 +1,26 @@
+## 2026-07-17 - Merchant Try-On Android Integration
+
+### Done
+- Implemented merchant try-on backend routes for presign, job creation/status/SSE/cancel, result like/cart, Redis-backed QR upload sessions, public token-only presign/complete, and the merchant-owned presigned photo GET route.
+- Preserved the no-billing decision: merchant try-on jobs insert `creditsCharged: 0` and never call credit deduction or refund helpers.
+- Passed the real Postgres/Redis/MinIO integration harness: 3 new backend suites, 11 tests; the Task 16 photo-url suite passes 5 tests.
+- Added the public `/kiosk-upload/[token]` web page and allowed it through auth middleware.
+- Wired Android catalog pricing, direct capture upload, QR upload polling/download, job polling, structured server/network/app errors, result like/cart persistence, lifecycle cancellation, manual QR refresh, and product prices.
+- Verified Task 17's existing upload observer already displays the structured ViewModel error string; no source change was required.
+- No changes were made to `apps/admin-mobile` or `ProductQrScannerActivity`.
+
+### Failed / Not Done
+- Android `:app:compileDebugKotlin` could not run because this environment has no JDK (`JAVA_HOME` and `java` are absent).
+- `pnpm --filter @aivastra/api typecheck` and build remain blocked by pre-existing admin/dev/API-key schema drift (`apiKeyId`, `devUpload`, and `schema.apiKeys` errors), outside this plan's flow.
+- `pnpm --filter @aivastra/web build` bundles the new page successfully but fails on the pre-existing duplicate `upperUploadLabel` declaration in `src/app/(app)/studio/page.tsx`.
+- Full physical-device/ComfyUI walkthrough was not completed: no Android build/runtime or GPU dispatcher session was available in this environment.
+
+### Open Questions / Decisions
+- Subscription/recurring billing remains intentionally unenforced; merchant try-on is unlimited until the billing schema exists.
+- The public QR upload token remains the only credential; the product-barcode `ProductQrScannerActivity` remains out of scope.
+- The live repository had no `MyAppContextHolder`; Task 15 passes the existing Activity into job polling to preserve the current image-ID linkage.
+
+---
 ## 2026-07-16 - Pre-push Biome and Migration Fixes
 
 ### Done
