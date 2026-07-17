@@ -1,4 +1,4 @@
-import { schema } from '@aivastra/db';
+﻿import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
@@ -54,6 +54,8 @@ import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
+import { merchantTryonRoutes } from './modules/merchant/tryon.routes.js';
+import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
@@ -86,7 +88,7 @@ export async function buildServer(env: Env) {
         'img-src': ["'self'", 'data:', r2Origin],
         'connect-src': ["'self'", r2Origin],
         // Scalar's docs page (/v1/dev/docs) inlines a static bootstrap script
-        // (Scalar.createApiReference(...)) — hash-pin it rather than 'unsafe-inline'.
+        // (Scalar.createApiReference(...)) â€” hash-pin it rather than 'unsafe-inline'.
         'script-src': ["'self'", "'sha256-CbaFUsnqQe6vIwwkHIa6fmTcpDWG7gvFxSRaU1GSCAI='"],
       },
     },
@@ -135,7 +137,7 @@ export async function buildServer(env: Env) {
     timeWindow: '1 minute',
     redis: app.redis,
     // A brief Redis blip should never itself turn into a wall of 500s across the
-    // whole API — rate-limiting is a safety net, not a critical path. Paired with
+    // whole API â€” rate-limiting is a safety net, not a critical path. Paired with
     // app.redis's bounded maxRetriesPerRequest (see plugins/redis.ts) so a blip
     // fails fast (and therefore open) instead of hanging.
     skipOnError: true,
@@ -165,13 +167,13 @@ export async function buildServer(env: Env) {
       },
       components: {
         securitySchemes: {
-          apiKey: { type: 'http', scheme: 'bearer', description: 'Your sk_live_… API key' },
+          apiKey: { type: 'http', scheme: 'bearer', description: 'Your sk_live_â€¦ API key' },
         },
       },
       security: [{ apiKey: [] }],
     },
     // The spec is public, so it must describe ONLY the developer surface. Every
-    // route without the 'dev' tag is hidden — admin/auth/merchant routes must never
+    // route without the 'dev' tag is hidden â€” admin/auth/merchant routes must never
     // appear here.
     transform: ({ schema: s, url }) => {
       const out = jsonSchemaTransform({ schema: s, url });
@@ -199,7 +201,7 @@ export async function buildServer(env: Env) {
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
-    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) â€” must come AFTER the
+    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) Ã¢â‚¬â€ must come AFTER the
     // validation branch, which also carries statusCode 400 but has its own contract.
     const statusCode = (err as { statusCode?: unknown }).statusCode;
     if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
@@ -228,6 +230,8 @@ export async function buildServer(env: Env) {
   await app.register(kioskResultsRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantKioskDevicesRoutes);
+  await app.register(merchantTryonRoutes);
+  await app.register(merchantTryonResultsRoutes);
   await app.register(merchantPaymentsRoutes);
   await app.register(merchantApiKeysRoutes);
   await app.register(devRoutes);

@@ -4,7 +4,7 @@ import { MerchantTryonJobCreateBody, MerchantTryonPresignBody } from '@aivastra/
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createMerchantTryonJob } from './create-tryon-job.js';
 

@@ -37,15 +37,24 @@ async function seedGarmentTypeWithWorkflow(app: TestApp) {
   const [template] = await app.db
     .insert(schema.workflowTemplates)
     .values({
-      name: `template-${randomUUID()}`,
-      workflowType: 'tryon',
+      slug: `template-${randomUUID()}`,
+      label: 'Try-on workflow',
       jsonContent: {},
+      poseNodeId: 'pose',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'garment',
+      workflowType: 'tryon',
       isActive: true,
     })
     .returning();
   const [tryonCategory] = await app.db
     .insert(schema.tryonCategories)
-    .values({ name: `category-${randomUUID()}`, workflowTemplateId: template.id, isActive: true })
+    .values({
+      name: `category-${randomUUID()}`,
+      slug: `category-${randomUUID()}`,
+      workflowTemplateId: template.id,
+      isActive: true,
+    })
     .returning();
   const [garmentType] = await app.db
     .insert(schema.garmentSubcategories)
