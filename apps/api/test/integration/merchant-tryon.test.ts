@@ -148,6 +148,50 @@ describe('merchant try-on jobs', () => {
     void otherMerchant;
   });
 
+  it('returns job status scoped to the owning merchant, 404s for another merchant', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-e@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const garmentType = await seedGarmentTypeWithWorkflow(app);
+    const item = await seedCatalogItem(app, merchant.id, garmentType.id);
+
+    const presigned = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/presign',
+      headers: auth,
+      payload: { contentType: 'image/jpeg', contentLength: 1024 },
+    });
+    const { r2Key } = presigned.json() as { r2Key: string };
+    await app.storage.putObject(r2Key, Buffer.from('photo'), 'image/jpeg');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    const { jobId } = created.json() as { jobId: string };
+
+    const status = await app.inject({
+      method: 'GET',
+      url: `/v1/merchant/tryon/jobs/${jobId}`,
+      headers: auth,
+    });
+    expect(status.statusCode).toBe(200);
+    const body = status.json() as { status: string; liked: boolean; inCart: boolean };
+    expect(body.status).toBe('QUEUED');
+    expect(body.liked).toBe(false);
+    expect(body.inCart).toBe(false);
+
+    const otherAuth = await authHeader(
+      (await createMerchant(app, 'tryon-f@example.com')).merchantUser.id,
+    );
+    const crossMerchant = await app.inject({
+      method: 'GET',
+      url: `/v1/merchant/tryon/jobs/${jobId}`,
+      headers: otherAuth,
+    });
+    expect(crossMerchant.statusCode).toBe(404);
+  });
   it('rejects a job when the garment type has no tryon category configured', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-d@example.com');
     const auth = await authHeader(merchantUser.id);

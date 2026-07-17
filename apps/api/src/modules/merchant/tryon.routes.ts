@@ -1,14 +1,93 @@
 ﻿import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { MerchantTryonJobCreateBody, MerchantTryonPresignBody } from '@aivastra/types';
-import { eq } from 'drizzle-orm';
-import type { FastifyInstance } from 'fastify';
+import { and, eq } from 'drizzle-orm';
+import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { Redis } from 'ioredis';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createMerchantTryonJob } from './create-tryon-job.js';
 
 const MAX_TRYON_UPLOAD_BYTES = 5 * 1024 * 1024;
 
+async function loadOwnedJob(app: FastifyInstance, merchantId: string, id: string) {
+  const [job] = await app.db
+    .select({
+      id: schema.jobs.id,
+      status: schema.jobs.status,
+      merchantId: schema.jobs.merchantId,
+      creditsCharged: schema.jobs.creditsCharged,
+      resultKey: schema.jobOutputs.resultKey,
+      errorCode: schema.jobs.errorCode,
+      createdAt: schema.jobs.createdAt,
+      completedAt: schema.jobs.completedAt,
+    })
+    .from(schema.jobs)
+    .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+    .where(eq(schema.jobs.id, id))
+    .limit(1);
+
+  if (!job || job.merchantId !== merchantId) {
+    throw new AppError('NOT_FOUND', 404, 'job not found');
+  }
+  return job;
+}
+
+async function serializeJob(app: FastifyInstance, merchantId: string, id: string) {
+  const job = await loadOwnedJob(app, merchantId, id);
+  const [liked, inCart] = await Promise.all([
+    app.db
+      .select({ id: schema.kioskResultLikes.id })
+      .from(schema.kioskResultLikes)
+      .where(
+        and(
+          eq(schema.kioskResultLikes.jobId, id),
+          eq(schema.kioskResultLikes.merchantId, merchantId),
+        ),
+      )
+      .limit(1),
+    app.db
+      .select({ id: schema.kioskResultCartItems.id })
+      .from(schema.kioskResultCartItems)
+      .where(
+        and(
+          eq(schema.kioskResultCartItems.jobId, id),
+          eq(schema.kioskResultCartItems.merchantId, merchantId),
+        ),
+      )
+      .limit(1),
+  ]);
+
+  let shareUrl: string | null = null;
+  if (job.status === 'COMPLETED' && job.resultKey) {
+    shareUrl = await app.storage
+      .presignGet(job.resultKey, 86_400)
+      .then((result) => result.url)
+      .catch(() => null);
+  }
+
+  return {
+    id: job.id,
+    status: job.status,
+    merchantId: job.merchantId,
+    resultKey: job.resultKey,
+    shareUrl,
+    errorCode: job.errorCode,
+    liked: liked.length > 0,
+    inCart: inCart.length > 0,
+    createdAt: job.createdAt.toISOString(),
+    completedAt: job.completedAt?.toISOString() ?? null,
+  };
+}
+
+function writeSseHeaders(reply: FastifyReply): void {
+  reply.raw.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+}
 export async function merchantTryonRoutes(app: FastifyInstance) {
   app.post(
     '/v1/merchant/tryon/presign',
@@ -121,6 +200,60 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
 
       reply.code(201);
       return { jobId };
+    },
+  );
+  app.get(
+    '/v1/merchant/tryon/jobs/:id',
+    { preHandler: app.requireMerchant, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const { id } = req.params as { id: string };
+      return serializeJob(app, merchantId, id);
+    },
+  );
+
+  app.get(
+    '/v1/merchant/tryon/jobs/:id/events',
+    { preHandler: app.requireMerchant, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req, reply) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const { id } = req.params as { id: string };
+
+      await loadOwnedJob(app, merchantId, id);
+      writeSseHeaders(reply);
+
+      // biome-ignore lint/suspicious/noExplicitAny: redisSub is decorated at runtime.
+      const sub: Redis = (app as any).redisSub.duplicate();
+      const channel = `sse:events:widget:${merchantId}`;
+
+      sub.on('error', (err) => {
+        req.log.warn({ err, channel }, 'merchant tryon sse redis subscriber error');
+      });
+
+      await sub.subscribe(channel);
+      sub.on('message', (_channel, raw) => {
+        try {
+          const evt = JSON.parse(raw) as Record<string, unknown>;
+          if (evt.jobId !== id) return;
+          reply.raw.write(`event: ${evt.type ?? 'message'}\ndata: ${raw}\n\n`);
+        } catch {
+          // Ignore malformed publishes.
+        }
+      });
+
+      const heartbeat = setInterval(() => reply.raw.write(': ping\n\n'), 15_000);
+
+      req.raw.on('close', async () => {
+        clearInterval(heartbeat);
+        try {
+          await sub.unsubscribe(channel);
+        } catch {
+          // The connection may already be closed.
+        }
+        sub.disconnect();
+      });
     },
   );
 }
