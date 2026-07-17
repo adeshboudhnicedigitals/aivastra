@@ -176,6 +176,7 @@ export const CreateWorkflowBody = z
     upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
     lowerNodeId: z.string().min(1).optional(),
     shoeNodeId: z.string().min(1).optional(),
+    thirdNodeId: z.string().min(1).optional(),
     sizeNodeIds: z.array(z.string().min(1)).optional(),
     // Dual-size-group templates (build_model_main v2+) — server-computed from node
     // titles at parse time, not manually edited via the admin form.
@@ -260,6 +261,7 @@ export const UpdateWorkflowBody = z.object({
   upperNodeIds: z.array(z.string().min(1)).max(8).optional(),
   lowerNodeId: z.string().min(1).nullable().optional(),
   shoeNodeId: z.string().min(1).nullable().optional(),
+  thirdNodeId: z.string().min(1).nullable().optional(),
   sizeNodeId: z.string().min(1).nullable().optional(),
   sizeNodeIds: z.array(z.string().min(1)).optional(),
   latentSizeNodeIds: z.array(z.string().min(1)).length(2).optional(),
@@ -395,6 +397,7 @@ export const CreateGarmentTypeBody = z.object({
   sortOrder: z.number().int().optional(),
   thumbnailKey: z.string().optional(),
   requiresLowerUpload: z.boolean().optional().default(false),
+  requiresThirdUpload: z.boolean().optional().default(false),
   tryonCategoryId: z.string().uuid().nullable().optional(),
 });
 export const PatchGarmentTypeBody = z.object({
@@ -405,6 +408,8 @@ export const PatchGarmentTypeBody = z.object({
   requiresLowerUpload: z.boolean().optional(),
   upperUploadLabel: z.string().max(80).nullable().optional(),
   lowerUploadLabel: z.string().max(80).nullable().optional(),
+  requiresThirdUpload: z.boolean().optional(),
+  thirdUploadLabel: z.string().max(80).nullable().optional(),
   defaultLowerCatalogId: z.string().uuid().nullable().optional(),
   defaultShoeCatalogId: z.string().uuid().nullable().optional(),
   tryonCategoryId: z.string().uuid().nullable().optional(),

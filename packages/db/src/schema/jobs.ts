@@ -66,6 +66,7 @@ export const jobInputs = pgTable('job_inputs', {
   }),
   lowerCatalogId: uuid('lower_catalog_id').references(() => catalogItems.id),
   lowerGarmentKey: text('lower_garment_key'),
+  thirdGarmentKey: text('third_garment_key'),
   shoeCatalogId: uuid('shoe_catalog_id').references(() => catalogItems.id),
   userHint: text('user_hint'),
   params: jsonb('params'),
