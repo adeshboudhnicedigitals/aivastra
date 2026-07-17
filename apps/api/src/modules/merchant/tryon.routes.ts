@@ -213,6 +213,31 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
     },
   );
 
+  app.delete(
+    '/v1/merchant/tryon/jobs/:id',
+    { preHandler: app.requireMerchant, schema: { params: z.object({ id: z.string().uuid() }) } },
+    async (req, reply) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const { id } = req.params as { id: string };
+      const job = await loadOwnedJob(app, merchantId, id);
+
+      if (job.status === 'COMPLETED' || job.status === 'FAILED' || job.status === 'CANCELLED') {
+        throw new AppError('NOT_CANCELLABLE', 409, 'job is already finished or cancelled');
+      }
+      if (job.status === 'GENERATING' || job.status === 'UPLOADING') {
+        throw new AppError('NOT_CANCELLABLE', 409, 'job is already being processed');
+      }
+
+      await app.db.update(schema.jobs).set({ status: 'CANCELLED' }).where(eq(schema.jobs.id, id));
+
+      const evt = JSON.stringify({ type: 'STATUS', jobId: id, status: 'CANCELLED' });
+      await app.redis.publish(`sse:events:widget:${merchantId}`, evt);
+
+      reply.code(200);
+      return { status: 'CANCELLED' };
+    },
+  );
   app.get(
     '/v1/merchant/tryon/jobs/:id/events',
     { preHandler: app.requireMerchant, schema: { params: z.object({ id: z.string().uuid() }) } },
