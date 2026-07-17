@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { MerchantTryonJobCreateBody, MerchantTryonPresignBody } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
@@ -106,6 +106,23 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get(
+    '/v1/merchant/tryon/photo-url',
+    {
+      preHandler: app.requireMerchant,
+      schema: { querystring: z.object({ r2Key: z.string().min(1) }) },
+    },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+      const { r2Key } = req.query as { r2Key: string };
+      if (!r2Key.startsWith(`merchant-inputs/${merchantId}/`)) {
+        throw new AppError('FORBIDDEN', 403, 'photo key does not belong to this merchant');
+      }
+      const { url } = await app.storage.presignGet(r2Key, 300);
+      return { url };
+    },
+  );
   app.post(
     '/v1/merchant/tryon/jobs',
     { preHandler: app.requireMerchant, schema: { body: MerchantTryonJobCreateBody } },
