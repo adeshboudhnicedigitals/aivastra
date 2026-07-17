@@ -53,6 +53,8 @@ export interface GarmentType {
   sareeStep2WorkflowTemplateId?: string | null;
   upperUploadLabel?: string | null;
   lowerUploadLabel?: string | null;
+  requiresThirdUpload?: boolean;
+  thirdUploadLabel?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
