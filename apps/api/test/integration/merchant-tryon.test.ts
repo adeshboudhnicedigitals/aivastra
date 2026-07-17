@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -265,5 +265,35 @@ describe('merchant try-on jobs', () => {
     });
     expect(created.statusCode).toBe(400);
     expect((created.json() as { error: { code: string } }).error.code).toBe('VALIDATION');
+  });
+  it('resolves a presigned GET URL for a customer photo the merchant owns, rejects other merchants', async () => {
+    const { merchantUser } = await createMerchant(app, 'tryon-h@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const presigned = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/presign',
+      headers: auth,
+      payload: { contentType: 'image/jpeg', contentLength: 1024 },
+    });
+    const { r2Key } = presigned.json() as { r2Key: string };
+    await app.storage.putObject(r2Key, Buffer.from('photo'), 'image/jpeg');
+
+    const resolved = await app.inject({
+      method: 'GET',
+      url: `/v1/merchant/tryon/photo-url?r2Key=${encodeURIComponent(r2Key)}`,
+      headers: auth,
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(typeof (resolved.json() as { url: string }).url).toBe('string');
+
+    const otherAuth = await authHeader(
+      (await createMerchant(app, 'tryon-i@example.com')).merchantUser.id,
+    );
+    const forbidden = await app.inject({
+      method: 'GET',
+      url: `/v1/merchant/tryon/photo-url?r2Key=${encodeURIComponent(r2Key)}`,
+      headers: otherAuth,
+    });
+    expect(forbidden.statusCode).toBe(403);
   });
 });
