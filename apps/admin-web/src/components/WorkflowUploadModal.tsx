@@ -17,6 +17,7 @@ interface DetectedMappings {
   upperNodeIds: string[];
   lowerNodeId?: string;
   shoeNodeId?: string;
+  thirdNodeId?: string;
   sizeNodeIds: string[];
   positivePromptNode?: string;
   negativePromptNode?: string;
@@ -133,6 +134,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
   const [upperNodeIds, setUpperNodeIds] = useState<string[]>(['']);
   const [lowerNodeId, setLowerNodeId] = useState('');
   const [shoeNodeId, setShoeNodeId] = useState('');
+  const [thirdNodeId, setThirdNodeId] = useState('');
   const [sizeNodeIds, setSizeNodeIds] = useState<string[]>([]);
   const [positivePromptNode, setPositivePromptNode] = useState('');
   const [negativePromptNode, setNegativePromptNode] = useState('');
@@ -214,6 +216,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       setUpperNodeIds(d.upperNodeIds.length > 0 ? d.upperNodeIds : ['']);
       setLowerNodeId(d.lowerNodeId ?? '');
       setShoeNodeId(d.shoeNodeId ?? '');
+      setThirdNodeId(d.thirdNodeId ?? '');
       setSizeNodeIds(d.sizeNodeIds ?? []);
       setPositivePromptNode(d.positivePromptNode ?? '');
       setNegativePromptNode(d.negativePromptNode ?? '');
@@ -294,6 +297,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           upperNodeIds: validUpperIds,
           lowerNodeId: lowerNodeId || undefined,
           shoeNodeId: shoeNodeId || undefined,
+          thirdNodeId: thirdNodeId || undefined,
           sizeNodeIds: sizeNodeIds.filter(Boolean),
           ...(latentSizeNodeIds.length === 2 ? { latentSizeNodeIds } : {}),
           ...(outputSizeNodeIds.length === 2 ? { outputSizeNodeIds } : {}),
@@ -809,6 +813,14 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                   disabled={saving}
                   hint='Title convention: "shoes"'
                 />
+                <NodeSelect
+                  label="Third garment node (optional)"
+                  nodes={nodes.image}
+                  value={thirdNodeId}
+                  onChange={setThirdNodeId}
+                  disabled={saving}
+                  hint='Title convention: "third_garment"'
+                />
               </div>
 
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: 0 }} />
@@ -904,6 +916,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                         parsed.allImageNodes.find((n) => n.id === parsed.detected.lowerNodeId),
                       parsed.detected.shoeNodeId &&
                         parsed.allImageNodes.find((n) => n.id === parsed.detected.shoeNodeId),
+                      parsed.detected.thirdNodeId &&
+                        parsed.allImageNodes.find((n) => n.id === parsed.detected.thirdNodeId),
                       parsed.detected.positivePromptNode &&
                         parsed.allPromptNodes.find(
                           (n) => n.id === parsed.detected.positivePromptNode,

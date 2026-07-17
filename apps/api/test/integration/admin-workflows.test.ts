@@ -145,4 +145,77 @@ describe('admin workflows - floor validation', () => {
     expect(row?.upperNodeIds).toEqual([]);
     expect(row?.lowerNodeId).toBe('lower_node');
   });
+
+  it('creates a regular workflow with thirdNodeId and returns it', async () => {
+    const withThird = {
+      ...jsonContent,
+      third_node: {
+        inputs: { image: '' },
+        class_type: 'LoadImage',
+        _meta: { title: 'third_garment' },
+      },
+    };
+    const response = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `third_node_create_${Date.now()}`,
+        label: 'Third node create',
+        jsonContent: withThird,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        thirdNodeId: 'third_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ thirdNodeId: schema.workflowTemplates.thirdNodeId })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, response.json().id));
+    expect(row?.thirdNodeId).toBe('third_node');
+  });
+
+  it('PATCH persists thirdNodeId', async () => {
+    const withThird = {
+      ...jsonContent,
+      third_node: {
+        inputs: { image: '' },
+        class_type: 'LoadImage',
+        _meta: { title: 'third_garment' },
+      },
+    };
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/admin/workflows',
+      headers,
+      payload: {
+        slug: `third_node_patch_${Date.now()}`,
+        label: 'Third node patch target',
+        jsonContent: withThird,
+        workflowType: 'regular',
+        poseNodeId: 'pose_node',
+        lowerNodeId: 'lower_node',
+        garmentPhasePromptNode: 'positive_node',
+      },
+    });
+    const id = createRes.json().id as string;
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: `/admin/workflows/${id}`,
+      headers,
+      payload: { thirdNodeId: 'third_node' },
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const [row] = await app.db
+      .select({ thirdNodeId: schema.workflowTemplates.thirdNodeId })
+      .from(schema.workflowTemplates)
+      .where(eq(schema.workflowTemplates.id, id));
+    expect(row?.thirdNodeId).toBe('third_node');
+  });
 });

@@ -108,6 +108,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       defaultGarmentPhasePrompt: r.defaultGarmentPhasePrompt,
       lowerNodeId: r.lowerNodeId,
       shoeNodeId: r.shoeNodeId,
+      thirdNodeId: r.thirdNodeId,
       sizeNodeIds: r.sizeNodeIds,
       latentSizeNodeIds: r.latentSizeNodeIds,
       latentMaxPx: r.latentMaxPx,
@@ -169,6 +170,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         upperNodeIds?: string[];
         lowerNodeId?: string;
         shoeNodeId?: string;
+        thirdNodeId?: string;
         sizeNodeIds?: string[];
         latentSizeNodeIds?: string[];
         latentMaxPx?: number;
@@ -301,6 +303,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       }
       if (body.lowerNodeId) validateNodeExists(body.jsonContent, body.lowerNodeId, 'lower garment');
       if (body.shoeNodeId) validateNodeExists(body.jsonContent, body.shoeNodeId, 'shoes');
+      if (body.thirdNodeId) validateNodeExists(body.jsonContent, body.thirdNodeId, 'third garment');
       for (const uid of body.sizeNodeIds ?? []) {
         validateNodeExists(body.jsonContent, uid, 'size');
       }
@@ -312,6 +315,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (body.lowerNodeId)
         validateNodeType(body.jsonContent, body.lowerNodeId, 'image', 'lower garment');
       if (body.shoeNodeId) validateNodeType(body.jsonContent, body.shoeNodeId, 'image', 'shoes');
+      if (body.thirdNodeId)
+        validateNodeType(body.jsonContent, body.thirdNodeId, 'image', 'third garment');
       validateNodeType(body.jsonContent, garmentPhasePromptNode, 'prompt', 'positive prompt');
       if (body.facePhasePromptNode) {
         validateNodeExists(body.jsonContent, body.facePhasePromptNode, 'negative prompt');
@@ -338,6 +343,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
           upperNodeIds,
           lowerNodeId: body.lowerNodeId ?? null,
           shoeNodeId: body.shoeNodeId ?? null,
+          thirdNodeId: body.thirdNodeId ?? null,
           sizeNodeIds: body.sizeNodeIds ?? [],
           latentSizeNodeIds: body.latentSizeNodeIds ?? [],
           ...(body.latentMaxPx !== undefined ? { latentMaxPx: body.latentMaxPx } : {}),
@@ -363,6 +369,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         upperNodeIds: row?.upperNodeIds,
         lowerNodeId: row?.lowerNodeId,
         shoeNodeId: row?.shoeNodeId,
+        thirdNodeId: row?.thirdNodeId,
         sizeNodeIds: row?.sizeNodeIds,
         latentSizeNodeIds: row?.latentSizeNodeIds,
         outputSizeNodeIds: row?.outputSizeNodeIds,
@@ -415,6 +422,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         upperNodeIds?: string[];
         lowerNodeId?: string | null;
         shoeNodeId?: string | null;
+        thirdNodeId?: string | null;
         sizeNodeIds?: string[];
         latentSizeNodeIds?: string[];
         latentMaxPx?: number;
@@ -461,6 +469,10 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (body.shoeNodeId) {
         validateNodeExists(json, body.shoeNodeId, 'shoes');
         validateNodeType(json, body.shoeNodeId, 'image', 'shoes');
+      }
+      if (body.thirdNodeId) {
+        validateNodeExists(json, body.thirdNodeId, 'third garment');
+        validateNodeType(json, body.thirdNodeId, 'image', 'third garment');
       }
       if (body.facePhasePromptNode) {
         validateNodeExists(json, body.facePhasePromptNode, 'negative prompt');
@@ -534,6 +546,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
       if (body.upperNodeIds !== undefined) updateValues.upperNodeIds = body.upperNodeIds;
       if ('lowerNodeId' in body) updateValues.lowerNodeId = body.lowerNodeId ?? null;
       if ('shoeNodeId' in body) updateValues.shoeNodeId = body.shoeNodeId ?? null;
+      if ('thirdNodeId' in body) updateValues.thirdNodeId = body.thirdNodeId ?? null;
       if ('sizeNodeIds' in body) updateValues.sizeNodeIds = body.sizeNodeIds ?? [];
       if ('latentSizeNodeIds' in body)
         updateValues.latentSizeNodeIds = body.latentSizeNodeIds ?? [];
