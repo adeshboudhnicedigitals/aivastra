@@ -3070,6 +3070,25 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "requires_mannequin_step": {
+          "name": "requires_mannequin_step",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "mannequin_workflow_template_id": {
+          "name": "mannequin_workflow_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "saree_step2_workflow_template_id": {
+          "name": "saree_step2_workflow_template_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -3088,6 +3107,24 @@
           "tableFrom": "garment_subcategories",
           "tableTo": "catalog_items",
           "columnsFrom": ["default_shoe_catalog_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "garment_subcategories_mannequin_workflow_template_id_workflow_templates_id_fk": {
+          "name": "garment_subcategories_mannequin_workflow_template_id_workflow_templates_id_fk",
+          "tableFrom": "garment_subcategories",
+          "tableTo": "workflow_templates",
+          "columnsFrom": ["mannequin_workflow_template_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "garment_subcategories_saree_step2_workflow_template_id_workflow_templates_id_fk": {
+          "name": "garment_subcategories_saree_step2_workflow_template_id_workflow_templates_id_fk",
+          "tableFrom": "garment_subcategories",
+          "tableTo": "workflow_templates",
+          "columnsFrom": ["saree_step2_workflow_template_id"],
           "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"

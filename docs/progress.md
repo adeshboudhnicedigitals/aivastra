@@ -22,6 +22,23 @@
 - **Studio App**: Updated the AI Studio page (`studio/page.tsx`) to dynamically display the custom labels for the Top and Bottom upload boxes based on the selected garment type.
 - **DevOps**: Restored Docker containers (Postgres, MinIO, Redis) after a crash and reconciled a Drizzle snapshot journal collision (`0109` / `0110` collision) to successfully apply the latest schema migrations.
 
+---
+## 2026-07-16 - Developer try-on API (Tasks 1-15): quickstart docs + repo-doc updates
+
+### Done
+- Completed the 15-task developer try-on API plan (`sk_live_…`-keyed public API under `/v1/dev/*`, merchant key management at `/v1/merchant/api-keys`, OpenAPI/Scalar docs at `/v1/dev/docs`, and the `/developers` dashboard in `apps/catalogues-web`) with this final task: developer-facing documentation.
+- Wrote `docs/dev-api-quickstart.md` — authentication (bearer `sk_live_…` key, obtained once from the `/developers` dashboard), the three-call flow (`GET /v1/dev/categories` → `POST /v1/dev/tryon` → poll `GET /v1/dev/jobs/:id`), a copy-pasteable curl walkthrough of the full flow, a Node 20+ `FormData`/`fetch` example with a backing-off poll loop that gives up after a bounded number of attempts, an error-code table cross-checked against the actual `AppError` throw sites in `apps/api/src/modules/dev/routes.ts`, `create-job.ts`, and `apps/api/src/plugins/dev-api-auth.ts` (including `FORBIDDEN` for a suspended account, which the plan's error list omitted but the code does throw), a limits section (60 req/min/key, 10MB/image, JPEG/PNG/WebP by magic-byte sniff, 15-minute presigned result URL with re-poll-for-fresh-URL guidance), and a credits section (admin-configured try-on cost, atomic deduct before enqueue, automatic refund on enqueue failure or terminal job failure).
+- Verified the doc's request/response shapes directly against the committed route code rather than the design spec: the error envelope is `{"error": {"code", "message"}}` (`apps/api/src/server.ts` `setErrorHandler`), 429s carry a `Retry-After` header from `@fastify/rate-limit` and map to `RATE_LIMIT` in that same handler, and the dev port/base URL (`http://localhost:4000`) matches both `apps/api/src/env.ts`'s `API_PORT` default and the dashboard's own `API_URL` fallback.
+- Updated `CLAUDE.md`: added the `dev/` row to the API Route Modules table and the `api_keys` row to the Auth & Users schema table, per the plan's exact text.
+
+### Failed / Not Done
+- None on this task's own scope. Flagging one carryover from Task 14: the developer dashboard (`apps/catalogues-web/src/app/(app)/developers/`) was verified via wire-level HTTP checks against the real routes, not a real browser click-through — no browser tool was available in the agent environment for that task. A manual browser pass over the dashboard (key create/copy/revoke, usage panel, quickstart panel) is still recommended before this branch merges.
+
+### Open Questions / Decisions
+- Webhooks and `sk_test_` (test-mode) keys were deliberately deferred to v2, per the design spec's Deferred section (`docs/superpowers/specs/2026-07-16-dev-tryon-api-design.md`): webhooks would be the only dispatcher-side change in an otherwise additive v1 and need retry/backoff to be worth shipping (polling alone is a complete product; `merchants.webhookUrl`/`webhookSecret` already exist for when it lands), and test-mode keys are deferred because the v1 audience is gated/admin-activated merchants for whom integrating against live keys is acceptable — revisit if onboarding friction shows up. Per-key configurable rate limits, a separate merchant credit balance, key scopes, SDKs, and image-URL input are also deferred, same rationale as the spec.
+
+---
+
 ## 2026-07-15 - Studio Left Panel Theme & Sidebar Upgrades
 
 ### Done

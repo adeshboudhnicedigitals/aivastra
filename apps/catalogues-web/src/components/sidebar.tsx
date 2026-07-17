@@ -1,6 +1,6 @@
 'use client';
-import { useQueryClient } from '@tanstack/react-query';
-import { MonitorPlay, Package, Phone } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { KeyRound, MonitorPlay, Package, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -17,6 +17,7 @@ const NAV: {
   icon: string;
   badge?: string;
   devOnly?: boolean;
+  merchantOnly?: boolean;
 }[] = [
   { id: 'studio', href: '/studio', label: 'Studio', icon: `${BASE}/assets/studio-icon.svg` },
   {
@@ -48,7 +49,14 @@ const NAV: {
     href: '/catalogue-manager',
     label: 'My Catalogue',
     icon: 'package',
-    devOnly: true,
+    merchantOnly: true,
+  },
+  {
+    id: 'developers',
+    href: '/developers',
+    label: 'Developers',
+    icon: 'key',
+    merchantOnly: true,
   },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
   {
@@ -67,6 +75,16 @@ export function Sidebar() {
   const pathname = usePathname();
   const qc = useQueryClient();
   const [darkMode, setDarkMode] = useState(false);
+  // Same '/v1/me' call the user-menu makes — react-query dedupes it under the
+  // shared 'me' key, so this doesn't add an extra network request. Default to
+  // not-a-merchant while loading so merchant-only links never flash for
+  // non-merchants before the check resolves.
+  const { data: me } = useQuery<{ isMerchant?: boolean }>({
+    queryKey: ['me'],
+    queryFn: () => api.get('/v1/me'),
+    retry: false,
+  });
+  const isMerchant = me?.isMerchant ?? false;
 
   useEffect(() => {
     setDarkMode(document.documentElement.classList.contains('dark'));
@@ -103,8 +121,11 @@ export function Sidebar() {
   const activeId = NAV.find(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
   )?.id;
-  const visibleNav =
-    process.env.NODE_ENV === 'production' ? NAV.filter((item) => !item.devOnly) : NAV;
+  const visibleNav = NAV.filter((item) => {
+    if (item.devOnly && process.env.NODE_ENV === 'production') return false;
+    if (item.merchantOnly && !isMerchant) return false;
+    return true;
+  });
 
   const groups = [
     {
@@ -115,7 +136,7 @@ export function Sidebar() {
     },
     {
       title: 'BUSINESS',
-      items: visibleNav.filter((item) => ['pricing'].includes(item.id)),
+      items: visibleNav.filter((item) => ['pricing', 'developers'].includes(item.id)),
     },
     {
       title: 'HELP',
@@ -241,6 +262,8 @@ export function Sidebar() {
                           <Phone size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : item.icon === 'package' ? (
                           <Package size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
+                        ) : item.icon === 'key' ? (
+                          <KeyRound size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : (
                           // eslint-disable-next-line @next/next/no-img-element
                           // biome-ignore lint/performance/noImgElement: user upload icon

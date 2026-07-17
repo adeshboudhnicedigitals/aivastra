@@ -1,0 +1,394 @@
+'use client';
+
+import type { ApiKey } from '@aivastra/types';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy, KeyRound, Plus } from 'lucide-react';
+import { useState } from 'react';
+import { TrashIcon } from '@/components/icons';
+import { C } from '@/components/tokens';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { GradBtn } from '@/components/ui/grad-btn';
+import { type CreatedApiKey, createApiKey, listApiKeys, revokeApiKey } from './api';
+
+// "not a merchant account" / "merchant account inactive" — thrown by requireMerchant
+// (apps/api/src/plugins/portal-auth.ts) when the logged-in user has no merchants row.
+function isMerchantGateError(err: unknown): boolean {
+  return err instanceof Error && /merchant account/i.test(err.message);
+}
+
+const fmtDate = (s: string | null) =>
+  s
+    ? new Date(s).toLocaleString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'Never';
+
+function RevealedKeyBox({ created, onDismiss }: { created: CreatedApiKey; onDismiss: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(created.key);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context) — the key is still
+      // visible for manual selection, so this is a soft failure.
+    }
+  }
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${C.pink}`,
+        background: 'rgba(245, 92, 122, 0.05)',
+        borderRadius: 12,
+        padding: 20,
+        marginBottom: 20,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 700, color: C.pink }}>
+        Copy this key now — you will not be able to see it again.
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          background: C.white,
+          border: `1px solid ${C.border2}`,
+          borderRadius: 8,
+          padding: '10px 14px',
+        }}
+      >
+        <code
+          style={{
+            flex: 1,
+            fontFamily: 'monospace',
+            fontSize: 13,
+            color: C.text,
+            wordBreak: 'break-all',
+          }}
+        >
+          {created.key}
+        </code>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 12px',
+            borderRadius: 8,
+            border: `1px solid ${C.border2}`,
+            background: C.card,
+            color: copied ? C.mint : C.text,
+            fontFamily: 'inherit',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          type="button"
+          onClick={onDismiss}
+          style={{
+            padding: '8px 16px',
+            borderRadius: 8,
+            border: 'none',
+            background: C.dark,
+            color: C.white,
+            fontFamily: 'inherit',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          I've saved it — dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function KeysPanel() {
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [label, setLabel] = useState('');
+  // Holds the plaintext key ONLY between creation and dismissal. Never
+  // persisted, never logged, cleared the moment the user dismisses it.
+  const [revealedKey, setRevealedKey] = useState<CreatedApiKey | null>(null);
+  const [keyToRevoke, setKeyToRevoke] = useState<ApiKey | null>(null);
+
+  const keysQuery = useQuery({ queryKey: ['dev-api-keys'], queryFn: listApiKeys });
+  const keys = keysQuery.data?.keys ?? [];
+  const merchantGated = isMerchantGateError(keysQuery.error);
+
+  const createMutation = useMutation({
+    mutationFn: (l: string) => createApiKey(l),
+    onSuccess: (created) => {
+      setRevealedKey(created);
+      setCreateOpen(false);
+      setLabel('');
+      void qc.invalidateQueries({ queryKey: ['dev-api-keys'] });
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (id: string) => revokeApiKey(id),
+    onSuccess: () => {
+      setKeyToRevoke(null);
+      void qc.invalidateQueries({ queryKey: ['dev-api-keys'] });
+    },
+  });
+
+  if (merchantGated) {
+    return (
+      <div
+        style={{
+          border: `1px solid ${C.border}`,
+          borderRadius: 12,
+          padding: '48px 24px',
+          textAlign: 'center',
+          color: C.light,
+          fontSize: 14,
+        }}
+      >
+        This account isn't enabled as a merchant yet. Contact support to get API access activated.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background: C.card,
+        border: `1px solid ${C.border}`,
+        borderRadius: 12,
+        padding: 24,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 16,
+        }}
+      >
+        <div>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: C.text, margin: 0 }}>API Keys</h3>
+          <p style={{ fontSize: 13, color: C.mid, margin: '4px 0 0' }}>
+            Keys authenticate requests to the <code>/v1/dev/*</code> API.
+          </p>
+        </div>
+        {!createOpen && (
+          <GradBtn onClick={() => setCreateOpen(true)}>
+            <Plus size={16} /> Create key
+          </GradBtn>
+        )}
+      </div>
+
+      {revealedKey && (
+        <RevealedKeyBox created={revealedKey} onDismiss={() => setRevealedKey(null)} />
+      )}
+
+      {createOpen && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            alignItems: 'flex-start',
+            border: `1px solid ${C.border2}`,
+            borderRadius: 10,
+            padding: 16,
+            marginBottom: 20,
+            background: C.field,
+          }}
+        >
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label htmlFor="new-key-label" style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+              Label
+            </label>
+            <input
+              id="new-key-label"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. production"
+              maxLength={64}
+              style={{
+                height: 40,
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                background: C.white,
+                padding: '0 12px',
+                fontFamily: 'inherit',
+                fontSize: 14,
+                color: C.text,
+                outline: 'none',
+              }}
+            />
+            {createMutation.isError && (
+              <p style={{ fontSize: 12, color: C.pink, margin: 0 }}>
+                {(createMutation.error as Error).message}
+              </p>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 22 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setCreateOpen(false);
+                setLabel('');
+                createMutation.reset();
+              }}
+              disabled={createMutation.isPending}
+              style={{
+                height: 40,
+                padding: '0 16px',
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                background: C.white,
+                color: C.text,
+                fontFamily: 'inherit',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: createMutation.isPending ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <GradBtn
+              onClick={() => createMutation.mutate(label.trim())}
+              disabled={createMutation.isPending || !label.trim()}
+            >
+              {createMutation.isPending ? 'Creating…' : 'Create'}
+            </GradBtn>
+          </div>
+        </div>
+      )}
+
+      {keysQuery.isLoading ? (
+        <div style={{ padding: '32px 0', textAlign: 'center', color: C.light, fontSize: 14 }}>
+          Loading keys...
+        </div>
+      ) : keysQuery.isError && !merchantGated ? (
+        <div style={{ padding: '32px 0', textAlign: 'center', color: C.pink, fontSize: 14 }}>
+          {(keysQuery.error as Error).message}
+        </div>
+      ) : keys.length === 0 ? (
+        <div
+          style={{
+            padding: '40px 0',
+            textAlign: 'center',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <div style={{ color: C.pink, opacity: 0.8 }}>
+            <KeyRound size={36} />
+          </div>
+          <p style={{ fontSize: 14, color: C.light, margin: 0 }}>
+            No API keys yet. Create one to start calling the API.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1.4fr 1.2fr 1.2fr 1.2fr 0.6fr',
+              padding: '10px 14px',
+              borderBottom: `1px solid ${C.border}`,
+              fontSize: 12,
+              fontWeight: 600,
+              color: C.mid,
+              textTransform: 'uppercase',
+              letterSpacing: '0.4px',
+            }}
+          >
+            <span>Label</span>
+            <span>Key</span>
+            <span>Created</span>
+            <span>Last used</span>
+            <span />
+          </div>
+          {keys.map((k) => (
+            <div
+              key={k.id}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1.4fr 1.2fr 1.2fr 1.2fr 0.6fr',
+                padding: '14px',
+                borderBottom: `1px solid ${C.border}`,
+                alignItems: 'center',
+              }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{k.label}</span>
+              <span style={{ fontSize: 13, fontFamily: 'monospace', color: C.mid }}>
+                {k.keyPrefix}…
+              </span>
+              <span style={{ fontSize: 13, color: C.mid }}>{fmtDate(k.createdAt)}</span>
+              <span style={{ fontSize: 13, color: C.mid }}>{fmtDate(k.lastUsedAt)}</span>
+              <button
+                type="button"
+                onClick={() => setKeyToRevoke(k)}
+                title="Revoke key"
+                style={{
+                  justifySelf: 'end',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  background: C.white,
+                  color: C.pink,
+                  fontFamily: 'inherit',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <TrashIcon /> Revoke
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!keyToRevoke}
+        title="Revoke API key"
+        message={`Are you sure you want to revoke "${keyToRevoke?.label}"? Any integration using it will stop working immediately.`}
+        confirmLabel="Revoke"
+        danger
+        busy={revokeMutation.isPending}
+        error={revokeMutation.isError ? (revokeMutation.error as Error).message : null}
+        onConfirm={() => {
+          if (keyToRevoke) revokeMutation.mutate(keyToRevoke.id);
+        }}
+        onCancel={() => {
+          setKeyToRevoke(null);
+          revokeMutation.reset();
+        }}
+      />
+    </div>
+  );
+}
