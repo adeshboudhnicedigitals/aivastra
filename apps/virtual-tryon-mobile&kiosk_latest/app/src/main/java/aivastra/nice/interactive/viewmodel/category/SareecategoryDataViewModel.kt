@@ -1,7 +1,6 @@
 package aivastra.nice.interactive.viewmodel.category
 
 import aivastra.nice.interactive.utils.PrefsManager
-import aivastra.nice.interactive.viewmodel.Dress.CommonResponseModel
 import aivastra.nice.interactive.viewmodel.Dress.DressTryOnResultModel
 import aivastra.nice.interactive.viewmodel.Dress.DressesForDataModel
 import aivastra.nice.interactive.viewmodel.Dress.DressesTypeDataModel
@@ -10,15 +9,23 @@ import aivastra.nice.interactive.viewmodel.Login.UserLoginDataModel
 import aivastra.nice.interactive.viewmodel.Qrcode.QrCodeLinkDataModel
 import aivastra.nice.interactive.viewmodel.others.UploadImageModel
 import android.app.Activity
-import android.provider.Settings
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.facewixlatest.ApiUtils.APIConstant
+import com.example.facewixlatest.ApiUtils.ApiErrorPresenter
+import com.example.facewixlatest.ApiUtils.ApiException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.asRequestBody
+import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 
 data class DeviceLimitState(
     val message: String,
@@ -77,6 +84,11 @@ class SareecategoryDataViewModel : ViewModel() {
     private val _error = MutableLiveData<String?>()
     val error: LiveData<String?> get() = _error
 
+    private val _uploadedPhotoR2Key = MutableLiveData<String?>()
+    val uploadedPhotoR2Key: LiveData<String?> get() = _uploadedPhotoR2Key
+
+    private val _tryonJobStatus = MutableLiveData<JSONObject?>()
+    val tryonJobStatus: LiveData<JSONObject?> get() = _tryonJobStatus
     private var pollingJob: Job? = null
 
     fun requestCloseDialog() {
@@ -92,24 +104,31 @@ class SareecategoryDataViewModel : ViewModel() {
     }
 
     fun fetchDressesTypeData(cType: String) {
-        val model = repository.getLocalDressesTypeData(cType)
-        _dressesTypeData.postValue(model.data)
-        repository.savDressesTypeData(model.data)
-        _showTryOnSessionMsg.postValue(model.message)
+        viewModelScope.launch {
+            runCatching {
+                repository.fetchMerchantCatalogTypeData(cType)
+            }.onSuccess { model ->
+                _dressesTypeData.postValue(model.data)
+                repository.savDressesTypeData(model.data)
+                _showTryOnSessionMsg.postValue(model.message)
+            }.onFailure { cause ->
+                val (title, message) = ApiErrorPresenter.present(cause)
+                _error.postValue("$title: $message")
+            }
+        }
     }
-
     fun filterProductBySKUNumber(searchBy: String) {
         if (repository.getDressesTypeData().isEmpty()) {
-            repository.getLocalDressesTypeData("")
+            _error.postValue("App error: catalog is not loaded yet. Please try again.")
+            return
         }
         val results = repository.filterLocalProducts(searchBy)
         if (results.isEmpty()) {
-            _error.postValue("No product found")
+            _error.postValue("App error: no product matched that search.")
         } else {
             _dressesItemsListData.postValue(results)
         }
     }
-
     fun fetchDressesForAPI() {
         val model = repository.getLocalDressesForData()
         _dressesForData.postValue(model.data)
@@ -126,6 +145,7 @@ class SareecategoryDataViewModel : ViewModel() {
     fun resetUploadImageData() {
         _uploadUserImageData.postValue(null)
         _userOpenQrCodeLink.postValue(null)
+        _uploadedPhotoR2Key.postValue(null)
         _error.postValue(null)
     }
 
@@ -148,41 +168,86 @@ class SareecategoryDataViewModel : ViewModel() {
         _qrCodeLinkData.postValue(null)
         _uploadUserImageData.postValue(null)
         _userOpenQrCodeLink.postValue(null)
+        _uploadedPhotoR2Key.postValue(null)
         _error.postValue(null)
     }
 
     fun fetchDressTryOnAPI(activity: Activity, garmentId: String, deviceId: String) {
         viewModelScope.launch {
-            val imagePath = PrefsManager.getCapturedImage(activity)
-            if (imagePath.isBlank()) {
-                _error.postValue("Capture or upload a photo to preview this UI flow.")
+            val r2Key = _uploadedPhotoR2Key.value
+            if (r2Key.isNullOrBlank()) {
+                _error.postValue("App error: no confirmed photo to try on. Please capture or upload a photo again.")
                 return@launch
             }
-
-            val resultId = "ui-preview-${System.currentTimeMillis()}"
-            repository.saveTryOnResult(
-                UsetTryOnResultDataModel.Data(
-                    wixuser = deviceId,
-                    garment_id = garmentId,
-                    userimage_id = PrefsManager.getImageID(activity).ifBlank { resultId },
-                    upload_image_path = imagePath,
-                    tryon_result_path = imagePath,
-                    promt_id = resultId,
-                    action_from = "ui-preview",
-                    id = resultId,
-                ),
-            )
-            _dressTryOnResultData.postValue(
-                DressTryOnResultModel(
-                    status = true,
-                    message = "UI preview result",
-                    tryon_image = imagePath,
-                    result_id = resultId,
-                ),
-            )
+            runCatching {
+                repository.createTryonJob(garmentId, r2Key)
+            }.onSuccess { jobId ->
+                pollTryonJob(jobId, garmentId, deviceId, activity)
+            }.onFailure { cause ->
+                val (title, message) = ApiErrorPresenter.present(cause)
+                _error.postValue("$title: $message")
+            }
         }
     }
 
+    private fun pollTryonJob(jobId: String, garmentId: String, deviceId: String, activity: Activity) {
+        pollingJob?.cancel()
+        pollingJob = viewModelScope.launch {
+            while (true) {
+                val status = try {
+                    repository.getTryonJobStatus(jobId)
+                } catch (cause: Throwable) {
+                    val (title, message) = ApiErrorPresenter.present(cause)
+                    _error.postValue("$title: $message")
+                    return@launch
+                }
+                _tryonJobStatus.postValue(status)
+
+                when (status.optString("status")) {
+                    "COMPLETED" -> {
+                        val shareUrl = status.optString("shareUrl", "")
+                        if (shareUrl.isBlank()) {
+                            _error.postValue("Server error: job completed but no result image was returned.")
+                            return@launch
+                        }
+                        val resultId = jobId
+                        repository.saveTryOnResult(
+                            UsetTryOnResultDataModel.Data(
+                                wixuser = deviceId,
+                                garment_id = garmentId,
+                                userimage_id = PrefsManager.getImageID(activity).ifBlank { resultId },
+                                upload_image_path = shareUrl,
+                                tryon_result_path = shareUrl,
+                                promt_id = resultId,
+                                action_from = "merchant_tryon",
+                                id = resultId,
+                            ),
+                        )
+                        _dressTryOnResultData.postValue(
+                            DressTryOnResultModel(
+                                status = true,
+                                message = "",
+                                tryon_image = shareUrl,
+                                result_id = resultId,
+                            ),
+                        )
+                        return@launch
+                    }
+                    "FAILED", "CANCELLED" -> {
+                        val errorCode = status.optString("errorCode", "TRYON_FAILED")
+                        _error.postValue("Server error ($errorCode): the try-on could not be completed. Please try again.")
+                        return@launch
+                    }
+                }
+                delay(2000)
+            }
+        }
+    }
+
+    fun cancelTryonPolling() {
+        pollingJob?.cancel()
+        pollingJob = null
+    }
     fun fetchVastraTryOnResultAPI(
         activity: Activity,
         garmentId: String,
@@ -198,69 +263,134 @@ class SareecategoryDataViewModel : ViewModel() {
     }
 
     fun getQrCodeLinkAPI(activity: Activity) {
-        _qrCodeLinkData.postValue(
-            QrCodeLinkDataModel(
-                status = false,
-                message = "QR upload is disabled while backend integration is removed.",
-                url = "",
-            ),
-        )
+        viewModelScope.launch {
+            runCatching {
+                repository.createUploadSession()
+            }.onSuccess { session ->
+                _qrCodeLinkData.postValue(
+                    QrCodeLinkDataModel(status = true, message = "", url = session.getString("qrUrl")),
+                )
+            }.onFailure { cause ->
+                val (title, message) = ApiErrorPresenter.present(cause)
+                _error.postValue("$title: $message")
+            }
+        }
     }
 
     fun cancelQrScanPhotoFetchApiJob() {
         pollingJob?.cancel()
         pollingJob = null
     }
+    fun startCheckOfUserImageUpload(token: String) {
+        pollingJob?.cancel()
+        pollingJob = viewModelScope.launch {
+            _userOpenQrCodeLink.postValue(UploadImageModel(open = "no"))
+            while (true) {
+                val status = try {
+                    repository.getUploadSessionStatus(token)
+                } catch (cause: Throwable) {
+                    val (title, message) = ApiErrorPresenter.present(cause)
+                    if (cause is ApiException.BackendError && cause.code == "SESSION_EXPIRED") {
+                        _uploadUserImageData.postValue(
+                            UploadImageModel(
+                                status = false,
+                                message = "This QR code expired. Please try again.",
+                                is_session_expired = true,
+                            ),
+                        )
+                    } else {
+                        _error.postValue("$title: $message")
+                    }
+                    return@launch
+                }
 
-    fun startCheckOfUserImageUpload(securityCode: String) {
-        _userOpenQrCodeLink.postValue(
-            UploadImageModel(
-                status = false,
-                message = "QR upload is disabled while backend integration is removed.",
-                is_session_expired = true,
-            ),
-        )
+                if (status.optString("status") == "uploaded") {
+                    _userOpenQrCodeLink.postValue(UploadImageModel(open = "yes"))
+                    val r2Key = status.getString("r2Key")
+                    _uploadedPhotoR2Key.postValue(r2Key)
+                    _uploadUserImageData.postValue(
+                        UploadImageModel(
+                            status = true,
+                            message = "",
+                            id = r2Key,
+                            garment_id = r2Key,
+                            imagePath = r2Key,
+                        ),
+                    )
+                    return@launch
+                }
+                delay(3000)
+            }
+        }
     }
-
-    fun checkUserUploadImageAPI(securityCode: String, apiResponseCallback: (UploadImageModel) -> Unit) {
-        apiResponseCallback(
-            UploadImageModel(
-                status = false,
-                message = "QR upload is disabled while backend integration is removed.",
-                is_session_expired = true,
-            ),
-        )
-    }
-
     fun likeVastraTryOnResultAPI(resultId: String, likeStatus: String) {
-        _error.postValue(null)
+        viewModelScope.launch {
+            runCatching {
+                repository.setTryonResultLiked(resultId, likeStatus == "1")
+            }.onFailure { cause ->
+                val (title, message) = ApiErrorPresenter.present(cause)
+                _error.postValue("$title: $message")
+            }
+        }
     }
 
     fun addToCartVastraTryOnResultAPI(resultId: String, cardStatus: String) {
-        _error.postValue(null)
+        viewModelScope.launch {
+            runCatching {
+                repository.setTryonResultInCart(resultId, cardStatus == "1")
+            }.onFailure { cause ->
+                val (title, message) = ApiErrorPresenter.present(cause)
+                _error.postValue("$title: $message")
+            }
+        }
     }
-
     fun deleteAllTryOnResultAPI(userImageId: String, deviceId: String, responseCallback: (Boolean, String) -> Unit) {
         repository.clearTryOnResults(userImageId)
-        responseCallback(true, "Try-on UI preview data cleared")
+        responseCallback(true, "Try-on results cleared")
     }
 
     fun uploadCaptureImageAPI(activity: Activity, imgFile: File) {
-        val id = "ui-photo-${System.currentTimeMillis()}"
-        val model = UploadImageModel(
-            status = true,
-            message = "Photo stored locally for UI preview",
-            id = id,
-            userId = Settings.Secure.getString(activity.contentResolver, Settings.Secure.ANDROID_ID).orEmpty(),
-            garment_id = id,
-            imagePath = imgFile.absolutePath,
-        )
-        _uploadUserImageData.postValue(model)
-        PrefsManager.saveImageId(activity, id)
-        PrefsManager.saveCapturedImage(activity, imgFile.absolutePath)
-        repository.saveUploadedImageData(model)
+        viewModelScope.launch {
+            runCatching {
+                val contentType = "image/jpeg"
+                val presign = repository.presignTryonPhoto(contentType, imgFile.length())
+                val uploadUrl = presign.getString("uploadUrl")
+                val r2Key = presign.getString("r2Key")
+                uploadFileToR2(uploadUrl, imgFile, contentType)
+                r2Key
+            }.onSuccess { r2Key ->
+                _uploadedPhotoR2Key.postValue(r2Key)
+                val id = "photo-${System.currentTimeMillis()}"
+                _uploadUserImageData.postValue(
+                    UploadImageModel(
+                        status = true,
+                        message = "",
+                        id = id,
+                        garment_id = id,
+                        imagePath = imgFile.absolutePath,
+                    ),
+                )
+                PrefsManager.saveImageId(activity, id)
+                PrefsManager.saveCapturedImage(activity, imgFile.absolutePath)
+            }.onFailure { cause ->
+                val (title, message) = ApiErrorPresenter.present(cause)
+                _error.postValue("$title: $message")
+            }
+        }
     }
 
+    private suspend fun uploadFileToR2(uploadUrl: String, file: File, contentType: String) {
+        withContext(Dispatchers.IO) {
+            val client = okhttp3.OkHttpClient()
+            val body = file.asRequestBody(contentType.toMediaType())
+            val request = okhttp3.Request.Builder().url(uploadUrl).put(body).build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw ApiException.NetworkError(IOException("Upload failed with HTTP ${response.code}"))
+                }
+            }
+        }
+    }
     fun userAppLoginAPI(email: String, password: String, deviceId: String) {
         viewModelScope.launch {
             runCatching {

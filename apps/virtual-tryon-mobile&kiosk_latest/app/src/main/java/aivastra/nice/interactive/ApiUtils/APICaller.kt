@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
 
 /** Every network call exposes whether failure came from the server, network, or client. */
 sealed class ApiException(message: String) : Exception(message) {
-    class BackendError(val code: String, val backendMessage: String, val httpStatus: Int) :
+    class BackendError(val code: String, val backendMessage: String, val httpStatus: Int, val rawBody: String = "") :
         ApiException(backendMessage)
 
     class NetworkError(cause: Throwable) : ApiException(cause.message ?: "Network error")
@@ -131,12 +131,14 @@ object APICaller {
                 code = error.optString("code", "UNKNOWN"),
                 backendMessage = error.optString("message", "HTTP $httpStatus"),
                 httpStatus = httpStatus,
+                rawBody = body,
             )
         } catch (_: Exception) {
             ApiException.BackendError(
                 code = "HTTP_$httpStatus",
                 backendMessage = body.ifBlank { "HTTP $httpStatus" },
                 httpStatus = httpStatus,
+                rawBody = body,
             )
         }
     }
