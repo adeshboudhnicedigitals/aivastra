@@ -192,6 +192,44 @@ describe('merchant try-on jobs', () => {
     });
     expect(crossMerchant.statusCode).toBe(404);
   });
+  it('cancels a queued job without touching credits', async () => {
+    const { merchant, merchantUser } = await createMerchant(app, 'tryon-g@example.com');
+    const auth = await authHeader(merchantUser.id);
+    const garmentType = await seedGarmentTypeWithWorkflow(app);
+    const item = await seedCatalogItem(app, merchant.id, garmentType.id);
+
+    const presigned = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/presign',
+      headers: auth,
+      payload: { contentType: 'image/jpeg', contentLength: 1024 },
+    });
+    const { r2Key } = presigned.json() as { r2Key: string };
+    await app.storage.putObject(r2Key, Buffer.from('photo'), 'image/jpeg');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/tryon/jobs',
+      headers: auth,
+      payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+    });
+    const { jobId } = created.json() as { jobId: string };
+
+    const cancelled = await app.inject({
+      method: 'DELETE',
+      url: `/v1/merchant/tryon/jobs/${jobId}`,
+      headers: auth,
+    });
+    expect(cancelled.statusCode).toBe(200);
+    expect((cancelled.json() as { status: string }).status).toBe('CANCELLED');
+
+    const cancelledAgain = await app.inject({
+      method: 'DELETE',
+      url: `/v1/merchant/tryon/jobs/${jobId}`,
+      headers: auth,
+    });
+    expect(cancelledAgain.statusCode).toBe(409);
+  });
   it('rejects a job when the garment type has no tryon category configured', async () => {
     const { merchant, merchantUser } = await createMerchant(app, 'tryon-d@example.com');
     const auth = await authHeader(merchantUser.id);
