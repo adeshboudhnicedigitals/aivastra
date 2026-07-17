@@ -213,7 +213,10 @@ export async function buildServer(env: Env) {
   });
   await app.register(scalar, {
     routePrefix: '/v1/dev/docs',
-    configuration: { url: '/v1/dev/openapi.json' },
+    // hiddenClients: true drops the whole "Client Libraries" language picker --
+    // the quickstart doc (dev-api-quickstart.md, this page's own description)
+    // already covers curl/Node with the full multi-call flow.
+    configuration: { url: '/v1/dev/openapi.json', hiddenClients: true },
   });
   app.get('/v1/dev/openapi.json', { schema: { hide: true } }, async () => app.swagger());
 
