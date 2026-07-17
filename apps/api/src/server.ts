@@ -81,7 +81,7 @@ import { storagePlugin } from './plugins/storage.js';
 // duplicating its content as an inline string here.
 const DEV_API_QUICKSTART_PATH = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../docs/dev-api-quickstart.md',
+  '../dev-api-quickstart.md',
 );
 
 function loadDevApiDescription(): string {
