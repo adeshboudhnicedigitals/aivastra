@@ -268,6 +268,36 @@ export const KioskJobDetailResponse = z.object({
 });
 export type KioskJobDetailResponse = z.infer<typeof KioskJobDetailResponse>;
 
+export const MerchantTryonPresignBody = z.object({
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  contentLength: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024),
+});
+export type MerchantTryonPresignBody = z.infer<typeof MerchantTryonPresignBody>;
+
+export const MerchantTryonJobCreateBody = z.object({
+  merchantCatalogItemId: z.string().uuid(),
+  customerPhotoKey: z.string().min(1),
+});
+export type MerchantTryonJobCreateBody = z.infer<typeof MerchantTryonJobCreateBody>;
+
+export const MerchantTryonJobDetailResponse = z.object({
+  id: z.string().uuid(),
+  status: z.string(),
+  merchantId: z.string().uuid(),
+  resultKey: z.string().nullable(),
+  shareUrl: z.string().url().nullable(),
+  errorCode: z.string().nullable(),
+  liked: z.boolean(),
+  inCart: z.boolean(),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
+});
+export type MerchantTryonJobDetailResponse = z.infer<typeof MerchantTryonJobDetailResponse>;
+
 export const AdminMerchantCatalogUpdateBody = z
   .object({
     isActive: z.boolean().optional(),
