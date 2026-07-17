@@ -170,6 +170,20 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  app.post(
+    '/v1/shopify/store/account/unlink',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore;
+      if (!store) throw new AppError('FORBIDDEN', 403, 'Store not installed');
+      await app.db
+        .update(schema.shopifyStores)
+        .set({ ownerUserId: null, updatedAt: new Date() })
+        .where(eq(schema.shopifyStores.id, store.id));
+      return { ok: true };
+    },
+  );
 }
 
 declare module 'fastify' {
