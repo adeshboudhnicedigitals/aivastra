@@ -249,6 +249,15 @@ class SareecategoryDataViewModel : ViewModel() {
         pollingJob = null
     }
     suspend fun getTryonPhotoUrlSync(r2Key: String): String = repository.getTryonPhotoUrl(r2Key)
+    fun getTryonJobStatusForResultScreen(jobId: String, callback: (liked: Boolean, inCart: Boolean) -> Unit) {
+        viewModelScope.launch {
+            runCatching { repository.getTryonJobStatus(jobId) }
+                .onSuccess { status ->
+                    callback(status.optBoolean("liked", false), status.optBoolean("inCart", false))
+                }
+                .onFailure { /* Non-fatal: leave the icons in their default state. */ }
+        }
+    }
     fun fetchVastraTryOnResultAPI(
         activity: Activity,
         garmentId: String,
