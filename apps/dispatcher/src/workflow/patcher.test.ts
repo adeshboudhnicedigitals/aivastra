@@ -16,6 +16,7 @@ function makeWorkflow() {
     '1340': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'upper_garment' } },
     '1331': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'lower_garment' } },
     '1352': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'shoes' } },
+    '1360': { inputs: { image: '' }, class_type: 'LoadImage', _meta: { title: 'third_garment' } },
     '1345:110': {
       inputs: { prompt: 'hardcoded negative — must never change' },
       class_type: 'TextEncodeQwenImageEditPlus',
@@ -57,6 +58,7 @@ function makeTemplate(overrides: Partial<WorkflowTemplate> = {}): WorkflowTempla
     upperNodeIds: ['1340'],
     lowerNodeId: '1331',
     shoeNodeId: '1352',
+    thirdNodeId: '1360',
     sizeNodeId: '1345:874', // legacy field kept in schema
     sizeNodeIds: ['1345:874'],
     facePhasePromptNode: '1345:110', // negative prompt — DB column named "facePhase" historically
@@ -77,6 +79,7 @@ const BASE_INPUTS = {
   backgroundFile: 'bg_abc123.jpg',
   lowerGarmentFile: 'lower_abc123.jpg',
   shoeGarmentFile: 'shoe_abc123.jpg',
+  thirdGarmentFile: 'third_abc123.jpg',
 };
 
 describe('fail-closed on missing garment input for a mapped role', () => {
@@ -187,7 +190,7 @@ describe('required nodes', () => {
     const wf = makeWorkflow();
     applyWorkflowPatch(wf, makeTemplate(), BASE_INPUTS);
 
-    const mappedNodeIds = ['1332', '1333', '1334', '1340', '1331', '1352'];
+    const mappedNodeIds = ['1332', '1333', '1334', '1340', '1331', '1352', '1360'];
     for (const nodeId of mappedNodeIds) {
       const img = wf[nodeId as keyof typeof wf]?.inputs.image;
       expect(img, `node ${nodeId} still has empty/stale image after patch`).toBeTruthy();
@@ -250,6 +253,29 @@ describe('shoes', () => {
     const tmpl = makeTemplate({ shoeNodeId: null });
     applyWorkflowPatch(wf, tmpl, { ...BASE_INPUTS, shoeGarmentFile: 'shoe_abc123.jpg' });
     expect(wf['1352']?.inputs.image).toBe('');
+  });
+});
+
+// ── Third Garment ────────────────────────────────────────────────────────
+
+describe('third garment', () => {
+  it('patches third node with the provided thirdGarmentFile', () => {
+    const wf = makeWorkflow();
+    applyWorkflowPatch(wf, makeTemplate(), { ...BASE_INPUTS, thirdGarmentFile: 'third_abc123.jpg' });
+    expect(wf['1360']?.inputs.image).toBe('third_abc123.jpg');
+  });
+
+  it('throws when thirdNodeId is mapped but no third garment file is provided', () => {
+    const wf = makeWorkflow();
+    const { thirdGarmentFile, ...inputsWithoutThird } = BASE_INPUTS;
+    expect(() => applyWorkflowPatch(wf, makeTemplate(), inputsWithoutThird)).toThrow(/third/i);
+  });
+
+  it('leaves third node completely untouched when thirdNodeId is null', () => {
+    const wf = makeWorkflow();
+    const tmpl = makeTemplate({ thirdNodeId: null });
+    applyWorkflowPatch(wf, tmpl, { ...BASE_INPUTS, thirdGarmentFile: 'third_abc123.jpg' });
+    expect(wf['1360']?.inputs.image).toBe('');
   });
 });
 
