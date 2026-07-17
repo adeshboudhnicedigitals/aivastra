@@ -349,6 +349,8 @@ export function EditGarmentTypeModal({
   const [requiresLowerUpload, setRequiresLowerUpload] = useState(garmentType.requiresLowerUpload);
   const [upperUploadLabel, setUpperUploadLabel] = useState(garmentType.upperUploadLabel ?? '');
   const [lowerUploadLabel, setLowerUploadLabel] = useState(garmentType.lowerUploadLabel ?? '');
+  const [requiresThirdUpload, setRequiresThirdUpload] = useState(garmentType.requiresThirdUpload ?? false);
+  const [thirdUploadLabel, setThirdUploadLabel] = useState(garmentType.thirdUploadLabel ?? '');
   const [defaultLowerId, setDefaultLowerId] = useState(garmentType.defaultLowerCatalogId ?? '');
   const [defaultShoeId, setDefaultShoeId] = useState(garmentType.defaultShoeCatalogId ?? '');
   const [tryonCategoryId, setTryonCategoryId] = useState(garmentType.tryonCategoryId ?? '');
@@ -393,6 +395,8 @@ export function EditGarmentTypeModal({
     requiresLowerUpload !== garmentType.requiresLowerUpload ||
     upperUploadLabel !== (garmentType.upperUploadLabel ?? '') ||
     lowerUploadLabel !== (garmentType.lowerUploadLabel ?? '') ||
+    requiresThirdUpload !== (garmentType.requiresThirdUpload ?? false) ||
+    thirdUploadLabel !== (garmentType.thirdUploadLabel ?? '') ||
     defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '') ||
     defaultShoeId !== (garmentType.defaultShoeCatalogId ?? '') ||
     tryonCategoryId !== (garmentType.tryonCategoryId ?? '') ||
@@ -441,6 +445,12 @@ export function EditGarmentTypeModal({
       }
       if (lowerUploadLabel !== (garmentType.lowerUploadLabel ?? '')) {
         patchBody.lowerUploadLabel = lowerUploadLabel.trim() || null;
+      }
+      if (requiresThirdUpload !== (garmentType.requiresThirdUpload ?? false)) {
+        patchBody.requiresThirdUpload = requiresThirdUpload;
+      }
+      if (thirdUploadLabel !== (garmentType.thirdUploadLabel ?? '')) {
+        patchBody.thirdUploadLabel = thirdUploadLabel.trim() || null;
       }
       if (defaultLowerId !== (garmentType.defaultLowerCatalogId ?? '')) {
         patchBody.defaultLowerCatalogId = defaultLowerId || null;
@@ -596,6 +606,34 @@ export function EditGarmentTypeModal({
                     </span>
                   </div>
                 </>
+              )}
+              <div className="setting-row" style={{ padding: 0, border: 0 }}>
+                <div>
+                  <div className="setting-lbl">Requires 3rd Upload (e.g. Scarf/Dupatta)</div>
+                  <div className="setting-desc">
+                    Customers must upload a third image.
+                  </div>
+                </div>
+                <Switch
+                  checked={requiresThirdUpload}
+                  onChange={setRequiresThirdUpload}
+                  disabled={saving}
+                />
+              </div>
+              {requiresThirdUpload && (
+                <div className="field">
+                  <label>3rd Upload Field Label</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Scarf Image"
+                    value={thirdUploadLabel}
+                    disabled={saving}
+                    onChange={(e) => setThirdUploadLabel(e.target.value)}
+                  />
+                  <span className="hint">
+                    Shown in studio as the title of the third garment upload box.
+                  </span>
+                </div>
               )}
               <div className="field">
                 <label>Tryon Category</label>
