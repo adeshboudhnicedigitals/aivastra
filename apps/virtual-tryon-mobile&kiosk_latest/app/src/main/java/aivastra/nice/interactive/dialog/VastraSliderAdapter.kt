@@ -41,9 +41,16 @@ class VastraSliderAdapter(
             .placeholder(ViewControll.setLoaderDrawble(context))
             .dontAnimate()
             .into(holder.image)
-        holder.txtOfferPrice.text = "Price : \u20B9${images[position].offerprice}"
-        holder.txtPrice.text = "\u20B9${images[position].price}"
-        holder.txtPrice.paintFlags =  holder.txtPrice.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+        val offerPrice = images[position].offerprice.takeIf { it.isNotBlank() && it != "0" }
+        val actualPrice = images[position].price.takeIf { it.isNotBlank() && it != "0" }
+        if (offerPrice != null && offerPrice != actualPrice) {
+            holder.txtOfferPrice.text = "Price : \u20B9$offerPrice"
+            holder.txtPrice.text = actualPrice?.let { "\u20B9$it" }.orEmpty()
+            holder.txtPrice.paintFlags = holder.txtPrice.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+        } else {
+            holder.txtOfferPrice.text = actualPrice?.let { "Price : \u20B9$it" }.orEmpty()
+            holder.txtPrice.text = ""
+        }
 
     }
 

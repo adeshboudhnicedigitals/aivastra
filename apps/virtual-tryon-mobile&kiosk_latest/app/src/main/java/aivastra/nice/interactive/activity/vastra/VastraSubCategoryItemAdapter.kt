@@ -11,6 +11,7 @@ import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.isVisible
 import androidx.databinding.DataBindingUtil
 import androidx.recyclerview.widget.RecyclerView
 import coil.imageLoader
@@ -87,9 +88,20 @@ class VastraSubCategoryItemAdapter(private val onClickEvent:(DressesTypeDataMode
 
             fun bindItem(itemData: DressesTypeDataModel.Data.Subcategory.Item) {
                 binding.txtVastraProductid.text = "Sku:${itemData.sku_number}"
-                binding.txtProductOfferPrice.text = "\u20B9${itemData.offerprice}"
-                binding.txtProductPrice.text = "\u20B9${itemData.price}"
-                binding.txtProductPrice.paintFlags =  binding.txtProductPrice.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+                val offerPrice = itemData.offerprice.takeIf { it.isNotBlank() && it != "0" }
+                val actualPrice = itemData.price.takeIf { it.isNotBlank() && it != "0" }
+                if (offerPrice != null && offerPrice != actualPrice) {
+                    binding.txtProductOfferPrice.isVisible = true
+                    binding.txtProductOfferPrice.text = "\u20B9$offerPrice"
+                    binding.txtProductPrice.isVisible = actualPrice != null
+                    binding.txtProductPrice.text = actualPrice?.let { "\u20B9$it" }.orEmpty()
+                    binding.txtProductPrice.paintFlags =
+                        binding.txtProductPrice.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+                } else {
+                    binding.txtProductOfferPrice.isVisible = actualPrice != null
+                    binding.txtProductOfferPrice.text = actualPrice?.let { "\u20B9$it" }.orEmpty()
+                    binding.txtProductPrice.isVisible = false
+                }
                 try {
                     val imageLoader = binding.imgVastraItem.context.imageLoader
                     val request = ImageRequest.Builder(binding.root.context)
