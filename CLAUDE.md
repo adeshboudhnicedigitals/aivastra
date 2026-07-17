@@ -151,6 +151,7 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 | `refresh_tokens` | Family rotation — `familyId`, `generation`, `usedAt`, `revokedAt`. Partial unique index: one active token per family |
 | `oauth_accounts` | Google OAuth linkage to `users` rows; `passwordHash` nullable for OAuth-only users |
 | `admin_users` | User → admin role mapping (`SUPER_ADMIN`, `MODERATOR`, `SUPPORT`, `ADMIN`) |
+| `api_keys` | Developer API keys per merchant — sha256 `keyHash`, display-only `keyPrefix`, revocable |
 
 ### Credits & Payments
 
@@ -214,6 +215,7 @@ Supports subdirectory deployment (e.g. `/app`). All internal asset references an
 | `payments/` | Razorpay order creation + webhook |
 | `merchant/` | Merchant self-serve (API key regen, webhook config, credits) |
 | `widget/` | Widget job creation, cancellation, ledger |
+| `dev/` | `/v1/dev/tryon`, `/v1/dev/jobs/:id`, `/v1/dev/categories`, `/v1/dev/me` — public developer API, API-key authed |
 | `admin/` | Full CRUD under `/admin/*` — users, credits, catalog, assets, jobs, workers, config, workflows, widget clients, saree settings |
 
 ## Dispatcher Modules (`apps/dispatcher/src/`)

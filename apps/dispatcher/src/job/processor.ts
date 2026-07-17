@@ -146,9 +146,23 @@ export async function processJob(
     return;
   }
 
-  // Saree jobs: kind === 'saree' in jobInputs.params. Two image inputs (model + saree),
-  // admin-configured modelKey and user-uploaded garmentKey. Saree jobs route to
-  // workers with 'saree' in their allowedJobTypes (selectWorker below).
+  // Saree mannequin (step-1) jobs: kind === 'saree_mannequin' in jobInputs.params.
+  // Draped-mannequin generation, run once per flat-saree job regardless of pose
+  // count; 0 credits; never surfaced to the user (see createSareeMannequinJob).
+  // Has faceId (the selected model) but no backgroundId/poseId — that combination
+  // distinguishes it from every other job shape.
+  if (!inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree_mannequin') {
+    await processSareeMannequinJob(cfg, job, inputs, userId, stream, messageId, jobLog, startedAt);
+    return;
+  }
+
+  // Saree jobs (standalone feature, being retired — see Task 19 of the
+  // flat-saree-two-step-workflow plan): kind === 'saree' in jobInputs.params.
+  // Two image inputs (model + saree), admin-configured modelKey and
+  // user-uploaded garmentKey. Kept alongside the mannequin branch above until
+  // the API-side POST /v1/jobs/saree route (and this handler) are deleted
+  // together in Task 19 — until then, jobs already in flight or created by
+  // any client still hitting that route must keep working.
   if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree') {
     await processSareeJob(
       cfg,
@@ -209,24 +223,48 @@ export async function processJob(
   let effectiveWorkflowTemplateId = poseRow.workflowTemplateId;
   let effectivePromptFacePhase = poseRow.promptFacePhase;
   let effectivePromptGarmentPhase = poseRow.promptGarmentPhase;
-  if (inputs.garmentTypeId) {
-    const [cfgRow] = await db
+  const snapshottedWorkflowTemplateId =
+    typeof rawParams.workflowTemplateId === 'string' ? rawParams.workflowTemplateId : null;
+  if (snapshottedWorkflowTemplateId) {
+    effectiveWorkflowTemplateId = snapshottedWorkflowTemplateId;
+    effectivePromptFacePhase = null;
+    effectivePromptGarmentPhase =
+      typeof rawParams.promptGarmentPhase === 'string' ? rawParams.promptGarmentPhase : null;
+  } else if (inputs.garmentTypeId) {
+    const [garmentTypeRow] = await db
       .select({
-        workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
-        promptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
-        promptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
+        requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+        sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
       })
-      .from(schema.poseGarmentConfigs)
-      .where(
-        and(
-          eq(schema.poseGarmentConfigs.poseAssetId, inputs.poseId),
-          eq(schema.poseGarmentConfigs.subcategoryId, inputs.garmentTypeId),
-        ),
-      );
-    if (cfgRow) {
-      if (cfgRow.workflowTemplateId) effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
-      if (cfgRow.promptFacePhase) effectivePromptFacePhase = cfgRow.promptFacePhase;
-      if (cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = cfgRow.promptGarmentPhase;
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, inputs.garmentTypeId));
+    if (garmentTypeRow?.requiresMannequinStep) {
+      // Flat-saree (and any future two-pass) garment types use ONE workflow for
+      // every pose, set directly on the garment type — bypasses the normal
+      // per-pose pose_garment_configs override entirely (a saree pose's own
+      // workflow assignment, if any, is ignored). Flat-saree jobs never carry
+      // a catalogue-template-mapping snapshot, so in practice this is the
+      // top-precedence tier whenever it applies.
+      effectiveWorkflowTemplateId = garmentTypeRow.sareeStep2WorkflowTemplateId;
+    } else {
+      const [cfgRow] = await db
+        .select({
+          workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+          promptFacePhase: schema.poseGarmentConfigs.promptFacePhase,
+          promptGarmentPhase: schema.poseGarmentConfigs.promptGarmentPhase,
+        })
+        .from(schema.poseGarmentConfigs)
+        .where(
+          and(
+            eq(schema.poseGarmentConfigs.poseAssetId, inputs.poseId),
+            eq(schema.poseGarmentConfigs.subcategoryId, inputs.garmentTypeId),
+          ),
+        );
+      if (cfgRow) {
+        if (cfgRow.workflowTemplateId) effectiveWorkflowTemplateId = cfgRow.workflowTemplateId;
+        if (cfgRow.promptFacePhase) effectivePromptFacePhase = cfgRow.promptFacePhase;
+        if (cfgRow.promptGarmentPhase) effectivePromptGarmentPhase = cfgRow.promptGarmentPhase;
+      }
     }
   }
 
@@ -260,6 +298,17 @@ export async function processJob(
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
     return;
   }
+  const [tmplRoles] = await db
+    .select({
+      faceNodeId: schema.workflowTemplates.faceNodeId,
+      bgNodeId: schema.workflowTemplates.bgNodeId,
+      upperNodeIds: schema.workflowTemplates.upperNodeIds,
+    })
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  const needsFace = !!tmplRoles?.faceNodeId;
+  const needsBg = !!tmplRoles?.bgNodeId;
+  const needsUpper = (tmplRoles?.upperNodeIds.length ?? 0) > 0;
   jobLog.info(
     { faceSideKey, bgKeyResolved: bgKey, bgSource, poseKey, workflowTemplateId },
     'resolved R2 keys for ComfyUI upload',
@@ -349,26 +398,22 @@ export async function processJob(
 
     // 4. Upload only the images that ComfyUI actually needs.
     // Display images (faceRow.r2Key, bgRow.r2Key) are UI-only and never sent to ComfyUI.
-    jobLog.info('uploading inputs to ComfyUI');
-    const baseTasks: Promise<string>[] = [
-      uploadToComfy(inputs.upperGarmentKey, 'garment'),
-      uploadToComfy(faceSideKey, 'face'),
-      uploadToComfy(poseKey, 'pose'),
-      uploadToComfy(bgKey, 'bg'),
-    ];
+    jobLog.info({ needsFace, needsBg, needsUpper }, 'uploading inputs to ComfyUI');
+    const baseTasks: Promise<string>[] = [uploadToComfy(poseKey, 'pose')];
+    if (needsUpper && inputs.upperGarmentKey)
+      baseTasks.push(uploadToComfy(inputs.upperGarmentKey, 'garment'));
+    if (needsFace) baseTasks.push(uploadToComfy(faceSideKey, 'face'));
+    if (needsBg) baseTasks.push(uploadToComfy(bgKey, 'bg'));
     if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
     if (shoeKey) baseTasks.push(uploadToComfy(shoeKey, 'shoe'));
     const uploaded = await Promise.all(baseTasks);
 
     let idx = 0;
-    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
-    const upperGarmentFile = uploaded[idx++]!;
-    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
-    const faceSideFile = uploaded[idx++]!;
-    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
+    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces the pose entry first
     const poseFile = uploaded[idx++]!;
-    // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces these 4 entries in order
-    const backgroundFile = uploaded[idx++]!;
+    const upperGarmentFile = needsUpper && inputs.upperGarmentKey ? uploaded[idx++] : undefined;
+    const faceSideFile = needsFace ? uploaded[idx++] : undefined;
+    const backgroundFile = needsBg ? uploaded[idx++] : undefined;
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
     const shoeGarmentFile = shoeKey ? uploaded[idx++] : undefined;
     jobLog.info(
@@ -496,6 +541,24 @@ export async function processJob(
     recordJobOutcome('success', startedAt);
     jobLog.info('job completed successfully');
   } catch (err) {
+    if (
+      err instanceof Error &&
+      /no .* image was provided|no .* garment image was provided/.test(err.message)
+    ) {
+      jobLog.error({ err: err.message }, 'missing garment input for a mapped workflow role');
+      await setWorkerStatus(redis, w.id, 'IDLE');
+      await markFailed(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'MISSING_GARMENT_INPUT',
+        jobLog,
+        startedAt,
+      );
+      return;
+    }
     jobLog.error({ err }, 'job processing error');
     await setWorkerStatus(redis, w.id, 'IDLE');
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -533,6 +596,19 @@ async function processTryonDirectJob(
 
   if (!workflowTemplateId) {
     await markFailed(cfg, jobId, userId, stream, messageId, 'NO_WORKFLOW', jobLog, startedAt);
+    return;
+  }
+  if (!garmentKey) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MISSING_GARMENT_INPUT',
+      jobLog,
+      startedAt,
+    );
     return;
   }
 
@@ -704,7 +780,233 @@ async function processTryonDirectJob(
   }
 }
 
-// ── Saree job processor ────────────────────────────────────────────────────
+// ── Saree mannequin (step-1) job processor ─────────────────────────────────
+
+type SareeMannequinJob = {
+  id: string;
+  attempts: number;
+  createdAt: Date;
+};
+
+async function processSareeMannequinJob(
+  cfg: ProcessorConfig,
+  job: SareeMannequinJob,
+  inputs: typeof schema.jobInputs.$inferSelect,
+  userId: string,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub, s3, r2Bucket } = cfg;
+  const jobId = job.id;
+
+  const garmentKey = inputs.upperGarmentKey;
+  const faceId = inputs.faceId;
+  const garmentTypeId = inputs.garmentTypeId;
+
+  if (!garmentKey || !faceId || !garmentTypeId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_INPUTS_MISSING',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const [garmentType] = await db
+    .select({
+      mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
+    })
+    .from(schema.garmentSubcategories)
+    .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+  const workflowTemplateId = garmentType?.mannequinWorkflowTemplateId;
+  if (!workflowTemplateId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_WORKFLOW_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const [template] = await db
+    .select({
+      jsonContent: schema.workflowTemplates.jsonContent,
+      tryonPersonNodeId: schema.workflowTemplates.tryonPersonNodeId,
+      tryonGarmentNodeId: schema.workflowTemplates.tryonGarmentNodeId,
+      tryonOutputNodeId: schema.workflowTemplates.tryonOutputNodeId,
+    })
+    .from(schema.workflowTemplates)
+    .where(eq(schema.workflowTemplates.id, workflowTemplateId));
+  if (!template) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'WORKFLOW_NOT_FOUND',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const personNodeId = template.tryonPersonNodeId;
+  const garmentNodeId = template.tryonGarmentNodeId;
+  const outputNodeId = template.tryonOutputNodeId;
+  if (!personNodeId || !garmentNodeId || !outputNodeId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_NODES_NOT_CONFIGURED',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
+  const [faceRow] = await db
+    .select({ r2Key: schema.modelFaces.r2Key, faceSideR2Key: schema.modelFaces.faceSideR2Key })
+    .from(schema.modelFaces)
+    .where(eq(schema.modelFaces.id, faceId));
+  if (!faceRow) {
+    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
+    return;
+  }
+  const personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
+
+  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
+
+  const worker = await selectWorker(redis, 'saree');
+  if (!worker) {
+    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+      jobLog.warn('no idle saree worker — mannequin job exceeded max queue wait, terminating');
+      await terminateJob(cfg, jobId, userId, stream, messageId, 'NO_WORKER', 0, jobLog, startedAt);
+    } else {
+      jobLog.warn('no idle saree worker — re-enqueuing with backoff');
+      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId, 'userId', userId);
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      recordJobOutcome('retried', startedAt);
+    }
+    return;
+  }
+  const w = worker;
+  jobLog.info({ workerId: w.id }, 'worker claimed for saree mannequin');
+
+  try {
+    async function r2Download(key: string): Promise<Uint8Array> {
+      const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
+      if (!res.Body) throw new Error(`R2 object missing: ${key}`);
+      return res.Body.transformToByteArray();
+    }
+
+    async function uploadToComfy(key: string, prefix: string): Promise<string> {
+      const bytes = await r2Download(key);
+      const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
+      const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
+    }
+
+    jobLog.info('uploading mannequin inputs to ComfyUI');
+    const [personFile, garmentFile] = await Promise.all([
+      uploadToComfy(personKey, 'mannequin_person'),
+      uploadToComfy(garmentKey, 'mannequin_garment'),
+    ]);
+    jobLog.info({ personFile, garmentFile }, 'mannequin inputs uploaded');
+
+    const workflow = structuredClone(template.jsonContent) as Record<
+      string,
+      { inputs?: Record<string, unknown> }
+    >;
+    if (workflow[personNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[personNodeId].inputs!.image = personFile;
+    }
+    if (workflow[garmentNodeId]?.inputs) {
+      // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
+      workflow[garmentNodeId].inputs!.image = garmentFile;
+    }
+
+    await transitionJob(db, pub, jobId, userId, 'GENERATING', { workerId: w.id }, jobLog);
+    const clientUuid = randomUUID();
+    const comfyStartedAt = Date.now();
+    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    jobLog.info({ promptId }, 'mannequin prompt submitted');
+
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'COMFY_DISPATCH',
+      payload: {
+        promptId,
+        workerId: w.id,
+        workerUrl: w.url,
+        workflowTemplateId,
+        inputs: { garmentKey, personKey, personFile, garmentFile },
+      },
+    });
+
+    await waitForCompletion(
+      w.url,
+      w.apiKey,
+      clientUuid,
+      promptId,
+      300_000,
+      (update) => jobLog.debug(update, 'comfyui progress'),
+      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+    );
+    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
+
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const [firstImage] = outputImages;
+    if (!firstImage) throw new Error('ComfyUI returned no output images for mannequin job');
+
+    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
+
+    // Mannequin images are never delivered to the user — no watermark applies.
+    await finalizeOutput({
+      imageBytes,
+      jobId,
+      userId,
+      jobWatermark: false,
+      db,
+      pub,
+      s3,
+      r2Bucket,
+      jobLog,
+    });
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    recordJobOutcome('success', startedAt);
+    jobLog.info('mannequin job completed successfully');
+  } catch (err) {
+    jobLog.error({ err }, 'mannequin job processing error');
+    await setWorkerStatus(redis, w.id, 'IDLE');
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  }
+}
+
+// ── Saree job processor (standalone feature, being retired — see Task 19 of
+// the flat-saree-two-step-workflow plan) ───────────────────────────────────
 
 type SareeJob = {
   id: string;
@@ -990,6 +1292,21 @@ async function processWidgetJob(
     return;
   }
   const customerPhotoKey = job.customerPhotoKey;
+  if (!inputs.upperGarmentKey) {
+    await markWidgetFailed(
+      cfg,
+      jobId,
+      merchantId,
+      creditsCharged,
+      stream,
+      messageId,
+      'MISSING_GARMENT_INPUT',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+  const upperGarmentKey = inputs.upperGarmentKey;
 
   // Resolve the per-job tryon workflow template — kiosk resolves this at job-creation
   // time via garment type -> tryon_categories -> workflow_templates, the SAME mechanism
@@ -1083,7 +1400,7 @@ async function processWidgetJob(
 
     const [customerPhotoBytes, garmentBytes] = await Promise.all([
       r2Download(customerPhotoKey),
-      r2Download(inputs.upperGarmentKey),
+      r2Download(upperGarmentKey),
     ]);
 
     // Upload to widget ComfyUI VPS (Basic Auth, not X-Api-Key)
@@ -1106,7 +1423,7 @@ async function processWidgetJob(
       return json.name;
     }
 
-    const garmentExt = inputs.upperGarmentKey.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const garmentExt = upperGarmentKey.split('.').pop()?.toLowerCase() ?? 'jpg';
     const garmentMime =
       garmentExt === 'png' ? 'image/png' : garmentExt === 'webp' ? 'image/webp' : 'image/jpeg';
     const photoExt = customerPhotoKey.split('.').pop()?.toLowerCase() ?? 'jpg';
@@ -1616,17 +1933,21 @@ async function terminateJob(
 
   await db.transaction(async (tx) => {
     // Insert ledger row first — unique index on (job_id, reason) prevents double-refund.
+    // A conflict (already refunded, e.g. this job was retried via admin after a prior
+    // terminal fail) must only skip the balance update — the status transition below
+    // still has to run, or the job is left orphaned in a non-terminal status forever.
     if (creditsCharged > 0) {
       const inserted = await tx
         .insert(schema.creditLedger)
         .values({ userId, delta: creditsCharged, reason: 'JOB_FAIL_REFUND', jobId })
         .onConflictDoNothing()
         .returning({ id: schema.creditLedger.id });
-      if (!inserted.length) return; // already refunded — skip balance update too
-      await tx
-        .update(schema.userCredits)
-        .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
-        .where(eq(schema.userCredits.userId, userId));
+      if (inserted.length) {
+        await tx
+          .update(schema.userCredits)
+          .set({ balance: sql`${schema.userCredits.balance} + ${creditsCharged}` })
+          .where(eq(schema.userCredits.userId, userId));
+      }
     }
 
     // Status transition — inlined so it's atomic with the refund above

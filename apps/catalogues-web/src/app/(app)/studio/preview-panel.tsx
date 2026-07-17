@@ -1,9 +1,9 @@
 'use client';
-import { SparkleIcon } from '@/components/icons';
+import { CheckIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-const BENEFITS = ['No photoshoots required', 'No model coordination', 'No editing hassle'];
+const BENEFITS = ['Studio-quality output', 'Multiple model options', 'Ready for ecommerce'];
 
 export function PreviewPanel() {
   return (
@@ -31,7 +31,10 @@ export function PreviewPanel() {
           justifyContent: 'center',
         }}
       >
-        <span style={{ fontSize: 20, fontWeight: 600, color: C.text }}>Your Catalogue Preview</span>
+        <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>Catalogue Preview</span>
+        <span style={{ fontSize: 12, fontWeight: 500, color: C.mid }}>
+          Your generation results will appear here
+        </span>
       </div>
       <div style={{ flex: 1, padding: 16, boxSizing: 'border-box' }}>
         <div
@@ -52,10 +55,7 @@ export function PreviewPanel() {
           <div
             style={{
               width: '100%',
-              aspectRatio: 816 / 421,
               flexShrink: 0,
-              borderRadius: 8,
-              overflow: 'hidden',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -64,9 +64,9 @@ export function PreviewPanel() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {/* biome-ignore lint/performance/noImgElement: studio placeholder image */}
             <img
-              src={`${BASE}/assets/studio-right-div-placeholder.png`}
-              alt=""
-              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+              src={`${BASE}/assets/catelouge-preview.png`}
+              alt="Catalogue Preview"
+              style={{ width: '80%', height: 'auto', objectFit: 'contain' }}
             />
           </div>
           <div
@@ -82,13 +82,13 @@ export function PreviewPanel() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
               <span
                 style={{
-                  fontSize: 16,
-                  fontWeight: 600,
+                  fontSize: 18,
+                  fontWeight: 700,
                   textAlign: 'center',
                   color: C.text,
                 }}
               >
-                From product photo to catalogue-ready visuals
+                Turn garments into catalogue ready visuals
               </span>
               <span
                 style={{
@@ -96,22 +96,30 @@ export function PreviewPanel() {
                   fontWeight: 500,
                   textAlign: 'center',
                   color: C.mid,
-                  maxWidth: 420,
+                  maxWidth: 500,
+                  lineHeight: 1.5,
                 }}
               >
-                Upload your product image, choose your preferences, and let AI create high-quality
-                catalogue images that look professionally shot.
+                Upload a garment, choose your preferred style, and generate professional catalogue
+                images in just a few clicks.
               </span>
             </div>
             <div
-              style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}
+              style={{
+                display: 'flex',
+                gap: 24,
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+                marginTop: 8,
+              }}
             >
               {BENEFITS.map((b) => (
-                <div key={b} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ color: C.pink, display: 'flex' }}>
-                    <SparkleIcon />
+                <div key={b} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color: '#521D9C', display: 'flex' }}>
+                    <CheckIcon size={16} />
                   </span>
-                  <span style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{b}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{b}</span>
                 </div>
               ))}
             </div>

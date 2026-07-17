@@ -48,3 +48,5 @@ assets/*
 # /legacy_ecosystem/
 /apps/admin-mobile/
 /seed-images/
+/docs/multi-app-ecosystem/
+/apitest/

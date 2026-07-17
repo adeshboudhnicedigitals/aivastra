@@ -1,0 +1,272 @@
+import { randomUUID } from 'node:crypto';
+import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
+import {
+  DevCategoriesResponse,
+  DevJobParams,
+  DevJobResponse,
+  DevMeResponse,
+  DevTryonJsonBody,
+  DevTryonResponse,
+} from '@aivastra/types';
+import { and, asc, eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { AppError } from '../../lib/errors.js';
+import { createDevTryonJob } from './create-job.js';
+import { sniffImageMime } from './image-sniff.js';
+import { hashApiKey } from './keys.js';
+
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const EXT_BY_MIME = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+} as const;
+
+// The per-key limiter runs at onRequest, BEFORE preHandler auth — so req.apiKeyId
+// is not populated yet. Hashing the raw bearer gives a stable per-key bucket with
+// no DB hit and without ever using the raw key as a Redis key. Unauthenticated
+// junk falls back to per-IP.
+const rateLimitConfig = {
+  rateLimit: {
+    max: 60,
+    timeWindow: '1 minute',
+    keyGenerator: (req: { headers: Record<string, unknown>; ip: string }) => {
+      const h = req.headers.authorization;
+      return typeof h === 'string' && h.startsWith('Bearer ') ? hashApiKey(h.slice(7)) : req.ip;
+    },
+  },
+};
+
+export async function devRoutes(app: FastifyInstance) {
+  app.post(
+    '/v1/dev/tryon',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      // Base64 inflates each 10MB image to ~13.4MB of JSON text; the two-image
+      // JSON path needs more than Fastify's 1MB default. Multipart is unaffected —
+      // @fastify/multipart streams via its own `fileSize` limit above, not this.
+      bodyLimit: 30 * 1024 * 1024,
+      schema: {
+        tags: ['dev'],
+        summary: 'Create a try-on job',
+        description:
+          'Upload a person image and a garment image, either as multipart/form-data ' +
+          '(fields: category, person, garment) or as a JSON body with base64-encoded ' +
+          'images (fields: category, person, garment — plain base64 or a data: URI). ' +
+          'Returns a job id to poll.',
+        consumes: ['multipart/form-data', 'application/json'],
+        response: { 202: DevTryonResponse },
+      },
+    },
+    async (req, reply) => {
+      const merchantId = req.merchantId as string;
+      const merchantUserId = req.merchantUserId as string;
+      const apiKeyId = req.apiKeyId as string;
+
+      let categorySlug: string | undefined;
+      const files: Record<string, { buf: Buffer; mime: string }> = {};
+
+      const isJson = (req.headers['content-type'] ?? '').startsWith('application/json');
+
+      if (isJson) {
+        const parsed = DevTryonJsonBody.safeParse(req.body);
+        if (!parsed.success) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            parsed.error.issues[0]?.message ?? 'invalid request body',
+          );
+        }
+        categorySlug = parsed.data.category;
+        for (const fieldname of ['person', 'garment'] as const) {
+          const raw = parsed.data[fieldname].replace(/^data:[^;]+;base64,/, '');
+          const buf = Buffer.from(raw, 'base64');
+          if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
+            throw new AppError('VALIDATION', 400, `${fieldname} exceeds the 10MB limit`);
+          }
+          // Magic bytes only — decoding garbage base64 still yields *some* buffer.
+          const mime = sniffImageMime(buf);
+          if (!mime) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${fieldname} must be a JPEG, PNG, or WebP image`,
+            );
+          }
+          files[fieldname] = { buf, mime };
+        }
+      } else {
+        // The global multipart limit is 2.5GB (server.ts) for the admin zip-import
+        // route, so this route MUST set its own limits — it does not inherit a safe
+        // default.
+        const parts = req.parts({ limits: { fileSize: MAX_FILE_BYTES, files: 2 } });
+        for await (const part of parts) {
+          if (part.type === 'field' && part.fieldname === 'category') {
+            categorySlug = String(part.value);
+            continue;
+          }
+          if (part.type !== 'file') continue;
+          if (part.fieldname !== 'person' && part.fieldname !== 'garment') {
+            throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
+          }
+          const buf = await part.toBuffer().catch(() => {
+            throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
+          });
+          if (part.file.truncated) {
+            throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
+          }
+          // Magic bytes only — part.mimetype is client-declared and untrusted.
+          const mime = sniffImageMime(buf);
+          if (!mime) {
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${part.fieldname} must be a JPEG, PNG, or WebP image`,
+            );
+          }
+          files[part.fieldname] = { buf, mime };
+        }
+      }
+
+      if (!categorySlug) throw new AppError('VALIDATION', 400, 'category is required');
+      if (!files.person) throw new AppError('VALIDATION', 400, 'person image is required');
+      if (!files.garment) throw new AppError('VALIDATION', 400, 'garment image is required');
+
+      // Upload before the credit transaction: an orphaned R2 object on a later
+      // failure is harmless, a charge for a job whose inputs are missing is not.
+      const personKey = keys.devUpload(
+        merchantId,
+        randomUUID(),
+        EXT_BY_MIME[files.person.mime as keyof typeof EXT_BY_MIME],
+      );
+      const garmentKey = keys.devUpload(
+        merchantId,
+        randomUUID(),
+        EXT_BY_MIME[files.garment.mime as keyof typeof EXT_BY_MIME],
+      );
+      await Promise.all([
+        app.storage.putObject(personKey, files.person.buf, files.person.mime),
+        app.storage.putObject(garmentKey, files.garment.buf, files.garment.mime),
+      ]);
+
+      const { jobId } = await createDevTryonJob(app, {
+        merchantId,
+        merchantUserId,
+        apiKeyId,
+        categorySlug,
+        personKey,
+        garmentKey,
+      });
+
+      return reply.code(202).send({ jobId, status: 'QUEUED' });
+    },
+  );
+
+  app.get(
+    '/v1/dev/jobs/:id',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'Get try-on job status and result',
+        params: DevJobParams,
+        response: { 200: DevJobResponse },
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [job] = await app.db
+        .select({
+          id: schema.jobs.id,
+          status: schema.jobs.status,
+          errorCode: schema.jobs.errorCode,
+          apiKeyMerchantId: schema.apiKeys.merchantId,
+          // NOTE: the column is `result_key` / resultKey — job_outputs has no r2Key.
+          outputKey: schema.jobOutputs.resultKey,
+        })
+        .from(schema.jobs)
+        .innerJoin(schema.apiKeys, eq(schema.apiKeys.id, schema.jobs.apiKeyId))
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(and(eq(schema.jobs.id, id), eq(schema.jobs.source, 'api')))
+        .limit(1);
+
+      // Scoped by merchant (via the owning API key), not by key itself: a merchant
+      // that rotates keys must still be able to read its older jobs. 404 (not 403)
+      // on someone else's job so job IDs are not enumerable.
+      if (!job || job.apiKeyMerchantId !== req.merchantId) {
+        throw new AppError('NOT_FOUND', 404, 'job not found');
+      }
+
+      if (job.status === 'COMPLETED' && job.outputKey) {
+        // Presigned + short-lived: API results stay private to the owning merchant.
+        const { url } = await app.storage.presignGet(job.outputKey, 900);
+        return { jobId: job.id, status: 'COMPLETED' as const, imageUrl: url };
+      }
+      if (job.status === 'FAILED') {
+        return { jobId: job.id, status: 'FAILED' as const, error: job.errorCode ?? 'JOB_FAILED' };
+      }
+      if (job.status === 'CANCELLED') {
+        return { jobId: job.id, status: 'FAILED' as const, error: 'JOB_CANCELLED' };
+      }
+      // Internal pipeline stages (PREPROCESSING/GENERATING/UPLOADING) collapse to
+      // RUNNING on the public surface — DevJobStatus only exposes QUEUED/RUNNING/
+      // COMPLETED/FAILED, so a raw passthrough of job.status here would fail response
+      // schema validation with a 500 for the entire duration a job is processing.
+      return {
+        jobId: job.id,
+        status: job.status === 'QUEUED' ? ('QUEUED' as const) : ('RUNNING' as const),
+      };
+    },
+  );
+
+  app.get(
+    '/v1/dev/categories',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'List try-on categories',
+        response: { 200: DevCategoriesResponse },
+      },
+    },
+    async () => {
+      const rows = await app.db
+        .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
+        .from(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.isActive, true))
+        .orderBy(asc(schema.tryonCategories.sortOrder));
+      return { categories: rows };
+    },
+  );
+
+  app.get(
+    '/v1/dev/me',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: { tags: ['dev'], summary: 'Get account info', response: { 200: DevMeResponse } },
+    },
+    async (req) => {
+      const [row] = await app.db
+        .select({
+          merchantId: schema.merchants.id,
+          companyName: schema.merchants.companyName,
+          credits: schema.userCredits.balance,
+        })
+        .from(schema.merchants)
+        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, req.merchantId as string))
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      return {
+        merchantId: row.merchantId,
+        companyName: row.companyName,
+        credits: row.credits ?? 0,
+      };
+    },
+  );
+}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
 import { useAuth } from '../context/AuthContext';
-import { apiFetch } from '../lib/data';
+import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { ContactRequest } from '../types';
 
 const STATUS_LABEL: Record<string, string> = { new: 'New', read: 'Read', done: 'Done' };
@@ -71,8 +71,13 @@ export default function ContactRequestsPage({ toast }: Props) {
         setRows(data.rows);
         setTotal(data.total);
         return data.rows;
-      } catch {
-        if (!silent) toast({ kind: 'error', title: 'Failed to load contact requests' });
+      } catch (e) {
+        if (!silent)
+          toast({
+            kind: 'error',
+            title: 'Failed to load contact requests',
+            body: apiErrorMessage(e, 'Please try again.'),
+          });
         return null;
       } finally {
         if (!silent) setLoading(false);
@@ -155,8 +160,12 @@ export default function ContactRequestsPage({ toast }: Props) {
       if (selected?.id === id) setSelected(updated);
       toast({ title: `Marked as ${STATUS_LABEL[status]}` });
       void refreshSummary();
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update status' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update status',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 

@@ -612,7 +612,7 @@ export default function TryOnPage() {
   return (
     <>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <TopBar title="AI Virtual Try-On (Beta)" subtitle="" />
+        <TopBar title="AI Virtual Try On (Beta)" subtitle="" />
 
         <div
           style={{
@@ -914,7 +914,7 @@ export default function TryOnPage() {
                 <span
                   style={{ fontSize: 15, fontWeight: 600, color: canGenerate ? '#fff' : C.light }}
                 >
-                  {generating ? 'Generating…' : 'Generate Try-On'}
+                  {generating ? 'Generating…' : 'Generate Try On'}
                 </span>
                 {!generating && (
                   // biome-ignore lint/performance/noImgElement: static SVG asset
@@ -958,11 +958,11 @@ export default function TryOnPage() {
               }}
             >
               <span style={{ fontSize: 18, fontWeight: 600, color: C.text }}>
-                Your Try-On Preview
+                Your Try On Preview
               </span>
               {resultUrl && (
                 <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
-                  Try-on generated successfully.
+                  Try on generated successfully.
                 </span>
               )}
             </div>
@@ -985,7 +985,7 @@ export default function TryOnPage() {
                   {/* biome-ignore lint/performance/noImgElement: try-on result image */}
                   <img
                     src={resultUrl}
-                    alt="Try-on result"
+                    alt="Try on result"
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   />
                 </div>
@@ -1084,7 +1084,7 @@ export default function TryOnPage() {
                     <span
                       style={{ fontSize: 16, fontWeight: 600, color: C.text, textAlign: 'center' }}
                     >
-                      {generating ? 'Generating your try-on…' : 'No try-on generated yet'}
+                      {generating ? 'Generating your try on…' : 'No try on generated yet'}
                     </span>
                     <span
                       style={{
@@ -1098,7 +1098,7 @@ export default function TryOnPage() {
                     >
                       {generating
                         ? 'This may take a moment. Please wait.'
-                        : 'Upload your images and click Generate Try-On to preview the result here.'}
+                        : 'Upload your images and click Generate Try On to preview the result here.'}
                     </span>
                   </div>
                 </div>
@@ -1150,7 +1150,7 @@ export default function TryOnPage() {
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
-                      Want AI Virtual Try-On for Your Store?
+                      Want AI Virtual Try On for Your Store?
                     </span>
                     {contactSource && (
                       <span style={{ fontSize: 11, color: C.mid }}>
@@ -1453,7 +1453,7 @@ export default function TryOnPage() {
                 Ready to Transform Your Shopping Experience?
               </div>
               <div style={{ fontSize: 12, fontWeight: 400, color: C.light, lineHeight: 1.5 }}>
-                Launch Ai Vastra Virtual Try-On on your website or enhance your retail store with
+                Launch Ai Vastra Virtual Try On on your website or enhance your retail store with
                 our AI Kiosk solution. Contact us today, and we'll get back to you immediately.
               </div>
             </div>

@@ -160,8 +160,8 @@ export async function adminUsersRoutes(app: FastifyInstance) {
             completedAt: schema.jobs.completedAt,
             creditsCharged: schema.jobs.creditsCharged,
             jobType: sql<
-              'catalogue' | 'tryon' | 'widget'
-            >`CASE WHEN ${schema.jobs.merchantId} IS NOT NULL THEN 'widget' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
+              'catalogue' | 'tryon' | 'widget' | 'api'
+            >`CASE WHEN ${schema.jobs.merchantId} IS NOT NULL THEN 'widget' WHEN ${schema.jobs.apiKeyId} IS NOT NULL THEN 'api' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
           })
           .from(schema.jobs)
           .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))

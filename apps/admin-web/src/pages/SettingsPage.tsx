@@ -413,7 +413,13 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
         if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
       })
-      .catch(() => toast({ kind: 'error', title: 'Failed to load system config' }))
+      .catch((e) =>
+        toast({
+          kind: 'error',
+          title: 'Failed to load system config',
+          body: apiErrorMessage(e, 'Please try again.'),
+        }),
+      )
       .finally(() => setSysLoading(false));
   }, [toast]);
 
@@ -440,8 +446,12 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         }),
       });
       toast({ title: 'System config saved' });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to save system config' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save system config',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSysSaving(false);
     }
@@ -450,7 +460,13 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   useEffect(() => {
     apiFetch<CreditPlan[]>('/admin/credit-plans')
       .then(setPlans)
-      .catch(() => toast({ kind: 'error', title: 'Failed to load credit plans' }))
+      .catch((e) =>
+        toast({
+          kind: 'error',
+          title: 'Failed to load credit plans',
+          body: apiErrorMessage(e, 'Please try again.'),
+        }),
+      )
       .finally(() => setPlansLoading(false));
   }, [toast]);
 

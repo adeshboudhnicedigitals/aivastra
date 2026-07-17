@@ -3,12 +3,15 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
-import { apiFetch } from '../../lib/data';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
 import type {
   GarmentType,
   GenderSlug,
+  MappedTemplatePoseWorkflow,
   PoseGarmentConfig,
+  ShotTypeWorkflow,
+  TemplateGarmentTypeMapping,
   TryonCategory,
   WorkflowOption,
 } from '../../types';
@@ -48,6 +51,18 @@ export function GarmentTypesTab() {
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteGT | null>(null);
   const [tryonCategories, setTryonCategories] = useState<TryonCategory[]>([]);
 
+  // Suggested "append at the end" position for a new garment type of this
+  // gender - just a starting point shown in the field; picking a lower number
+  // still works and pushes existing ones down (server-side auto-shift).
+  const nextSortOrderFor = useCallback(
+    (gender: GenderSlug) =>
+      garmentTypes.reduce(
+        (max, g) => (g.genderSlug === gender ? Math.max(max, g.sortOrder) : max),
+        0,
+      ) + 1,
+    [garmentTypes],
+  );
+
   // Add garment type modal
   const [showSubcatModal, setShowSubcatModal] = useState(false);
   const [subcatForm, setSubcatForm] = useState({
@@ -55,6 +70,7 @@ export function GarmentTypesTab() {
     label: '',
     genderSlug: 'men' as GenderSlug,
     requiresLowerUpload: false,
+    sortOrder: 0,
   });
   const [subcatSaving, setSubcatSaving] = useState(false);
   const [subcatImageFile, setSubcatImageFile] = useState<File | null>(null);
@@ -70,8 +86,12 @@ export function GarmentTypesTab() {
           `/admin/assets/garment-types/${garmentTypeId}/pose-configs`,
         );
         setPoseConfigs(res.items);
-      } catch {
-        toast({ kind: 'error', title: 'Failed to load pose configs' });
+      } catch (e) {
+        toast({
+          kind: 'error',
+          title: 'Failed to load pose configs',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
       } finally {
         setConfigsLoading(false);
       }
@@ -79,28 +99,37 @@ export function GarmentTypesTab() {
     [toast],
   );
 
+  const refetchWorkflows = useCallback(() => {
+    // Always refetch, regardless of subView — the "Edit garment type" modal
+    // (with its saree-step-1/step-2 dropdowns) opens directly from the list
+    // view, so workflows must be fresh there too, not just inside "configs".
+    void apiFetch<WorkflowOption[]>('/admin/workflows')
+      .then(setWorkflows)
+      .catch(() => {});
+  }, [setWorkflows]);
+
   useEffect(() => {
     if (subView.kind === 'list') {
       void loadGarmentTypes();
     } else {
       void loadPoseConfigs(subView.sub.id);
-      if (workflows.length === 0) {
-        void apiFetch<WorkflowOption[]>('/admin/workflows')
-          .then(setWorkflows)
-          .catch(() => {});
-      }
     }
-  }, [subView, loadGarmentTypes, loadPoseConfigs, workflows.length, setWorkflows]);
+    refetchWorkflows();
+  }, [subView, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
 
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState !== 'visible') return;
-      if (subView.kind === 'list') void loadGarmentTypes();
-      else void loadPoseConfigs(subView.sub.id);
+      if (subView.kind === 'list') {
+        void loadGarmentTypes();
+      } else {
+        void loadPoseConfigs(subView.sub.id);
+      }
+      refetchWorkflows();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [subView, loadGarmentTypes, loadPoseConfigs]);
+  }, [subView, loadGarmentTypes, loadPoseConfigs, refetchWorkflows]);
 
   useEffect(() => {
     apiFetch<TryonCategory[]>('/admin/tryon-categories')
@@ -142,8 +171,12 @@ export function GarmentTypesTab() {
         ),
       );
       toast({ title: 'Config saved' });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to save config' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save config',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSavingConfigId(null);
     }
@@ -165,8 +198,12 @@ export function GarmentTypesTab() {
           : prev,
       );
       toast({ title: 'Default pose updated' });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update default pose' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update default pose',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setSavingDefaultPose(false);
     }
@@ -195,9 +232,13 @@ export function GarmentTypesTab() {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
-    } catch {
+    } catch (e) {
       setPoseConfigs((prev) => prev.map((p) => (p.id === poseAssetId && prevItem ? prevItem : p)));
-      toast({ kind: 'error', title: 'Failed to update pose' });
+      toast({
+        kind: 'error',
+        title: 'Failed to update pose',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -209,8 +250,12 @@ export function GarmentTypesTab() {
       await apiFetch(`/admin/assets/garment-types/${id}`, { method: 'DELETE' });
       setGarmentTypes((prev) => prev.filter((s) => s.id !== id));
       toast({ title: `${label} deleted` });
-    } catch {
-      toast({ kind: 'error', title: 'Failed to delete garment type' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to delete garment type',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -244,12 +289,10 @@ export function GarmentTypesTab() {
               <span>{subView.sub.label}</span>
             </div>
           )}
-          <h1>
-            {subView.kind === 'configs' ? `${subView.sub.label} — Pose Configs` : 'Garment Types'}
-          </h1>
+          <h1>{subView.kind === 'configs' ? `${subView.sub.label} — Setup` : 'Garment Types'}</h1>
           <p className="lede">
             {subView.kind === 'configs'
-              ? `Override workflow and prompts per pose for ${subView.sub.genderSlug} / ${subView.sub.slug}.`
+              ? `Choose the catalogue templates offered for ${subView.sub.label}, then configure its workflow per pose.`
               : 'Garment types used to classify uploads.'}
           </p>
         </div>
@@ -263,6 +306,7 @@ export function GarmentTypesTab() {
                   label: '',
                   genderSlug: 'men',
                   requiresLowerUpload: false,
+                  sortOrder: nextSortOrderFor('men'),
                 });
                 setShowSubcatModal(true);
               }}
@@ -275,21 +319,49 @@ export function GarmentTypesTab() {
 
       {/* Pose configs subview */}
       {subView.kind === 'configs' && (
-        <PoseConfigsPanel
-          sub={subView.sub}
-          items={poseConfigs}
-          loading={configsLoading}
-          savingId={savingConfigId}
-          workflows={workflows}
-          storagePublicUrl={storagePublicUrl}
-          onBack={() => setSubView({ kind: 'list' })}
-          onSave={saveConfig}
-          onToggleActive={(poseAssetId, isActive) =>
-            togglePoseActive(subView.sub.id, poseAssetId, isActive)
-          }
-          onSaveDefaultPose={saveDefaultPose}
-          savingDefaultPose={savingDefaultPose}
-        />
+        <>
+          <ShotTypeWorkflowsPanel sub={subView.sub} workflows={workflows} toast={toast} />
+
+          <div
+            style={{
+              marginTop: 32,
+              paddingTop: 24,
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            <GarmentTemplateMappingPanel sub={subView.sub} workflows={workflows} toast={toast} />
+          </div>
+
+          <div
+            style={{
+              marginTop: 32,
+              paddingTop: 24,
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            <h2 style={{ margin: 0, fontSize: 18 }}>3. Custom look poses</h2>
+            <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
+              Configure standalone poses used by Create your own look. Template workflows are
+              configured inside each mapped template above.
+            </p>
+          </div>
+
+          <PoseConfigsPanel
+            sub={subView.sub}
+            items={poseConfigs}
+            loading={configsLoading}
+            savingId={savingConfigId}
+            workflows={workflows}
+            storagePublicUrl={storagePublicUrl}
+            onBack={() => setSubView({ kind: 'list' })}
+            onSave={saveConfig}
+            onToggleActive={(poseAssetId, isActive) =>
+              togglePoseActive(subView.sub.id, poseAssetId, isActive)
+            }
+            onSaveDefaultPose={saveDefaultPose}
+            savingDefaultPose={savingDefaultPose}
+          />
+        </>
       )}
 
       {subView.kind === 'list' && !loading && (
@@ -437,13 +509,17 @@ export function GarmentTypesTab() {
                             toast({
                               title: `${sub.label} ${sub.isActive ? 'deactivated' : 'activated'}`,
                             });
-                          } catch {
+                          } catch (e) {
                             setGarmentTypes((prev) =>
                               prev.map((s) =>
                                 s.id === sub.id ? { ...s, isActive: sub.isActive } : s,
                               ),
                             );
-                            toast({ kind: 'error', title: 'Failed to update garment type' });
+                            toast({
+                              kind: 'error',
+                              title: 'Failed to update garment type',
+                              body: apiErrorMessage(e, 'Please try again.'),
+                            });
                           }
                         }}
                       />
@@ -573,15 +649,38 @@ export function GarmentTypesTab() {
                   className="select"
                   value={subcatForm.genderSlug}
                   disabled={subcatSaving}
-                  onChange={(e) =>
-                    setSubcatForm((f) => ({ ...f, genderSlug: e.target.value as GenderSlug }))
-                  }
+                  onChange={(e) => {
+                    const genderSlug = e.target.value as GenderSlug;
+                    setSubcatForm((f) => ({
+                      ...f,
+                      genderSlug,
+                      sortOrder: nextSortOrderFor(genderSlug),
+                    }));
+                  }}
                 >
                   <option value="men">Men</option>
                   <option value="women">Women</option>
                   <option value="boys">Boys</option>
                   <option value="girls">Girls</option>
                 </select>
+              </div>
+              <div className="field">
+                <label>
+                  Sort order{' '}
+                  <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
+                    (1 shows first; picking a taken position pushes the rest down)
+                  </span>
+                </label>
+                <input
+                  className="input"
+                  type="number"
+                  step={1}
+                  value={subcatForm.sortOrder}
+                  disabled={subcatSaving}
+                  onChange={(e) =>
+                    setSubcatForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))
+                  }
+                />
               </div>
               <div className="field">
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -692,12 +791,18 @@ export function GarmentTypesTab() {
                       method: 'POST',
                       body: JSON.stringify({ ...subcatForm, thumbnailKey }),
                     });
-                    setGarmentTypes((prev) => [...prev, row]);
+                    // A collision at the chosen sortOrder shifts other rows of this
+                    // gender server-side - refetch instead of patching just this one.
+                    await loadGarmentTypes();
                     toast({ title: `${row.label} created` });
                     setShowSubcatModal(false);
                     setSubcatImageFile(null);
-                  } catch {
-                    toast({ kind: 'error', title: 'Failed to create garment type' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Failed to create garment type',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setSubcatSaving(false);
                   }
@@ -716,12 +821,13 @@ export function GarmentTypesTab() {
           garmentType={editingSubcat}
           catalogItems={catalogItems}
           tryonCategories={tryonCategories}
+          workflows={workflows}
           storagePublicUrl={storagePublicUrl}
-          onSaved={(patch) =>
-            setGarmentTypes((prev) =>
-              prev.map((s) => (s.id === editingSubcat.id ? { ...s, ...patch } : s)),
-            )
-          }
+          onSaved={() => {
+            // A sortOrder change shifts other rows of this gender server-side -
+            // refetch instead of patching just the edited row.
+            void loadGarmentTypes();
+          }}
           onClose={() => setEditingSubcat(null)}
           toast={toast}
         />
@@ -731,6 +837,613 @@ export function GarmentTypesTab() {
 }
 
 // ── PoseConfigsPanel ──────────────────────────────────────────────────────────
+
+const SHOT_TYPE_LABELS: Record<ShotTypeWorkflow['shotType'], string> = {
+  full: 'Full pose',
+  half: 'Half pose',
+  closeup: 'Closeup',
+};
+
+interface ShotTypeWorkflowsPanelProps {
+  sub: GarmentType;
+  workflows: WorkflowOption[];
+  toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+function ShotTypeWorkflowsPanel({ sub, workflows, toast }: ShotTypeWorkflowsPanelProps) {
+  const [items, setItems] = useState<ShotTypeWorkflow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingShotType, setSavingShotType] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ items: ShotTypeWorkflow[] }>(
+        `/admin/assets/garment-types/${sub.id}/shot-type-workflows`,
+      );
+      setItems(res.items);
+    } catch (error) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load shot-type defaults',
+        body: (error as Error).message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [sub.id, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const setDefault = async (
+    shotType: ShotTypeWorkflow['shotType'],
+    workflowTemplateId: string | null,
+  ) => {
+    setSavingShotType(shotType);
+    try {
+      const res = await apiFetch<{ ok: true; resolvedCount: number }>(
+        `/admin/assets/garment-types/${sub.id}/shot-type-workflows/${shotType}`,
+        { method: 'PATCH', body: JSON.stringify({ workflowTemplateId }) },
+      );
+      setItems((prev) =>
+        prev.map((i) => (i.shotType === shotType ? { ...i, workflowTemplateId } : i)),
+      );
+      toast({
+        title: workflowTemplateId
+          ? `${SHOT_TYPE_LABELS[shotType]} default saved`
+          : `${SHOT_TYPE_LABELS[shotType]} default cleared`,
+        body: res.resolvedCount > 0 ? `Applied to ${res.resolvedCount} poses` : undefined,
+      });
+    } catch (error) {
+      toast({
+        kind: 'error',
+        title: 'Failed to save shot-type default',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingShotType(null);
+    }
+  };
+
+  return (
+    <section style={{ marginTop: 12 }}>
+      <h2 style={{ margin: 0, fontSize: 18 }}>1. Shot-type default workflows</h2>
+      <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
+        Set once per shot type — applies to every pose tagged with it, across every template mapped
+        to {sub.label}, now and in the future.
+      </p>
+      {loading ? (
+        <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Loading…
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 10, marginTop: 14, maxWidth: 420 }}>
+          {items.map((item) => (
+            <div key={item.shotType} className="field" style={{ margin: 0 }}>
+              <label>{SHOT_TYPE_LABELS[item.shotType]}</label>
+              <select
+                className="select"
+                value={item.workflowTemplateId ?? ''}
+                disabled={savingShotType === item.shotType}
+                onChange={(e) => void setDefault(item.shotType, e.target.value || null)}
+              >
+                <option value="">— none —</option>
+                {workflows.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface GarmentTemplateMappingPanelProps {
+  sub: GarmentType;
+  workflows: WorkflowOption[];
+  toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+}
+
+function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateMappingPanelProps) {
+  const [items, setItems] = useState<TemplateGarmentTypeMapping[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<TemplateGarmentTypeMapping | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch<{ items: TemplateGarmentTypeMapping[] }>(
+        `/admin/assets/garment-types/${sub.id}/templates`,
+      );
+      setItems(res.items);
+    } catch (error) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load catalogue templates',
+        body: (error as Error).message,
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [sub.id, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const toggleMapped = async (templateId: string, mapped: boolean) => {
+    const previous = items;
+    setSavingId(templateId);
+    setItems((current) =>
+      current.map((item) => (item.id === templateId ? { ...item, mapped } : item)),
+    );
+    try {
+      const response = await apiFetch<{ ok: true; mappingId: string | null }>(
+        `/admin/assets/garment-types/${sub.id}/templates/${templateId}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ mapped }),
+        },
+      );
+      setItems((current) =>
+        current.map((item) =>
+          item.id === templateId ? { ...item, mapped, mappingId: response.mappingId } : item,
+        ),
+      );
+    } catch (error) {
+      setItems(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to update template mapping',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <section style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 18 }}>2. Catalogue templates</h2>
+          <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
+            Select the {sub.genderSlug} templates users can choose for {sub.label}.
+          </p>
+        </div>
+        {!loading && (
+          <span className="badge">
+            {items.filter((item) => item.mapped).length} of {items.length} mapped
+          </span>
+        )}
+      </div>
+
+      {loading ? (
+        <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
+          Loading…
+        </div>
+      ) : items.length === 0 ? (
+        <div
+          className="card"
+          style={{ marginTop: 14, padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}
+        >
+          No global catalogue templates exist for {sub.genderSlug}.
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+            gap: 12,
+            marginTop: 14,
+          }}
+        >
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="card"
+              style={{
+                padding: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                outline: item.mapped ? '2px solid var(--pink)' : undefined,
+                opacity: savingId === item.id ? 0.7 : 1,
+              }}
+            >
+              <div
+                style={{
+                  background: 'var(--surface2, #1a1a1a)',
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  aspectRatio: '3/4',
+                }}
+              >
+                {item.thumbnailUrl ? (
+                  // biome-ignore lint/performance/noImgElement: admin panel
+                  <img
+                    src={item.thumbnailUrl}
+                    alt={item.label}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <Icon.Image />
+                )}
+              </div>
+              <div style={{ padding: '9px 10px 10px' }}>
+                <p
+                  title={item.label}
+                  style={{
+                    margin: 0,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {item.label}
+                </p>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginTop: 9,
+                  }}
+                >
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                    {item.mapped ? `${item.poseAssetIds.length} poses` : 'Not offered'}
+                  </span>
+                  <Switch
+                    checked={item.mapped}
+                    onChange={() => void toggleMapped(item.id, !item.mapped)}
+                  />
+                </div>
+                {item.mapped && item.mappingId && (
+                  <button
+                    className="btn sm"
+                    style={{ width: '100%', marginTop: 9, justifyContent: 'center' }}
+                    onClick={() => setEditingTemplate(item)}
+                  >
+                    <Icon.Edit /> Configure workflows
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {editingTemplate?.mappingId && (
+        <MappedTemplateWorkflowModal
+          mapping={editingTemplate}
+          garmentTypeLabel={sub.label}
+          workflows={workflows}
+          toast={toast}
+          onClose={() => setEditingTemplate(null)}
+        />
+      )}
+    </section>
+  );
+}
+
+interface MappedTemplateWorkflowModalProps {
+  mapping: TemplateGarmentTypeMapping;
+  garmentTypeLabel: string;
+  workflows: WorkflowOption[];
+  toast: (opts: { kind?: 'error'; title: string; body?: string }) => void;
+  onClose: () => void;
+}
+
+function MappedTemplateWorkflowModal({
+  mapping,
+  garmentTypeLabel,
+  workflows,
+  toast,
+  onClose,
+}: MappedTemplateWorkflowModalProps) {
+  const [items, setItems] = useState<MappedTemplatePoseWorkflow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  const [promptDraft, setPromptDraft] = useState('');
+
+  useEffect(() => {
+    setLoading(true);
+    void apiFetch<{ items: MappedTemplatePoseWorkflow[] }>(
+      `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses`,
+    )
+      .then((response) => setItems(response.items))
+      .catch((error) =>
+        toast({
+          kind: 'error',
+          title: 'Failed to load template poses',
+          body: (error as Error).message,
+        }),
+      )
+      .finally(() => setLoading(false));
+  }, [mapping.mappingId, toast]);
+
+  const setWorkflow = async (poseAssetId: string, workflowTemplateId: string | null) => {
+    const previous = items;
+    const currentItem = items.find((i) => i.id === poseAssetId);
+    const workflowChanged = currentItem?.workflowTemplateId !== workflowTemplateId;
+    // A workflow change (or clear) invalidates any saved prompt override - it was
+    // written for a different workflow's prompt/node structure. Clear it instead of
+    // letting it silently carry over, mirroring PoseConfigsPanel's existing
+    // workflow-change convention.
+    const promptGarmentPhase = workflowChanged ? null : (currentItem?.promptGarmentPhase ?? null);
+    setSavingId(poseAssetId);
+    setItems((current) =>
+      current.map((item) =>
+        item.id === poseAssetId
+          ? {
+              ...item,
+              workflowTemplateId,
+              promptGarmentPhase,
+              source: workflowTemplateId ? 'manual' : item.source,
+            }
+          : item,
+      ),
+    );
+    if (workflowChanged && editingPromptId === poseAssetId) closePromptEditor();
+    try {
+      const res = await apiFetch<{
+        workflowTemplateId: string | null;
+        source: 'auto' | 'manual' | null;
+      }>(`/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ workflowTemplateId, promptGarmentPhase }),
+      });
+      // The response reflects the row's actual resulting state, not an echo of the
+      // request — clearing can immediately fall back to a live category default (a
+      // different, non-null workflow), which the optimistic update above has no way
+      // to predict. Sync from it so the modal never shows a stale "Workflow
+      // required" after a clear that just repopulated a workflow, and never shows a
+      // stale "auto" badge after an explicit pick.
+      setItems((current) =>
+        current.map((item) =>
+          item.id === poseAssetId
+            ? { ...item, workflowTemplateId: res.workflowTemplateId, source: res.source }
+            : item,
+        ),
+      );
+      toast({ title: res.workflowTemplateId ? 'Pose workflow saved' : 'Pose workflow cleared' });
+    } catch (error) {
+      setItems(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to save pose workflow',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const openPromptEditor = (item: MappedTemplatePoseWorkflow) => {
+    const assignedWorkflow = workflows.find((w) => w.id === item.workflowTemplateId);
+    setPromptDraft(item.promptGarmentPhase ?? assignedWorkflow?.defaultGarmentPhasePrompt ?? '');
+    setEditingPromptId(item.id);
+  };
+
+  const closePromptEditor = () => {
+    setEditingPromptId(null);
+    setPromptDraft('');
+  };
+
+  const savePrompt = async (poseAssetId: string) => {
+    const item = items.find((i) => i.id === poseAssetId);
+    if (!item?.workflowTemplateId) return;
+    const previous = items;
+    setSavingId(poseAssetId);
+    const promptGarmentPhase = promptDraft || null;
+    setItems((current) =>
+      current.map((i) =>
+        i.id === poseAssetId ? { ...i, promptGarmentPhase, source: 'manual' } : i,
+      ),
+    );
+    try {
+      const res = await apiFetch<{
+        workflowTemplateId: string | null;
+        source: 'auto' | 'manual' | null;
+      }>(`/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses/${poseAssetId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ workflowTemplateId: item.workflowTemplateId, promptGarmentPhase }),
+      });
+      setItems((current) =>
+        current.map((i) =>
+          i.id === poseAssetId
+            ? { ...i, workflowTemplateId: res.workflowTemplateId, source: res.source }
+            : i,
+        ),
+      );
+      toast({ title: promptGarmentPhase ? 'Prompt saved' : 'Prompt override cleared' });
+      closePromptEditor();
+    } catch (error) {
+      setItems(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to save prompt',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const configuredCount = items.filter((item) => item.workflowTemplateId).length;
+  return (
+    <div className="modal-overlay" onClick={savingId ? undefined : onClose}>
+      <div
+        className="modal"
+        onClick={(event) => event.stopPropagation()}
+        style={{ width: 'min(820px, calc(100vw - 64px))' }}
+      >
+        <div className="modal-head">
+          <div>
+            <h3 style={{ margin: 0 }}>{mapping.label}</h3>
+            <p style={{ margin: '5px 0 0', color: 'var(--muted)', fontSize: 12 }}>
+              {garmentTypeLabel} / {configuredCount} of {items.length} poses ready
+            </p>
+          </div>
+          <button className="btn sm ghost" onClick={onClose} disabled={!!savingId}>
+            <Icon.Close />
+          </button>
+        </div>
+        <div className="modal-body">
+          {loading ? (
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+              Loading poses...
+            </div>
+          ) : items.length === 0 ? (
+            <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+              Add looks to the global template before configuring workflows.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {items.map((item) => (
+                <div key={item.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div
+                    className="card"
+                    style={{
+                      padding: 10,
+                      display: 'grid',
+                      gridTemplateColumns: '58px minmax(140px, 1fr) minmax(220px, 1.4fr) auto',
+                      alignItems: 'center',
+                      gap: 12,
+                      outline: item.workflowTemplateId ? '1px solid var(--pink)' : undefined,
+                      opacity: savingId === item.id ? 0.65 : 1,
+                    }}
+                  >
+                    {/* biome-ignore lint/performance/noImgElement: admin panel */}
+                    <img
+                      src={item.thumbnailUrl}
+                      alt={item.displayName ?? item.label}
+                      style={{ width: 58, height: 68, borderRadius: 8, objectFit: 'cover' }}
+                    />
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 12, fontWeight: 650 }}>
+                        {item.displayName ?? item.label}
+                      </p>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                        <span
+                          className={`badge ${item.workflowTemplateId ? 'dot accent' : ''}`}
+                          style={{ fontSize: 9 }}
+                        >
+                          {item.workflowTemplateId ? 'Ready' : 'Workflow required'}
+                        </span>
+                        {item.workflowTemplateId && item.source === 'auto' && (
+                          <span
+                            className="badge"
+                            style={{ fontSize: 9, opacity: 0.7 }}
+                            title="Filled from this garment type's shot-type default — picking a workflow here overrides it"
+                          >
+                            auto
+                          </span>
+                        )}
+                        {item.promptGarmentPhase && (
+                          <span className="badge dot" style={{ fontSize: 9 }}>
+                            Custom prompt
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <select
+                      className="select"
+                      aria-label={`Workflow for ${item.displayName ?? item.label}`}
+                      value={item.workflowTemplateId ?? ''}
+                      disabled={savingId === item.id}
+                      onChange={(event) => void setWorkflow(item.id, event.target.value || null)}
+                    >
+                      <option value="">Select workflow...</option>
+                      {workflows.map((workflow) => (
+                        <option key={workflow.id} value={workflow.id}>
+                          {workflow.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn sm ghost"
+                      disabled={!item.workflowTemplateId || savingId === item.id}
+                      onClick={() =>
+                        editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
+                      }
+                    >
+                      <Icon.MessageSquare /> Prompt
+                    </button>
+                  </div>
+                  {editingPromptId === item.id && (
+                    <div className="card" style={{ padding: 10 }}>
+                      <div className="field">
+                        <label>Garment-phase prompt override</label>
+                        <textarea
+                          className="input"
+                          rows={6}
+                          placeholder="Inherited from workflow default"
+                          value={promptDraft}
+                          disabled={savingId === item.id}
+                          onChange={(e) => setPromptDraft(e.target.value)}
+                          style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+                        />
+                        <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
+                          Used only for this pose within this template/garment-type mapping. Leave
+                          blank to use the assigned workflow's own default prompt.
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          gap: 8,
+                          marginTop: 10,
+                        }}
+                      >
+                        <button
+                          className="btn sm ghost"
+                          disabled={savingId === item.id}
+                          onClick={closePromptEditor}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          className="btn sm primary"
+                          disabled={savingId === item.id}
+                          onClick={() => void savePrompt(item.id)}
+                        >
+                          {savingId === item.id ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="modal-foot">
+          <span
+            className="mono"
+            style={{ marginRight: 'auto', color: 'var(--muted)', fontSize: 10 }}
+          >
+            Mapping {mapping.mappingId}
+          </span>
+          <button className="btn" onClick={onClose} disabled={!!savingId}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface PoseConfigsPanelProps {
   sub: GarmentType;
@@ -1093,7 +1806,7 @@ function PoseConfigsPanel({
                     style={{ fontSize: 10, padding: '3px 8px' }}
                     onClick={() => openEdit(item)}
                   >
-                    <Icon.Edit /> Edit
+                    <Icon.Edit /> Set workflow
                   </button>
                 </div>
               </div>
@@ -1111,7 +1824,9 @@ function PoseConfigsPanel({
             style={{ width: 'min(720px, calc(100vw - 80px))' }}
           >
             <div className="modal-head">
-              <h3>{editing.displayName ?? editing.label} — Override</h3>
+              <h3>
+                {sub.label} — {editing.displayName ?? editing.label}
+              </h3>
               <button
                 className="btn sm ghost"
                 onClick={closeEdit}

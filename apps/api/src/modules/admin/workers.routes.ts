@@ -245,6 +245,15 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
           entry.status = 'DRAINING';
           await app.redis.hset(REGISTRY_KEY, nextId, JSON.stringify(entry));
         }
+      } else if (body.isActive === true) {
+        const raw = await app.redis.hget(REGISTRY_KEY, nextId);
+        if (raw) {
+          const entry = JSON.parse(raw) as Record<string, unknown>;
+          if (entry.status === 'DRAINING') {
+            entry.status = 'IDLE';
+            await app.redis.hset(REGISTRY_KEY, nextId, JSON.stringify(entry));
+          }
+        }
       }
 
       const healthy = (await app.redis.get(healthKey(nextId))) === '1';
@@ -305,6 +314,24 @@ export async function adminWorkersRoutes(app: FastifyInstance) {
       if (!raw) return reply.code(404).send({ ok: false });
       const w = JSON.parse(raw) as Record<string, unknown>;
       await app.redis.hset(REGISTRY_KEY, id, JSON.stringify({ ...w, status: 'DRAINING' }));
+      return { ok: true };
+    },
+  );
+
+  app.post(
+    '/admin/workers/:id/undrain',
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN', 'MODERATOR', 'ADMIN']),
+      schema: { params: z.object({ id: z.string() }) },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const raw = await app.redis.hget(REGISTRY_KEY, id);
+      if (!raw) return reply.code(404).send({ ok: false });
+      const w = JSON.parse(raw) as Record<string, unknown>;
+      if (w.status === 'DRAINING') {
+        await app.redis.hset(REGISTRY_KEY, id, JSON.stringify({ ...w, status: 'IDLE' }));
+      }
       return { ok: true };
     },
   );

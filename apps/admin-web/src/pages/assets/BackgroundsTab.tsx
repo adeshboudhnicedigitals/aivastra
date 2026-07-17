@@ -103,8 +103,12 @@ export function BackgroundsTab() {
       ]);
       setCategories(cats.filter((c) => c.typeSlug === 'background'));
       setBackgroundTypeId(types.find((t) => t.slug === 'background')?.id ?? null);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load background categories' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load background categories',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   }, [toast]);
 
@@ -146,8 +150,12 @@ export function BackgroundsTab() {
         const qs = params.toString() ? `?${params.toString()}` : '';
         const res = await apiFetch<{ items: ModelBackground[] }>(`/admin/assets/backgrounds${qs}`);
         setBackgrounds(res.items);
-      } catch {
-        toast({ kind: 'error', title: 'Failed to load backgrounds' });
+      } catch (e) {
+        toast({
+          kind: 'error',
+          title: 'Failed to load backgrounds',
+          body: apiErrorMessage(e, 'Please try again.'),
+        });
       } finally {
         setLoading(false);
       }
@@ -189,11 +197,15 @@ export function BackgroundsTab() {
         body: JSON.stringify({ isActive: next }),
       });
       toast({ title: `${item.label} ${item.isActive ? 'deactivated' : 'activated'}` });
-    } catch {
+    } catch (e) {
       setBackgrounds((prev) =>
         prev.map((b) => (b.id === id ? { ...b, isActive: item.isActive } : b)),
       );
-      toast({ kind: 'error', title: 'Failed to update background' });
+      toast({
+        kind: 'error',
+        title: 'Failed to update background',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -207,11 +219,15 @@ export function BackgroundsTab() {
       });
       const item = backgrounds.find((b) => b.id === id);
       toast({ title: `${item?.label ?? 'Background'} set as Amazon white background` });
-    } catch {
+    } catch (e) {
       setBackgrounds((prevBg) =>
         prevBg.map((b) => ({ ...b, isWhiteBg: prev != null && prev.id === b.id })),
       );
-      toast({ kind: 'error', title: 'Failed to set Amazon white background' });
+      toast({
+        kind: 'error',
+        title: 'Failed to set Amazon white background',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -231,8 +247,12 @@ export function BackgroundsTab() {
       toast({
         title: `${res.deleted} background${res.deleted !== 1 ? 's' : ''} moved to recycle bin`,
       });
-    } catch {
-      toast({ kind: 'error', title: 'Bulk delete failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -259,8 +279,12 @@ export function BackgroundsTab() {
       setSelectedBgIds([]);
       setShowBulkCategory(false);
       toast({ title: `${ids.length} background${ids.length !== 1 ? 's' : ''} moved` });
-    } catch {
-      toast({ kind: 'error', title: 'Bulk category change failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk category change failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setBulkCategorySaving(false);
     }
@@ -280,8 +304,12 @@ export function BackgroundsTab() {
       setSelectedBgIds([]);
       setShowBulkGender(false);
       toast({ title: `${ids.length} background${ids.length !== 1 ? 's' : ''} updated` });
-    } catch {
-      toast({ kind: 'error', title: 'Bulk gender change failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk gender change failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setBulkGenderSaving(false);
     }
@@ -446,11 +474,15 @@ export function BackgroundsTab() {
                           method: 'PATCH',
                           body: JSON.stringify({ isActive: next }),
                         });
-                      } catch {
+                      } catch (e) {
                         setCategories((prev) =>
                           prev.map((c) => (c.id === cat.id ? { ...c, isActive: cat.isActive } : c)),
                         );
-                        toast({ kind: 'error', title: 'Failed to update' });
+                        toast({
+                          kind: 'error',
+                          title: 'Failed to update',
+                          body: apiErrorMessage(e, 'Please try again.'),
+                        });
                       }
                     }}
                   />
@@ -1382,8 +1414,12 @@ export function BackgroundsTab() {
                     setEditingCategory(null);
                     setEditCatImageFile(null);
                     toast({ title: 'Category updated' });
-                  } catch {
-                    toast({ kind: 'error', title: 'Update failed' });
+                  } catch (e) {
+                    toast({
+                      kind: 'error',
+                      title: 'Update failed',
+                      body: apiErrorMessage(e, 'Please try again.'),
+                    });
                   } finally {
                     setEditCatSaving(false);
                   }

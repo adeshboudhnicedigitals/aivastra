@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { EditCatalogueTemplateModal } from '../../components/EditCatalogueTemplateModal';
 import { Icon } from '../../components/Icons';
 import { Switch } from '../../components/Switch';
-import { apiFetch } from '../../lib/data';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { CatalogueTemplate, ModelBackground, ModelPoseAsset } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
@@ -37,8 +37,12 @@ export function CatalogueTemplatesTab() {
       setTemplates(templatesRes.items);
       setPoseAssets(poseAssetsRes.items);
       setBackgrounds(backgroundsRes.items);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load catalogue templates' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load catalogue templates',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -56,9 +60,13 @@ export function CatalogueTemplatesTab() {
         method: 'PATCH',
         body: JSON.stringify({ isActive: next }),
       });
-    } catch {
+    } catch (e) {
       setTemplates((prev) => prev.map((x) => (x.id === t.id ? { ...x, isActive: t.isActive } : x)));
-      toast({ kind: 'error', title: 'Failed to update template' });
+      toast({
+        kind: 'error',
+        title: 'Failed to update template',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -83,8 +91,8 @@ export function CatalogueTemplatesTab() {
         <div>
           <h1>Catalogue Templates</h1>
           <p className="lede">
-            Curated (pose, background) look sets. Users pick a template on the studio page instead
-            of manually choosing a background and poses.
+            Curated (pose, background) look sets. Create and manage the global templates that can be
+            assigned from individual garment types.
           </p>
         </div>
         <div className="head-tools">

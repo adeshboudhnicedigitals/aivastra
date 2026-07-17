@@ -5,7 +5,7 @@ import { Icon } from '../../components/Icons';
 import { Pager } from '../../components/Pager';
 import { PoseUploadModal } from '../../components/PoseUploadModal';
 import { Switch } from '../../components/Switch';
-import { apiFetch, getToken } from '../../lib/data';
+import { apiErrorMessage, apiFetch, getToken } from '../../lib/data';
 import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../../types';
 import { useAssetsContext } from './AssetsContext';
 
@@ -104,8 +104,12 @@ export function PoseAssetsTab() {
       ]);
       setPoseAssets(assetsRes.items);
       setWorkflows(wfRes);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to load pose assets' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to load pose assets',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setLoading(false);
     }
@@ -134,11 +138,15 @@ export function PoseAssetsTab() {
         body: JSON.stringify({ isActive: next }),
       });
       toast({ title: `${item.displayName ?? item.label} ${next ? 'activated' : 'deactivated'}` });
-    } catch {
+    } catch (e) {
       setPoseAssets((prev) =>
         prev.map((a) => (a.id === id ? { ...a, isActive: item.isActive } : a)),
       );
-      toast({ kind: 'error', title: 'Failed to update pose asset' });
+      toast({
+        kind: 'error',
+        title: 'Failed to update pose asset',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 
@@ -159,8 +167,12 @@ export function PoseAssetsTab() {
       });
       setShowBulkRename(false);
       setSelectedPoseAssetIds([]);
-    } catch {
-      toast({ kind: 'error', title: 'Bulk rename failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk rename failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
     setBulkRenaming(false);
   };
@@ -183,8 +195,12 @@ export function PoseAssetsTab() {
       });
       setShowBulkWorkflow(false);
       setSelectedPoseAssetIds([]);
-    } catch {
-      toast({ kind: 'error', title: 'Bulk workflow update failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk workflow update failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setBulkWorkflowSaving(false);
     }
@@ -216,8 +232,12 @@ export function PoseAssetsTab() {
         title: `Sort order updated for ${orderedSelected.length} pose${orderedSelected.length !== 1 ? 's' : ''}`,
       });
       setSelectedPoseAssetIds([]);
-    } catch {
-      toast({ kind: 'error', title: 'Failed to update sort order' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update sort order',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     } finally {
       setBulkSortSaving(false);
     }
@@ -239,8 +259,12 @@ export function PoseAssetsTab() {
       toast({
         title: `${res.deleted} pose asset${res.deleted !== 1 ? 's' : ''} moved to recycle bin`,
       });
-    } catch {
-      toast({ kind: 'error', title: 'Bulk delete failed' });
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Bulk delete failed',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
     }
   };
 

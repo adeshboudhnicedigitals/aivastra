@@ -48,6 +48,11 @@ export interface GarmentType {
   defaultShoeCatalogId?: string | null;
   tryonCategoryId?: string | null;
   defaultPoseId: string | null;
+  requiresMannequinStep?: boolean;
+  mannequinWorkflowTemplateId?: string | null;
+  sareeStep2WorkflowTemplateId?: string | null;
+  upperUploadLabel?: string | null;
+  lowerUploadLabel?: string | null;
   createdAt: string;
   updatedAt: string;
   poseCount?: number;
@@ -57,7 +62,7 @@ export interface WorkflowOption {
   id: string; // UUID from workflow_templates table
   slug: string;
   label: string;
-  workflowType: 'regular' | 'tryon';
+  workflowType: 'regular' | 'tryon' | 'saree_step1';
   isActive: boolean;
   poseCount: number;
   defaultFacePhasePrompt: string;
@@ -90,6 +95,30 @@ export interface CatalogueTemplateLook {
   poseAssetId: string;
   backgroundId: string;
   sortOrder: number;
+}
+
+export interface TemplateGarmentTypeMapping {
+  id: string;
+  label: string;
+  thumbnailUrl: string | null;
+  mapped: boolean;
+  mappingId: string | null;
+  poseAssetIds: string[];
+}
+
+export interface MappedTemplatePoseWorkflow {
+  id: string;
+  label: string;
+  displayName: string | null;
+  thumbnailUrl: string;
+  workflowTemplateId: string | null;
+  promptGarmentPhase: string | null;
+  source: 'auto' | 'manual' | null;
+}
+
+export interface ShotTypeWorkflow {
+  shotType: 'full' | 'half' | 'closeup';
+  workflowTemplateId: string | null;
 }
 
 // Poses are per (garment type × face × background) combo
@@ -184,7 +213,7 @@ export interface User {
     startedAt?: string | null;
     completedAt?: string | null;
     creditsCharged: number;
-    jobType: 'catalogue' | 'tryon' | 'widget';
+    jobType: 'catalogue' | 'tryon' | 'widget' | 'api';
   }[];
   merchant?: UserMerchant | null;
 }
@@ -217,7 +246,7 @@ export interface Job {
   poseLabel?: string | null;
   hasLower: boolean;
   hasShoe: boolean;
-  jobType?: 'catalogue' | 'tryon' | 'widget';
+  jobType?: 'catalogue' | 'tryon' | 'widget' | 'api';
   outputUrl?: string;
   userHint?: string;
 }
@@ -284,6 +313,7 @@ export interface ModelPoseAsset {
   promptGarmentPhase: string | null;
   promptFacePhase: string | null;
   poseVariant: string | null;
+  shotType: 'full' | 'half' | 'closeup' | null;
   scope: 'general' | 'template';
   isActive: boolean;
   sortOrder: number;

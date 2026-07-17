@@ -405,6 +405,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           promptGarmentPhase: schema.modelPoseAssets.promptGarmentPhase,
           promptFacePhase: schema.modelPoseAssets.promptFacePhase,
           poseVariant: schema.modelPoseAssets.poseVariant,
+          shotType: schema.modelPoseAssets.shotType,
           displayName: schema.modelPoseAssets.displayName,
           isActive: schema.modelPoseAssets.isActive,
           sortOrder: schema.modelPoseAssets.sortOrder,
@@ -473,6 +474,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           // 'template' = uploaded from a catalogue template's looks builder — hidden
           // from the admin Pose Assets tab and studio "create your own look".
           scope: z.enum(['general', 'template']).optional(),
+          shotType: z.enum(['full', 'half', 'closeup']).optional(),
         }),
       },
     },
@@ -489,6 +491,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         isActive?: boolean;
         sortOrder?: number;
         scope?: 'general' | 'template';
+        shotType?: 'full' | 'half' | 'closeup';
       };
 
       const [inserted] = await app.db
@@ -505,6 +508,7 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           isActive: body.isActive ?? true,
           sortOrder: body.sortOrder ?? 0,
           scope: body.scope ?? 'general',
+          shotType: body.shotType ?? null,
         })
         .returning();
 

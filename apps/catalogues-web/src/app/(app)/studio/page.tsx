@@ -7,6 +7,7 @@ import { TopBar } from '@/components/topbar';
 import { ErrorState } from '@/components/ui/error-state';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
 import { type GenerationJob, GenerationPanel } from './generation-panel';
 import { PreviewPanel } from './preview-panel';
@@ -23,6 +24,9 @@ interface GarmentType {
   requiresLowerUpload: boolean;
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
+  requiresMannequinStep?: boolean;
+  upperUploadLabel?: string | null;
+  lowerUploadLabel?: string | null;
 }
 interface FaceItem {
   id: string;
@@ -71,6 +75,7 @@ interface TemplateLook {
 }
 interface CatalogueTemplateItem {
   id: string;
+  mappingId: string;
   label: string;
   thumbnailUrl: string | null;
   looks: TemplateLook[];
@@ -149,12 +154,26 @@ const BRAND_CONFIG: Record<string, BrandConfig> = {
   Shopify: { ratios: ['1:1', '2:3', '4:5'], default: '1:1' },
 };
 const PLATFORMS = Object.keys(BRAND_CONFIG);
-const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5'];
+const PLATFORM_LOGOS: Record<string, { src: string; h: number }> = {
+  Amazon: { src: `${BASE}/assets/platform-logos/amazon-logo.svg`, h: 18 },
+  Flipkart: { src: `${BASE}/assets/platform-logos/flipkart-logo-current.png`, h: 18 },
+  Myntra: { src: `${BASE}/assets/myntra-logo-official.png`, h: 26 },
+  AJIO: {
+    src: `data:image/svg+xml;utf8,%3C%3Fxml%20version%3D%221.0%22%20encoding%3D%22utf-8%22%3F%3E%0A%3C!--%20Generator%3A%20Adobe%20Illustrator%2021.1.0%2C%20SVG%20Export%20Plug-In%20.%20SVG%20Version%3A%206.00%20Build%200)%20%20--%3E%0A%3Csvg%20version%3D%221.1%22%20id%3D%22Layer_1%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20xmlns%3Axlink%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxlink%22%20x%3D%220px%22%20y%3D%220px%22%0A%09%20viewBox%3D%220%200%20462.4%20134.1%22%20style%3D%22enable-background%3Anew%200%200%20462.4%20134.1%3B%22%20xml%3Aspace%3D%22preserve%22%3E%0A%3Cstyle%20type%3D%22text%2Fcss%22%3E%0A%09.st0%7Bfill%3A%232F4254%3B%7D%0A%3C%2Fstyle%3E%0A%3Cpath%20class%3D%22st0%22%20d%3D%22M160.8%2C105.1c4.4%2C4.4%2C9.6%2C6.6%2C15.6%2C6.6c6.2%2C0%2C11.4-2.1%2C15.7-6.4c4.4-4.4%2C6.6-9.6%2C6.6-15.9V0h22.6v89.5%0A%09c0%2C12.3-4.4%2C22.8-13.1%2C31.7c-9%2C8.6-19.6%2C13-31.7%2C13c-12.4%2C0-22.9-4.3-31.7-13L160.8%2C105.1L160.8%2C105.1z%22%2F%3E%0A%3Cpolygon%20class%3D%22st0%22%20points%3D%22267.3%2C0%20289.5%2C0%20289.5%2C134.1%20267.3%2C134.1%20267.3%2C0%20%22%2F%3E%0A%3Cpath%20class%3D%22st0%22%20d%3D%22M426.7%2C98.8c-8.8%2C8.6-19.3%2C12.9-31.5%2C12.9c-12.2%2C0-22.8-4.3-31.7-12.9c-8.6-8.9-12.9-19.5-12.9-31.7%0A%09c0-12.2%2C4.3-22.7%2C12.9-31.5c8.9-8.8%2C19.5-13.1%2C31.7-13.1c12.2%2C0%2C22.7%2C4.4%2C31.5%2C13.1c8.7%2C8.8%2C13.1%2C19.3%2C13.1%2C31.5%0A%09C439.8%2C79.3%2C435.4%2C89.9%2C426.7%2C98.8L426.7%2C98.8z%20M442.5%2C19.7C429.5%2C6.6%2C413.7%2C0%2C395.2%2C0c-18.7%2C0-34.5%2C6.6-47.3%2C19.7%0A%09c-13.1%2C13.2-19.7%2C28.9-19.7%2C47.4c0%2C18.5%2C6.6%2C34.3%2C19.7%2C47.3c13%2C13.2%2C28.8%2C19.7%2C47.3%2C19.7c18.5%2C0%2C34.3-6.6%2C47.3-19.7%0A%09c13.3-12.9%2C19.9-28.7%2C19.9-47.3C462.4%2C48.6%2C455.8%2C32.9%2C442.5%2C19.7L442.5%2C19.7z%22%2F%3E%0A%3Cpath%20class%3D%22st0%22%20d%3D%22M47.4%2C89.4h39.4L67.1%2C50L47.4%2C89.4L47.4%2C89.4z%20M98%2C111.7H36.3l-11.4%2C22.4H0L67.1-0.1l67.1%2C134.2h-24.9L98%2C111.7%0A%09L98%2C111.7z%22%2F%3E%0A%3C%2Fsvg%3E%0A`,
+    h: 13,
+  },
+  Meesho: { src: `${BASE}/assets/platform-logos/meesho-wordmark.svg`, h: 16 },
+  'Nykaa Fashion': { src: `${BASE}/assets/platform-logos/nykaa-logo.svg`, h: 16 },
+  Shopify: { src: `${BASE}/assets/platform-logos/shopify-logo.svg`, h: 20 },
+};
+const ALL_ASPECTS = ['1:1', '2:3', '3:4', '4:5', '9:16', '16:9'];
 const ASPECT_DIMS: Record<string, string> = {
   '1:1': '2048 × 2048 px',
   '2:3': '1365 × 2048 px',
   '3:4': '1331 × 1774 px',
   '4:5': '1375 × 1718 px',
+  '9:16': '1152 × 2048 px',
+  '16:9': '2048 × 1152 px',
 };
 const ASPECT_PX: Record<string, { w: number; h: number }> = {
   '1:1': { w: 2048, h: 2048 },
@@ -196,38 +215,49 @@ function VisualCard({
     <button
       type="button"
       onClick={onClick}
+      className="visual-card-wrapper"
       style={{
         cursor: 'pointer',
         textAlign: 'center',
         flexShrink: 0,
-        width: typeof width === 'string' ? width : undefined,
-        background: 'none',
-        border: 'none',
+        width: typeof width === 'string' ? '100%' : width,
+        background: selected
+          ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box`
+          : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
+        border: '1.5px solid transparent',
+        borderRadius: 12,
         padding: 0,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        transition: 'box-shadow 0.2s, transform 0.2s',
+        boxShadow: selected ? '0px 2px 10px rgba(189, 37, 135, 0.1)' : 'none',
+        overflow: 'hidden',
       }}
     >
       <div
         style={{
-          width: typeof width === 'string' ? '100%' : width,
-          aspectRatio: ratio,
-          borderRadius: 8,
+          width: '100%',
+          height: '100%',
+          borderRadius: 10,
+          background: C.card,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
           overflow: 'hidden',
-          position: 'relative',
-          border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
-          backgroundImage: selected
-            ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))'
-            : 'none',
-          padding: selected ? 2 : 0,
-          boxSizing: 'border-box',
         }}
       >
         <div
+          className="visual-card-image"
           style={{
             width: '100%',
-            height: '100%',
-            borderRadius: 6,
+            aspectRatio: ratio,
+            borderRadius: '10px 10px 0 0',
             overflow: 'hidden',
+            position: 'relative',
             background: C.lighter,
+            boxSizing: 'border-box',
           }}
         >
           {img ? (
@@ -260,40 +290,43 @@ function VisualCard({
               {label}
             </div>
           )}
+          {selected && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)', // Gradient matching steps!
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 2,
+              }}
+            >
+              <CheckIcon color="#fff" size={11} />
+            </div>
+          )}
         </div>
-        {selected && (
+        {label && (
           <div
             style={{
-              position: 'absolute',
-              top: 6,
-              right: 6,
-              width: 20,
-              height: 20,
-              borderRadius: '50%',
-              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              fontSize: 12,
+              fontWeight: 600,
+              color: C.text,
+              padding: '8px 4px 6px',
+              width: '100%',
+              textAlign: 'center',
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
             }}
           >
-            <CheckIcon color={C.white} size={11} />
+            {label}
           </div>
         )}
       </div>
-      {label && (
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 500,
-            color: C.text,
-            marginTop: 8,
-            overflowWrap: 'anywhere',
-            wordBreak: 'break-word',
-          }}
-        >
-          {label}
-        </div>
-      )}
     </button>
   );
 }
@@ -316,17 +349,23 @@ function GenderCard({
     <button
       type="button"
       onClick={onClick}
+      className="gender-card-hover"
       style={{
         cursor: 'pointer',
-        background: selected ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))' : C.white,
-        borderRadius: 8,
-        padding: selected ? 1 : 0,
-        border: selected ? 'none' : `1px solid ${C.border}`,
-        boxShadow: selected ? '0px 2px 15px 0px rgba(246,181,83,0.08)' : 'none',
+        background: selected
+          ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box`
+          : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
+        border: '1.5px solid transparent',
+        borderRadius: 12,
+        padding: 0,
+        boxShadow: selected ? '0px 2px 10px rgba(189, 37, 135, 0.1)' : 'none',
         height: 72,
         boxSizing: 'border-box',
         width: '100%',
+        minWidth: 0,
         textAlign: 'left',
+        transition: 'box-shadow 0.2s, transform 0.2s',
+        overflow: 'hidden',
       }}
     >
       <div
@@ -334,58 +373,52 @@ function GenderCard({
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          background: C.white,
-          borderRadius: selected ? 7 : 8,
+          background: selected
+            ? 'linear-gradient(135deg, rgba(189,37,135,0.06) 0%, rgba(255,91,148,0.04) 100%)'
+            : C.card,
+          borderRadius: 10,
           padding: '0 12px',
           position: 'relative',
           height: '100%',
+          width: '100%',
+          boxSizing: 'border-box',
         }}
       >
-        {/* Circular image — gradient ring when selected, grey when not */}
+        {/* Image — direct without circular ring, matching updated UI */}
         <div
           style={{
             flexShrink: 0,
             width: 40,
             height: 40,
-            borderRadius: 100,
-            padding: 1,
-            background: selected ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))' : C.mid,
+            borderRadius: '50%',
+            overflow: 'hidden',
+            background: C.lighter,
             boxSizing: 'border-box',
           }}
         >
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              borderRadius: 100,
-              overflow: 'hidden',
-              background: C.lighter,
-            }}
-          >
-            {img && (
-              // eslint-disable-next-line @next/next/no-img-element
-              // biome-ignore lint/performance/noImgElement: small UI thumbnail, Next Image not needed
-              <img
-                src={img}
-                alt={label}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  objectPosition: 'top center',
-                  transform: 'scale(1.35)',
-                  transformOrigin: 'center 5%',
-                }}
-              />
-            )}
-          </div>
+          {img && (
+            // eslint-disable-next-line @next/next/no-img-element
+            // biome-ignore lint/performance/noImgElement: small UI thumbnail, Next Image not needed
+            <img
+              src={img}
+              alt={label}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'top center',
+                transform: 'scale(1.35)',
+                transformOrigin: 'center 5%',
+              }}
+            />
+          )}
         </div>
 
         {/* Label */}
         <span
           style={{
             fontFamily: 'Poppins, sans-serif',
-            fontWeight: 500,
+            fontWeight: 600,
             fontSize: 14,
             lineHeight: '18px',
             letterSpacing: 0,
@@ -410,7 +443,7 @@ function GenderCard({
               width: 20,
               height: 20,
               borderRadius: '50%',
-              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
+              background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -435,6 +468,9 @@ function SelCard({
   ratio,
   badges,
   emptyContent,
+  borderWidth,
+  fillHeight,
+  imageObjectPosition = 'center',
 }: {
   selected: boolean;
   onClick: () => void;
@@ -445,6 +481,9 @@ function SelCard({
   ratio?: number;
   badges?: React.ReactNode;
   emptyContent?: React.ReactNode;
+  borderWidth?: number;
+  fillHeight?: boolean;
+  imageObjectPosition?: string;
 }) {
   const fluid = typeof w === 'string';
   return (
@@ -459,94 +498,128 @@ function SelCard({
         cursor: 'pointer',
         textAlign: 'center',
         flexShrink: 0,
-        width: fluid ? w : undefined,
+        width: typeof w === 'string' ? '100%' : w,
+        background: selected
+          ? `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box`
+          : `linear-gradient(${C.card}, ${C.card}) padding-box, linear-gradient(${C.border}, ${C.border}) border-box`,
+        border: `${borderWidth ?? 1.5}px solid transparent`,
+        borderRadius: 12,
+        padding: 0,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        transition: 'box-shadow 0.2s, transform 0.2s',
+        boxShadow: selected ? '0px 2px 10px rgba(189, 37, 135, 0.1)' : 'none',
+        overflow: 'hidden',
       }}
     >
       <div
         style={{
-          width: fluid ? '100%' : w,
-          aspectRatio: fluid ? ratio : undefined,
-          height: fluid ? undefined : h,
-          borderRadius: 8,
+          width: '100%',
+          height: '100%',
+          borderRadius: 10,
+          background: C.card,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
           overflow: 'hidden',
-          position: 'relative',
-          border: selected ? '2px solid transparent' : `2px solid ${C.border}`,
-          background: selected
-            ? 'linear-gradient(90deg, var(--c-pink), var(--c-amber))'
-            : 'transparent',
-          padding: selected ? 2 : 0,
-          boxSizing: 'border-box',
         }}
       >
         <div
+          className="sel-card-image"
           style={{
             width: '100%',
-            height: '100%',
-            borderRadius: 6,
+            aspectRatio: fluid && !fillHeight ? ratio : undefined,
+            flex: fillHeight ? 1 : undefined,
+            height: fluid ? undefined : h - 30,
+            borderRadius: fillHeight ? 10 : '10px 10px 0 0',
             overflow: 'hidden',
+            position: 'relative',
             background: C.lighter,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            boxSizing: 'border-box',
           }}
         >
-          {imageUrl ? (
-            <div data-zoom style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              {/* biome-ignore lint/performance/noImgElement: small selection card thumbnail */}
-              <img
-                src={imageUrl}
-                alt={label}
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            </div>
-          ) : emptyContent ? (
-            emptyContent
-          ) : (
-            <span
-              style={{
-                fontSize: 28,
-                fontWeight: 700,
-                color: C.mid,
-                textTransform: 'uppercase',
-                lineHeight: 1,
-              }}
-            >
-              {label?.charAt(0)}
-            </span>
-          )}
-        </div>
-        {selected && (
           <div
             style={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              width: 20,
-              height: 20,
-              borderRadius: '50%',
-              background: 'linear-gradient(90deg, var(--c-pink), var(--c-amber))',
+              width: '100%',
+              height: '100%',
+              borderRadius: fillHeight ? 10 : '10px 10px 0 0',
+              overflow: 'hidden',
+              background: C.lighter,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <CheckIcon color={C.white} size={11} />
+            {imageUrl ? (
+              <div data-zoom style={{ width: '100%', height: '100%', transition: 'transform .3s' }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {/* biome-ignore lint/performance/noImgElement: small selection card thumbnail */}
+                <img
+                  src={imageUrl}
+                  alt={label}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    objectPosition: imageObjectPosition,
+                  }}
+                />
+              </div>
+            ) : emptyContent ? (
+              emptyContent
+            ) : (
+              <span
+                style={{
+                  fontSize: 28,
+                  fontWeight: 700,
+                  color: C.mid,
+                  textTransform: 'uppercase',
+                  lineHeight: 1,
+                }}
+              >
+                {label?.charAt(0)}
+              </span>
+            )}
+          </div>
+          {selected && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                width: 20,
+                height: 20,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)', // Gradient matching steps!
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 2,
+              }}
+            >
+              <CheckIcon color="#fff" size={11} />
+            </div>
+          )}
+          {badges}
+        </div>
+        {label && (
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: C.text,
+              padding: '8px 4px 6px',
+              width: '100%',
+              textAlign: 'center',
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
+            }}
+          >
+            {label}
           </div>
         )}
-        {badges}
-      </div>
-      <div
-        style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: C.text,
-          marginTop: 8,
-          overflowWrap: 'anywhere',
-          wordBreak: 'break-word',
-        }}
-      >
-        {label}
       </div>
     </div>
   );
@@ -554,10 +627,14 @@ function SelCard({
 
 function SectionHead({
   title,
+  subtitle,
+  stepNumber,
   titleSuffix,
   right,
 }: {
   title: string;
+  subtitle?: string;
+  stepNumber?: number;
   titleSuffix?: React.ReactNode;
   right?: React.ReactNode;
 }) {
@@ -567,18 +644,65 @@ function SectionHead({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 14,
+        marginBottom: 16,
         position: 'relative',
+        width: '100%',
       }}
     >
-      <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
-        {title}
-        {titleSuffix}
-      </h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {stepNumber && (
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #BD2587 0%, #ff5b94 100%)',
+              color: '#FFFFFF',
+              fontSize: 13,
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            {stepNumber}
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <h3
+            style={{
+              fontWeight: 600,
+              fontSize: 15,
+              color: C.text,
+              margin: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            {title}
+            {titleSuffix}
+          </h3>
+          {subtitle && <span style={{ fontSize: 11, color: C.mid }}>{subtitle}</span>}
+        </div>
+      </div>
       {right}
     </div>
   );
 }
+
+const sectionCardStyle: React.CSSProperties = {
+  background: C.card,
+  borderRadius: 16,
+  border: `1px solid ${C.border}`,
+  boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
+  padding: '24px 20px',
+  display: 'flex',
+  flexDirection: 'column',
+  width: '100%',
+  boxSizing: 'border-box',
+};
 
 // ── Garment upload tips — hover popover ──
 
@@ -593,6 +717,36 @@ const pill = (active: boolean): React.CSSProperties => ({
   fontWeight: 500,
   cursor: 'pointer',
 });
+
+function AspectRatioIcon({ ratio, active }: { ratio: string; active?: boolean }) {
+  if (ratio === 'custom') {
+    return (
+      <span style={{ fontSize: 16, lineHeight: 1, fontWeight: 300, display: 'inline-flex' }}>
+        +
+      </span>
+    );
+  }
+  let w = 12;
+  let h = 12;
+  if (ratio === '2:3' || ratio === '3:4' || ratio === '4:5' || ratio === '9:16') {
+    w = 9;
+    h = 13;
+  } else if (ratio === '16:9') {
+    w = 14;
+    h = 9;
+  }
+  return (
+    <div
+      style={{
+        width: w,
+        height: h,
+        border: `1.5px solid ${active ? C.pink : C.mid}`,
+        borderRadius: 2,
+        opacity: active ? 1 : 0.6,
+      }}
+    />
+  );
+}
 export default function StudioPage(): React.ReactElement {
   const qc = useQueryClient();
   const [gender, setGender] = useState('women');
@@ -726,6 +880,35 @@ export default function StudioPage(): React.ReactElement {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
   const [submitError, setSubmitError] = useState('');
+  const [_mannequinWaitState, setMannequinWaitState] = useState<'idle' | 'waiting' | 'error'>(
+    'idle',
+  );
+  const mannequinResolverRef = useRef<{
+    resolve: (jobId: string) => void;
+    reject: (err: Error) => void;
+    jobId: string;
+  } | null>(null);
+
+  useJobStream(
+    useCallback((evt) => {
+      const pending = mannequinResolverRef.current;
+      if (!pending || evt.jobId !== pending.jobId) return;
+      if (evt.status === 'COMPLETED') {
+        mannequinResolverRef.current = null;
+        pending.resolve(pending.jobId);
+      } else if (evt.status === 'FAILED') {
+        mannequinResolverRef.current = null;
+        pending.reject(new Error('Garment preparation failed. Please try again.'));
+      }
+    }, []),
+  );
+
+  function waitForMannequinJob(jobId: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      mannequinResolverRef.current = { resolve, reject, jobId };
+    });
+  }
+
   const [activeGeneration, setActiveGeneration] = useState<{
     catalogueId: string;
     jobs: GenerationJob[];
@@ -740,6 +923,12 @@ export default function StudioPage(): React.ReactElement {
     setToast(m);
     toastTimerRef.current = setTimeout(() => setToast(''), 5000);
   }, []);
+
+  const { data: creditsData } = useQuery<{ balance: number }>({
+    queryKey: ['credits'],
+    queryFn: () => api.get('/v1/credits'),
+  });
+  const userCredits = creditsData?.balance ?? 0;
 
   const { data: garmentTypes } = useQuery<{ items: GarmentType[] }>({
     queryKey: ['garmentTypes', gender],
@@ -836,7 +1025,13 @@ export default function StudioPage(): React.ReactElement {
   });
   const catalogueTemplates = useMemo(
     () => [
-      { id: 'custom', label: 'Custom', thumbnailUrl: null, looks: [] as TemplateLook[] },
+      {
+        id: 'custom',
+        mappingId: '',
+        label: 'Custom',
+        thumbnailUrl: null,
+        looks: [] as TemplateLook[],
+      },
       ...(catalogueTemplatesData?.items ?? []),
     ],
     [catalogueTemplatesData],
@@ -1071,7 +1266,11 @@ export default function StudioPage(): React.ReactElement {
   }
   function handleCatalogueTemplateSelect(id: string) {
     setCatalogueTemplateId(id);
-    setSelectedLookIds([]);
+    // All of the template's looks are selected by default - the customer
+    // deselects individual ones they don't want via handleLookToggle. Empty
+    // for 'custom' (no looks) and for any not-yet-loaded template.
+    const template = catalogueTemplates.find((t) => t.id === id);
+    setSelectedLookIds(template ? template.looks.map((look) => look.id) : []);
     setBackgroundId('');
     setPoseIds([]);
     setLowerCatalogId('');
@@ -1124,6 +1323,28 @@ export default function StudioPage(): React.ReactElement {
     setIsSubmitting(true);
     setSubmitError('');
     try {
+      // Flat-saree (and any future two-pass) garment types run a one-time,
+      // free mannequin-generation job first, then reuse its output as the
+      // garment input for every pose in the batch below.
+      let mannequinJobId: string | undefined;
+      if (selectedGarmentType?.requiresMannequinStep) {
+        setMannequinWaitState('waiting');
+        try {
+          const { jobId } = await api.post<{ jobId: string }>('/v1/jobs/saree-mannequin', {
+            garmentTypeId,
+            garmentKey,
+            faceId,
+          });
+          mannequinJobId = await waitForMannequinJob(jobId);
+          setMannequinWaitState('idle');
+        } catch (mannequinErr) {
+          setMannequinWaitState('error');
+          setSubmitError((mannequinErr as Error).message);
+          isSubmittingRef.current = false;
+          setIsSubmitting(false);
+          return;
+        }
+      }
       // Send platform:'Amazon' only when white bg override is wanted (main listing).
       // Lifestyle mode: omit platform so the API doesn't force white bg.
       // The aspectRatio (1:1) is already captured in `aspect` independently.
@@ -1135,19 +1356,29 @@ export default function StudioPage(): React.ReactElement {
       const effectiveShoesId =
         shoeCatalogId ||
         (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
-      const inputsBase = {
-        upperGarmentKey: garmentKey,
-        faceId,
-        garmentTypeId: garmentTypeId || undefined,
-        lowerCatalogId: effectiveLowerId,
-        lowerGarmentKey: lowerGarmentKey || undefined,
-        shoeCatalogId: effectiveShoesId,
-      };
+      const inputsBase = mannequinJobId
+        ? {
+            mannequinJobId,
+            faceId,
+            garmentTypeId: garmentTypeId || undefined,
+            lowerCatalogId: effectiveLowerId,
+            lowerGarmentKey: lowerGarmentKey || undefined,
+            shoeCatalogId: effectiveShoesId,
+          }
+        : {
+            upperGarmentKey: garmentKey,
+            faceId,
+            garmentTypeId: garmentTypeId || undefined,
+            lowerCatalogId: effectiveLowerId,
+            lowerGarmentKey: lowerGarmentKey || undefined,
+            shoeCatalogId: effectiveShoesId,
+          };
       const inputs =
         catalogueTemplateId === 'custom'
           ? { ...inputsBase, backgroundId, poseIds }
           : {
               ...inputsBase,
+              catalogueTemplateMappingId: activeTemplate?.mappingId,
               looks: selectedLooks.map((l) => ({ poseId: l.poseId, backgroundId: l.backgroundId })),
             };
       const { catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(
@@ -1312,13 +1543,101 @@ export default function StudioPage(): React.ReactElement {
             ? 'Enter valid width and height for custom size'
             : '';
 
+  // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
+  // are always visible and keep their static stepNumber. Everything after that is
+  // conditionally rendered (template mode vs custom mode, optional lower/shoe
+  // roles, resolution not yet resolved), so step numbers are assigned dynamically
+  // from DOM order to avoid gaps/duplicates depending on what's actually shown.
+  const hasCatalogueTemplates = catalogueTemplates.length > 1;
+  const extraSectionKeys = [
+    hasCatalogueTemplates && 'templates',
+    catalogueTemplateId === 'custom' && 'background',
+    catalogueTemplateId === 'custom' && 'poses',
+    needsLower && !requiresLowerUpload && 'lower',
+    needsShoes && 'shoes',
+    'platform',
+    'aspect',
+    resolution && 'resolution',
+  ].filter((key): key is string => !!key);
+  const stepNumberOf = (key: string) => extraSectionKeys.indexOf(key) + 5;
+
   return (
     <>
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+        :root {
+          --c-pink: #BD2587 !important;
+          --c-amber: #e044a2 !important;
+          --c-studio-bg: #F8F8F8;
+        }
+        html.dark {
+          --c-pink: #BD2587 !important;
+          --c-amber: #e044a2 !important;
+          --c-studio-bg: #0c101b;
+        }
+
+        .studio-section-card {
+          transition: box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+        }
+        .studio-section-card:hover {
+          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05) !important;
+          border-color: #BD258733 !important;
+        }
+        
+        .visual-card-wrapper {
+          transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+        }
+        .visual-card-wrapper:hover {
+          background: linear-gradient(var(--c-card), var(--c-card)) padding-box,
+                      linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box !important;
+          box-shadow: 0 4px 12px rgba(189, 37, 135, 0.15) !important;
+        }
+        
+        .garment-card {
+          transition: box-shadow 0.2s ease-in-out, transform 0.2s ease-in-out;
+        }
+        .garment-card:hover {
+          background: linear-gradient(var(--c-card), var(--c-card)) padding-box,
+                      linear-gradient(135deg, #BD2587 0%, #ff5b94 100%) border-box !important;
+          box-shadow: 0 4px 12px rgba(189, 37, 135, 0.15) !important;
+        }
+        
+        .gender-card-hover {
+          transition: box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+        }
+        .gender-card-hover:hover {
+          border-color: #BD2587 !important;
+          box-shadow: 0 4px 12px rgba(189, 37, 135, 0.1) !important;
+        }
+
+        *:focus,
+        *:focus-visible,
+        button:focus,
+        button:focus-visible,
+        div:focus,
+        div:focus-visible,
+        a:focus,
+        a:focus-visible {
+          outline: none !important;
+        }
+      `,
+        }}
+      />
       <TopBar
         title="Studio"
         subtitle="Create premium AI catalogue shoots from flat lay garments in minutes."
       />
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 20, padding: '24px 28px' }}>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          gap: 20,
+          padding: '24px 28px',
+          background: 'var(--c-studio-bg)',
+        }}
+      >
         <div
           style={{
             flex: '1 1 0',
@@ -1336,12 +1655,16 @@ export default function StudioPage(): React.ReactElement {
               paddingRight: 8,
               display: 'flex',
               flexDirection: 'column',
-              gap: 28,
+              gap: 20,
             }}
           >
             {/* ── Setup ── */}
-            <section>
-              <SectionHead title="Catalogue For" />
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead
+                title="Create Catalogue For"
+                subtitle="Choose your target audience"
+                stepNumber={1}
+              />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
                 {GENDERS.map((g) => (
                   <GenderCard
@@ -1360,65 +1683,44 @@ export default function StudioPage(): React.ReactElement {
               </div>
             </section>
 
-            <section>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 14,
-                }}
-              >
-                <h3 style={{ fontWeight: 700, fontSize: 14, color: C.text, margin: 0 }}>
-                  Garment Type
-                </h3>
-                {garmentTypes && garmentTypes.items.length > garmentVisibleCount && (
-                  <button
-                    type="button"
-                    onClick={() => setGarmentModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      height: 16,
-                    }}
-                  >
-                    <span
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead
+                title="Select Your Garment Type"
+                subtitle="Select the garment category"
+                stepNumber={2}
+                right={
+                  garmentTypes &&
+                  garmentTypes.items.length > garmentVisibleCount && (
+                    <button
+                      type="button"
+                      onClick={() => setGarmentModalOpen(true)}
                       style={{
-                        fontFamily: 'var(--font-poppins), Poppins, sans-serif',
-                        fontWeight: 600,
-                        fontSize: 12,
-                        lineHeight: '16px',
-                        color: '#626262',
-                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        height: 16,
                       }}
                     >
-                      View more
-                    </span>
-                    <svg
-                      width="8"
-                      height="5"
-                      viewBox="0 0 8 5"
-                      fill="none"
-                      aria-hidden="true"
-                      xmlns="http://www.w3.org/2000/svg"
-                      style={{ transform: 'rotate(-90deg)' }}
-                    >
-                      <path
-                        d="M1 1L4 4L7 1"
-                        stroke="#626262"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
-                )}
-              </div>
+                      <span
+                        style={{
+                          fontFamily: 'var(--font-poppins), Poppins, sans-serif',
+                          fontWeight: 600,
+                          fontSize: 12,
+                          lineHeight: '16px',
+                          color: '#626262',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        View All
+                      </span>
+                    </button>
+                  )
+                }
+              />
               {!gender ? (
                 <p style={{ fontSize: 13, color: C.mid }}>Select a segment first.</p>
               ) : !garmentTypes ? (
@@ -1486,9 +1788,11 @@ export default function StudioPage(): React.ReactElement {
               )}
             </section>
 
-            <section>
+            <section className="studio-section-card" style={sectionCardStyle}>
               <SectionHead
                 title={requiresLowerUpload ? 'Upload Garment Images' : 'Upload Garment Image'}
+                subtitle="Upload a clean flat lay garment image"
+                stepNumber={3}
               />
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                 {/* Dashed upload box — single zone or split into two */}
@@ -1669,7 +1973,10 @@ export default function StudioPage(): React.ReactElement {
                                 textAlign: 'center',
                               }}
                             >
-                              {requiresLowerUpload ? 'Top Wear' : 'Upload Top Wear'}
+                              {requiresLowerUpload
+                                ? selectedGarmentType?.upperUploadLabel ||
+                                  `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`
+                                : `Upload ${selectedGarmentType?.label ?? 'Top Wear'}`}
                             </span>
                             <span
                               style={{
@@ -1851,7 +2158,7 @@ export default function StudioPage(): React.ReactElement {
                                   textAlign: 'center',
                                 }}
                               >
-                                Bottom Wear
+                                {selectedGarmentType?.lowerUploadLabel ?? 'Bottom Wear'}
                               </span>
                               <span
                                 style={{
@@ -1933,37 +2240,34 @@ export default function StudioPage(): React.ReactElement {
             </section>
 
             {/* ── Model ── */}
-            <section>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 14,
-                }}
-              >
-                <SectionHead title="Choose your model" />
-                {filteredFaces.length > modelVisibleCount && (
-                  <button
-                    type="button"
-                    onClick={() => setModelModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      height: 16,
-                    }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                      View more
-                    </span>
-                  </button>
-                )}
-              </div>
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead
+                title="Choose AI Model"
+                subtitle="Select the fashion model for your catalogue"
+                stepNumber={4}
+                right={
+                  filteredFaces.length > modelVisibleCount && (
+                    <button
+                      type="button"
+                      onClick={() => setModelModalOpen(true)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        cursor: 'pointer',
+                        height: 16,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                        View All
+                      </span>
+                    </button>
+                  )
+                }
+              />
               {facesError ? (
                 <ErrorState
                   compact
@@ -2031,153 +2335,196 @@ export default function StudioPage(): React.ReactElement {
             </section>
 
             {/* ── Ready-made catalogue templates ── */}
-            <section>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 14,
-                }}
-              >
-                <SectionHead title="Select a Ready-Made Catalogue Template" />
-                {catalogueTemplates.length > templateVisibleCount && (
-                  <button
-                    type="button"
-                    onClick={() => setTemplateModalOpen(true)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                      background: 'none',
-                      border: 'none',
-                      padding: 0,
-                      cursor: 'pointer',
-                      height: 16,
+            {hasCatalogueTemplates && (
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead
+                  title="Create Your Look or Choose From Ready Made Poses"
+                  stepNumber={stepNumberOf('templates')}
+                  right={
+                    catalogueTemplates.length > templateVisibleCount && (
+                      <button
+                        type="button"
+                        onClick={() => setTemplateModalOpen(true)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          height: 16,
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                          View more
+                        </span>
+                      </button>
+                    )
+                  }
+                />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+                  {(() => {
+                    // "Create your own look" (catalogueTemplates[0], id 'custom') is always
+                    // pinned first - a selected template that isn't already visible is
+                    // inserted right after it, never displacing it from the front.
+                    const [custom, ...rest] = catalogueTemplates;
+                    const firstNRest = rest.slice(0, templateVisibleCount - 1);
+                    const selected = rest.find((template) => template.id === catalogueTemplateId);
+                    const visibleRest =
+                      selected && !firstNRest.some((template) => template.id === selected.id)
+                        ? [selected, ...firstNRest].slice(0, templateVisibleCount - 1)
+                        : firstNRest;
+                    const visibleTemplates = custom ? [custom, ...visibleRest] : visibleRest;
+                    return visibleTemplates.map((template) => (
+                      <SelCard
+                        key={template.id}
+                        selected={catalogueTemplateId === template.id}
+                        onClick={() => handleCatalogueTemplateSelect(template.id)}
+                        imageUrl={template.thumbnailUrl}
+                        label={template.id === 'custom' ? undefined : template.label}
+                        w="100%"
+                        ratio={215.2 / 212.67}
+                        imageObjectPosition="top center"
+                        fillHeight={template.id === 'custom'}
+                        emptyContent={
+                          template.id === 'custom' ? (
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 10,
+                                padding: 16,
+                                color: C.text,
+                                width: '100%',
+                                height: '100%',
+                                boxSizing: 'border-box',
+                                position: 'absolute',
+                                inset: 0,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  width: 44,
+                                  height: 44,
+                                  borderRadius: 10,
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                  background: C.white,
+                                  border: `1px solid ${C.border}`,
+                                  color: C.pink,
+                                }}
+                              >
+                                <ImagePlusIcon size={22} />
+                              </span>
+                              <span
+                                style={{
+                                  maxWidth: 110,
+                                  fontSize: 12,
+                                  fontWeight: 600,
+                                  lineHeight: 1.35,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                Create your own look
+                              </span>
+                            </div>
+                          ) : undefined
+                        }
+                      />
+                    ));
+                  })()}
+                </div>
+                {templateModalOpen && (
+                  <SelectGridModal
+                    title="Select a Ready-Made Catalogue Template"
+                    items={catalogueTemplates.filter((template) => template.id !== 'custom')}
+                    selectedIds={[catalogueTemplateId]}
+                    aspect={215.2 / 282}
+                    columns={5}
+                    onSelect={(id) => {
+                      handleCatalogueTemplateSelect(id);
+                      setTemplateModalOpen(false);
                     }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                      View more
-                    </span>
-                  </button>
+                    onClose={() => setTemplateModalOpen(false)}
+                  />
                 )}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-                {(() => {
-                  const firstN = catalogueTemplates.slice(0, templateVisibleCount);
-                  const selected = catalogueTemplates.find(
-                    (template) => template.id === catalogueTemplateId,
-                  );
-                  const visibleTemplates =
-                    selected && !firstN.some((template) => template.id === selected.id)
-                      ? [selected, ...firstN].slice(0, templateVisibleCount)
-                      : firstN;
-                  return visibleTemplates.map((template) => (
-                    <SelCard
-                      key={template.id}
-                      selected={catalogueTemplateId === template.id}
-                      onClick={() => handleCatalogueTemplateSelect(template.id)}
-                      imageUrl={template.thumbnailUrl}
-                      label={template.label}
-                      w="100%"
-                      ratio={215.2 / 282}
-                      emptyContent={
-                        template.id === 'custom' ? (
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: 10,
-                              padding: 16,
-                              color: C.text,
-                            }}
+                {/* ── Choose Looks (template mode only) ── */}
+                {catalogueTemplateId !== 'custom' && (
+                  <div style={{ marginTop: 16 }}>
+                    <SectionHead
+                      title=""
+                      titleSuffix={
+                        selectedLookIds.length > 0 && (
+                          <span
+                            style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}
                           >
-                            <span
-                              style={{
-                                width: 44,
-                                height: 44,
-                                borderRadius: 10,
-                                display: 'grid',
-                                placeItems: 'center',
-                                background: C.white,
-                                border: `1px solid ${C.border}`,
-                                color: C.pink,
-                              }}
-                            >
-                              <ImagePlusIcon size={22} />
-                            </span>
-                            <span
-                              style={{
-                                maxWidth: 110,
-                                fontSize: 12,
-                                fontWeight: 600,
-                                lineHeight: 1.35,
-                              }}
-                            >
-                              Create your own look
-                            </span>
-                          </div>
-                        ) : undefined
+                            {selectedLookIds.length} poses selected
+                          </span>
+                        )
                       }
                     />
-                  ));
-                })()}
-              </div>
-              {templateModalOpen && (
-                <SelectGridModal
-                  title="Select a Ready-Made Catalogue Template"
-                  items={catalogueTemplates}
-                  selectedIds={[catalogueTemplateId]}
-                  aspect={215.2 / 282}
-                  columns={5}
-                  onSelect={(id) => {
-                    handleCatalogueTemplateSelect(id);
-                    setTemplateModalOpen(false);
-                  }}
-                  onClose={() => setTemplateModalOpen(false)}
-                />
-              )}
-            </section>
+                    {(activeTemplate?.looks.length ?? 0) === 0 ? (
+                      <p style={{ fontSize: 14, color: C.mid }}>
+                        No looks available for this garment type yet.
+                      </p>
+                    ) : (
+                      <div
+                        style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}
+                      >
+                        {(activeTemplate?.looks ?? []).map((look) => (
+                          <SelCard
+                            key={look.id}
+                            selected={selectedLookIds.includes(look.id)}
+                            onClick={() => handleLookToggle(look.id)}
+                            imageUrl={look.poseThumbnailUrl}
+                            w="100%"
+                            ratio={215.2 / 212.67}
+                            imageObjectPosition="top center"
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
 
             {/* ── Background (custom mode only) ── */}
             {catalogueTemplateId === 'custom' && (
-              <section>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 14,
-                  }}
-                >
-                  <SectionHead title="Select Background" />
-                  {(backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBackgroundItemFilter('');
-                        setBackgroundTagFilter('');
-                        setBackgroundModalOpen(true);
-                      }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        cursor: 'pointer',
-                        height: 16,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                        View more
-                      </span>
-                    </button>
-                  )}
-                </div>
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead
+                  title="Select Background"
+                  stepNumber={stepNumberOf('background')}
+                  right={
+                    (backgrounds?.items.length ?? 0) > backgroundVisibleCount && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBackgroundItemFilter('');
+                          setBackgroundTagFilter('');
+                          setBackgroundModalOpen(true);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          height: 16,
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                          View All
+                        </span>
+                      </button>
+                    )
+                  }
+                />
                 {backgroundsError ? (
                   <ErrorState
                     compact
@@ -2224,7 +2571,7 @@ export default function StudioPage(): React.ReactElement {
                           imageUrl={b.thumbnailUrl}
                           label={b.label}
                           w="100%"
-                          ratio={1}
+                          ratio={215.2 / 212.67}
                           badges={<TagBadge tag={b.specialTag} />}
                         />
                       ));
@@ -2372,7 +2719,7 @@ export default function StudioPage(): React.ReactElement {
                               style={{
                                 display: 'grid',
                                 gridTemplateColumns: 'repeat(5, 1fr)',
-                                gap: 12,
+                                gap: 16,
                               }}
                             >
                               {filteredItems.map((i) => (
@@ -2386,7 +2733,8 @@ export default function StudioPage(): React.ReactElement {
                                   imageUrl={i.thumbnailUrl}
                                   label={i.label}
                                   w="100%"
-                                  ratio={1}
+                                  ratio={215.2 / 212.67}
+                                  borderWidth={3}
                                   badges={<TagBadge tag={bgSpecialTagById.get(i.id)} />}
                                 />
                               ))}
@@ -2401,48 +2749,40 @@ export default function StudioPage(): React.ReactElement {
 
             {/* ── Poses (custom mode only) ── */}
             {catalogueTemplateId === 'custom' && (
-              <section>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 14,
-                  }}
-                >
-                  <SectionHead
-                    title="Choose Poses"
-                    titleSuffix={
-                      poseIds.length > 0 && (
-                        <span
-                          style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}
-                        >
-                          ({poseIds.length} selected)
-                        </span>
-                      )
-                    }
-                  />
-                  {(poses?.items.length ?? 0) > poseVisibleCount && (
-                    <button
-                      type="button"
-                      onClick={() => setPoseModalOpen(true)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                        background: 'none',
-                        border: 'none',
-                        padding: 0,
-                        cursor: 'pointer',
-                        height: 16,
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
-                        View more
+              <section className="studio-section-card" style={sectionCardStyle}>
+                <SectionHead
+                  title="Choose Poses"
+                  stepNumber={stepNumberOf('poses')}
+                  titleSuffix={
+                    poseIds.length > 0 && (
+                      <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
+                        ({poseIds.length} selected)
                       </span>
-                    </button>
-                  )}
-                </div>
+                    )
+                  }
+                  right={
+                    (poses?.items.length ?? 0) > poseVisibleCount && (
+                      <button
+                        type="button"
+                        onClick={() => setPoseModalOpen(true)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          height: 16,
+                        }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: 12, color: '#626262' }}>
+                          View All
+                        </span>
+                      </button>
+                    )
+                  }
+                />
                 {posesError ? (
                   <ErrorState
                     compact
@@ -2466,7 +2806,7 @@ export default function StudioPage(): React.ReactElement {
                     No poses for this combination. Go back and try a different background.
                   </p>
                 ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
                     {(() => {
                       const firstN = poses.items.slice(0, poseVisibleCount);
                       const offScreenSelected = poseIds
@@ -2483,9 +2823,15 @@ export default function StudioPage(): React.ReactElement {
                           selected={poseIds.includes(p.id)}
                           onClick={() => handlePoseSelect(p.id)}
                           imageUrl={p.thumbnailUrl}
-                          label={p.label}
                           w="100%"
-                          ratio={215.2 / 282}
+                          // No label shown, but the image still fills the same total
+                          // card height other sections get from image + label row
+                          // (~28px) combined - so pose cards stay the same height as
+                          // the rest of the grid without leaving blank space below.
+                          ratio={215.2 / (212.67 + 28)}
+                          // Center-crop was cutting off heads/hair on portrait pose
+                          // shots - anchor the crop to the top instead.
+                          imageObjectPosition="top"
                         />
                       ));
                     })()}
@@ -2497,6 +2843,7 @@ export default function StudioPage(): React.ReactElement {
                     items={poses.items}
                     selectedIds={poseIds}
                     multiSelect
+                    hideLabels
                     aspect={3 / 4}
                     columns={5}
                     onSelect={(id) => handlePoseSelect(id)}
@@ -2507,50 +2854,16 @@ export default function StudioPage(): React.ReactElement {
               </section>
             )}
 
-            {/* ── Choose Looks (template mode only) ── */}
-            {catalogueTemplateId !== 'custom' && (
-              <section>
-                <SectionHead
-                  title="Choose Looks"
-                  titleSuffix={
-                    selectedLookIds.length > 0 && (
-                      <span style={{ fontWeight: 500, fontSize: 12, color: C.mid, marginLeft: 6 }}>
-                        ({selectedLookIds.length} selected)
-                      </span>
-                    )
-                  }
-                />
-                {(activeTemplate?.looks.length ?? 0) === 0 ? (
-                  <p style={{ fontSize: 14, color: C.mid }}>
-                    No looks available for this garment type yet.
-                  </p>
-                ) : (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
-                    {(activeTemplate?.looks ?? []).map((look) => (
-                      <SelCard
-                        key={look.id}
-                        selected={selectedLookIds.includes(look.id)}
-                        onClick={() => handleLookToggle(look.id)}
-                        imageUrl={look.poseThumbnailUrl}
-                        label={`${look.poseLabel} · ${look.backgroundLabel}`}
-                        w="100%"
-                        ratio={215.2 / 282}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
-            )}
-
             {needsLower &&
               !requiresLowerUpload &&
               (() => {
                 const lowerNodes = lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
                 const totalItems = lowerNodes.reduce((n, node) => n + flattenNode(node).length, 0);
                 return (
-                  <section>
+                  <section className="studio-section-card" style={sectionCardStyle}>
                     <SectionHead
                       title="Lower Garment"
+                      stepNumber={stepNumberOf('lower')}
                       right={
                         totalItems > lowerVisibleCount && (
                           <button
@@ -2597,7 +2910,7 @@ export default function StudioPage(): React.ReactElement {
                         style={{
                           display: 'grid',
                           gridTemplateColumns: 'repeat(5, 1fr)',
-                          gap: 12,
+                          gap: 16,
                         }}
                       >
                         {(() => {
@@ -2622,7 +2935,7 @@ export default function StudioPage(): React.ReactElement {
                               onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
                               imageUrl={i.thumbnailUrl}
                               w="100%"
-                              ratio={3 / 4}
+                              ratio={215.2 / 212.67}
                             />
                           ));
                         })()}
@@ -2637,9 +2950,10 @@ export default function StudioPage(): React.ReactElement {
                 const shoeNodes = shoesCatalog?.tree.filter((node) => node.slug !== 'other') ?? [];
                 const totalItems = shoeNodes.reduce((n, node) => n + flattenNode(node).length, 0);
                 return (
-                  <section>
+                  <section className="studio-section-card" style={sectionCardStyle}>
                     <SectionHead
                       title="Footwear"
+                      stepNumber={stepNumberOf('shoes')}
                       right={
                         totalItems > shoeVisibleCount && (
                           <button
@@ -2684,7 +2998,7 @@ export default function StudioPage(): React.ReactElement {
                         style={{
                           display: 'grid',
                           gridTemplateColumns: 'repeat(5, 1fr)',
-                          gap: 12,
+                          gap: 16,
                         }}
                       >
                         {(() => {
@@ -2708,7 +3022,7 @@ export default function StudioPage(): React.ReactElement {
                               onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
                               imageUrl={i.thumbnailUrl}
                               w="100%"
-                              ratio={1}
+                              ratio={215.2 / 212.67}
                             />
                           ));
                         })()}
@@ -2718,27 +3032,54 @@ export default function StudioPage(): React.ReactElement {
                 );
               })()}
 
-            <section>
-              <SectionHead title="Publishing Platform" />
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead title="Publishing Platform" stepNumber={stepNumberOf('platform')} />
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 {PLATFORMS.map((p) => (
                   <button
                     type="button"
                     key={p}
                     onClick={() => handlePlatformChange(p)}
-                    style={pill(platform === p)}
+                    style={{
+                      ...pill(platform === p),
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      minWidth: 80,
+                      justifyContent: 'center',
+                    }}
                   >
-                    {p}
+                    {PLATFORM_LOGOS[p] ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        className="dark-logo-bg"
+                        src={PLATFORM_LOGOS[p].src}
+                        alt={p}
+                        style={{
+                          height: PLATFORM_LOGOS[p].h,
+                          width: 'auto',
+                          maxWidth: 72,
+                          objectFit: 'contain',
+                          display: 'block',
+                        }}
+                      />
+                    ) : (
+                      p
+                    )}
                   </button>
                 ))}
               </div>
             </section>
 
-            <section>
-              <SectionHead title="Aspect Ratio" />
+            <section className="studio-section-card" style={sectionCardStyle}>
+              <SectionHead
+                title="Aspect Ratio"
+                subtitle="Match your platform requirements"
+                stepNumber={stepNumberOf('aspect')}
+              />
 
               {/* ── Pill row: hide presets when custom is active ── */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                 {aspect !== 'custom' &&
                   ALL_ASPECTS.map((r) => {
                     const supported = brandAspects.includes(r);
@@ -2749,9 +3090,13 @@ export default function StudioPage(): React.ReactElement {
                         onClick={supported ? () => setAspect(r) : undefined}
                         style={{
                           ...pill(aspect === r),
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
                           ...(!supported ? { opacity: 0.35, cursor: 'not-allowed' } : {}),
                         }}
                       >
+                        <AspectRatioIcon ratio={r} active={aspect === r} />
                         {r}
                       </button>
                     );
@@ -2764,55 +3109,54 @@ export default function StudioPage(): React.ReactElement {
                     setCustomWStr('');
                     setCustomHStr('');
                   }}
-                  style={pill(aspect === 'custom')}
+                  style={{
+                    ...pill(aspect === 'custom'),
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
                 >
-                  Custom
+                  <AspectRatioIcon ratio="custom" active={aspect === 'custom'} />
+                  Custom Ratio
                 </button>
-              </div>
 
-              {/* ── Custom sub-panel ── */}
-              {aspect === 'custom' &&
-                (() => {
-                  const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
-                  const wErr = customWErr;
-                  const hErr = customHErr;
-                  const wNum = customWNum;
-                  const hNum = customHNum;
+                {/* ── Custom inline options ── */}
+                {aspect === 'custom' &&
+                  (() => {
+                    const [rW, rH] = customRatio ? customRatio.split(':').map(Number) : [0, 0];
+                    const wErr = customWErr;
+                    const hErr = customHErr;
 
-                  const handleWChange = (val: string) => {
-                    setCustomWStr(val);
-                    if (rW && rH && val !== '') {
-                      const n = Math.round((Number(val) * rH) / rW);
-                      setCustomHStr(String(n));
-                    }
-                  };
-                  const handleHChange = (val: string) => {
-                    setCustomHStr(val);
-                    if (rW && rH && val !== '') {
-                      const n = Math.round((Number(val) * rW) / rH);
-                      setCustomWStr(String(n));
-                    }
-                  };
+                    const handleWChange = (val: string) => {
+                      setCustomWStr(val);
+                      if (rW && rH && val !== '') {
+                        const n = Math.round((Number(val) * rH) / rW);
+                        setCustomHStr(String(n));
+                      }
+                    };
+                    const handleHChange = (val: string) => {
+                      setCustomHStr(val);
+                      if (rW && rH && val !== '') {
+                        const n = Math.round((Number(val) * rW) / rH);
+                        setCustomWStr(String(n));
+                      }
+                    };
 
-                  const inputBase: React.CSSProperties = {
-                    width: 86,
-                    padding: '6px 8px',
-                    borderRadius: 6,
-                    fontSize: 13,
-                    color: C.text,
-                    background: C.bg,
-                    outline: 'none',
-                  };
+                    const inputBase: React.CSSProperties = {
+                      width: 86,
+                      padding: '6px 8px',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: C.text,
+                      background: C.bg,
+                      outline: 'none',
+                    };
 
-                  return (
-                    <div style={{ marginTop: 12 }}>
-                      <p style={{ fontSize: 11, color: C.light, margin: '0 0 6px' }}>
-                        Select aspect ratio
-                      </p>
-                      {/* Ratio pills + inputs in one aligned row */}
-                      <div
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}
-                      >
+                    return (
+                      <>
+                        <span style={{ fontSize: 13, color: C.mid, marginLeft: 4, marginRight: 4 }}>
+                          Select aspect ratio
+                        </span>
                         {ALL_ASPECTS.map((r) => (
                           <button
                             type="button"
@@ -2829,9 +3173,15 @@ export default function StudioPage(): React.ReactElement {
                         ))}
 
                         {customRatio && (
-                          <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <div
-                              style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }}
+                              style={{
+                                width: 1,
+                                height: 24,
+                                background: C.border,
+                                flexShrink: 0,
+                                margin: '0 4px',
+                              }}
                             />
 
                             <input
@@ -2857,26 +3207,26 @@ export default function StudioPage(): React.ReactElement {
                                 border: `1px solid ${hErr ? '#F55C7A' : C.border}`,
                               }}
                             />
-                          </>
+                          </div>
                         )}
-                      </div>
+                      </>
+                    );
+                  })()}
+              </div>
 
-                      {customRatio && (
-                        <p
-                          style={{
-                            fontSize: 11,
-                            color: wErr || hErr ? '#F55C7A' : C.light,
-                            margin: '5px 0 0',
-                          }}
-                        >
-                          {wErr || hErr
-                            ? `${(wErr && wNum < 768) || (hErr && hNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
-                            : `Min 768px · Max ${maxOutputPx}px`}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
+              {aspect === 'custom' && customRatio && (
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: customWErr || customHErr ? '#F55C7A' : C.light,
+                    margin: '8px 0 0',
+                  }}
+                >
+                  {customWErr || customHErr
+                    ? `${(customWErr && customWNum < 768) || (customHErr && customHNum < 768) ? 'Min 768px' : `Max ${maxOutputPx}px`}`
+                    : `Min 768px · Max ${maxOutputPx}px`}
+                </p>
+              )}
 
               {/* ── Dimension hint ── */}
               {aspect !== 'custom' && (
@@ -2888,9 +3238,10 @@ export default function StudioPage(): React.ReactElement {
 
             {/* ── Resolution (read-only, auto-derived from output dims) ── */}
             {resolution && (
-              <section>
+              <section className="studio-section-card" style={sectionCardStyle}>
                 <SectionHead
                   title="Output Resolution"
+                  stepNumber={stepNumberOf('resolution')}
                   right={
                     <span style={{ fontSize: 11, color: C.light, fontWeight: 400 }}>Auto</span>
                   }
@@ -2961,15 +3312,19 @@ export default function StudioPage(): React.ReactElement {
             )}
           </div>
 
-          {/* Footer (pinned, left column only) */}
+          {/* Footer (pinned, left column only, block effect) */}
           <div
             style={{
-              borderTop: `1px solid ${C.border}`,
-              paddingTop: 16,
+              background: C.card,
+              border: `1.5px solid ${C.border}`,
+              borderRadius: 16,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.06)',
+              padding: '16px 20px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 10,
+              gap: 12,
               flexShrink: 0,
+              marginTop: 16,
             }}
           >
             {submitError && (
@@ -2986,51 +3341,105 @@ export default function StudioPage(): React.ReactElement {
                 {submitError}
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {creditCost > 0 && (
-                  <>
-                    <span style={{ color: C.pink, display: 'flex' }}>
-                      <SparkleIcon />
-                    </span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
-                      {creditCost} Credits Required to Generate
-                    </span>
-                  </>
-                )}
-              </div>
-              <Tooltip tip={generateBlocker || undefined}>
-                <GradBtn
-                  onClick={handleSubmit}
-                  disabled={!canGenerate}
-                  style={{ padding: '10px 28px', gap: 8, fontSize: 15 }}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 16,
+              }}
+            >
+              {/* Left side: Credit Info */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {/* Credit Icon */}
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 8,
+                    border: '1.5px solid rgba(189, 37, 135, 0.15)', // light pink border using new theme
+                    background: 'rgba(189, 37, 135, 0.05)', // light pink background
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
                 >
-                  {isSubmitting || generationInProgress ? (
-                    <>
-                      <SpinnerIcon size={16} /> Generating…
-                    </>
-                  ) : isUploading ? (
-                    <>
-                      <SpinnerIcon size={16} /> Uploading…
-                    </>
-                  ) : (
-                    <>
-                      <SparkleIcon /> Create Catalogue
-                    </>
-                  )}
-                </GradBtn>
-              </Tooltip>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {/* biome-ignore lint/performance/noImgElement: credit icon */}
+                  <img src={`${BASE}/assets/credit.png`} alt="" width={20} height={20} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
+                    {creditCost} credits required
+                  </span>
+                  <span style={{ fontSize: 12, color: C.mid }}>
+                    You have {userCredits} credits (
+                    {creditCost > 0 ? Math.floor(userCredits / creditCost) : 0} generations)
+                  </span>
+                </div>
+              </div>
+
+              {/* Right side: Button + ETA */}
+              <div
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}
+              >
+                <Tooltip tip={generateBlocker || undefined}>
+                  <GradBtn
+                    onClick={handleSubmit}
+                    disabled={!canGenerate}
+                    style={{
+                      padding: '12px 32px',
+                      gap: 8,
+                      fontSize: 15,
+                      borderRadius: 8,
+                      background: canGenerate
+                        ? 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)'
+                        : '#d1d1d6',
+                      boxShadow: canGenerate ? '0 4px 12px rgba(124, 58, 237, 0.2)' : 'none',
+                    }}
+                  >
+                    {isSubmitting || generationInProgress ? (
+                      <>
+                        <SpinnerIcon size={16} /> Generating…
+                      </>
+                    ) : isUploading ? (
+                      <>
+                        <SpinnerIcon size={16} /> Uploading…
+                      </>
+                    ) : (
+                      <>
+                        <SparkleIcon /> Generate Catalogue
+                      </>
+                    )}
+                  </GradBtn>
+                </Tooltip>
+                <span style={{ fontSize: 11, color: C.light }}>Estimated Time:- 25 seconds</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div style={{ flex: '1 1 0', minWidth: 0, maxWidth: 880 }}>
+        <div
+          style={{
+            flex: '1 1 0',
+            minWidth: 0,
+            maxWidth: 880,
+            overflowY: 'auto',
+            maxHeight: '100%',
+            paddingRight: 4,
+          }}
+        >
           {activeGeneration ? (
             <GenerationPanel
               catalogueId={activeGeneration.catalogueId}
               jobs={activeGeneration.jobs}
               garmentPreviewUrl={garmentPreviewUrl}
               onAllSettled={() => setGenerationInProgress(false)}
+              onCancel={() => {
+                setActiveGeneration(null);
+                setGenerationInProgress(false);
+              }}
             />
           ) : (
             <PreviewPanel />
@@ -3041,7 +3450,7 @@ export default function StudioPage(): React.ReactElement {
       {/* Garment Type Modal */}
       {garmentModalOpen && garmentTypes && (
         <SelectGridModal
-          title="Choose Garment Type"
+          title="Select Your Garment Type"
           aspect={1}
           columns={5}
           items={garmentTypes.items.map((s) => ({
@@ -3178,7 +3587,7 @@ export default function StudioPage(): React.ReactElement {
                     style={{
                       display: 'grid',
                       gridTemplateColumns: 'repeat(5, 1fr)',
-                      gap: 12,
+                      gap: 16,
                     }}
                   >
                     {filteredItems.map((i) => (
@@ -3191,7 +3600,8 @@ export default function StudioPage(): React.ReactElement {
                         }}
                         imageUrl={i.thumbnailUrl}
                         w="100%"
-                        ratio={3 / 4}
+                        ratio={215.2 / 212.67}
+                        borderWidth={3}
                       />
                     ))}
                   </div>
@@ -3305,7 +3715,7 @@ export default function StudioPage(): React.ReactElement {
                     style={{
                       display: 'grid',
                       gridTemplateColumns: 'repeat(5, 1fr)',
-                      gap: 12,
+                      gap: 16,
                     }}
                   >
                     {filteredItems.map((i) => (
@@ -3318,7 +3728,8 @@ export default function StudioPage(): React.ReactElement {
                         }}
                         imageUrl={i.thumbnailUrl}
                         w="100%"
-                        ratio={1}
+                        ratio={215.2 / 212.67}
+                        borderWidth={3}
                       />
                     ))}
                   </div>
