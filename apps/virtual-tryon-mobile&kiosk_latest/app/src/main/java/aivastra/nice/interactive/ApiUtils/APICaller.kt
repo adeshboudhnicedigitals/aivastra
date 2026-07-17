@@ -12,7 +12,20 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
+import org.json.JSONObject
+import java.io.IOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
+
+/** Every network call exposes whether failure came from the server, network, or client. */
+sealed class ApiException(message: String) : Exception(message) {
+    class BackendError(val code: String, val backendMessage: String, val httpStatus: Int) :
+        ApiException(backendMessage)
+
+    class NetworkError(cause: Throwable) : ApiException(cause.message ?: "Network error")
+
+    class ClientError(message: String) : ApiException(message)
+}
 
 @SuppressLint("StaticFieldLeak")
 object APICaller {
@@ -44,13 +57,87 @@ object APICaller {
         return execute(request)
     }
 
+    suspend fun deleteJson(url: String, body: String? = null): String {
+        val requestBody = (body ?: "").toRequestBody(jsonMediaType)
+        val request = Request.Builder()
+            .url(resolveUrl(url))
+            .delete(if (body != null) requestBody else null)
+            .header(APIConstant.Parameter.CONTENT_TYPE, "application/json")
+            .build()
+        return execute(request)
+    }
+
+    suspend fun getJson(url: String): String {
+        val request = Request.Builder().url(resolveUrl(url)).get().build()
+        return execute(request)
+    }
+
+    suspend fun putJson(url: String, body: String = ""): String {
+        val request = Request.Builder()
+            .url(resolveUrl(url))
+            .put(body.toRequestBody(jsonMediaType))
+            .header(APIConstant.Parameter.CONTENT_TYPE, "application/json")
+            .build()
+        return execute(request)
+    }
+
+    suspend fun postJsonAuthed(url: String, body: String, accessToken: String): String =
+        executeAuthed(Request.Builder().post(body.toRequestBody(jsonMediaType)), url, accessToken)
+
+    suspend fun getJsonAuthed(url: String, accessToken: String): String =
+        executeAuthed(Request.Builder().get(), url, accessToken)
+
+    suspend fun putJsonAuthed(url: String, accessToken: String, body: String = ""): String =
+        executeAuthed(Request.Builder().put(body.toRequestBody(jsonMediaType)), url, accessToken)
+
+    suspend fun deleteAuthed(url: String, accessToken: String): String =
+        executeAuthed(Request.Builder().delete(), url, accessToken)
+
+    private suspend fun executeAuthed(
+        builder: Request.Builder,
+        url: String,
+        accessToken: String,
+    ): String {
+        val request = builder
+            .url(resolveUrl(url))
+            .header(APIConstant.Parameter.AUTHORIZATION, "Bearer $accessToken")
+            .header(APIConstant.Parameter.CONTENT_TYPE, "application/json")
+            .build()
+        return execute(request)
+    }
+
     private suspend fun execute(request: Request): String = withContext(Dispatchers.IO) {
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw IllegalStateException(body.ifBlank { "HTTP ${response.code}" })
+        try {
+            client.newCall(request).execute().use { response ->
+                val bodyString = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw parseBackendError(bodyString, response.code)
+                }
+                bodyString
             }
-            body
+        } catch (e: ApiException) {
+            throw e
+        } catch (e: SocketTimeoutException) {
+            throw ApiException.NetworkError(e)
+        } catch (e: IOException) {
+            throw ApiException.NetworkError(e)
+        }
+    }
+
+    private fun parseBackendError(body: String, httpStatus: Int): ApiException.BackendError {
+        return try {
+            val error = JSONObject(body).getJSONObject("error")
+            ApiException.BackendError(
+                code = error.optString("code", "UNKNOWN"),
+                backendMessage = error.optString("message", "HTTP $httpStatus"),
+                httpStatus = httpStatus,
+            )
+        } catch (_: Exception) {
+            ApiException.BackendError(
+                code = "HTTP_$httpStatus",
+                backendMessage = body.ifBlank { "HTTP $httpStatus" },
+                httpStatus = httpStatus,
+            )
         }
     }
 
@@ -59,72 +146,6 @@ object APICaller {
     }
 
     fun baseURL(): String = APIConstant.BASE_URL
-
-    fun <T> getRequest(
-        url: String?,
-        headers: HashMap<String, String>,
-        modelclass: Class<T>?,
-        apiCallBack: APICallBack,
-    ): Class<T>? {
-        apiCallBack.onFailure()
-        return null
-    }
-
-    fun <T> getRequestWithJSONARRAY(
-        url: String?,
-        params: HashMap<String, String>,
-        modelclass: Class<T>?,
-        apiCallBack: APICallBack,
-    ): Class<T>? {
-        apiCallBack.onFailure()
-        return null
-    }
-
-    fun <T> postRequest(
-        url: String?,
-        params: HashMap<String?, RequestBody?>,
-        headers: HashMap<String?, String?>,
-        modelclass: Class<T>?,
-        apiCallBack: APICallBackWithError,
-    ): Class<T>? {
-        apiCallBack.onFailure(APIConstant.errorSomethingWrong)
-        return null
-    }
-
-    fun <T> postRequestTryOnAPI(
-        url: String?,
-        params: HashMap<String?, RequestBody?>,
-        headers: HashMap<String?, String?>,
-        modelclass: Class<T>?,
-        apiCallBack: APICallBackWithError,
-    ): Class<T>? {
-        apiCallBack.onFailure(APIConstant.errorSomethingWrong)
-        return null
-    }
-
-    fun <T> postMultipartRequest(
-        url: String?,
-        headers: HashMap<String, String>?,
-        params: HashMap<String, RequestBody>?,
-        image: MultipartBody.Part?,
-        modelclass: Class<T>?,
-        apiCallBack: APICallBack,
-    ): Class<T>? {
-        apiCallBack.onFailure()
-        return null
-    }
-
-    fun <T> postMultipleMultipartRequest(
-        url: String?,
-        headers: HashMap<String, String>?,
-        params: HashMap<String, RequestBody>?,
-        images: MutableList<MultipartBody.Part>,
-        modelclass: Class<T>?,
-        apiCallBack: APICallBack,
-    ): Class<T>? {
-        apiCallBack.onFailure()
-        return null
-    }
 
     interface APICallBack {
         fun <T> onSuccess(modelclass: T): Class<T>?
