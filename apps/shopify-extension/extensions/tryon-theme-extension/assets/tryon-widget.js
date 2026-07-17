@@ -11,6 +11,7 @@
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
+    const resetBtn = root.querySelector('.aivastra-tryon__reset');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
     const uploadPreview = root.querySelector('.aivastra-tryon__upload-preview');
     const uploadPlaceholder = root.querySelector('.aivastra-tryon__upload-placeholder');
@@ -120,13 +121,17 @@
       if (uploadPlaceholder) uploadPlaceholder.hidden = false;
     }
 
-    function openModal() {
-      modal.hidden = false;
+    function startOver() {
       showStep('upload');
       fileInput.value = '';
       resetUploadPreview();
       if (reuseExpiredNote) reuseExpiredNote.hidden = true;
       tryShowReusePanel();
+    }
+
+    function openModal() {
+      modal.hidden = false;
+      startOver();
     }
 
     function closeModal() {
@@ -304,6 +309,7 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
+    if (resetBtn) resetBtn.addEventListener('click', startOver);
     if (reuseUseBtn) {
       reuseUseBtn.addEventListener('click', () => {
         const remembered = getRememberedPhoto();
@@ -331,11 +337,7 @@
     });
     const retryBtns = root.querySelectorAll('.aivastra-tryon__retry');
     for (let k = 0; k < retryBtns.length; k++) {
-      retryBtns[k].addEventListener('click', () => {
-        showStep('upload');
-        fileInput.value = '';
-        resetUploadPreview();
-      });
+      retryBtns[k].addEventListener('click', startOver);
     }
   }
 
