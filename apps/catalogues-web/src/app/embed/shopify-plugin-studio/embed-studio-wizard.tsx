@@ -47,6 +47,23 @@ interface PoseItem {
   hasLower: boolean;
   hasShoes: boolean;
 }
+interface CatalogItem {
+  id: string;
+  label: string;
+  thumbnailUrl: string;
+}
+interface CatalogNode {
+  id: number;
+  slug: string;
+  label: string;
+  thumbnailUrl?: string | null;
+  children: CatalogNode[];
+  items: CatalogItem[];
+}
+
+function flattenNode(node: CatalogNode): CatalogItem[] {
+  return [...node.items, ...node.children.flatMap((c) => flattenNode(c))];
+}
 
 async function isSupportedImageBytes(file: File): Promise<boolean> {
   const buf = await file.slice(0, 12).arrayBuffer();
@@ -87,6 +104,10 @@ export function EmbedStudioWizard() {
   const [faceModalOpen, setFaceModalOpen] = useState(false);
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
   const [poseModalOpen, setPoseModalOpen] = useState(false);
+  const [lowerCatalogId, setLowerCatalogId] = useState('');
+  const [shoeCatalogId, setShoeCatalogId] = useState('');
+  const [lowerModalOpen, setLowerModalOpen] = useState(false);
+  const [shoeModalOpen, setShoeModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [activeGeneration, setActiveGeneration] = useState<{
@@ -131,8 +152,66 @@ export function EmbedStudioWizard() {
   });
   const poses = posesData?.items ?? [];
 
+  const selectedPoses = poses.filter((p) => poseIds.includes(p.id));
+  const needsLower = selectedPoses.some((p) => p.hasLower);
+  const needsShoes = selectedPoses.some((p) => p.hasShoes);
+
+  const poseIdsParam = poseIds.length > 0 ? `poseIds=${poseIds.join(',')}` : '';
+  const { data: lowerCatalogData } = useQuery<{ type: string; tree: CatalogNode[] }>({
+    queryKey: ['embed-catalog-lower', gender, garmentTypeId, poseIds.join(',')],
+    queryFn: () => {
+      const params = [
+        poseIdsParam,
+        `gender=${gender}`,
+        garmentTypeId ? `garmentTypeId=${garmentTypeId}` : '',
+      ]
+        .filter(Boolean)
+        .join('&');
+      return api.get(`/v1/catalog/lower?${params}`);
+    },
+    enabled: needsLower,
+  });
+  const lowerItems = useMemo(() => {
+    const all = (lowerCatalogData?.tree.filter((n) => n.slug !== 'other') ?? []).flatMap(
+      flattenNode,
+    );
+    return [...all].sort(() => Math.random() - 0.5);
+  }, [lowerCatalogData]);
+
+  const { data: shoeCatalogData } = useQuery<{ type: string; tree: CatalogNode[] }>({
+    queryKey: ['embed-catalog-shoe', gender, garmentTypeId, poseIds.join(',')],
+    queryFn: () => {
+      const params = [
+        poseIdsParam,
+        `gender=${gender}`,
+        garmentTypeId ? `garmentTypeId=${garmentTypeId}` : '',
+      ]
+        .filter(Boolean)
+        .join('&');
+      return api.get(`/v1/catalog/shoe?${params}`);
+    },
+    enabled: needsShoes,
+  });
+  const shoeItems = useMemo(() => {
+    const all = (shoeCatalogData?.tree.filter((n) => n.slug !== 'other') ?? []).flatMap(
+      flattenNode,
+    );
+    return [...all].sort(() => Math.random() - 0.5);
+  }, [shoeCatalogData]);
+
   function togglePose(id: string) {
-    setPoseIds((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
+    setPoseIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+      const nextPoses = poses.filter((p) => next.includes(p.id));
+      const nextNeedsLower = nextPoses.some((p) => p.hasLower);
+      const nextNeedsShoes = nextPoses.some((p) => p.hasShoes);
+      // Clear a stale selection once it's no longer needed — mirrors Studio's
+      // handlePoseSelect. Left empty otherwise; the default catalog item (if
+      // any) is resolved at submit time in handleGenerate.
+      if (!nextNeedsLower) setLowerCatalogId('');
+      if (!nextNeedsShoes) setShoeCatalogId('');
+      return next;
+    });
   }
 
   const canGenerate =
@@ -149,9 +228,15 @@ export function EmbedStudioWizard() {
     setSubmitError('');
     try {
       const selectedGarmentType = garmentTypes.find((g) => g.id === garmentTypeId);
-      const selectedPoses = poses.filter((p) => poseIds.includes(p.id));
-      const needsLower = selectedPoses.some((p) => p.hasLower);
-      const needsShoes = selectedPoses.some((p) => p.hasShoes);
+      // Prefer the merchant's manual pick; only fall back to the garment type's
+      // own default catalog item when a selected pose needs one and nothing was
+      // picked — same precedence Studio's page.tsx uses at submit time.
+      const effectiveLowerId =
+        lowerCatalogId ||
+        (needsLower ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined) : undefined);
+      const effectiveShoesId =
+        shoeCatalogId ||
+        (needsShoes ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined) : undefined);
       const { catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(
         '/v1/jobs/tryon',
         {
@@ -161,12 +246,8 @@ export function EmbedStudioWizard() {
             backgroundId,
             poseIds,
             garmentTypeId: garmentTypeId || undefined,
-            lowerCatalogId: needsLower
-              ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined)
-              : undefined,
-            shoeCatalogId: needsShoes
-              ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined)
-              : undefined,
+            lowerCatalogId: effectiveLowerId,
+            shoeCatalogId: effectiveShoesId,
           },
           aspectRatio: '1:1',
           resolution: 'HD',
@@ -193,9 +274,19 @@ export function EmbedStudioWizard() {
     }
   }
 
+  // Lower Garment / Footwear are conditional steps — number them relative to
+  // the fixed steps (1-6) only when they're actually shown, same pattern as
+  // Studio's page.tsx stepNumberOf for its own optional sections.
+  const extraStepKeys = [needsLower && 'lower', needsShoes && 'shoes'].filter(
+    (key): key is string => !!key,
+  );
+  const stepNumberOf = (key: string) => 7 + extraStepKeys.indexOf(key);
+
   function handleStartOver() {
     setActiveGeneration(null);
     setPoseIds([]);
+    setLowerCatalogId('');
+    setShoeCatalogId('');
   }
 
   function handleUseImage(args: { url: string; jobId: string; poseLabel: string }) {
@@ -239,6 +330,18 @@ export function EmbedStudioWizard() {
     setGender(value);
     setGarmentTypeId('');
     setPoseIds([]);
+    setLowerCatalogId('');
+    setShoeCatalogId('');
+  }
+
+  function handleGarmentTypeSelect(id: string) {
+    setGarmentTypeId(id);
+    // Pose availability is scoped to garmentTypeId — a stale poseIds selection
+    // from the previous garment type could point at poses that no longer
+    // exist or have different hasLower/hasShoes flags for the new type.
+    setPoseIds([]);
+    setLowerCatalogId('');
+    setShoeCatalogId('');
   }
 
   async function handleGarmentUpload(file: File) {
@@ -330,7 +433,7 @@ export function EmbedStudioWizard() {
               <button
                 key={g.id}
                 type="button"
-                onClick={() => setGarmentTypeId(g.id)}
+                onClick={() => handleGarmentTypeSelect(g.id)}
                 style={{
                   cursor: 'pointer',
                   padding: '8px 14px',
@@ -559,6 +662,106 @@ export function EmbedStudioWizard() {
             </div>
           </div>
 
+          {needsLower && (
+            <div style={sectionCardStyle}>
+              <SectionHead
+                title="Lower Garment"
+                stepNumber={stepNumberOf('lower')}
+                right={
+                  lowerItems.length > 4 && (
+                    <button
+                      type="button"
+                      onClick={() => setLowerModalOpen(true)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: C.pink,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      View all
+                    </button>
+                  )
+                }
+              />
+              {!lowerCatalogData ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}>
+                  <SpinnerIcon />
+                </div>
+              ) : lowerItems.length === 0 ? (
+                <span style={{ fontSize: 13, color: C.mid }}>
+                  No lower garment options available yet.
+                </span>
+              ) : (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {lowerItems.slice(0, 4).map((i) => (
+                    <SelCard
+                      key={i.id}
+                      selected={lowerCatalogId === i.id}
+                      onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
+                      imageUrl={i.thumbnailUrl}
+                      label={i.label}
+                      w={100}
+                      h={130}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {needsShoes && (
+            <div style={sectionCardStyle}>
+              <SectionHead
+                title="Footwear"
+                stepNumber={stepNumberOf('shoes')}
+                right={
+                  shoeItems.length > 4 && (
+                    <button
+                      type="button"
+                      onClick={() => setShoeModalOpen(true)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: C.pink,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      View all
+                    </button>
+                  )
+                }
+              />
+              {!shoeCatalogData ? (
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}>
+                  <SpinnerIcon />
+                </div>
+              ) : shoeItems.length === 0 ? (
+                <span style={{ fontSize: 13, color: C.mid }}>
+                  No footwear options available yet.
+                </span>
+              ) : (
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {shoeItems.slice(0, 4).map((i) => (
+                    <SelCard
+                      key={i.id}
+                      selected={shoeCatalogId === i.id}
+                      onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
+                      imageUrl={i.thumbnailUrl}
+                      label={i.label}
+                      w={100}
+                      h={130}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div
             style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}
           >
@@ -622,6 +825,30 @@ export function EmbedStudioWizard() {
           continueLabel="Use {count} pose(s)"
           onSelect={togglePose}
           onClose={() => setPoseModalOpen(false)}
+        />
+      )}
+      {lowerModalOpen && (
+        <SelectGridModal
+          title="Choose a lower garment"
+          items={lowerItems}
+          selectedIds={lowerCatalogId ? [lowerCatalogId] : []}
+          onSelect={(id) => {
+            setLowerCatalogId(lowerCatalogId === id ? '' : id);
+            setLowerModalOpen(false);
+          }}
+          onClose={() => setLowerModalOpen(false)}
+        />
+      )}
+      {shoeModalOpen && (
+        <SelectGridModal
+          title="Choose footwear"
+          items={shoeItems}
+          selectedIds={shoeCatalogId ? [shoeCatalogId] : []}
+          onSelect={(id) => {
+            setShoeCatalogId(shoeCatalogId === id ? '' : id);
+            setShoeModalOpen(false);
+          }}
+          onClose={() => setShoeModalOpen(false)}
         />
       )}
     </div>
