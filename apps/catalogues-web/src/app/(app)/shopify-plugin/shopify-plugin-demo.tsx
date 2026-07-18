@@ -156,9 +156,7 @@ export function ShopifyPluginDemo() {
     retry: false,
   });
 
-  const [mediaImages, setMediaImages] = useState<MediaImage[]>([
-    { id: 'seed', url: MOCK_PRODUCT.seedMediaUrl, source: 'seed' },
-  ]);
+  const [mediaImages, setMediaImages] = useState<MediaImage[]>([]);
   const [studioModalOpen, setStudioModalOpen] = useState(false);
 
   useEffect(() => {
