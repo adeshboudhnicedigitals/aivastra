@@ -229,24 +229,6 @@ object SareeCategoryDataRepository {
         )
     }
 
-    suspend fun setTryonResultLiked(jobId: String, liked: Boolean) {
-        val url = APIConstant.API_ENDPOINTS.merchantTryonJobLike(jobId)
-        if (liked) {
-            APICaller.putJsonAuthed(url, PrefsManager.getAccessToken())
-        } else {
-            APICaller.deleteAuthed(url, PrefsManager.getAccessToken())
-        }
-    }
-
-    suspend fun setTryonResultInCart(jobId: String, inCart: Boolean) {
-        val url = APIConstant.API_ENDPOINTS.merchantTryonJobCart(jobId)
-        if (inCart) {
-            APICaller.putJsonAuthed(url, PrefsManager.getAccessToken())
-        } else {
-            APICaller.deleteAuthed(url, PrefsManager.getAccessToken())
-        }
-    }
-
     suspend fun createUploadSession(): JSONObject {
         val responseText = APICaller.postJsonAuthed(
             APIConstant.API_ENDPOINTS.MERCHANT_UPLOAD_SESSIONS,
