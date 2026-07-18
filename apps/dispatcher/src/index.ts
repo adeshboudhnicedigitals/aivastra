@@ -110,8 +110,6 @@ async function main(): Promise<void> {
     storage,
     s3,
     r2Bucket: env.R2_BUCKET,
-    widgetComfyUrl: env.WIDGET_COMFYUI_URL,
-    widgetComfyBasicAuth: env.WIDGET_COMFYUI_BASIC_AUTH,
     log,
   };
 
