@@ -1,10 +1,42 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Redis } from 'ioredis';
+import { AppError } from '../../lib/errors.js';
 
 // Shopify Admin API version used by every outbound call in this module.
 // Shopify retires versions ~1 year after release — bump this centrally,
 // not per-callsite, so it never goes stale in only some places.
 export const SHOPIFY_API_VERSION = '2026-07';
+
+// Every direct call to Shopify's Admin API (REST or GraphQL) must go through
+// this wrapper instead of a raw fetch(). A store's granted OAuth scope can
+// fall behind app.env.SHOPIFY_SCOPES after we ship a scope bump — Shopify
+// then rejects the stored offline token with a 401/403 that looks identical
+// to "token is just broken". Centralizing the call here means every route
+// gets the same SHOPIFY_REAUTH_REQUIRED signal instead of each callsite
+// reinventing (or forgetting) that distinction.
+export async function shopifyAdminFetch(
+  shopDomain: string,
+  accessToken: string,
+  path: string,
+  init: RequestInit = {},
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  const url = path.startsWith('http')
+    ? path
+    : `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}${path}`;
+  const res = await fetchImpl(url, {
+    ...init,
+    headers: { ...init.headers, 'X-Shopify-Access-Token': accessToken },
+  });
+  if (res.status === 401 || res.status === 403) {
+    throw new AppError(
+      'SHOPIFY_REAUTH_REQUIRED',
+      403,
+      'This store needs to reauthorize AiVastra to grant updated permissions',
+    );
+  }
+  return res;
+}
 
 function safeEq(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && timingSafeEqual(a, b);

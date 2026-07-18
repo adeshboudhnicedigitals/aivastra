@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   integer,
   jsonb,
@@ -82,6 +83,27 @@ export const jobOutputs = pgTable('job_outputs', {
   assetKind: text('asset_kind').notNull().default('ORIGINAL'),
   // The WatermarkService version used; null when assetKind='ORIGINAL'.
   watermarkVersion: smallint('watermark_version'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Tracks which jobs were generated via the Shopify product-page "generate
+// catalog images" flow, for store/product ownership scoping and publish
+// idempotency. Kept as its own table (not columns on `jobs`) so createJob()
+// — used by every job-creation caller, not just this one — never needs to
+// know about Shopify.
+export const shopifyCatalogJobs = pgTable('shopify_catalog_jobs', {
+  jobId: uuid('job_id')
+    .primaryKey()
+    .references(() => jobs.id, { onDelete: 'cascade' }),
+  storeId: uuid('store_id')
+    .notNull()
+    .references(() => shopifyStores.id, { onDelete: 'cascade' }),
+  shopifyProductId: bigint('shopify_product_id', { mode: 'number' }).notNull(),
+  sourceImageUrl: text('source_image_url').notNull(),
+  // Shopify's media GID once published — doubles as the idempotency guard
+  // for the publish endpoint (a second "Add to product" click is a no-op).
+  shopifyMediaId: text('shopify_media_id'),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

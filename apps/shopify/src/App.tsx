@@ -5,9 +5,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { LinkAccountGate } from './components/LinkAccountGate';
-import { apiFetch } from './lib/api';
+import { apiFetch, setShopDomain } from './lib/api';
+import CatalogGeneratePage from './pages/CatalogGeneratePage';
 import DashboardPage from './pages/DashboardPage';
 import FunnelSetupPage from './pages/FunnelSetupPage';
+import GeneratedImagesPage from './pages/GeneratedImagesPage';
 import ProductsPage from './pages/ProductsPage';
 import type { ShopifyMe } from './types';
 
@@ -18,7 +20,10 @@ export default function App() {
   const reload = useCallback(() => {
     setLoading(true);
     apiFetch<ShopifyMe>('/v1/shopify/me')
-      .then(setMe)
+      .then((res) => {
+        setShopDomain(res.store.shopDomain);
+        setMe(res);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -49,6 +54,8 @@ export default function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/funnel-setup" element={<FunnelSetupPage />} />
+          <Route path="/catalog-generate" element={<CatalogGeneratePage />} />
+          <Route path="/generated-images" element={<GeneratedImagesPage />} />
           <Route path="/embedded" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
