@@ -22,6 +22,10 @@ export interface GenerationPanelProps {
   /** Called once when every job in this batch reaches a terminal status. */
   onAllSettled?: () => void;
   onCancel?: () => void;
+  /** When provided, completed results show a "Use this image" button instead of/alongside download. */
+  onUseImage?: (args: { url: string; jobId: string; poseLabel: string }) => void;
+  /** Hides the "View full catalogue →" link — set when this panel is embedded in a context (e.g. an iframe) where navigating away would strand the user. */
+  hideCatalogueLink?: boolean;
 }
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
@@ -51,6 +55,8 @@ export function GenerationPanel({
   garmentPreviewUrl,
   onAllSettled,
   onCancel,
+  onUseImage,
+  hideCatalogueLink,
 }: GenerationPanelProps) {
   const qc = useQueryClient();
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
@@ -508,6 +514,34 @@ export function GenerationPanel({
                   <div
                     style={{ position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 6 }}
                   >
+                    {onUseImage && current && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUseImage({
+                            url: currentResultUrl,
+                            jobId: current.id,
+                            poseLabel: current.label,
+                          })
+                        }
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          height: 32,
+                          padding: '0 12px',
+                          borderRadius: 8,
+                          background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
+                          color: '#fff',
+                          border: 'none',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                        }}
+                      >
+                        Use this image
+                      </button>
+                    )}
                     <a
                       href={currentResultUrl}
                       target="_blank"
@@ -750,25 +784,54 @@ export function GenerationPanel({
                   >
                     <DownloadIcon size={14} />
                   </button>
+                  {onUseImage && isCompleted && resultUrl && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUseImage({ url: resultUrl, jobId: job.id, poseLabel: job.label });
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: 8,
+                        right: 8,
+                        bottom: 8,
+                        height: 26,
+                        borderRadius: 8,
+                        background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
+                        color: '#fff',
+                        border: 'none',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                        zIndex: 2,
+                      }}
+                    >
+                      Use this image
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       </div>
-      <Link
-        href={`/catalogues/${catalogueId}`}
-        style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: C.pink,
-          textDecoration: 'none',
-          alignSelf: 'flex-start',
-          marginTop: -8,
-        }}
-      >
-        View full catalogue →
-      </Link>
+      {!hideCatalogueLink && (
+        <Link
+          href={`/catalogues/${catalogueId}`}
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: C.pink,
+            textDecoration: 'none',
+            alignSelf: 'flex-start',
+            marginTop: -8,
+          }}
+        >
+          View full catalogue →
+        </Link>
+      )}
     </div>
   );
 }
