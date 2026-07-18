@@ -292,10 +292,15 @@ export async function jobsRoutes(app: FastifyInstance) {
         creditsCharged: schema.jobs.creditsCharged,
         genderSlug: schema.modelPoseAssets.genderSlug,
         params: schema.jobInputs.params,
+        garmentTypeLabel: schema.garmentSubcategories.label,
       })
       .from(schema.jobs)
       .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
       .leftJoin(schema.modelPoseAssets, eq(schema.modelPoseAssets.id, schema.jobInputs.poseId))
+      .leftJoin(
+        schema.garmentSubcategories,
+        eq(schema.garmentSubcategories.id, schema.jobInputs.garmentTypeId),
+      )
       .where(
         and(
           eq(schema.jobs.userId, req.userId),
@@ -317,10 +322,12 @@ export async function jobsRoutes(app: FastifyInstance) {
 
     const groups = Array.from(map.entries()).map(([catalogueId, cJobs]) => ({
       catalogueId,
-      // genderSlug + platform come from the first job that has one (all jobs in a catalogue share these)
+      // genderSlug + platform + garmentType come from the first job that has one
+      // (all jobs in a catalogue share these — one Studio submission per catalogue)
       genderSlug: cJobs.find((j) => j.genderSlug)?.genderSlug ?? null,
       platform: ((cJobs[0]?.params as Record<string, unknown> | null)?.platform as string) ?? null,
-      jobs: cJobs.map(({ genderSlug: _g, params: _p, ...j }) => j),
+      garmentType: cJobs.find((j) => j.garmentTypeLabel)?.garmentTypeLabel ?? null,
+      jobs: cJobs.map(({ genderSlug: _g, params: _p, garmentTypeLabel: _gt, ...j }) => j),
       createdAt: cJobs[cJobs.length - 1].createdAt,
     }));
 

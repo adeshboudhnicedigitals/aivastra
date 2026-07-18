@@ -814,6 +814,7 @@ export function EmbedStudioWizard() {
             garmentPreviewUrl={garmentPreviewUrl}
             onUseImage={handleUseImage}
             hideCatalogueLink
+            hideDownload
           />
         </div>
       ) : (
@@ -848,7 +849,6 @@ export function EmbedStudioWizard() {
                   selected={faceId === f.id}
                   onClick={() => setFaceId(f.id)}
                   imageUrl={f.thumbnailUrl}
-                  label={f.label}
                   w={100}
                   h={130}
                 />
@@ -886,7 +886,6 @@ export function EmbedStudioWizard() {
                   selected={backgroundId === b.id}
                   onClick={() => setBackgroundId(b.id)}
                   imageUrl={b.thumbnailUrl}
-                  label={b.label}
                   w={100}
                   h={130}
                 />
@@ -925,7 +924,6 @@ export function EmbedStudioWizard() {
                   selected={poseIds.includes(p.id)}
                   onClick={() => togglePose(p.id)}
                   imageUrl={p.thumbnailUrl}
-                  label={p.label}
                   w={100}
                   h={130}
                 />
@@ -973,7 +971,6 @@ export function EmbedStudioWizard() {
                       selected={lowerCatalogId === i.id}
                       onClick={() => setLowerCatalogId(lowerCatalogId === i.id ? '' : i.id)}
                       imageUrl={i.thumbnailUrl}
-                      label={i.label}
                       w={100}
                       h={130}
                     />
@@ -1023,7 +1020,6 @@ export function EmbedStudioWizard() {
                       selected={shoeCatalogId === i.id}
                       onClick={() => setShoeCatalogId(shoeCatalogId === i.id ? '' : i.id)}
                       imageUrl={i.thumbnailUrl}
-                      label={i.label}
                       w={100}
                       h={130}
                     />
@@ -1068,6 +1064,7 @@ export function EmbedStudioWizard() {
           title="Choose a model face"
           items={faces}
           selectedIds={faceId ? [faceId] : []}
+          hideLabels
           onSelect={(id) => {
             setFaceId(id);
             setFaceModalOpen(false);
@@ -1080,6 +1077,7 @@ export function EmbedStudioWizard() {
           title="Choose a background"
           items={backgrounds}
           selectedIds={backgroundId ? [backgroundId] : []}
+          hideLabels
           onSelect={(id) => {
             setBackgroundId(id);
             setBackgroundModalOpen(false);
@@ -1093,6 +1091,7 @@ export function EmbedStudioWizard() {
           items={poses}
           selectedIds={poseIds}
           multiSelect
+          hideLabels
           continueLabel="Use {count} pose(s)"
           onSelect={togglePose}
           onClose={() => setPoseModalOpen(false)}
@@ -1103,6 +1102,7 @@ export function EmbedStudioWizard() {
           title="Choose a lower garment"
           items={lowerItems}
           selectedIds={lowerCatalogId ? [lowerCatalogId] : []}
+          hideLabels
           onSelect={(id) => {
             setLowerCatalogId(lowerCatalogId === id ? '' : id);
             setLowerModalOpen(false);
@@ -1115,6 +1115,7 @@ export function EmbedStudioWizard() {
           title="Choose footwear"
           items={shoeItems}
           selectedIds={shoeCatalogId ? [shoeCatalogId] : []}
+          hideLabels
           onSelect={(id) => {
             setShoeCatalogId(shoeCatalogId === id ? '' : id);
             setShoeModalOpen(false);
