@@ -1,9 +1,13 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { SparkleIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
+import { isEmbedImageSelectedMessage } from '@/lib/shopify-plugin-embed-protocol';
 import { MOCK_PRODUCT, SHOPIFY_LEFT_NAV, SHOPIFY_SALES_CHANNELS } from './shopify-mock-data';
+
+const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 export interface MediaImage {
   id: string;
@@ -152,9 +156,24 @@ export function ShopifyPluginDemo() {
     retry: false,
   });
 
-  const [mediaImages, _setMediaImages] = useState<MediaImage[]>([
+  const [mediaImages, setMediaImages] = useState<MediaImage[]>([
     { id: 'seed', url: MOCK_PRODUCT.seedMediaUrl, source: 'seed' },
   ]);
+  const [studioModalOpen, setStudioModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (!studioModalOpen) return;
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) return;
+      if (!isEmbedImageSelectedMessage(event.data)) return;
+      setMediaImages((prev) => [
+        ...prev,
+        { id: event.data.jobId, url: event.data.imageUrl, source: 'aivastra' as const },
+      ]);
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [studioModalOpen]);
 
   if (!meLoading && !me?.isMerchant) {
     return (
@@ -199,6 +218,26 @@ export function ShopifyPluginDemo() {
                       alt=""
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
+                    {img.source === 'aivastra' && (
+                      <span
+                        style={{
+                          position: 'absolute',
+                          bottom: 4,
+                          left: 4,
+                          right: 4,
+                          fontSize: 9,
+                          fontWeight: 700,
+                          color: '#fff',
+                          background:
+                            'linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)',
+                          borderRadius: 6,
+                          padding: '2px 4px',
+                          textAlign: 'center',
+                        }}
+                      >
+                        ✨ Ai Vastra
+                      </span>
+                    )}
                   </div>
                 ))}
                 <div
@@ -216,6 +255,40 @@ export function ShopifyPluginDemo() {
                 >
                   +
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setStudioModalOpen(true)}
+                  style={{
+                    width: 100,
+                    height: 100,
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    background:
+                      'linear-gradient(#fff,#fff) padding-box, linear-gradient(135deg, #521D9C 0%, #BD2587 50%, #F96657 100%) border-box',
+                    border: '2px dashed transparent',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span style={{ color: '#BD2587' }}>
+                    <SparkleIcon />
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: '#BD2587',
+                      textAlign: 'center',
+                      lineHeight: 1.2,
+                      padding: '0 6px',
+                    }}
+                  >
+                    Generate with Ai Vastra
+                  </span>
+                </button>
               </div>
             </div>
             <StaticField label="Category" placeholder="Choose a product category" />
@@ -245,6 +318,161 @@ export function ShopifyPluginDemo() {
           </StaticCard>
         </div>
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20, marginTop: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <StaticCard title="Inventory">
+            <div
+              style={{
+                border: '1px solid #e3e3e3',
+                borderRadius: 8,
+                overflow: 'hidden',
+                fontSize: 13,
+              }}
+            >
+              {['My Custom Location', 'Shop location'].map((loc, i) => (
+                <div
+                  key={loc}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '10px 14px',
+                    borderTop: i === 0 ? 'none' : '1px solid #e3e3e3',
+                    background: i === 0 ? '#fafafa' : '#fff',
+                  }}
+                >
+                  <span style={{ color: '#1a1a1a' }}>{loc}</span>
+                  <span
+                    style={{
+                      border: '1px solid #c9cccf',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      color: '#1a1a1a',
+                    }}
+                  >
+                    0
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <StaticField label="SKU" placeholder="" />
+              <StaticField label="Barcode" placeholder="" />
+            </div>
+          </StaticCard>
+          <StaticCard title="Shipping">
+            <StaticField
+              label="Package"
+              value="Store default · Sample box - 8.6 x 5.4 x 1.6 in, 0 lb"
+            />
+            <StaticField label="Product weight" value="0.0 lb" />
+          </StaticCard>
+          <StaticCard title="Variants">
+            <StaticField label="" placeholder="+ Add options like size or color" />
+          </StaticCard>
+          <StaticCard title="Purchase options">
+            <StaticField
+              label=""
+              placeholder="+ Subscriptions, preorders, try before you buy, and more"
+            />
+          </StaticCard>
+        </div>
+        <div />
+      </div>
+
+      {studioModalOpen && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: click-outside-to-dismiss backdrop; Close button below is the keyboard path
+        <div
+          role="presentation"
+          onClick={() => setStudioModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+        >
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: stopPropagation only */}
+          <div
+            role="presentation"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 820,
+              maxWidth: '92vw',
+              height: 720,
+              maxHeight: '90vh',
+              background: '#fff',
+              borderRadius: 12,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 20px',
+                borderBottom: `1px solid ${C.border}`,
+              }}
+            >
+              <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+                Generate product photos with Ai Vastra
+              </span>
+              <button
+                type="button"
+                onClick={() => setStudioModalOpen(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: C.mid,
+                  display: 'flex',
+                }}
+              >
+                <XIcon size={20} />
+              </button>
+            </div>
+            <iframe
+              src={`${BASE}/embed/shopify-plugin-studio`}
+              title="Ai Vastra product photo generator"
+              style={{ flex: 1, border: 'none', width: '100%' }}
+            />
+            <div
+              style={{
+                padding: '12px 20px',
+                borderTop: `1px solid ${C.border}`,
+                display: 'flex',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setStudioModalOpen(false)}
+                style={{
+                  height: 36,
+                  padding: '0 18px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)',
+                  color: '#fff',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </ShopifyChrome>
   );
 }
