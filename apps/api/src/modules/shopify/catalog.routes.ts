@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -124,6 +125,46 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
       );
 
       return reply.code(201).send({ catalogueId, jobIds });
+    },
+  );
+
+  app.get(
+    '/v1/shopify/catalog/jobs',
+    {
+      preHandler: app.requireShopifySession,
+      schema: { querystring: z.object({ catalogueId: z.string().uuid() }) },
+    },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const { catalogueId } = req.query as { catalogueId: string };
+
+      const rows = await app.db
+        .select({
+          jobId: schema.jobs.id,
+          status: schema.jobs.status,
+          errorCode: schema.jobs.errorCode,
+          resultKey: schema.jobOutputs.resultKey,
+          shopifyMediaId: schema.shopifyCatalogJobs.shopifyMediaId,
+        })
+        .from(schema.jobs)
+        .innerJoin(schema.shopifyCatalogJobs, eq(schema.shopifyCatalogJobs.jobId, schema.jobs.id))
+        .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
+        .where(
+          and(
+            eq(schema.jobs.catalogueId, catalogueId),
+            eq(schema.shopifyCatalogJobs.storeId, store.id),
+          ),
+        );
+
+      return {
+        items: rows.map((r) => ({
+          jobId: r.jobId,
+          status: r.status,
+          errorCode: r.errorCode,
+          resultUrl: r.resultKey ? app.storage.publicUrl(r.resultKey) : null,
+          published: r.shopifyMediaId != null,
+        })),
+      };
     },
   );
 }
