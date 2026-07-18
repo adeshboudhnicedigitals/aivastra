@@ -118,23 +118,21 @@ describe('POST /v1/shopify/catalog/jobs/:id/publish', () => {
       sourceImageUrl: 'https://cdn.shopify.com/s/files/1/0/0/products/x.jpg',
     });
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              data: {
-                productCreateMedia: {
-                  media: [{ id: 'gid://shopify/MediaImage/999' }],
-                  mediaUserErrors: [],
-                },
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              productCreateMedia: {
+                media: [{ id: 'gid://shopify/MediaImage/999' }],
+                mediaUserErrors: [],
               },
-            }),
-            { status: 200, headers: { 'content-type': 'application/json' } },
-          ),
-      ),
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
     );
+    vi.stubGlobal('fetch', fetchMock);
 
     const first = await app.inject({
       method: 'POST',
@@ -151,6 +149,7 @@ describe('POST /v1/shopify/catalog/jobs/:id/publish', () => {
     });
     expect(second.statusCode).toBe(200);
     expect((second.json() as { mediaId: string }).mediaId).toBe('gid://shopify/MediaImage/999');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [tracked] = await app.db
       .select()
