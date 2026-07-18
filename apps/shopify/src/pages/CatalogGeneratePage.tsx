@@ -11,7 +11,7 @@ import {
   Text,
   Thumbnail,
 } from '@shopify/polaris';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import type { CatalogGenerateJob, CatalogOptions, ShopifyProductImage } from '../types';
@@ -53,12 +53,26 @@ export default function CatalogGeneratePage() {
       .catch((err) => setError((err as Error).message));
   }, [productId]);
 
+  const optionsRequestId = useRef(0);
+
   useEffect(() => {
+    const requestId = ++optionsRequestId.current;
+    setFaceId('');
+    setBackgroundId('');
+    setSelectedLooks(new Set());
+    setLowerCatalogId('');
+    setShoeCatalogId('');
     const query = new URLSearchParams({ gender });
     if (garmentTypeId) query.set('garmentTypeId', garmentTypeId);
     apiFetch<CatalogOptions>(`/v1/shopify/catalog/options?${query.toString()}`)
-      .then(setOptions)
-      .catch((err) => setError((err as Error).message));
+      .then((res) => {
+        if (requestId !== optionsRequestId.current) return; // stale — a newer request has since started
+        setOptions(res);
+      })
+      .catch((err) => {
+        if (requestId !== optionsRequestId.current) return;
+        setError((err as Error).message);
+      });
   }, [gender, garmentTypeId]);
 
   const poseNeedsLower = useMemo(
