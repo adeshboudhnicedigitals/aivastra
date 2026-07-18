@@ -1,0 +1,10 @@
+api_version = "2026-07"
+
+[[extensions]]
+type = "ui_extension"
+name = "product-catalog-extension"
+handle = "product-catalog-extension"
+
+  [[extensions.targeting]]
+  target = "admin.product-details.block.render"
+  module = "./src/BlockExtension.tsx"
