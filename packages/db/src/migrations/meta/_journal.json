@@ -813,6 +813,13 @@
       "when": 1784287801118,
       "tag": "0115_thin_onslaught",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1784358363236,
+      "tag": "0116_sweet_gauntlet",
+      "breakpoints": true
     }
   ]
 }
