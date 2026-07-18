@@ -27,8 +27,6 @@ interface GarmentType {
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
   requiresMannequinStep?: boolean;
-  upperUploadLabel?: string | null;
-  lowerUploadLabel?: string | null;
   requiresThirdUpload?: boolean;
   thirdUploadLabel?: string | null;
 }
