@@ -1,6 +1,6 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, MonitorPlay, Package, Phone } from 'lucide-react';
+import { KeyRound, MonitorPlay, Package, Phone, Store } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -23,7 +23,7 @@ const NAV: {
   {
     id: 'tryon',
     href: '/tryon',
-    label: 'Try-On',
+    label: 'Try On',
     icon: `${BASE}/assets/tryon-icon.svg`,
     badge: 'Beta',
   },
@@ -56,6 +56,13 @@ const NAV: {
     href: '/developers',
     label: 'Developers',
     icon: 'key',
+    merchantOnly: true,
+  },
+  {
+    id: 'shopify-plugin',
+    href: '/shopify-plugin',
+    label: 'Shopify Plugin',
+    icon: 'store',
     merchantOnly: true,
   },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
@@ -136,7 +143,9 @@ export function Sidebar() {
     },
     {
       title: 'BUSINESS',
-      items: visibleNav.filter((item) => ['pricing', 'developers'].includes(item.id)),
+      items: visibleNav.filter((item) =>
+        ['pricing', 'developers', 'shopify-plugin'].includes(item.id),
+      ),
     },
     {
       title: 'HELP',
@@ -161,6 +170,7 @@ export function Sidebar() {
       }}
     >
       <style
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: safe static css
         dangerouslySetInnerHTML={{
           __html: `
         .sidebar-link-hover:hover {
@@ -204,12 +214,14 @@ export function Sidebar() {
       >
         <Link href="/studio" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: logo */}
           <img
             src={`${BASE}/assets/logo.svg`}
             alt="Ai Vastra"
             style={{ height: 28, width: 'auto', flexShrink: 0 }}
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: logo */}
           <img
             src={`${BASE}/assets/logo-text.svg`}
             alt="Ai Vastra"
@@ -261,8 +273,11 @@ export function Sidebar() {
                           <Package size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : item.icon === 'key' ? (
                           <KeyRound size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
+                        ) : item.icon === 'store' ? (
+                          <Store size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : (
                           // eslint-disable-next-line @next/next/no-img-element
+                          // biome-ignore lint/performance/noImgElement: user upload icon
                           <img
                             src={item.icon}
                             alt=""
@@ -414,6 +429,7 @@ export function Sidebar() {
             }}
           >
             <svg
+              aria-hidden="true"
               width="14"
               height="14"
               viewBox="0 0 24 24"

@@ -1,18 +1,10 @@
-import { ChatWidget } from '@/components/chat-widget';
+import { AppShell } from '@/components/app-shell';
 import { JobStreamProvider } from '@/components/job-stream-provider';
-import { ProfileGate } from '@/components/profile-gate';
-import { Sidebar } from '@/components/sidebar';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <JobStreamProvider>
-      <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-        <Sidebar />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <ProfileGate>{children}</ProfileGate>
-        </div>
-        {process.env.NODE_ENV === 'development' && <ChatWidget />}
-      </div>
+      <AppShell>{children}</AppShell>
     </JobStreamProvider>
   );
 }

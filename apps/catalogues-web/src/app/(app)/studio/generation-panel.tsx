@@ -22,6 +22,12 @@ export interface GenerationPanelProps {
   /** Called once when every job in this batch reaches a terminal status. */
   onAllSettled?: () => void;
   onCancel?: () => void;
+  /** When provided, completed results show a "Use this image" button instead of/alongside download. */
+  onUseImage?: (args: { url: string; jobId: string; poseLabel: string }) => void;
+  /** Hides the "View full catalogue →" link — set when this panel is embedded in a context (e.g. an iframe) where navigating away would strand the user. */
+  hideCatalogueLink?: boolean;
+  /** Hides the "Download All" button and each result tile's download icon. */
+  hideDownload?: boolean;
 }
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
@@ -51,6 +57,9 @@ export function GenerationPanel({
   garmentPreviewUrl,
   onAllSettled,
   onCancel,
+  onUseImage,
+  hideCatalogueLink,
+  hideDownload,
 }: GenerationPanelProps) {
   const qc = useQueryClient();
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
@@ -508,6 +517,34 @@ export function GenerationPanel({
                   <div
                     style={{ position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 6 }}
                   >
+                    {onUseImage && current && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUseImage({
+                            url: currentResultUrl,
+                            jobId: current.id,
+                            poseLabel: current.label,
+                          })
+                        }
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          height: 32,
+                          padding: '0 12px',
+                          borderRadius: 8,
+                          background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
+                          color: '#fff',
+                          border: 'none',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                        }}
+                      >
+                        Use this image
+                      </button>
+                    )}
                     <a
                       href={currentResultUrl}
                       target="_blank"
@@ -595,33 +632,36 @@ export function GenerationPanel({
               {jobs.length} stunning variations generated for you
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            {/* Download All Button */}
-            <button
-              type="button"
-              onClick={handleDownloadAll}
-              disabled={downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                background: '#141414',
-                color: '#FEFEFE',
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 16px',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor:
-                  downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')
-                    ? 'not-allowed'
-                    : 'pointer',
-                opacity: downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED') ? 0.5 : 1,
-              }}
-            >
-              <DownloadIcon size={14} /> Download All
-            </button>
-          </div>
+          {!hideDownload && (
+            <div style={{ display: 'flex', gap: 10 }}>
+              {/* Download All Button */}
+              <button
+                type="button"
+                onClick={handleDownloadAll}
+                disabled={downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: '#141414',
+                  color: '#FEFEFE',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor:
+                    downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity:
+                    downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED') ? 0.5 : 1,
+                }}
+              >
+                <DownloadIcon size={14} /> Download All
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Variations Grid */}
@@ -721,54 +761,85 @@ export function GenerationPanel({
                   )}
 
                   {/* Download icon on top right */}
-                  <button
-                    type="button"
-                    disabled={!isCompleted || !resultUrl}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (resultUrl) downloadImage(resultUrl, job.id);
-                    }}
-                    style={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      background: 'rgba(255, 255, 255, 0.85)',
-                      backdropFilter: 'blur(4px)',
-                      border: 'none',
-                      borderRadius: '50%',
-                      width: 28,
-                      height: 28,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
-                      opacity: isCompleted && resultUrl ? 1 : 0.45,
-                      color: '#141414',
-                      boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                      zIndex: 2,
-                    }}
-                  >
-                    <DownloadIcon size={14} />
-                  </button>
+                  {!hideDownload && (
+                    <button
+                      type="button"
+                      disabled={!isCompleted || !resultUrl}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (resultUrl) downloadImage(resultUrl, job.id);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        background: 'rgba(255, 255, 255, 0.85)',
+                        backdropFilter: 'blur(4px)',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: 28,
+                        height: 28,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
+                        opacity: isCompleted && resultUrl ? 1 : 0.45,
+                        color: '#141414',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                        zIndex: 2,
+                      }}
+                    >
+                      <DownloadIcon size={14} />
+                    </button>
+                  )}
+                  {onUseImage && isCompleted && resultUrl && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUseImage({ url: resultUrl, jobId: job.id, poseLabel: job.label });
+                      }}
+                      style={{
+                        position: 'absolute',
+                        left: 8,
+                        right: 8,
+                        bottom: 8,
+                        height: 26,
+                        borderRadius: 8,
+                        background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
+                        color: '#fff',
+                        border: 'none',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                        zIndex: 2,
+                      }}
+                    >
+                      Use this image
+                    </button>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
       </div>
-      <Link
-        href={`/catalogues/${catalogueId}`}
-        style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: C.pink,
-          textDecoration: 'none',
-          alignSelf: 'flex-start',
-          marginTop: -8,
-        }}
-      >
-        View full catalogue →
-      </Link>
+      {!hideCatalogueLink && (
+        <Link
+          href={`/catalogues/${catalogueId}`}
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: C.pink,
+            textDecoration: 'none',
+            alignSelf: 'flex-start',
+            marginTop: -8,
+          }}
+        >
+          View full catalogue →
+        </Link>
+      )}
     </div>
   );
 }

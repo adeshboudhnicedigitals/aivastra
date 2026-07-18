@@ -7,6 +7,7 @@ import {
   CheckSquareIcon,
   ChevronDown,
   DownloadIcon,
+  GarmentIcon,
   ImagesIcon,
   MinusSquareIcon,
   SearchIcon,
@@ -39,6 +40,7 @@ interface Catalogue {
   createdAt: string;
   genderSlug: string | null;
   platform: string | null;
+  garmentType: string | null;
   coverUrl: string | null;
   coverThumbUrl: string | null;
 }
@@ -183,6 +185,8 @@ export default function CataloguesPage(): React.ReactElement {
   const [showGenderDropdown, setShowGenderDropdown] = useState(false);
   const [platformFilter, setPlatformFilter] = useState('All Platforms');
   const [showPlatformDropdown, setShowPlatformDropdown] = useState(false);
+  const [garmentTypeFilter, setGarmentTypeFilter] = useState('All Garment Types');
+  const [showGarmentTypeDropdown, setShowGarmentTypeDropdown] = useState(false);
   const [dateFilter, setDateFilter] = useState('Date');
   const [showDateDropdown, setShowDateDropdown] = useState(false);
   const [dateSubPanel, setDateSubPanel] = useState<'presets' | 'custom'>('presets');
@@ -208,6 +212,7 @@ export default function CataloguesPage(): React.ReactElement {
   // refs
   const genderRef = useRef<HTMLDivElement>(null);
   const platformRef = useRef<HTMLDivElement>(null);
+  const garmentTypeRef = useRef<HTMLDivElement>(null);
   const dateRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const filteredRef = useRef<Catalogue[]>([]);
@@ -281,6 +286,17 @@ export default function CataloguesPage(): React.ReactElement {
 
   // ── derived state ────────────────────────────────────────────────────────────
 
+  // Garment types are admin-curated and numerous (unlike the fixed GENDERS/platform
+  // lists) — build the option list from whatever actually appears in the loaded
+  // catalogues, rather than hardcoding one.
+  const garmentTypeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const c of catalogues ?? []) {
+      if (c.garmentType) seen.add(c.garmentType);
+    }
+    return ['All Garment Types', ...Array.from(seen).sort()];
+  }, [catalogues]);
+
   const filtered = useMemo(() => {
     return (catalogues ?? []).filter((c) => {
       if (!c.catalogueId.toLowerCase().includes(search.toLowerCase())) return false;
@@ -292,6 +308,10 @@ export default function CataloguesPage(): React.ReactElement {
 
       if (platformFilter !== 'All Platforms') {
         if ((c.platform ?? 'Other') !== platformFilter) return false;
+      }
+
+      if (garmentTypeFilter !== 'All Garment Types') {
+        if (c.garmentType !== garmentTypeFilter) return false;
       }
 
       const created = new Date(c.createdAt);
@@ -334,7 +354,16 @@ export default function CataloguesPage(): React.ReactElement {
 
       return true;
     });
-  }, [catalogues, search, genderFilter, platformFilter, dateFilter, customFrom, customTo]);
+  }, [
+    catalogues,
+    search,
+    genderFilter,
+    platformFilter,
+    garmentTypeFilter,
+    dateFilter,
+    customFrom,
+    customTo,
+  ]);
 
   // downloadable = selected catalogues that have at least one COMPLETED job
   const downloadableCatalogues = useMemo(
@@ -368,6 +397,8 @@ export default function CataloguesPage(): React.ReactElement {
         setShowGenderDropdown(false);
       if (platformRef.current && !platformRef.current.contains(e.target as Node))
         setShowPlatformDropdown(false);
+      if (garmentTypeRef.current && !garmentTypeRef.current.contains(e.target as Node))
+        setShowGarmentTypeDropdown(false);
       if (dateRef.current && !dateRef.current.contains(e.target as Node)) {
         setShowDateDropdown(false);
         setDateSubPanel('presets');
@@ -960,6 +991,92 @@ export default function CataloguesPage(): React.ReactElement {
                   )}
                 </div>
 
+                {/* garment type filter */}
+                <div style={{ position: 'relative' }} ref={garmentTypeRef}>
+                  <button
+                    type="button"
+                    onClick={() => setShowGarmentTypeDropdown(!showGarmentTypeDropdown)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      padding: 10,
+                      width: 176,
+                      height: 40,
+                      borderRadius: 8,
+                      border: `1px solid ${C.border}`,
+                      background: C.bg,
+                      fontFamily: 'inherit',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      color: C.mid,
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <GarmentIcon size={16} />
+                      {garmentTypeFilter}
+                    </span>
+                    <span style={{ display: 'flex', flexShrink: 0 }}>
+                      <ChevronDown size={16} />
+                    </span>
+                  </button>
+                  {showGarmentTypeDropdown && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 44,
+                        left: 0,
+                        width: 176,
+                        maxHeight: 320,
+                        overflowY: 'auto',
+                        background: C.bg,
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 8,
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                        zIndex: 30,
+                      }}
+                    >
+                      {garmentTypeOptions.map((g) => (
+                        <button
+                          key={g}
+                          type="button"
+                          onClick={() => {
+                            setGarmentTypeFilter(g);
+                            setShowGarmentTypeDropdown(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            textAlign: 'left',
+                            padding: '10px 12px',
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: garmentTypeFilter === g ? C.pink : C.mid,
+                            cursor: 'pointer',
+                            background:
+                              garmentTypeFilter === g ? 'rgba(245,92,122,0.06)' : 'transparent',
+                            border: 'none',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* date filter */}
                 <div style={{ position: 'relative' }} ref={dateRef}>
                   <button
@@ -1285,7 +1402,11 @@ export default function CataloguesPage(): React.ReactElement {
 
           {!isLoading && filtered.length === 0 && (
             <div style={{ textAlign: 'center', padding: '64px 24px', color: C.mid }}>
-              {dateFilter !== 'Date' || genderFilter !== 'All Segments' || search ? (
+              {dateFilter !== 'Date' ||
+              genderFilter !== 'All Segments' ||
+              platformFilter !== 'All Platforms' ||
+              garmentTypeFilter !== 'All Garment Types' ||
+              search ? (
                 <>
                   <p style={{ fontWeight: 700, fontSize: 18, color: C.text, marginBottom: 8 }}>
                     No catalogues match your filters

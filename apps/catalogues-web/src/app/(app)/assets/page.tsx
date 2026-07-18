@@ -77,40 +77,42 @@ export default function AssetsPage(): React.ReactElement {
         subtitle="Manage uploaded garments and generated catalogue outputs."
       />
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20 }}>
-          <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
-            <span
-              style={{
-                position: 'absolute',
-                left: 10,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: C.mid,
-              }}
-            >
-              <SearchIcon />
-            </span>
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search assets..."
-              disabled={loading}
-              style={{
-                width: '100%',
-                paddingLeft: 34,
-                height: 38,
-                borderRadius: 8,
-                border: `1px solid ${C.border2}`,
-                fontFamily: 'inherit',
-                fontSize: 13,
-                outline: 'none',
-                background: C.field,
-                color: C.text,
-                opacity: loading ? 0.6 : 1,
-              }}
-            />
+        {process.env.NODE_ENV !== 'production' && (
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 20 }}>
+            <div style={{ position: 'relative', flex: 1, maxWidth: 300 }}>
+              <span
+                style={{
+                  position: 'absolute',
+                  left: 10,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: C.mid,
+                }}
+              >
+                <SearchIcon />
+              </span>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search assets..."
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  paddingLeft: 34,
+                  height: 38,
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  fontFamily: 'inherit',
+                  fontSize: 13,
+                  outline: 'none',
+                  background: C.field,
+                  color: C.text,
+                  opacity: loading ? 0.6 : 1,
+                }}
+              />
+            </div>
           </div>
-        </div>
+        )}
 
         {error && (
           <div
