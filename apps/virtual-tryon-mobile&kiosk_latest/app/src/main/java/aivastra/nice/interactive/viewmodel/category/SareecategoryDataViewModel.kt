@@ -52,9 +52,6 @@ class SareecategoryDataViewModel : ViewModel() {
     private val _dressesTypeData = MutableLiveData<ArrayList<DressesTypeDataModel.Data>>()
     val dressesTypeData: LiveData<ArrayList<DressesTypeDataModel.Data>> get() = _dressesTypeData
 
-    private val _dressesItemsListData = MutableLiveData<ArrayList<DressesTypeDataModel.Data.Subcategory.Item>>()
-    val dressesItemsListData: LiveData<ArrayList<DressesTypeDataModel.Data.Subcategory.Item>> get() = _dressesItemsListData
-
     private val _selectedCatItem = MutableLiveData<SareeCateDataModel.Data>()
     val selectedCatItem: LiveData<SareeCateDataModel.Data> get() = _selectedCatItem
 
@@ -119,16 +116,24 @@ class SareecategoryDataViewModel : ViewModel() {
             }
         }
     }
-    fun filterProductBySKUNumber(searchBy: String) {
+    // Callback-based rather than posting to a shared LiveData: the search UI needs its own
+    // result/error handling on every keystroke, and re-registering a LiveData observer per
+    // search (the previous approach) leaked an extra observer on every call, while a single
+    // permanent observer would collide with the unrelated generic `error` observer registered
+    // for catalog-fetch failures elsewhere on this screen.
+    fun filterProductBySKUNumber(
+        searchBy: String,
+        callback: (results: ArrayList<DressesTypeDataModel.Data.Subcategory.Item>?, errorMsg: String?) -> Unit,
+    ) {
         if (repository.getDressesTypeData().isEmpty()) {
-            _error.postValue("App error: catalog is not loaded yet. Please try again.")
+            callback(null, "App error: catalog is not loaded yet. Please try again.")
             return
         }
         val results = repository.filterLocalProducts(searchBy)
         if (results.isEmpty()) {
-            _error.postValue("App error: no product matched that search.")
+            callback(null, "App error: no product matched that search.")
         } else {
-            _dressesItemsListData.postValue(results)
+            callback(results, null)
         }
     }
     fun fetchDressesForAPI() {
@@ -153,11 +158,6 @@ class SareecategoryDataViewModel : ViewModel() {
 
     fun resetErrorData() {
         _error.postValue(null)
-    }
-
-    fun resetSearchProductData() {
-        _error.postValue(null)
-        _dressesItemsListData.postValue(null)
     }
 
     fun resetAppLoginData() {
