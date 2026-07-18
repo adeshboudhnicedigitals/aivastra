@@ -10,7 +10,7 @@ import {
   sectionCardStyle,
 } from '@/app/(app)/studio/shared-cards';
 import { SpinnerIcon } from '@/components/icons';
-import { C } from '@/components/tokens';
+import { C, grad } from '@/components/tokens';
 import { api } from '@/lib/api';
 import { postImageSelectedToParent } from '@/lib/shopify-plugin-embed-protocol';
 
@@ -555,9 +555,7 @@ export function EmbedStudioWizard() {
                 fontSize: 14,
                 fontWeight: 700,
                 color: '#fff',
-                background: canGenerate
-                  ? 'linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)'
-                  : C.border2,
+                background: canGenerate ? grad : C.border2,
                 cursor: canGenerate ? 'pointer' : 'not-allowed',
               }}
             >

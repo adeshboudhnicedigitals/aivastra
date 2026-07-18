@@ -168,7 +168,11 @@ export function ShopifyPluginDemo() {
       if (!isEmbedImageSelectedMessage(event.data)) return;
       setMediaImages((prev) => [
         ...prev,
-        { id: event.data.jobId, url: event.data.imageUrl, source: 'aivastra' as const },
+        {
+          id: `${event.data.jobId}-${Date.now()}`,
+          url: event.data.imageUrl,
+          source: 'aivastra' as const,
+        },
       ]);
     }
     window.addEventListener('message', handleMessage);
