@@ -68,6 +68,17 @@ describe('GET /v1/shopify/catalog/jobs', () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it('rejects with 401 (not 400) when the querystring is malformed and there is no session token', async () => {
+    // catalogueId is required/uuid — omitting it entirely makes the querystring
+    // invalid. Auth must run before validation, so this must still be 401, not 400.
+    // Proves the preHandler-then-manual-parse fix (mirroring generate's own fix).
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/catalog/jobs',
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
   it('returns the job with a result URL, scoped to the session store', async () => {
     const res = await app.inject({
       method: 'GET',

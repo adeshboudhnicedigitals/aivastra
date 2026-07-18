@@ -8,6 +8,7 @@ import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { createJob } from '../jobs/create.js';
 import { createProductMedia } from './catalog-publish.js';
+import { fetchLiveProductImages } from './products.routes.js';
 import { assertShopifyCdn } from './products.sync.js';
 
 const GenerateBody = z.object({
@@ -24,6 +25,8 @@ const GenerateBody = z.object({
   aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
   resolution: z.enum(['HD', '2K', '4K']),
 });
+
+const JobsQuery = z.object({ catalogueId: z.string().uuid() });
 
 const MAX_GARMENT_SOURCE_BYTES = 10 * 1024 * 1024;
 
@@ -86,6 +89,18 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
         throw new AppError('INSUFFICIENT_CREDITS', 402, 'Store is not linked to a billing account');
       }
 
+      // Confirm sourceImageUrl is actually one of the CURRENT images on this specific
+      // product, not just any allowlisted Shopify CDN URL — mirrors the same check in
+      // PATCH /v1/shopify/products/:id (products.routes.ts).
+      const liveImages = await fetchLiveProductImages(app, store, String(body.shopifyProductId));
+      if (!liveImages.some((img) => img.src === body.sourceImageUrl)) {
+        throw new AppError(
+          'BAD_REQUEST',
+          400,
+          "sourceImageUrl is not one of this product's current images",
+        );
+      }
+
       const r2Key = await downloadProductImageToR2(
         app,
         store.id,
@@ -118,14 +133,28 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
       }
       const { catalogueId, jobIds } = jobResult;
 
-      await app.db.insert(schema.shopifyCatalogJobs).values(
-        jobIds.map((jobId) => ({
-          jobId,
-          storeId: store.id,
-          shopifyProductId: body.shopifyProductId,
-          sourceImageUrl: body.sourceImageUrl,
-        })),
-      );
+      // This tracking insert is deliberately NOT part of createJob's transaction — the
+      // jobs are already committed, running, and billed by this point. If this insert
+      // fails, we do not roll back createJob or refund credits (the underlying jobs are
+      // real and valid); we only lose the ability to surface them in this UI. Log with
+      // enough context to manually reconcile, then rethrow so the client sees an error
+      // instead of a 201 for jobs it can never find via the jobs listing route.
+      try {
+        await app.db.insert(schema.shopifyCatalogJobs).values(
+          jobIds.map((jobId) => ({
+            jobId,
+            storeId: store.id,
+            shopifyProductId: body.shopifyProductId,
+            sourceImageUrl: body.sourceImageUrl,
+          })),
+        );
+      } catch (err) {
+        app.log.error(
+          { err, jobIds, catalogueId, storeId: store.id, shopifyProductId: body.shopifyProductId },
+          'failed to insert shopifyCatalogJobs tracking rows after createJob succeeded — jobs are real, running, and billed, but untrackable via the catalog UI until manually reconciled',
+        );
+        throw err;
+      }
 
       return reply.code(201).send({ catalogueId, jobIds });
     },
@@ -133,13 +162,23 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
 
   app.get(
     '/v1/shopify/catalog/jobs',
-    {
-      preHandler: app.requireShopifySession,
-      schema: { querystring: z.object({ catalogueId: z.string().uuid() }) },
-    },
+    // preHandler (not a declarative schema.querystring): same rationale as
+    // /v1/shopify/catalog/generate above — auth must run before validation, or an
+    // unauthenticated request with a malformed querystring gets 400 instead of 401.
+    { preHandler: app.requireShopifySession },
     async (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      const { catalogueId } = req.query as { catalogueId: string };
+      let query: z.infer<typeof JobsQuery>;
+      try {
+        query = JobsQuery.parse(req.query);
+      } catch (err) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          err instanceof Error ? err.message : 'invalid request querystring',
+        );
+      }
+      const { catalogueId } = query;
 
       const rows = await app.db
         .select({

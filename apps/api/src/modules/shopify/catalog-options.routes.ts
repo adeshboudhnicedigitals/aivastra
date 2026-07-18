@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
 
 const GENDERS = ['men', 'women', 'boys', 'girls'] as const;
 
@@ -58,9 +59,23 @@ async function fetchCatalogItems(
 export async function shopifyCatalogOptionsRoutes(app: FastifyInstance) {
   app.get(
     '/v1/shopify/catalog/options',
-    { preHandler: app.requireShopifySession, schema: { querystring: OptionsQuery } },
+    // preHandler (not a declarative schema.querystring): same rationale as
+    // /v1/shopify/catalog/generate (catalog.routes.ts) — auth must run before
+    // validation, or an unauthenticated request with a malformed querystring gets 400
+    // instead of 401.
+    { preHandler: app.requireShopifySession },
     async (req) => {
-      const { gender, garmentTypeId } = req.query as z.infer<typeof OptionsQuery>;
+      let query: z.infer<typeof OptionsQuery>;
+      try {
+        query = OptionsQuery.parse(req.query);
+      } catch (err) {
+        throw new AppError(
+          'VALIDATION',
+          400,
+          err instanceof Error ? err.message : 'invalid request querystring',
+        );
+      }
+      const { gender, garmentTypeId } = query;
 
       const garmentTypes = await app.db
         .select({

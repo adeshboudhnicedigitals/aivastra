@@ -108,12 +108,26 @@ beforeAll(async () => {
     .returning();
   poseId = pose.id;
 
-  // Stub the outbound fetch to the Shopify CDN image so the test doesn't
-  // depend on network access — createJob only needs the object to exist
-  // in R2 with a readable size, not real image bytes.
+  // Stub the outbound fetch to (a) the Shopify Admin REST images.json endpoint the
+  // route now calls to confirm sourceImageUrl belongs to the product (fetchLiveProductImages,
+  // products.routes.ts), and (b) the Shopify CDN image download itself — so the test
+  // doesn't depend on network access. createJob only needs the object to exist in R2
+  // with a readable size, not real image bytes. The images.json stub returns every
+  // sourceImageUrl used across this file's tests as "live" images of the product, so
+  // each test's legitimate sourceImageUrl matches.
+  const LIVE_IMAGE_URLS = [
+    'https://cdn.shopify.com/s/files/1/0/0/products/shirt.jpg',
+    'https://cdn.shopify.com/s/files/1/0/0/products/shirt-bad-face.jpg',
+  ];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
+      if (typeof url === 'string' && url.includes('/images.json')) {
+        return new Response(
+          JSON.stringify({ images: LIVE_IMAGE_URLS.map((src, id) => ({ id, src })) }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
       if (typeof url === 'string' && url.includes('cdn.shopify.com')) {
         return new Response(Buffer.from('fake-jpeg-bytes'), {
           status: 200,
@@ -230,5 +244,25 @@ describe('POST /v1/shopify/catalog/generate', () => {
     });
     expect(res.statusCode).toBe(402);
     void unlinked;
+  });
+
+  it("rejects a sourceImageUrl that isn't one of the product's current live images", async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/catalog/generate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        shopifyProductId: 12345,
+        sourceImageUrl: 'https://cdn.shopify.com/s/files/1/0/0/products/not-a-real-image.jpg',
+        faceId,
+        looks: [{ poseId, backgroundId }],
+        aspectRatio: '3:4',
+        resolution: 'HD',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toContain("not one of this product's current images");
   });
 });

@@ -22,7 +22,7 @@ const PatchProductBody = z
     message: 'at least one of enabled or garmentImageUrl is required',
   });
 
-async function fetchLiveProductImages(
+export async function fetchLiveProductImages(
   app: FastifyInstance,
   store: typeof schema.shopifyStores.$inferSelect,
   shopifyProductId: string,
