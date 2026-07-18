@@ -6,6 +6,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { LinkAccountGate } from './components/LinkAccountGate';
 import { apiFetch } from './lib/api';
+import CatalogGeneratePage from './pages/CatalogGeneratePage';
 import DashboardPage from './pages/DashboardPage';
 import FunnelSetupPage from './pages/FunnelSetupPage';
 import ProductsPage from './pages/ProductsPage';
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/" element={<DashboardPage />} />
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/funnel-setup" element={<FunnelSetupPage />} />
+          <Route path="/catalog-generate" element={<CatalogGeneratePage />} />
           <Route path="/embedded" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
