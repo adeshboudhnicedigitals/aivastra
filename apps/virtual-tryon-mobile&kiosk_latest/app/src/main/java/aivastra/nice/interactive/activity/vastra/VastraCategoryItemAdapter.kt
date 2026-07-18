@@ -100,10 +100,10 @@ class VastraCategoryItemAdapter(private val subcategoryList: ArrayList<DressesTy
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                val displayPrice = itemData.offerprice.takeIf { it.isNotBlank() && it != "0" }
-                    ?: itemData.price.takeIf { it.isNotBlank() && it != "0" }
-                binding.txtPrice.isVisible = displayPrice != null
-                binding.txtPrice.text = displayPrice?.let { "\u20B9$it" }.orEmpty()
+                // Listing grid shows the SKU, not the price \u2014 price is shown only in the
+                // enlarged product preview dialog (SelectedVastraThemePreviewDialog).
+                binding.txtSku.isVisible = itemData.sku_number.isNotBlank()
+                binding.txtSku.text = "Sku:${itemData.sku_number}"
                 binding.executePendingBindings()
             }
         }

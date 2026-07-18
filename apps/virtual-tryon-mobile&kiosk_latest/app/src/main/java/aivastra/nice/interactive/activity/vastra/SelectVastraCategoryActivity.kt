@@ -139,23 +139,15 @@ class SelectVastraCategoryActivity : BaseActivity() {
 
     private fun filterProductBySku(searchBy:String){
         ViewControll.hideKeyboard(this)
-        sareeCatViewmodel.filterProductBySKUNumber(searchBy)
-        sareeCatViewmodel.dressesItemsListData.observe(this){productList->
-            if(productList!=null && productList.isNotEmpty()){
-                setSearchProductItemList(productList,searchBy)
-            }else{
+        sareeCatViewmodel.filterProductBySKUNumber(searchBy) { results, errorMsg ->
+            if (results != null) {
+                setSearchProductItemList(results, searchBy)
+            } else {
                 binding.recyclerVastraItem.isVisible = true
                 binding.recyclerSearchProductItem.isVisible = false
-//                ViewControll.showMessage(this,getString(R.string.no_product_found))
-            }
-        }
-
-        sareeCatViewmodel.error.observe(this){errorMsg->
-            if(errorMsg!=null){
-                binding.recyclerVastraItem.isVisible = true
-                binding.recyclerSearchProductItem.isVisible = false
-                ViewControll.showMessage(this,getString(R.string.no_product_found))
-                sareeCatViewmodel.resetSearchProductData()
+                if (errorMsg != null) {
+                    ViewControll.showMessage(this, errorMsg)
+                }
             }
         }
     }

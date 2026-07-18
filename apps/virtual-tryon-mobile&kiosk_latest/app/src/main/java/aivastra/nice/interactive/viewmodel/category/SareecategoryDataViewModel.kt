@@ -16,6 +16,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.facewixlatest.ApiUtils.APIConstant
 import com.example.facewixlatest.ApiUtils.ApiErrorPresenter
 import com.example.facewixlatest.ApiUtils.ApiException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -50,9 +51,6 @@ class SareecategoryDataViewModel : ViewModel() {
 
     private val _dressesTypeData = MutableLiveData<ArrayList<DressesTypeDataModel.Data>>()
     val dressesTypeData: LiveData<ArrayList<DressesTypeDataModel.Data>> get() = _dressesTypeData
-
-    private val _dressesItemsListData = MutableLiveData<ArrayList<DressesTypeDataModel.Data.Subcategory.Item>>()
-    val dressesItemsListData: LiveData<ArrayList<DressesTypeDataModel.Data.Subcategory.Item>> get() = _dressesItemsListData
 
     private val _selectedCatItem = MutableLiveData<SareeCateDataModel.Data>()
     val selectedCatItem: LiveData<SareeCateDataModel.Data> get() = _selectedCatItem
@@ -112,21 +110,30 @@ class SareecategoryDataViewModel : ViewModel() {
                 repository.savDressesTypeData(model.data)
                 _showTryOnSessionMsg.postValue(model.message)
             }.onFailure { cause ->
+                if (cause is CancellationException) throw cause
                 val (title, message) = ApiErrorPresenter.present(cause)
                 _error.postValue("$title: $message")
             }
         }
     }
-    fun filterProductBySKUNumber(searchBy: String) {
+    // Callback-based rather than posting to a shared LiveData: the search UI needs its own
+    // result/error handling on every keystroke, and re-registering a LiveData observer per
+    // search (the previous approach) leaked an extra observer on every call, while a single
+    // permanent observer would collide with the unrelated generic `error` observer registered
+    // for catalog-fetch failures elsewhere on this screen.
+    fun filterProductBySKUNumber(
+        searchBy: String,
+        callback: (results: ArrayList<DressesTypeDataModel.Data.Subcategory.Item>?, errorMsg: String?) -> Unit,
+    ) {
         if (repository.getDressesTypeData().isEmpty()) {
-            _error.postValue("App error: catalog is not loaded yet. Please try again.")
+            callback(null, "App error: catalog is not loaded yet. Please try again.")
             return
         }
         val results = repository.filterLocalProducts(searchBy)
         if (results.isEmpty()) {
-            _error.postValue("App error: no product matched that search.")
+            callback(null, "App error: no product matched that search.")
         } else {
-            _dressesItemsListData.postValue(results)
+            callback(results, null)
         }
     }
     fun fetchDressesForAPI() {
@@ -151,11 +158,6 @@ class SareecategoryDataViewModel : ViewModel() {
 
     fun resetErrorData() {
         _error.postValue(null)
-    }
-
-    fun resetSearchProductData() {
-        _error.postValue(null)
-        _dressesItemsListData.postValue(null)
     }
 
     fun resetAppLoginData() {
@@ -188,6 +190,7 @@ class SareecategoryDataViewModel : ViewModel() {
             }.onSuccess { jobId ->
                 pollTryonJob(jobId, garmentId, deviceId, activity)
             }.onFailure { cause ->
+                if (cause is CancellationException) throw cause
                 val (title, message) = ApiErrorPresenter.present(cause)
                 _error.postValue("$title: $message")
             }
@@ -201,6 +204,7 @@ class SareecategoryDataViewModel : ViewModel() {
                 val status = try {
                     repository.getTryonJobStatus(jobId)
                 } catch (cause: Throwable) {
+                    if (cause is CancellationException) throw cause
                     val (title, message) = ApiErrorPresenter.present(cause)
                     _error.postValue("$title: $message")
                     return@launch
@@ -253,15 +257,6 @@ class SareecategoryDataViewModel : ViewModel() {
         pollingJob = null
     }
     suspend fun getTryonPhotoUrlSync(r2Key: String): String = repository.getTryonPhotoUrl(r2Key)
-    fun getTryonJobStatusForResultScreen(jobId: String, callback: (liked: Boolean, inCart: Boolean) -> Unit) {
-        viewModelScope.launch {
-            runCatching { repository.getTryonJobStatus(jobId) }
-                .onSuccess { status ->
-                    callback(status.optBoolean("liked", false), status.optBoolean("inCart", false))
-                }
-                .onFailure { /* Non-fatal: leave the icons in their default state. */ }
-        }
-    }
     fun fetchVastraTryOnResultAPI(
         activity: Activity,
         garmentId: String,
@@ -285,6 +280,7 @@ class SareecategoryDataViewModel : ViewModel() {
                     QrCodeLinkDataModel(status = true, message = "", url = session.getString("qrUrl")),
                 )
             }.onFailure { cause ->
+                if (cause is CancellationException) throw cause
                 val (title, message) = ApiErrorPresenter.present(cause)
                 _error.postValue("$title: $message")
             }
@@ -303,6 +299,7 @@ class SareecategoryDataViewModel : ViewModel() {
                 val status = try {
                     repository.getUploadSessionStatus(token)
                 } catch (cause: Throwable) {
+                    if (cause is CancellationException) throw cause
                     val (title, message) = ApiErrorPresenter.present(cause)
                     if (cause is ApiException.BackendError && cause.code == "SESSION_EXPIRED") {
                         _uploadUserImageData.postValue(
@@ -338,27 +335,6 @@ class SareecategoryDataViewModel : ViewModel() {
             }
         }
     }
-    fun likeVastraTryOnResultAPI(resultId: String, likeStatus: String) {
-        viewModelScope.launch {
-            runCatching {
-                repository.setTryonResultLiked(resultId, likeStatus == "1")
-            }.onFailure { cause ->
-                val (title, message) = ApiErrorPresenter.present(cause)
-                _error.postValue("$title: $message")
-            }
-        }
-    }
-
-    fun addToCartVastraTryOnResultAPI(resultId: String, cardStatus: String) {
-        viewModelScope.launch {
-            runCatching {
-                repository.setTryonResultInCart(resultId, cardStatus == "1")
-            }.onFailure { cause ->
-                val (title, message) = ApiErrorPresenter.present(cause)
-                _error.postValue("$title: $message")
-            }
-        }
-    }
     fun deleteAllTryOnResultAPI(userImageId: String, deviceId: String, responseCallback: (Boolean, String) -> Unit) {
         repository.clearTryOnResults(userImageId)
         responseCallback(true, "Try-on results cleared")
@@ -389,6 +365,7 @@ class SareecategoryDataViewModel : ViewModel() {
                 PrefsManager.saveCapturedImage(activity, imgFile.absolutePath)
                 PrefsManager.saveUploadedPhotoR2Key(r2Key)
             }.onFailure { cause ->
+                if (cause is CancellationException) throw cause
                 val (title, message) = ApiErrorPresenter.present(cause)
                 _error.postValue("$title: $message")
             }
@@ -415,6 +392,7 @@ class SareecategoryDataViewModel : ViewModel() {
                 PrefsManager.saveLoginUserData(model)
                 _userLoginData.postValue(model)
             }.onFailure { cause ->
+                if (cause is CancellationException) throw cause
                 if (cause is DeviceLimitReachedException && cause.forceLogoutToken.isNotBlank()) {
                     _deviceLimitReached.postValue(DeviceLimitState(cause.message.orEmpty(), cause.forceLogoutToken))
                 } else {
@@ -433,6 +411,7 @@ class SareecategoryDataViewModel : ViewModel() {
                 _deviceLimitReached.postValue(null)
                 _userLoginData.postValue(model)
             }.onFailure { cause ->
+                if (cause is CancellationException) throw cause
                 _error.postValue(authErrorMessage(cause))
             }
         }
@@ -464,6 +443,7 @@ class SareecategoryDataViewModel : ViewModel() {
                 PrefsManager.deleteuser()
                 onSuccessCallBack(true, "")
             }.onFailure { cause ->
+                if (cause is CancellationException) throw cause
                 onSuccessCallBack(false, authErrorMessage(cause))
             }
         }
