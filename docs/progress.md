@@ -1,3 +1,22 @@
+## 2026-07-18 - Shopify Product Catalog Generation: final-review fixes
+
+Fixed 4 Important findings from a whole-branch final code review of `feat/shopify-product-catalog-generation` (`apps/api/src/modules/shopify/catalog.routes.ts` and `catalog-options.routes.ts`). Out of scope by explicit instruction: App Bridge / Admin UI Extension `Link`-navigation issue (Critical, separate human decision).
+
+### Done
+- **Orphaned tracking rows on insert failure**: in `POST /v1/shopify/catalog/generate`, the `shopifyCatalogJobs` tracking insert (which runs after `createJob` has already committed its transaction and enqueued jobs) is now wrapped in try/catch. On failure it logs at `app.log.error` with `jobIds`, `catalogueId`, `storeId`, `shopifyProductId` for manual reconciliation, then rethrows — the underlying jobs are real/running/billed and are deliberately not rolled back or refunded (same acknowledged post-transaction-bookkeeping tradeoff used elsewhere in the codebase), but the client now correctly sees an error instead of a `201` for jobs it could never find via the `jobs` listing route.
+- **`sourceImageUrl` not validated against the product**: `generate` previously only checked the URL against a Shopify CDN host allowlist (`assertShopifyCdn`), never that it belonged to the specific `shopifyProductId` being requested. Exported `fetchLiveProductImages` from `products.routes.ts` (was module-private, now reused rather than duplicated) and call it in `generate` before downloading — rejects with `AppError('BAD_REQUEST', 400, "sourceImageUrl is not one of this product's current images")` on mismatch, matching the existing pattern in `PATCH /v1/shopify/products/:id`.
+- **400-before-401 auth-ordering bug**: `catalog-options.routes.ts`'s `options` route and `catalog.routes.ts`'s `jobs` route both still used a declarative `schema: { querystring: ... }` block alongside `preHandler: app.requireShopifySession` — Fastify validates the declarative schema before `preHandler` runs, so an unauthenticated request with a malformed querystring got 400 instead of 401. This is the exact bug `generate` was already fixed for earlier in this branch. Applied the identical fix to both routes: removed the declarative `schema.querystring`, kept the `preHandler`, and added a manual `.parse(req.query)` call as the first line of each handler, catching and converting to `AppError('VALIDATION', 400, ...)` in the same shape `generate` uses.
+- Added regression tests: `shopify-catalog-generate.test.ts` gained a case asserting a `sourceImageUrl` not in the product's live image list is rejected with 400 (plus updated the file's `fetch` stub to also answer the Shopify Admin `images.json` call the route now makes); `shopify-catalog-options.test.ts` and `shopify-catalog-jobs.test.ts` each gained a "malformed querystring + no session token → 401" case proving the ordering fix (their existing "rejects without a session token" tests used well-formed querystrings and wouldn't have caught the bug).
+- Verified: `pnpm --filter @aivastra/api test -- shopify-catalog` — 19/19 passing (16 pre-existing + 3 new). `pnpm --filter @aivastra/api test -- shopify-products` — 8/8 passing (unaffected by the `fetchLiveProductImages` export). `pnpm --filter @aivastra/api exec tsc --noEmit -p .` — clean. `pnpm --filter @aivastra/api lint` — clean.
+
+### Failed / Not Done
+- None on this task's own scope — all 4 findings addressed and verified.
+
+### Open Questions / Decisions
+- Carried over from the 2026-07-17 branch-completion entry, unresolved and explicitly out of scope for this pass: the Admin UI Extension's `Link`-based new-tab entry point likely breaks App Bridge session-token auth on the picker page (`window.shopify` needs genuine iframe embedding); needs a human decision on either live-store testing or an App Bridge bootstrap fix (`host` param + `forceRedirect`). Also still open: whether a merchant's watermark entitlement should apply to catalog images destined for the merchant's own Shopify listing.
+
+---
+
 ## 2026-07-17 - Third Garment Upload
 
 Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tasks 1-10), plus a review pass that found and fixed three real gaps before merge — see Failed/Not Done.
