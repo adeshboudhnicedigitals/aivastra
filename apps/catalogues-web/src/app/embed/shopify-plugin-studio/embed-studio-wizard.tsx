@@ -3,24 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { type GenerationJob, GenerationPanel } from '@/app/(app)/studio/generation-panel';
 import { SelectGridModal } from '@/app/(app)/studio/select-modal';
-import {
-  GenderCard,
-  SectionHead,
-  SelCard,
-  sectionCardStyle,
-} from '@/app/(app)/studio/shared-cards';
+import { SectionHead, SelCard, sectionCardStyle } from '@/app/(app)/studio/shared-cards';
 import { SpinnerIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { api } from '@/lib/api';
 import { postImageSelectedToParent } from '@/lib/shopify-plugin-embed-protocol';
 
-const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-
 const GENDERS = [
-  { value: 'women', label: 'Women', img: `${BASE}/assets/seg-women.png` },
-  { value: 'men', label: 'Men', img: `${BASE}/assets/seg-men.png` },
-  { value: 'boys', label: 'Boy', img: `${BASE}/assets/seg-boy.png` },
-  { value: 'girls', label: 'Girl', img: `${BASE}/assets/seg-girl.png` },
+  { value: 'women', label: 'Women' },
+  { value: 'men', label: 'Men' },
+  { value: 'boys', label: 'Boys' },
+  { value: 'girls', label: 'Girls' },
 ];
 
 // A subset of the fields Studio's GarmentType carries — this demo only
@@ -301,16 +294,29 @@ export function EmbedStudioWizard() {
 
       <div style={sectionCardStyle}>
         <SectionHead title="Who is this product for?" stepNumber={1} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-          {GENDERS.map((g) => (
-            <GenderCard
-              key={g.value}
-              selected={gender === g.value}
-              onClick={() => handleGenderSelect(g.value)}
-              img={g.img}
-              label={g.label}
-            />
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+          {GENDERS.map((g) => {
+            const selected = gender === g.value;
+            return (
+              <button
+                key={g.value}
+                type="button"
+                onClick={() => handleGenderSelect(g.value)}
+                style={{
+                  cursor: 'pointer',
+                  height: 40,
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  border: `1.5px solid ${selected ? C.pink : C.border2}`,
+                  background: selected ? 'rgba(189,37,135,0.08)' : C.white,
+                  color: selected ? C.pink : C.text,
+                }}
+              >
+                {g.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
