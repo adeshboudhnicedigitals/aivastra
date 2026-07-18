@@ -44,8 +44,6 @@ export interface ProcessorConfig {
   storage: StorageProvider;
   s3: S3Client;
   r2Bucket: string;
-  widgetComfyUrl?: string;
-  widgetComfyBasicAuth?: string;
   log: Logger;
 }
 
@@ -1248,38 +1246,23 @@ async function processWidgetJob(
   jobLog: Logger,
   startedAt: number,
 ): Promise<void> {
-  const { db, redis, pub, s3, r2Bucket, widgetComfyUrl, widgetComfyBasicAuth } = cfg;
+  const { db, redis, pub, s3, r2Bucket } = cfg;
   const jobId = job.id;
   // biome-ignore lint/style/noNonNullAssertion: merchantId is guaranteed non-null for widget jobs
   const merchantId = job.merchantId!;
   const { creditsCharged } = job;
 
   // Shopify widget jobs: job_inputs.params.kind === 'shopify' — route to the dedicated
-  // shared-worker-pool processor instead of the widget-VPS flow below. Shopify jobs still
-  // carry shopifyStoreId (so they enter this function), but they don't use the fixed
-  // widgetComfyUrl/widgetComfyBasicAuth VPS at all, so this branch runs before that check.
+  // Shopify processor. Both branches below use the shared admin-managed worker pool
+  // (selectWorker) rather than a fixed VPS — merchant/kiosk jobs used to depend on a
+  // separate WIDGET_COMFYUI_URL/WIDGET_COMFYUI_BASIC_AUTH VPS that was never actually
+  // provisioned, so every such job failed immediately with WIDGET_NOT_CONFIGURED.
   const rawParams =
     typeof inputs.params === 'string'
       ? (JSON.parse(inputs.params) as Record<string, unknown>)
       : ((inputs.params ?? {}) as Record<string, unknown>);
   if (rawParams.kind === 'shopify') {
     await processShopifyJob(cfg, job, inputs, rawParams, stream, messageId, jobLog, startedAt);
-    return;
-  }
-
-  if (!widgetComfyUrl || !widgetComfyBasicAuth) {
-    jobLog.error('WIDGET_COMFYUI_URL / WIDGET_COMFYUI_BASIC_AUTH not configured');
-    await markWidgetFailed(
-      cfg,
-      jobId,
-      merchantId,
-      creditsCharged,
-      stream,
-      messageId,
-      'WIDGET_NOT_CONFIGURED',
-      jobLog,
-      startedAt,
-    );
     return;
   }
 
@@ -1393,55 +1376,61 @@ async function processWidgetJob(
 
   await transitionJob(db, pub, jobId, '', 'PREPROCESSING', {}, jobLog);
 
-  // Basic Auth header for all widget VPS requests
-  const authHeader = `Basic ${Buffer.from(widgetComfyBasicAuth).toString('base64')}`;
+  // Merchant/kiosk widget jobs route to workers with 'merchant' in their allowedJobTypes
+  // (or an empty allowedJobTypes, i.e. "accepts any") — the same admin-managed pool the
+  // main studio flow and Shopify jobs use, via selectWorker. See processShopifyJob for
+  // the precedent this mirrors.
+  const worker = await selectWorker(redis, 'merchant');
+  if (!worker) {
+    if (Date.now() - job.createdAt.getTime() > MAX_QUEUE_WAIT_MS) {
+      jobLog.warn(
+        'no idle merchant worker — job exceeded max queue wait, terminating with widget refund',
+      );
+      await markWidgetFailed(
+        cfg,
+        jobId,
+        merchantId,
+        creditsCharged,
+        stream,
+        messageId,
+        'NO_WORKER',
+        jobLog,
+        startedAt,
+      );
+    } else {
+      jobLog.warn('no idle merchant worker — re-enqueuing with backoff');
+      await db.update(schema.jobs).set({ status: 'QUEUED' }).where(eq(schema.jobs.id, jobId));
+      await new Promise((resolve) => setTimeout(resolve, 10_000));
+      await redis.xadd(stream, 'MAXLEN', '~', 10000, '*', 'jobId', jobId);
+      await redis.xack(stream, 'dispatcher-cg', messageId);
+      recordJobOutcome('retried', startedAt);
+    }
+    return;
+  }
+  const w = worker;
+  jobLog.info({ workerId: w.id }, 'worker claimed for merchant widget job');
 
   try {
-    // Download both images from R2
     async function r2Download(key: string): Promise<Uint8Array> {
       const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }));
       if (!res.Body) throw new Error(`R2 object missing: ${key}`);
       return res.Body.transformToByteArray();
     }
 
-    const [customerPhotoBytes, garmentBytes] = await Promise.all([
-      r2Download(customerPhotoKey),
-      r2Download(upperGarmentKey),
-    ]);
-
-    // Upload to widget ComfyUI VPS (Basic Auth, not X-Api-Key)
-    async function uploadToWidgetComfy(
-      bytes: Uint8Array,
-      filename: string,
-      contentType: string,
-    ): Promise<string> {
-      const form = new FormData();
-      form.append('image', new Blob([bytes], { type: contentType }), filename);
-      form.append('overwrite', 'true');
-      const res = await fetch(`${widgetComfyUrl}/upload/image`, {
-        method: 'POST',
-        headers: { Authorization: authHeader },
-        body: form,
-        signal: AbortSignal.timeout(60_000),
-      });
-      if (!res.ok) throw new Error(`Widget ComfyUI /upload/image failed: ${res.status}`);
-      const json = (await res.json()) as { name: string };
-      return json.name;
+    async function uploadToComfy(key: string, prefix: string): Promise<string> {
+      const bytes = await r2Download(key);
+      const rawExt = key.split('.').pop()?.toLowerCase() ?? '';
+      const ext = rawExt === 'png' ? 'png' : rawExt === 'webp' ? 'webp' : 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      return uploadImageToComfy(w.url, w.apiKey, bytes, `${prefix}_${jobId}.${ext}`, mime, jobLog);
     }
 
-    const garmentExt = upperGarmentKey.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const garmentMime =
-      garmentExt === 'png' ? 'image/png' : garmentExt === 'webp' ? 'image/webp' : 'image/jpeg';
-    const photoExt = customerPhotoKey.split('.').pop()?.toLowerCase() ?? 'jpg';
-    const photoMime =
-      photoExt === 'png' ? 'image/png' : photoExt === 'webp' ? 'image/webp' : 'image/jpeg';
-
-    jobLog.info('uploading inputs to widget ComfyUI');
+    jobLog.info('uploading merchant widget inputs to ComfyUI');
     const [garmentFilename, customerPhotoFilename] = await Promise.all([
-      uploadToWidgetComfy(garmentBytes, `garment_${jobId}.${garmentExt}`, garmentMime),
-      uploadToWidgetComfy(customerPhotoBytes, `photo_${jobId}.${photoExt}`, photoMime),
+      uploadToComfy(upperGarmentKey, 'merchant_garment'),
+      uploadToComfy(customerPhotoKey, 'merchant_customer'),
     ]);
-    jobLog.info({ garmentFilename, customerPhotoFilename }, 'widget inputs uploaded to VPS');
+    jobLog.info({ garmentFilename, customerPhotoFilename }, 'merchant widget inputs uploaded');
 
     // Clone and patch workflow using node IDs from DB
     const workflow = structuredClone(templateRow.jsonContent) as Record<
@@ -1454,55 +1443,41 @@ async function processWidgetJob(
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[customerPhotoNodeId].inputs!.image = customerPhotoFilename;
 
-    // Submit prompt
-    await transitionJob(db, pub, jobId, '', 'GENERATING', {}, jobLog);
+    await transitionJob(db, pub, jobId, '', 'GENERATING', { workerId: w.id }, jobLog);
     const clientUuid = randomUUID();
-    const promptRes = await fetch(`${widgetComfyUrl}/prompt`, {
-      method: 'POST',
-      headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: workflow, client_id: clientUuid }),
-      signal: AbortSignal.timeout(15_000),
+    const comfyStartedAt = Date.now();
+    const { promptId } = await submitPrompt(w.url, w.apiKey, clientUuid, workflow, jobLog);
+    jobLog.info({ promptId }, 'merchant widget prompt submitted');
+
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'COMFY_DISPATCH',
+      payload: {
+        promptId,
+        workerId: w.id,
+        workerUrl: w.url,
+        workflowTemplateId,
+        inputs: { customerPhotoKey, upperGarmentKey, customerPhotoFilename, garmentFilename },
+      },
     });
-    if (!promptRes.ok) throw new Error(`Widget ComfyUI /prompt failed: ${promptRes.status}`);
-    const { prompt_id: promptId } = (await promptRes.json()) as { prompt_id: string };
-    jobLog.info({ promptId }, 'widget prompt submitted');
 
-    // Poll /history every 2s (max 5 min) — WebSocket skipped; Basic Auth + polling matches the PHP approach
-    const RESULT_NODE = outputNodeId;
-    const deadline = Date.now() + 300_000;
-    type ComfyImage = { filename: string; subfolder: string; type: string };
-    let outputImages: ComfyImage[] = [];
+    await waitForCompletion(
+      w.url,
+      w.apiKey,
+      clientUuid,
+      promptId,
+      300_000,
+      (update) => jobLog.debug(update, 'comfyui progress'),
+      { info: jobLog.info.bind(jobLog), debug: jobLog.debug.bind(jobLog) },
+    );
+    comfyRequestDuration.observe((Date.now() - comfyStartedAt) / 1000);
 
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 2_000));
-      const histRes = await fetch(`${widgetComfyUrl}/history/${promptId}`, {
-        headers: { Authorization: authHeader },
-        signal: AbortSignal.timeout(10_000),
-      }).catch(() => null);
-      if (!histRes?.ok) continue;
-
-      type HistEntry = { outputs?: Record<string, { images?: ComfyImage[] }> };
-      const history = (await histRes.json()) as Record<string, HistEntry>;
-      const nodeImages = history[promptId]?.outputs?.[RESULT_NODE]?.images;
-      if (nodeImages?.length) {
-        outputImages = nodeImages.filter((img) => img.type === 'output');
-        break;
-      }
-    }
-    if (!outputImages.length)
-      throw new Error(`Widget ComfyUI timeout — no output images from node ${outputNodeId}`);
-
-    // Download output image from VPS
     await transitionJob(db, pub, jobId, '', 'UPLOADING', {}, jobLog);
-    // biome-ignore lint/style/noNonNullAssertion: outputImages is non-empty (checked by ComfyUI response)
-    const firstImage = outputImages[0]!;
-    const viewUrl = `${widgetComfyUrl}/view?filename=${encodeURIComponent(firstImage.filename)}&subfolder=${encodeURIComponent(firstImage.subfolder)}&type=${encodeURIComponent(firstImage.type)}`;
-    const imgRes = await fetch(viewUrl, {
-      headers: { Authorization: authHeader },
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!imgRes.ok) throw new Error(`Widget ComfyUI /view failed: ${imgRes.status}`);
-    const imageBytes = new Uint8Array(await imgRes.arrayBuffer());
+    const outputImages = await fetchHistory(w.url, w.apiKey, promptId, jobLog, outputNodeId);
+    const [firstImage] = outputImages;
+    if (!firstImage) throw new Error('ComfyUI returned no output images for merchant widget job');
+
+    const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
 
     // Upload result to R2
     const resultKey = `widget-outputs/${jobId}/result.png`;
@@ -1537,11 +1512,13 @@ async function processWidgetJob(
       resultKey,
     );
     await redis.xack(stream, 'dispatcher-cg', messageId);
+    await setWorkerStatus(redis, w.id, 'IDLE');
     recordJobOutcome('success', startedAt);
     jobLog.info({ resultKey }, 'widget job completed successfully');
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     jobLog.error({ err }, 'widget job processing error');
+    await setWorkerStatus(redis, w.id, 'IDLE');
     await markWidgetFailed(
       cfg,
       jobId,
