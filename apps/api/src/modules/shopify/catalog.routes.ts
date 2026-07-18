@@ -1,0 +1,108 @@
+import { randomUUID } from 'node:crypto';
+import { schema } from '@aivastra/db';
+import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
+import { AppError } from '../../lib/errors.js';
+import { createJob } from '../jobs/create.js';
+import { assertShopifyCdn } from './products.sync.js';
+
+const GenerateBody = z.object({
+  shopifyProductId: z.number().int().positive(),
+  sourceImageUrl: z.string().url(),
+  faceId: z.string().uuid(),
+  garmentTypeId: z.string().uuid().optional(),
+  looks: z
+    .array(z.object({ poseId: z.string().uuid(), backgroundId: z.string().uuid() }))
+    .min(1)
+    .max(12),
+  lowerCatalogId: z.string().uuid().optional(),
+  shoeCatalogId: z.string().uuid().optional(),
+  aspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']),
+  resolution: z.enum(['HD', '2K', '4K']),
+});
+
+const MAX_GARMENT_SOURCE_BYTES = 10 * 1024 * 1024;
+
+/** Mirrors PATCH /v1/shopify/products/:id's download-to-R2 logic (products.routes.ts):
+ *  10MB cap, 10s abort timeout, no-redirect fetch. Namespaced by store+product so
+ *  concurrent generations across stores/products never collide on the same key. */
+async function downloadProductImageToR2(
+  app: FastifyInstance,
+  storeId: string,
+  shopifyProductId: number,
+  sourceImageUrl: string,
+): Promise<string> {
+  assertShopifyCdn(sourceImageUrl);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  let res: Response;
+  try {
+    res = await fetch(sourceImageUrl, { redirect: 'error', signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!res.ok) throw new AppError('SHOPIFY', 502, 'failed to download the selected product image');
+  const arrayBuffer = await res.arrayBuffer();
+  if (arrayBuffer.byteLength > MAX_GARMENT_SOURCE_BYTES) {
+    throw new AppError('BAD_REQUEST', 400, 'source image exceeds 10MB');
+  }
+  const contentType = res.headers.get('content-type') ?? 'image/jpeg';
+  const r2Key = `shopify-catalog-garments/${storeId}/${shopifyProductId}/${randomUUID()}.jpg`;
+  await app.storage.putObject(r2Key, Buffer.from(arrayBuffer), contentType);
+  return r2Key;
+}
+
+export async function shopifyCatalogRoutes(app: FastifyInstance) {
+  app.post(
+    '/v1/shopify/catalog/generate',
+    // preValidation (not preHandler): auth must run before Fastify's body-schema
+    // validation, or an unauthenticated request with a malformed/empty body gets
+    // a 400 instead of the 401 it should — auth failure must never depend on
+    // whether the caller also happened to send a well-formed body.
+    { preValidation: app.requireShopifySession, schema: { body: GenerateBody } },
+    async (req, reply) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const body = req.body as z.infer<typeof GenerateBody>;
+
+      if (!store.ownerUserId) {
+        throw new AppError('INSUFFICIENT_CREDITS', 402, 'Store is not linked to a billing account');
+      }
+
+      const r2Key = await downloadProductImageToR2(
+        app,
+        store.id,
+        body.shopifyProductId,
+        body.sourceImageUrl,
+      );
+
+      const { catalogueId, jobIds } = await createJob(
+        app,
+        store.ownerUserId,
+        {
+          inputs: {
+            upperGarmentKey: r2Key,
+            faceId: body.faceId,
+            garmentTypeId: body.garmentTypeId,
+            looks: body.looks,
+            lowerCatalogId: body.lowerCatalogId,
+            shoeCatalogId: body.shoeCatalogId,
+          },
+          aspectRatio: body.aspectRatio,
+          resolution: body.resolution,
+        },
+        { trustedGarmentKeys: new Set([r2Key]) },
+      );
+
+      await app.db.insert(schema.shopifyCatalogJobs).values(
+        jobIds.map((jobId) => ({
+          jobId,
+          storeId: store.id,
+          shopifyProductId: body.shopifyProductId,
+          sourceImageUrl: body.sourceImageUrl,
+        })),
+      );
+
+      return reply.code(201).send({ catalogueId, jobIds });
+    },
+  );
+}
