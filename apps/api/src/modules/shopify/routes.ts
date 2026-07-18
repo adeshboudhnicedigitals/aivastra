@@ -1,6 +1,8 @@
 import type { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
 import { shopifyAuthRoutes } from './auth.routes.js';
+import { shopifyCatalogRoutes } from './catalog.routes.js';
+import { shopifyCatalogOptionsRoutes } from './catalog-options.routes.js';
 import { shopifyFunnelRoutes } from './funnel.routes.js';
 import { shopifyMeRoutes } from './me.routes.js';
 import { shopifyOnboardingRoutes } from './onboarding.routes.js';
@@ -18,6 +20,8 @@ export async function shopifyRoutes(app: FastifyInstance) {
   await app.register(shopifyAuthRoutes);
   await app.register(shopifyMeRoutes);
   await app.register(shopifyProductsRoutes);
+  await app.register(shopifyCatalogOptionsRoutes);
+  await app.register(shopifyCatalogRoutes);
   await app.register(shopifyOnboardingRoutes);
   await app.register(shopifyFunnelRoutes);
   // Plain (non-fp) function: gets its own encapsulated child context, so the

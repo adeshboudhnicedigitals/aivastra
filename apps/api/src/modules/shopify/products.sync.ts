@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { assignFunnelFromRules } from './funnel-rules.js';
-import { SHOPIFY_API_VERSION } from './service.js';
+import { shopifyAdminFetch } from './service.js';
 
 interface ShopifyProduct {
   id: number;
@@ -232,10 +232,9 @@ function nextPageUrl(res: { headers: { get(name: string): string | null } }): st
 async function fetchCollectionTitleMap(shop: string, token: string): Promise<Map<number, string>> {
   const titleById = new Map<number, string>();
   for (const resource of ['custom_collections', 'smart_collections'] as const) {
-    let url: string | null =
-      `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/${resource}.json?limit=250`;
+    let url: string | null = `/${resource}.json?limit=250`;
     while (url) {
-      const res = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
+      const res = await shopifyAdminFetch(shop, token, url);
       if (!res.ok) break;
       const body = (await res.json()) as Record<string, Array<{ id: number; title: string }>>;
       for (const c of body[resource] ?? []) titleById.set(c.id, c.title);
@@ -252,10 +251,9 @@ async function fetchProductCollectionTitles(
   titleById: Map<number, string>,
 ): Promise<string[]> {
   const titles: string[] = [];
-  let url: string | null =
-    `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/collects.json?product_id=${productId}&limit=250`;
+  let url: string | null = `/collects.json?product_id=${productId}&limit=250`;
   while (url) {
-    const res = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
+    const res = await shopifyAdminFetch(shop, token, url);
     if (!res.ok) break;
     const { collects } = (await res.json()) as { collects: Array<{ collection_id: number }> };
     for (const c of collects) {
@@ -282,12 +280,7 @@ export async function syncOneTask(
   const shop = store.shopDomain;
 
   if (task.mode === 'product' && task.shopifyProductId) {
-    const res = await fetch(
-      `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/products/${task.shopifyProductId}.json`,
-      {
-        headers: { 'X-Shopify-Access-Token': token },
-      },
-    );
+    const res = await shopifyAdminFetch(shop, token, `/products/${task.shopifyProductId}.json`);
     if (res.ok) {
       const { product } = (await res.json()) as { product: ShopifyProduct };
       const titleById = await fetchCollectionTitleMap(shop, token);
@@ -316,10 +309,9 @@ export async function syncOneTask(
   // call per product (plus one-off collection title map) roughly doubles
   // outbound REST calls — each round-trip's own latency provides de-facto spacing.
   const titleById = await fetchCollectionTitleMap(shop, token);
-  let url: string | null =
-    `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250`;
+  let url: string | null = `/products.json?limit=250`;
   while (url) {
-    const res: Response = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
+    const res: Response = await shopifyAdminFetch(shop, token, url);
     if (!res.ok) {
       // Previously a silent `break` here: the whole catalog sync would stop
       // with zero rows written and zero log line — a bad/expired token made

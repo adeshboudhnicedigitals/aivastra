@@ -5,6 +5,8 @@ const NAV_ITEMS = [
   { to: '/', label: 'Dashboard' },
   { to: '/products', label: 'Products' },
   { to: '/funnel-setup', label: 'Funnel Setup' },
+  { to: '/catalog-generate', label: 'Catalog Generate' },
+  { to: '/generated-images', label: 'Generated Images' },
 ];
 
 export function AppShell({ children, shopDomain }: { children: ReactNode; shopDomain: string }) {
