@@ -45,6 +45,11 @@ async function downloadProductImageToR2(
   let res: Response;
   try {
     res = await fetch(sourceImageUrl, { redirect: 'error', signal: controller.signal });
+  } catch (err) {
+    if ((err as { name?: string }).name === 'AbortError') {
+      throw new AppError('SHOPIFY', 504, 'timed out downloading the selected product image');
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }

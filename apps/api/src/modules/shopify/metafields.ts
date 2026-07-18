@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import { SHOPIFY_API_VERSION } from './service.js';
+import { shopifyAdminFetch } from './service.js';
 
 export async function writeWidgetKeyMetafield(
   shop: string,
@@ -9,18 +9,24 @@ export async function writeWidgetKeyMetafield(
   fetchFn: typeof fetch = fetch,
 ): Promise<void> {
   try {
-    const res = await fetchFn(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/metafields.json`, {
-      method: 'POST',
-      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        metafield: {
-          namespace: 'aivastra',
-          key: 'widget_key',
-          value: widgetKey,
-          type: 'single_line_text_field',
-        },
-      }),
-    });
+    const res = await shopifyAdminFetch(
+      shop,
+      accessToken,
+      '/metafields.json',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metafield: {
+            namespace: 'aivastra',
+            key: 'widget_key',
+            value: widgetKey,
+            type: 'single_line_text_field',
+          },
+        }),
+      },
+      fetchFn,
+    );
     if (!res.ok) {
       log.error({ shop, status: res.status }, 'failed to write widget_key metafield');
     }

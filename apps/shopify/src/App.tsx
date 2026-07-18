@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { LinkAccountGate } from './components/LinkAccountGate';
-import { apiFetch } from './lib/api';
+import { apiFetch, setShopDomain } from './lib/api';
 import CatalogGeneratePage from './pages/CatalogGeneratePage';
 import DashboardPage from './pages/DashboardPage';
 import FunnelSetupPage from './pages/FunnelSetupPage';
@@ -19,7 +19,10 @@ export default function App() {
   const reload = useCallback(() => {
     setLoading(true);
     apiFetch<ShopifyMe>('/v1/shopify/me')
-      .then(setMe)
+      .then((res) => {
+        setShopDomain(res.store.shopDomain);
+        setMe(res);
+      })
       .finally(() => setLoading(false));
   }, []);
 

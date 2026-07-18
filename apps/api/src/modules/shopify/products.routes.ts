@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { assertShopifyCdn } from './products.sync.js';
-import { SHOPIFY_API_VERSION } from './service.js';
+import { shopifyAdminFetch } from './service.js';
 
 const ProductsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -28,9 +28,10 @@ export async function fetchLiveProductImages(
   shopifyProductId: string,
 ): Promise<{ id: number; src: string }[]> {
   const token = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
-  const res = await fetch(
-    `https://${store.shopDomain}/admin/api/${SHOPIFY_API_VERSION}/products/${shopifyProductId}/images.json`,
-    { headers: { 'X-Shopify-Access-Token': token } },
+  const res = await shopifyAdminFetch(
+    store.shopDomain,
+    token,
+    `/products/${shopifyProductId}/images.json`,
   );
   if (!res.ok) {
     throw new AppError('SHOPIFY', 502, 'failed to fetch product images');
@@ -141,6 +142,11 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         let res: Response;
         try {
           res = await fetch(garmentImageUrl, { redirect: 'error', signal: controller.signal });
+        } catch (err) {
+          if ((err as { name?: string }).name === 'AbortError') {
+            throw new AppError('SHOPIFY', 504, 'timed out downloading the selected image');
+          }
+          throw err;
         } finally {
           clearTimeout(timeout);
         }

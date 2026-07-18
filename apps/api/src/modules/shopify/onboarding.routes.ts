@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { SHOPIFY_API_VERSION } from './service.js';
+import { shopifyAdminFetch } from './service.js';
 
 export async function shopifyOnboardingRoutes(app: FastifyInstance) {
   app.post(
@@ -33,10 +33,7 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
       const { decryptToken } = await import('../../lib/crypto.js');
       const token = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
 
-      const res = await fetch(
-        `https://${store.shopDomain}/admin/api/${SHOPIFY_API_VERSION}/themes.json?role=main`,
-        { headers: { 'X-Shopify-Access-Token': token } },
-      );
+      const res = await shopifyAdminFetch(store.shopDomain, token, '/themes.json?role=main');
       if (!res.ok) throw new AppError('SHOPIFY', 502, 'theme lookup failed');
       const { themes } = (await res.json()) as { themes: Array<{ id: number }> };
       const mainTheme = themes[0];

@@ -14,7 +14,12 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
-import type { CatalogGenerateJob, CatalogOptions, ShopifyProductImage } from '../types';
+import type {
+  CatalogGenerateJob,
+  CatalogOptions,
+  ShopifyProductImage,
+  ShopifyProductListItem,
+} from '../types';
 
 const GENDERS = [
   { label: 'Women', value: 'women' },
@@ -42,6 +47,17 @@ export default function CatalogGeneratePage() {
   const [jobs, setJobs] = useState<CatalogGenerateJob[]>([]);
   const [catalogueId, setCatalogueId] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [pickerProducts, setPickerProducts] = useState<ShopifyProductListItem[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+
+  useEffect(() => {
+    if (productId) return;
+    setPickerLoading(true);
+    apiFetch<{ items: ShopifyProductListItem[] }>('/v1/shopify/products?pageSize=100')
+      .then((res) => setPickerProducts(res.items))
+      .catch((err) => setError((err as Error).message))
+      .finally(() => setPickerLoading(false));
+  }, [productId]);
 
   useEffect(() => {
     if (!productId) return;
@@ -178,112 +194,151 @@ export default function CatalogGeneratePage() {
           </Banner>
         )}
 
-        <Card>
-          <BlockStack gap="200">
-            <Text as="h2" variant="headingMd">
-              Garment image
-            </Text>
-            <InlineStack gap="200" wrap>
-              {images.map((img) => (
-                <Button
-                  key={img.id}
-                  pressed={selectedImageSrc === img.src}
-                  onClick={() => setSelectedImageSrc(img.src)}
-                >
-                  <Thumbnail source={img.src} alt="" size="large" />
-                </Button>
-              ))}
-            </InlineStack>
-          </BlockStack>
-        </Card>
-
-        <Card>
-          <BlockStack gap="200">
-            <Select label="Gender" options={GENDERS} value={gender} onChange={setGender} />
-            <Select
-              label="Garment type"
-              options={[
-                { label: 'Select...', value: '' },
-                ...(options?.garmentTypes.map((g) => ({ label: g.label, value: g.id })) ?? []),
-              ]}
-              value={garmentTypeId}
-              onChange={setGarmentTypeId}
-            />
-          </BlockStack>
-        </Card>
-
-        {options && (
+        {!productId && (
           <Card>
-            <BlockStack gap="300">
+            <BlockStack gap="200">
               <Text as="h2" variant="headingMd">
-                Model face
+                Choose a product
               </Text>
-              <InlineStack gap="200" wrap>
-                {options.faces.map((f) => (
-                  <Button key={f.id} pressed={faceId === f.id} onClick={() => setFaceId(f.id)}>
-                    <Thumbnail source={f.thumbnailUrl} alt={f.label} />
-                  </Button>
-                ))}
-              </InlineStack>
-
-              <Text as="h2" variant="headingMd">
-                Background
-              </Text>
-              <InlineStack gap="200" wrap>
-                {options.backgrounds.map((b) => (
-                  <Button
-                    key={b.id}
-                    pressed={backgroundId === b.id}
-                    onClick={() => setBackgroundId(b.id)}
-                  >
-                    <Thumbnail source={b.thumbnailUrl} alt={b.label} />
-                  </Button>
-                ))}
-              </InlineStack>
-
-              <Text as="h2" variant="headingMd">
-                Poses (select one or more)
-              </Text>
-              <InlineStack gap="200" wrap>
-                {options.poses.map((p) => (
-                  <Button
-                    key={p.id}
-                    pressed={selectedLooks.has(p.id)}
-                    onClick={() => togglePose(p.id)}
-                  >
-                    <Thumbnail source={p.thumbnailUrl} alt={p.label} />
-                  </Button>
-                ))}
-              </InlineStack>
-
-              {poseNeedsLower && (
-                <Select
-                  label="Lower garment"
-                  options={[
-                    { label: 'Select...', value: '' },
-                    ...options.lowerItems.map((i) => ({ label: i.label, value: i.id })),
-                  ]}
-                  value={lowerCatalogId}
-                  onChange={setLowerCatalogId}
-                />
+              {pickerLoading && <Spinner size="small" />}
+              {!pickerLoading && pickerProducts.length === 0 && (
+                <Text as="p" tone="subdued">
+                  No products found.
+                </Text>
               )}
-              {poseNeedsShoes && (
-                <Select
-                  label="Shoes"
-                  options={[
-                    { label: 'Select...', value: '' },
-                    ...options.shoeItems.map((i) => ({ label: i.label, value: i.id })),
-                  ]}
-                  value={shoeCatalogId}
-                  onChange={setShoeCatalogId}
-                />
-              )}
-
-              <Button variant="primary" loading={generating} onClick={generate}>
-                Generate
-              </Button>
+              <InlineStack gap="200" wrap>
+                {pickerProducts.map((p) => (
+                  <Button
+                    key={p.shopifyProductId}
+                    onClick={() =>
+                      navigate(`/catalog-generate?productId=${p.shopifyProductId}`, {
+                        replace: true,
+                      })
+                    }
+                  >
+                    <BlockStack gap="100">
+                      <Thumbnail source={p.thumbnailUrl} alt={p.title ?? ''} size="large" />
+                      <Text as="span" variant="bodySm">
+                        {p.title}
+                      </Text>
+                    </BlockStack>
+                  </Button>
+                ))}
+              </InlineStack>
             </BlockStack>
           </Card>
+        )}
+
+        {productId && (
+          <>
+            <Card>
+              <BlockStack gap="200">
+                <Text as="h2" variant="headingMd">
+                  Garment image
+                </Text>
+                <InlineStack gap="200" wrap>
+                  {images.map((img) => (
+                    <Button
+                      key={img.id}
+                      pressed={selectedImageSrc === img.src}
+                      onClick={() => setSelectedImageSrc(img.src)}
+                    >
+                      <Thumbnail source={img.src} alt="" size="large" />
+                    </Button>
+                  ))}
+                </InlineStack>
+              </BlockStack>
+            </Card>
+
+            <Card>
+              <BlockStack gap="200">
+                <Select label="Gender" options={GENDERS} value={gender} onChange={setGender} />
+                <Select
+                  label="Garment type"
+                  options={[
+                    { label: 'Select...', value: '' },
+                    ...(options?.garmentTypes.map((g) => ({ label: g.label, value: g.id })) ?? []),
+                  ]}
+                  value={garmentTypeId}
+                  onChange={setGarmentTypeId}
+                />
+              </BlockStack>
+            </Card>
+
+            {options && (
+              <Card>
+                <BlockStack gap="300">
+                  <Text as="h2" variant="headingMd">
+                    Model face
+                  </Text>
+                  <InlineStack gap="200" wrap>
+                    {options.faces.map((f) => (
+                      <Button key={f.id} pressed={faceId === f.id} onClick={() => setFaceId(f.id)}>
+                        <Thumbnail source={f.thumbnailUrl} alt={f.label} />
+                      </Button>
+                    ))}
+                  </InlineStack>
+
+                  <Text as="h2" variant="headingMd">
+                    Background
+                  </Text>
+                  <InlineStack gap="200" wrap>
+                    {options.backgrounds.map((b) => (
+                      <Button
+                        key={b.id}
+                        pressed={backgroundId === b.id}
+                        onClick={() => setBackgroundId(b.id)}
+                      >
+                        <Thumbnail source={b.thumbnailUrl} alt={b.label} />
+                      </Button>
+                    ))}
+                  </InlineStack>
+
+                  <Text as="h2" variant="headingMd">
+                    Poses (select one or more)
+                  </Text>
+                  <InlineStack gap="200" wrap>
+                    {options.poses.map((p) => (
+                      <Button
+                        key={p.id}
+                        pressed={selectedLooks.has(p.id)}
+                        onClick={() => togglePose(p.id)}
+                      >
+                        <Thumbnail source={p.thumbnailUrl} alt={p.label} />
+                      </Button>
+                    ))}
+                  </InlineStack>
+
+                  {poseNeedsLower && (
+                    <Select
+                      label="Lower garment"
+                      options={[
+                        { label: 'Select...', value: '' },
+                        ...options.lowerItems.map((i) => ({ label: i.label, value: i.id })),
+                      ]}
+                      value={lowerCatalogId}
+                      onChange={setLowerCatalogId}
+                    />
+                  )}
+                  {poseNeedsShoes && (
+                    <Select
+                      label="Shoes"
+                      options={[
+                        { label: 'Select...', value: '' },
+                        ...options.shoeItems.map((i) => ({ label: i.label, value: i.id })),
+                      ]}
+                      value={shoeCatalogId}
+                      onChange={setShoeCatalogId}
+                    />
+                  )}
+
+                  <Button variant="primary" loading={generating} onClick={generate}>
+                    Generate
+                  </Button>
+                </BlockStack>
+              </Card>
+            )}
+          </>
         )}
 
         {jobs.length > 0 && (

@@ -1,5 +1,5 @@
 import { AppError } from '../../lib/errors.js';
-import { SHOPIFY_API_VERSION } from './service.js';
+import { shopifyAdminFetch } from './service.js';
 
 interface ProductCreateMediaResponse {
   data?: {
@@ -30,12 +30,9 @@ export async function createProductMedia(
   shopifyProductId: number,
   imageUrl: string,
 ): Promise<string> {
-  const res = await fetch(`https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`, {
+  const res = await shopifyAdminFetch(shopDomain, accessToken, '/graphql.json', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': accessToken,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       query: MUTATION,
       variables: {
