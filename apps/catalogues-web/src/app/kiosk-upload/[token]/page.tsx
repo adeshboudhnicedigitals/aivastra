@@ -2,11 +2,12 @@
 
 import { useParams } from 'next/navigation';
 import { useCallback, useRef, useState } from 'react';
+import { LogoAuth } from '@/components/logo';
 import { C, grad } from '@/components/tokens';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-type Phase = 'idle' | 'uploading' | 'done' | 'error' | 'expired';
+type Phase = 'idle' | 'preview' | 'uploading' | 'done' | 'error' | 'expired';
 
 function uploadToR2(
   uploadUrl: string,
@@ -31,10 +32,13 @@ function uploadToR2(
 
 export default function KioskUploadPage() {
   const { token } = useParams<{ token: string }>();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -77,9 +81,33 @@ export default function KioskUploadPage() {
     [token],
   );
 
-  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onFileSelected = useCallback((file: File) => {
+    setSelectedFile(file);
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    setPhase('preview');
+  }, []);
+
+  const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) void handleFile(file);
+    // Reset so choosing the same file again (e.g. after "choose again") still fires onChange.
+    e.target.value = '';
+    if (file) onFileSelected(file);
+  };
+
+  const chooseAgain = () => {
+    setSelectedFile(null);
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPhase('idle');
+  };
+
+  const confirmUpload = () => {
+    if (selectedFile) void handleFile(selectedFile);
   };
 
   return (
@@ -97,15 +125,7 @@ export default function KioskUploadPage() {
         textAlign: 'center',
       }}
     >
-      <div
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: 16,
-          background: grad,
-        }}
-        aria-hidden
-      />
+      <LogoAuth />
       <h1 style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>Send your photo</h1>
 
       {phase === 'idle' && (
@@ -114,29 +134,107 @@ export default function KioskUploadPage() {
             Take or choose a photo of yourself - it will appear on the kiosk in a moment.
           </p>
           <input
-            ref={inputRef}
+            ref={cameraInputRef}
             type="file"
             accept="image/jpeg,image/png,image/webp"
             capture="user"
-            onChange={onFileChange}
+            onChange={onInputChange}
             style={{ display: 'none' }}
           />
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={onInputChange}
+            style={{ display: 'none' }}
+          />
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              style={{
+                padding: '14px 24px',
+                borderRadius: 999,
+                border: 'none',
+                background: grad,
+                color: C.white,
+                fontWeight: 600,
+                fontSize: 16,
+                cursor: 'pointer',
+              }}
+            >
+              Take photo
+            </button>
+            <button
+              type="button"
+              onClick={() => galleryInputRef.current?.click()}
+              style={{
+                padding: '14px 24px',
+                borderRadius: 999,
+                border: `1px solid ${C.border}`,
+                background: 'transparent',
+                color: C.text,
+                fontWeight: 600,
+                fontSize: 16,
+                cursor: 'pointer',
+              }}
+            >
+              Upload from device
+            </button>
+          </div>
+        </>
+      )}
+
+      {phase === 'preview' && previewUrl && (
+        <>
+          <p style={{ color: C.mid, margin: 0 }}>Look good? Confirm to send it to the kiosk.</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: local object-URL preview, not a remote asset */}
+          <img
+            src={previewUrl}
+            alt="Selected preview"
             style={{
-              padding: '14px 28px',
-              borderRadius: 999,
-              border: 'none',
-              background: grad,
-              color: C.white,
-              fontWeight: 600,
-              fontSize: 16,
-              cursor: 'pointer',
+              maxWidth: 280,
+              maxHeight: 360,
+              borderRadius: 16,
+              objectFit: 'cover',
+              border: `1px solid ${C.border}`,
             }}
-          >
-            Choose photo
-          </button>
+          />
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button
+              type="button"
+              onClick={chooseAgain}
+              style={{
+                padding: '14px 24px',
+                borderRadius: 999,
+                border: `1px solid ${C.border}`,
+                background: 'transparent',
+                color: C.text,
+                fontWeight: 600,
+                fontSize: 16,
+                cursor: 'pointer',
+              }}
+            >
+              Choose again
+            </button>
+            <button
+              type="button"
+              onClick={confirmUpload}
+              style={{
+                padding: '14px 24px',
+                borderRadius: 999,
+                border: 'none',
+                background: grad,
+                color: C.white,
+                fontWeight: 600,
+                fontSize: 16,
+                cursor: 'pointer',
+              }}
+            >
+              Confirm & send
+            </button>
+          </div>
         </>
       )}
 

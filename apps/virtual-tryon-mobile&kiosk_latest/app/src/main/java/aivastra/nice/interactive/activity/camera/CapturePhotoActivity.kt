@@ -42,6 +42,7 @@ import com.example.facewixlatest.ApiUtils.ApiErrorPresenter
 import com.example.facewixlatest.ApiUtils.ApiException
 import com.yalantis.ucrop.UCrop
 import com.yalantis.ucrop.util.FileUtils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -688,6 +689,7 @@ class CapturePhotoActivity : BaseActivity() {
                     val downloadedFile = try {
                         downloadUploadedPhotoToCache(uploadUserImageData.imagePath)
                     } catch (cause: Throwable) {
+                        if (cause is CancellationException) throw cause
                         val (title, message) = ApiErrorPresenter.present(cause)
                         LoaderManager.remove(this@CapturePhotoActivity)
                         ViewControll.showMessage(this@CapturePhotoActivity, "$title: $message")

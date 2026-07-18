@@ -25,8 +25,6 @@ object APIConstant {
         const val MERCHANT_TRYON_PRESIGN = "v1/merchant/tryon/presign"
         const val MERCHANT_TRYON_JOBS = "v1/merchant/tryon/jobs"
         fun merchantTryonJob(jobId: String) = "v1/merchant/tryon/jobs/$jobId"
-        fun merchantTryonJobLike(jobId: String) = "v1/merchant/tryon/jobs/$jobId/like"
-        fun merchantTryonJobCart(jobId: String) = "v1/merchant/tryon/jobs/$jobId/cart"
 
         const val MERCHANT_UPLOAD_SESSIONS = "v1/merchant/tryon/upload-sessions"
         fun merchantUploadSessionStatus(token: String) = "v1/merchant/tryon/upload-sessions/$token"
