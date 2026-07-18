@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import type { FastifyInstance } from 'fastify';
 

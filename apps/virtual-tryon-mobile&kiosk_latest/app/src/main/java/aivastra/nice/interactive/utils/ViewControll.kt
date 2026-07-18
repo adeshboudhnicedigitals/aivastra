@@ -13,6 +13,8 @@ import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import android.util.Log
 import android.view.View
@@ -49,8 +51,26 @@ import java.io.FileOutputStream
 object ViewControll {
     private var dialog: Dialog? = null
 
+    // Toast has no API for a custom duration (only LENGTH_SHORT ~2s / LENGTH_LONG ~3.5s), so a
+    // ~10s hold is done by re-showing the same Toast before its current display expires.
+    private const val TOAST_TOTAL_DURATION_MS = 10_000L
+    private const val TOAST_REFRESH_INTERVAL_MS = 3_000L
+
     fun showMessage(activity: Activity, message: String) {
-        Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+        val toast = Toast.makeText(activity, message, Toast.LENGTH_LONG)
+        toast.show()
+        val handler = Handler(Looper.getMainLooper())
+        var elapsedMs = 0L
+        val refresher = object : Runnable {
+            override fun run() {
+                elapsedMs += TOAST_REFRESH_INTERVAL_MS
+                if (elapsedMs < TOAST_TOTAL_DURATION_MS) {
+                    toast.show()
+                    handler.postDelayed(this, TOAST_REFRESH_INTERVAL_MS)
+                }
+            }
+        }
+        handler.postDelayed(refresher, TOAST_REFRESH_INTERVAL_MS)
     }
 
     fun convertStringToRequestBody(itemValue: String): RequestBody {

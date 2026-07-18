@@ -159,7 +159,7 @@ export async function buildServer(env: Env) {
     timeWindow: '1 minute',
     redis: app.redis,
     // A brief Redis blip should never itself turn into a wall of 500s across the
-    // whole API â€” rate-limiting is a safety net, not a critical path. Paired with
+    // whole API — rate-limiting is a safety net, not a critical path. Paired with
     // app.redis's bounded maxRetriesPerRequest (see plugins/redis.ts) so a blip
     // fails fast (and therefore open) instead of hanging.
     skipOnError: true,
@@ -200,13 +200,13 @@ export async function buildServer(env: Env) {
       ],
       components: {
         securitySchemes: {
-          apiKey: { type: 'http', scheme: 'bearer', description: 'Your sk_live_â€¦ API key' },
+          apiKey: { type: 'http', scheme: 'bearer', description: 'Your sk_live_… API key' },
         },
       },
       security: [{ apiKey: [] }],
     },
     // The spec is public, so it must describe ONLY the developer surface. Every
-    // route without the 'dev' tag is hidden â€” admin/auth/merchant routes must never
+    // route without the 'dev' tag is hidden — admin/auth/merchant routes must never
     // appear here.
     transform: ({ schema: s, url }) => {
       const out = jsonSchemaTransform({ schema: s, url });
@@ -237,7 +237,7 @@ export async function buildServer(env: Env) {
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
-    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) Ã¢â‚¬â€ must come AFTER the
+    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) — must come AFTER the
     // validation branch, which also carries statusCode 400 but has its own contract.
     const statusCode = (err as { statusCode?: unknown }).statusCode;
     if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {

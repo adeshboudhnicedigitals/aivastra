@@ -1,3 +1,41 @@
+## 2026-07-17 (later) - Android Security Remediation for Production
+
+### Done
+- Ran a full security audit of `apps/virtual-tryon-mobile&kiosk_latest` (hardcoded secrets, insecure network config, TLS bypass, sensitive logging, WebView/JS bridges, signing config). No hardcoded API keys/passwords/tokens found anywhere in source. Three real production blockers found and fixed:
+  1. **Cleartext HTTP + system-only trust anchors applied unconditionally** (`app/src/main/res/xml/network_config_file.xml`), i.e. in release builds too. Fixed via Android's standard per-source-set override: `app/src/main/res/xml/network_config_file.xml` is now strict (`cleartextTrafficPermitted="false"`, system CAs only) and used by release; a new `app/src/debug/res/xml/network_config_file.xml` permits cleartext + user certs, merged in for debug builds only by Gradle. No BuildConfig checks needed — this is resource-level, matching the platform's own mechanism.
+  2. **Full request/response body + Authorization bearer token logging was unconditional** (`APICaller.kt`'s `HttpLoggingInterceptor.Level.BODY`) — would leak tokens to logcat in release. Gated behind `BuildConfig.DEBUG` (`Level.NONE` in release).
+  3. **Access token stored in plain SharedPreferences while the refresh token was correctly encrypted** (`PrefsManager.kt`) — `saveLoginUserData`/`loginUserInfo`/`isUserExist` moved from `appPrefs()` to the existing `securePrefs()` (EncryptedSharedPreferences) helper, so the bearer token gets the same protection as the refresh token. Also fixed `clearKioskSession()` (currently unused/dead code, but correctness matters if it's ever wired up) which was removing the login blob from the wrong store after this change.
+- Verified: `:app:compileDebugKotlin` and `:app:compileReleaseKotlin` both `BUILD SUCCESSFUL` after all three fixes — confirms the debug-only resource override resolves correctly and `BuildConfig.DEBUG` is available in both variants.
+
+- **`gradle.properties`'s default `apiBaseUrl`** changed from the stale personal LAN IP (`http://192.168.0.151:4000/`) to the real production API (`https://app.aivastra.com/`), per explicit confirmation. Verified `:app:compileReleaseKotlin` still `BUILD SUCCESSFUL` with the new default. A build with no `-PapiBaseUrl` override now correctly targets production instead of a dead local address; local/dev work must now explicitly pass `-PapiBaseUrl=http://10.0.2.2:4000/` (emulator) or similar.
+
+### Not fixed (requires your input, not something to fabricate)
+- **No `signingConfigs` block exists at all** — `release` build type has no signing config assigned, so `assembleRelease` today produces an unsigned APK. Needs a real release keystore (path/alias/passwords) supplied via a gitignored `keystore.properties` or CI secrets — not something to invent.
+
+---
+## 2026-07-17 - Merchant Try-On Code Review Follow-Ups
+
+### Done
+- Reviewed the full merchant try-on implementation (Tasks 1-21): read every changed file, ran all 3 new backend integration suites (11 tests) against real Postgres/Redis/MinIO, ran `apps/api` typecheck (clean after rebuilding stale `packages/db`/`packages/storage` `dist/` output), built `apps/catalogues-web` (succeeds; only fails on the pre-existing unrelated `upperUploadLabel` duplicate in the studio page), and grepped the Android source for dangling references to removed/renamed methods (none found).
+- Fixed encoding corruption: 7 files (`server.ts`, `widget.ts`, and 5 files under `apps/api/src/modules/merchant/` and `apps/api/test/integration/`) had picked up a stray UTF-8 BOM and, in `server.ts`/`widget.ts`, mojibake-corrupted em-dashes/ellipsis in pre-existing comments (one line was double-corrupted, meaning the round-trip happened more than once). Stripped the BOM at the byte level and hand-restored the exact original comment text in the 2 affected files; the other 5 only had the BOM.
+- Removed the unused `GET /v1/merchant/tryon/jobs/:id/events` SSE route (`tryon.routes.ts`) and its dead Android constant (`APIConstant.merchantTryonJobEvents`) — Android polls job status every 2s and never consumed the SSE channel; decided to delete rather than wire it up, since the polling already works and adding an untested SSE client while Android compilation itself is still unverified would compound risk for a UX gain (near-instant vs 2s-lagged progress) nobody asked for.
+- Fixed a like/cart race condition on `VastraTryOnResultActivity`: added `userHasToggledLike`/`userHasToggledCart` guards so the async initial liked/inCart fetch (fired on screen open) can no longer land after a fast user tap and silently revert the just-toggled icon state.
+- Verified all fixes: `apps/api` typecheck clean, all 11 backend integration tests still pass, no remaining mojibake/BOM in tracked source (only gitignored `dist/` output, which will regenerate correctly), no dangling Android references to the removed constant.
+
+### Failed / Not Done
+- Physical-device/emulator walkthrough (Task 21's manual pass: capture, QR upload, job progress, like/cart against a live API+dispatcher) is still outstanding.
+
+### Update 2026-07-17 (later same day) — JDK installed, compile verified
+- Installed JDK 17 (Microsoft Build of OpenJDK, via winget) and pointed `local.properties` at the existing Android SDK (`C:\Users\nicei\AppData\Local\Android\Sdk`, gitignored, per-machine only).
+- Worked around two environment quirks specific to this checkout: (1) the project folder name contains a literal `&`, which breaks `gradlew.bat`'s internal `cmd.exe` parsing — invoke the wrapper directly instead: `java -cp "gradle\wrapper\gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain <task>`; (2) this repo's `gradle-wrapper.jar` has no `Main-Class` in its manifest, so `java -jar` fails with "no main manifest attribute" — the `-cp ... org.gradle.wrapper.GradleWrapperMain` form above sidesteps that too.
+- `:app:compileDebugKotlin` — **BUILD SUCCESSFUL**. Only pre-existing deprecation/unused-parameter warnings across files unrelated to this feature, plus expected unused-parameter warnings in `SareecategoryDataViewModel.kt` from signatures intentionally kept for existing Activity call-site compatibility (e.g. `promtId`/`imageId` in `fetchVastraTryOnResultAPI`, `deviceId` in a few methods).
+- `:app:assembleDebug` — **BUILD SUCCESSFUL**, producing `app/build/outputs/apk/debug/app-debug.apk`. This additionally validates resource/manifest merging and dexing, covering the new `item_vastra.xml` price `TextView` from Task 20 that Kotlin-only compilation doesn't exercise.
+- This closes the "Android never compiled" gap from the prior review. Remaining: an actual on-device run through the app (needs an emulator/device plus a running API + dispatcher + seeded merchant/catalog data).
+
+### Open Questions / Decisions
+- SSE vs polling for merchant try-on progress: decided polling-only (SSE route deleted) rather than wiring the Android client to consume it. Revisit if 2s progress latency becomes a real UX complaint.
+
+---
 ## 2026-07-17 - Merchant Try-On Android Integration
 
 ### Done

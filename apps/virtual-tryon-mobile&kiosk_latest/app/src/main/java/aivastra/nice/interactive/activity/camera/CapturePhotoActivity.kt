@@ -89,7 +89,7 @@ class CapturePhotoActivity : BaseActivity() {
         }else{
             selectedVastraItem= intent.extras?.getSerializable(AppConstant.SELECTED_VASTRA_ITEM) as DressesTypeDataModel.Data.Subcategory.Item
         }
-        ViewControll.setCompanyLogo(this,binding.appLogo)
+        ViewControll.setCompanyLogoHorizontal(this,binding.appLogo)
         /*val qrCodeOfApp = ViewControll.generateQRCodeFromText(getString(R.string.app_name))
            if(qrCodeOfApp!=null){
                binding.imgQrcode.setImageBitmap(qrCodeOfApp)
@@ -422,6 +422,10 @@ class CapturePhotoActivity : BaseActivity() {
 
             val intent = UCrop.of(uri, destinationUri)
                 .useSourceImageAspectRatio()
+                // Real device cameras (e.g. 50MP+ sensors) produce full-resolution JPEGs that
+                // blow past the server's 5MB upload cap even at high compression quality; capping
+                // the output resolution keeps the file well under that limit.
+                .withMaxResultSize(1600, 1600)
                 .withOptions(getUCropOptions())
                 .getIntent(this)
 

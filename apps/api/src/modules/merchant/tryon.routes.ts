@@ -2,13 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { MerchantTryonJobCreateBody, MerchantTryonPresignBody } from '@aivastra/types';
 import { and, eq } from 'drizzle-orm';
-import type { FastifyInstance, FastifyReply } from 'fastify';
-import type { Redis } from 'ioredis';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createMerchantTryonJob } from './create-tryon-job.js';
 
-const MAX_TRYON_UPLOAD_BYTES = 5 * 1024 * 1024;
+const MAX_TRYON_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 async function loadOwnedJob(app: FastifyInstance, merchantId: string, id: string) {
   const [job] = await app.db
@@ -80,14 +79,6 @@ async function serializeJob(app: FastifyInstance, merchantId: string, id: string
   };
 }
 
-function writeSseHeaders(reply: FastifyReply): void {
-  reply.raw.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  });
-}
 export async function merchantTryonRoutes(app: FastifyInstance) {
   app.post(
     '/v1/merchant/tryon/presign',
@@ -253,49 +244,6 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
 
       reply.code(200);
       return { status: 'CANCELLED' };
-    },
-  );
-  app.get(
-    '/v1/merchant/tryon/jobs/:id/events',
-    { preHandler: app.requireMerchant, schema: { params: z.object({ id: z.string().uuid() }) } },
-    async (req, reply) => {
-      const merchantId = req.merchantClientId;
-      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
-      const { id } = req.params as { id: string };
-
-      await loadOwnedJob(app, merchantId, id);
-      writeSseHeaders(reply);
-
-      // biome-ignore lint/suspicious/noExplicitAny: redisSub is decorated at runtime.
-      const sub: Redis = (app as any).redisSub.duplicate();
-      const channel = `sse:events:widget:${merchantId}`;
-
-      sub.on('error', (err) => {
-        req.log.warn({ err, channel }, 'merchant tryon sse redis subscriber error');
-      });
-
-      await sub.subscribe(channel);
-      sub.on('message', (_channel, raw) => {
-        try {
-          const evt = JSON.parse(raw) as Record<string, unknown>;
-          if (evt.jobId !== id) return;
-          reply.raw.write(`event: ${evt.type ?? 'message'}\ndata: ${raw}\n\n`);
-        } catch {
-          // Ignore malformed publishes.
-        }
-      });
-
-      const heartbeat = setInterval(() => reply.raw.write(': ping\n\n'), 15_000);
-
-      req.raw.on('close', async () => {
-        clearInterval(heartbeat);
-        try {
-          await sub.unsubscribe(channel);
-        } catch {
-          // The connection may already be closed.
-        }
-        sub.disconnect();
-      });
     },
   );
 }

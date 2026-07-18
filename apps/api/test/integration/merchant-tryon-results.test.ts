@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service';
