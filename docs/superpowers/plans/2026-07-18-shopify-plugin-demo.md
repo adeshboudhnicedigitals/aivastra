@@ -13,8 +13,10 @@
 - Read `docs/superpowers/specs/2026-07-18-shopify-plugin-demo-design.md` first — it is the source of truth for scope decisions this plan implements mechanically.
 - No new dependencies. Everything needed (`lucide-react`, `@tanstack/react-query`, existing icon/token modules) is already installed.
 - Follow the codebase's inline-`style={{}}` convention, not Tailwind classes — match `apps/catalogues-web/src/app/(app)/studio/page.tsx`'s style.
-- Ai Vastra's own UI elements (buttons, badges, the wizard) must use the `C`/`grad` tokens from `@/components/tokens` — never raw hex — per `CLAUDE.md`'s Design Tokens rule.
-- **Explicit, scoped exception to the token rule:** the static Shopify chrome (top bar, left nav rail, form fields, Inventory/Shipping/Variants sections) mimics a *foreign product's* visual identity (Shopify's own gray/black palette), which has no entry in `tokens.ts` and never should. Literal hex values (e.g. `#1a1a1a`, `#c9cccf`, `#8a8a8a`) are correct and intentional **only** inside `apps/catalogues-web/src/app/(app)/shopify-plugin/shopify-plugin-demo.tsx` and `shopify-mock-data.ts`. Do not use raw hex anywhere else in this plan's files.
+- Ai Vastra's own UI elements (buttons, badges, the wizard) must use the `C`/`grad` tokens from `@/components/tokens` — never raw hex — per `CLAUDE.md`'s Design Tokens rule. This applies to any *new* color decision this plan makes: e.g. error text must use `C.pink` (the codebase's own established convention — see `apps/catalogues-web/src/app/(app)/studio/page.tsx`'s `submitError` block), never an invented hex like `#d33`.
+- **Two narrower, pre-existing exceptions, not a general license for new hex:**
+  1. **Shopify chrome.** The static Shopify chrome (top bar, left nav rail, form fields, Inventory/Shipping/Variants sections) mimics a *foreign product's* visual identity (Shopify's own gray/black palette), which has no entry in `tokens.ts` and never should. Literal hex values (e.g. `#1a1a1a`, `#c9cccf`, `#8a8a8a`) are correct and intentional **only** inside `apps/catalogues-web/src/app/(app)/shopify-plugin/shopify-plugin-demo.tsx` and `shopify-mock-data.ts`.
+  2. **Reused Studio gradients.** `tokens.ts` has no entries for the specific gradient stop-pairs Studio already hardcodes throughout `page.tsx` and `generation-panel.tsx` (e.g. `#BD2587 0%, #ff5b94 100%` for selection highlights, `#521D9C 0%, #754AB0 100%` for the processing/results accent). Task 1 extracts that existing code verbatim, and Tasks 2/5/6 intentionally reuse those exact same stop-pairs so the embedded wizard and its "Use this image" affordance look like they belong to Studio. This is fine — do not replace them with `C.pink`/`grad` (which render a different gradient) or invent a third variant. **Never introduce a new hex value not already used by Studio's existing code** — that is what exception (1) and the `C.pink` sentence above rule out.
 - `/embed/*` must stay behind the existing cookie-auth check in `apps/catalogues-web/src/middleware.ts` — do **not** add it to `PUBLIC_PATHS`.
 - No backend/API changes. Every network call this plan makes already exists and is used by `apps/catalogues-web/src/app/(app)/studio/page.tsx` today.
 - `apps/catalogues-web` has no unit/integration test runner (see `CLAUDE.md`'s Testing Architecture section — only `apps/api` and `apps/dispatcher` have one). Each task's "test" step is: `pnpm --filter @aivastra/web typecheck`, `pnpm --filter @aivastra/web lint`, and a manual check against a running `pnpm --filter @aivastra/web dev` server, per `CLAUDE.md`'s explicit guidance for frontend changes.
@@ -849,6 +851,7 @@ Creates the iframe target route with no Ai Vastra chrome, and confirms it loads 
 
 ```tsx
 import { JobStreamProvider } from '@/components/job-stream-provider';
+import { C } from '@/components/tokens';
 
 // No Sidebar/TopBar/ChatWidget/ProfileGate here — this route group renders
 // full-bleed inside a same-origin <iframe> hosted by /shopify-plugin. It still
@@ -857,7 +860,7 @@ import { JobStreamProvider } from '@/components/job-stream-provider';
 export default function EmbedLayout({ children }: { children: React.ReactNode }) {
   return (
     <JobStreamProvider>
-      <div style={{ minHeight: '100vh', background: '#fff', boxSizing: 'border-box' }}>
+      <div style={{ minHeight: '100vh', background: C.white, boxSizing: 'border-box' }}>
         {children}
       </div>
     </JobStreamProvider>
@@ -1177,7 +1180,7 @@ export function EmbedStudioWizard() {
           )}
         </label>
         {uploadError && (
-          <span style={{ fontSize: 12, color: '#d33', marginTop: 8 }}>{uploadError}</span>
+          <span style={{ fontSize: 12, color: C.pink, marginTop: 8 }}>{uploadError}</span>
         )}
       </div>
     </div>
@@ -1369,7 +1372,7 @@ Inside the `EmbedStudioWizard` function, directly after the existing `uploadErro
 Find the closing of the garment-upload `sectionCardStyle` card (the `</div>` that closes step 3, immediately before the wizard's outer closing `</div>`):
 ```tsx
         {uploadError && (
-          <span style={{ fontSize: 12, color: '#d33', marginTop: 8 }}>{uploadError}</span>
+          <span style={{ fontSize: 12, color: C.pink, marginTop: 8 }}>{uploadError}</span>
         )}
       </div>
     </div>
@@ -1379,7 +1382,7 @@ Find the closing of the garment-upload `sectionCardStyle` card (the `</div>` tha
 Replace with:
 ```tsx
         {uploadError && (
-          <span style={{ fontSize: 12, color: '#d33', marginTop: 8 }}>{uploadError}</span>
+          <span style={{ fontSize: 12, color: C.pink, marginTop: 8 }}>{uploadError}</span>
         )}
       </div>
 
@@ -1530,7 +1533,7 @@ Replace with:
               {isSubmitting ? <SpinnerIcon size={16} /> : null}
               Generate product photo{poseIds.length > 1 ? 's' : ''}
             </button>
-            {submitError && <span style={{ fontSize: 12, color: '#d33' }}>{submitError}</span>}
+            {submitError && <span style={{ fontSize: 12, color: C.pink }}>{submitError}</span>}
           </div>
         </>
       )}
