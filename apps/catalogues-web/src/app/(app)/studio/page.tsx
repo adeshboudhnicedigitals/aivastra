@@ -1458,9 +1458,8 @@ export default function StudioPage(): React.ReactElement {
                           width="100%"
                           selected={garmentTypeId === s.id}
                           onClick={() => {
-                            const next = garmentTypeId === s.id ? '' : s.id;
-                            setGarmentTypeId(next);
-                            if (next && next !== garmentTypeId) {
+                            if (s.id !== garmentTypeId) {
+                              setGarmentTypeId(s.id);
                               setFaceId('');
                               setCatalogueTemplateId('custom');
                               setBackgroundId('');
