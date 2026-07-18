@@ -183,6 +183,7 @@ export default function TutorialsPage() {
               }}
             >
               <svg
+                aria-hidden="true"
                 width="16"
                 height="16"
                 viewBox="0 0 24 24"
@@ -222,6 +223,8 @@ export default function TutorialsPage() {
             const isActive = activeVideoId === tutorial.id;
 
             return (
+              // biome-ignore lint/a11y/useKeyWithClickEvents: tutorial card
+              // biome-ignore lint/a11y/noStaticElementInteractions: tutorial card
               <div
                 key={tutorial.id}
                 className={`hover-opacity ${isLarge ? 'tutorial-card-large' : 'tutorial-card-small'}`}

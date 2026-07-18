@@ -14,6 +14,8 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputType
+import android.view.MotionEvent
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 
@@ -21,6 +23,7 @@ class LoginActivity : BaseActivity() {
 
     private lateinit var binding: ActivityLoginBinding
     private lateinit var sareeCatViewmodel: SareecategoryDataViewModel
+    private var isPasswordVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,6 +40,39 @@ class LoginActivity : BaseActivity() {
                 callLoginAPI()
             }
         }
+        setupPasswordToggle()
+    }
+
+    // The eye icon is a drawableEnd on the EditText with no built-in click target, so taps have
+    // to be detected manually against the drawable's bounds within the field's touch area.
+    private fun setupPasswordToggle() {
+        binding.etPassword.setOnTouchListener { v, event ->
+            val drawableEnd = binding.etPassword.compoundDrawables[2]
+            if (drawableEnd != null && event.action == MotionEvent.ACTION_UP) {
+                val touchAreaStart = binding.etPassword.width -
+                    binding.etPassword.paddingEnd -
+                    drawableEnd.bounds.width()
+                if (event.x >= touchAreaStart) {
+                    togglePasswordVisibility()
+                    v.performClick()
+                    return@setOnTouchListener true
+                }
+            }
+            false
+        }
+    }
+
+    private fun togglePasswordVisibility() {
+        isPasswordVisible = !isPasswordVisible
+        val selection = binding.etPassword.selectionEnd
+        binding.etPassword.inputType = if (isPasswordVisible) {
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+        } else {
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val eyeIcon = if (isPasswordVisible) R.drawable.ic_eye_on else R.drawable.ic_eye_off
+        binding.etPassword.setCompoundDrawablesWithIntrinsicBounds(0, 0, eyeIcon, 0)
+        binding.etPassword.setSelection(selection.coerceAtMost(binding.etPassword.text?.length ?: 0))
     }
 
     private fun checkValidation(): Boolean {
