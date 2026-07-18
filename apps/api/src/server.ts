@@ -57,6 +57,9 @@ import { merchantApiKeysRoutes } from './modules/merchant/api-keys.routes.js';
 import { merchantCatalogRoutes } from './modules/merchant/catalog.routes.js';
 import { merchantKioskDevicesRoutes } from './modules/merchant/kiosk-devices.routes.js';
 import { merchantPaymentsRoutes } from './modules/merchant/payments.routes.js';
+import { merchantTryonRoutes } from './modules/merchant/tryon.routes.js';
+import { merchantTryonResultsRoutes } from './modules/merchant/tryon-results.routes.js';
+import { merchantUploadSessionRoutes } from './modules/merchant/upload-sessions.routes.js';
 import { modelsRoutes } from './modules/models/routes.js';
 import { paymentsRoutes } from './modules/payments/routes.js';
 import { resultsRoutes } from './modules/results/routes.js';
@@ -234,7 +237,7 @@ export async function buildServer(env: Env) {
         .code(400)
         .send({ error: { code: 'VALIDATION', message: (err as Error).message } });
     }
-    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) â€” must come AFTER the
+    // Generic framework 4xx (e.g. @fastify/rate-limit's 429) — must come AFTER the
     // validation branch, which also carries statusCode 400 but has its own contract.
     const statusCode = (err as { statusCode?: unknown }).statusCode;
     if (typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500) {
@@ -263,6 +266,9 @@ export async function buildServer(env: Env) {
   await app.register(kioskResultsRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantKioskDevicesRoutes);
+  await app.register(merchantTryonRoutes);
+  await app.register(merchantTryonResultsRoutes);
+  await app.register(merchantUploadSessionRoutes);
   await app.register(merchantPaymentsRoutes);
   await app.register(merchantApiKeysRoutes);
   await app.register(devRoutes);

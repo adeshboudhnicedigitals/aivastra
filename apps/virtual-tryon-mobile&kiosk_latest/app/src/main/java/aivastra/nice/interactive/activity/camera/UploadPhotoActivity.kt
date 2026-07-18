@@ -68,7 +68,7 @@ class UploadPhotoActivity : BaseActivity(), View.OnClickListener {
         }else{
             selectedVastraItem= intent.extras?.getSerializable(AppConstant.SELECTED_VASTRA_ITEM) as DressesTypeDataModel.Data.Subcategory.Item
         }
-        ViewControll.setCompanyLogo(this,binding.llToolbar.appLogo)
+        ViewControll.setCompanyLogoHorizontal(this,binding.llToolbar.appLogo)
         if(isFrom.equals(AppConstant.ISFROM_CAMERA_PHOTO)) {
             capturedPhotoPath?.let { setCapturedOrScanImage(it,true) }
         }else{

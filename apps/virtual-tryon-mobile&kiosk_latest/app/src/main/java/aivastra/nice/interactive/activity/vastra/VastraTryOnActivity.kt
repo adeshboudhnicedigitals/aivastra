@@ -293,6 +293,7 @@ class VastraTryOnActivity : BaseActivity() {
     override fun onStop() {
         super.onStop()
         dismissTryOnProcessingDialog()
+        sareeCatViewmodel.cancelTryonPolling()
         SareeCategoryDataRepository.startAutoTryOnProcess = false
     }
 

@@ -268,6 +268,68 @@ export const KioskJobDetailResponse = z.object({
 });
 export type KioskJobDetailResponse = z.infer<typeof KioskJobDetailResponse>;
 
+export const MerchantTryonPresignBody = z.object({
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  contentLength: z
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 * 1024),
+});
+export type MerchantTryonPresignBody = z.infer<typeof MerchantTryonPresignBody>;
+
+export const MerchantTryonJobCreateBody = z.object({
+  merchantCatalogItemId: z.string().uuid(),
+  customerPhotoKey: z.string().min(1),
+});
+export type MerchantTryonJobCreateBody = z.infer<typeof MerchantTryonJobCreateBody>;
+
+export const MerchantTryonJobDetailResponse = z.object({
+  id: z.string().uuid(),
+  status: z.string(),
+  merchantId: z.string().uuid(),
+  resultKey: z.string().nullable(),
+  shareUrl: z.string().url().nullable(),
+  errorCode: z.string().nullable(),
+  liked: z.boolean(),
+  inCart: z.boolean(),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
+});
+export type MerchantTryonJobDetailResponse = z.infer<typeof MerchantTryonJobDetailResponse>;
+export const MerchantUploadSessionCreateResponse = z.object({
+  token: z.string(),
+  qrUrl: z.string().url(),
+  expiresIn: z.number().int(),
+});
+export type MerchantUploadSessionCreateResponse = z.infer<
+  typeof MerchantUploadSessionCreateResponse
+>;
+
+export const MerchantUploadSessionStatusResponse = z.object({
+  status: z.enum(['pending', 'uploaded']),
+  r2Key: z.string().nullable(),
+});
+export type MerchantUploadSessionStatusResponse = z.infer<
+  typeof MerchantUploadSessionStatusResponse
+>;
+
+export const PublicUploadSessionPresignBody = z.object({
+  contentType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  contentLength: z
+    .number()
+    .int()
+    .positive()
+    .max(5 * 1024 * 1024),
+});
+export type PublicUploadSessionPresignBody = z.infer<typeof PublicUploadSessionPresignBody>;
+
+export const PublicUploadSessionPresignResponse = z.object({
+  uploadUrl: z.string().url(),
+  expiresIn: z.number().int(),
+});
+export type PublicUploadSessionPresignResponse = z.infer<typeof PublicUploadSessionPresignResponse>;
+
 export const AdminMerchantCatalogUpdateBody = z
   .object({
     isActive: z.boolean().optional(),

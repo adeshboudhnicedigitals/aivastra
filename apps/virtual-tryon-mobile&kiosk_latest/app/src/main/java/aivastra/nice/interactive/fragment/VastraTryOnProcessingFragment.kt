@@ -82,6 +82,10 @@ class VastraTryOnProcessingFragment : DialogFragment() {
     @OptIn(UnstableApi::class)
     private fun startPlayerSafely() {
 
+        // postDelayed can fire after the dialog is dismissed (e.g. try-on flow already moved on),
+        // leaving the fragment detached — requireContext()/requireActivity() would crash then.
+        if (!isAdded || context == null) return
+
         if (exoPlayer != null) return
 
         exoPlayer = ExoPlayer.Builder(requireContext()).build()
