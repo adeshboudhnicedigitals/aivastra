@@ -86,8 +86,11 @@ export interface CatalogOptions {
 
 export interface CatalogGenerateJob {
   jobId: string;
+  catalogueId: string;
   status: string;
   errorCode: string | null;
   resultUrl: string | null;
   published: boolean;
+  sourceImageUrl: string;
+  createdAt: string;
 }

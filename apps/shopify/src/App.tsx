@@ -9,6 +9,7 @@ import { apiFetch, setShopDomain } from './lib/api';
 import CatalogGeneratePage from './pages/CatalogGeneratePage';
 import DashboardPage from './pages/DashboardPage';
 import FunnelSetupPage from './pages/FunnelSetupPage';
+import GeneratedImagesPage from './pages/GeneratedImagesPage';
 import ProductsPage from './pages/ProductsPage';
 import type { ShopifyMe } from './types';
 
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/funnel-setup" element={<FunnelSetupPage />} />
           <Route path="/catalog-generate" element={<CatalogGeneratePage />} />
+          <Route path="/generated-images" element={<GeneratedImagesPage />} />
           <Route path="/embedded" element={<Navigate to="/" replace />} />
         </Routes>
       </AppShell>
