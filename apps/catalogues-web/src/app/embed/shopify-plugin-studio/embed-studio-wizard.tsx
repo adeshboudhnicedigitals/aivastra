@@ -1,10 +1,18 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { GenderCard, SectionHead, sectionCardStyle } from '@/app/(app)/studio/shared-cards';
+import { type GenerationJob, GenerationPanel } from '@/app/(app)/studio/generation-panel';
+import { SelectGridModal } from '@/app/(app)/studio/select-modal';
+import {
+  GenderCard,
+  SectionHead,
+  SelCard,
+  sectionCardStyle,
+} from '@/app/(app)/studio/shared-cards';
 import { SpinnerIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
+import { postImageSelectedToParent } from '@/lib/shopify-plugin-embed-protocol';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
@@ -27,6 +35,24 @@ interface EmbedGarmentType {
   requiresMannequinStep?: boolean;
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
+}
+interface FaceItem {
+  id: string;
+  label: string;
+  thumbnailUrl: string;
+  gender: string;
+}
+interface BackgroundItem {
+  id: string;
+  label: string;
+  thumbnailUrl: string;
+}
+interface PoseItem {
+  id: string;
+  label: string;
+  thumbnailUrl: string;
+  hasLower: boolean;
+  hasShoes: boolean;
 }
 
 async function isSupportedImageBytes(file: File): Promise<boolean> {
@@ -58,11 +84,119 @@ export function EmbedStudioWizard() {
   const [gender, setGender] = useState('women');
   const [garmentTypeId, setGarmentTypeId] = useState('');
   const [garmentFile, setGarmentFile] = useState<File | null>(null);
-  // biome-ignore lint/correctness/noUnusedVariables: used by Task 6 (face/background/pose steps)
   const [garmentKey, setGarmentKey] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState('');
+  const [faceId, setFaceId] = useState('');
+  const [backgroundId, setBackgroundId] = useState('');
+  const [poseIds, setPoseIds] = useState<string[]>([]);
+  const [faceModalOpen, setFaceModalOpen] = useState(false);
+  const [backgroundModalOpen, setBackgroundModalOpen] = useState(false);
+  const [poseModalOpen, setPoseModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [activeGeneration, setActiveGeneration] = useState<{
+    catalogueId: string;
+    jobs: GenerationJob[];
+  } | null>(null);
+
+  const { data: facesData } = useQuery<{ items: FaceItem[] }>({
+    queryKey: ['embed-faces', gender],
+    queryFn: () => api.get(`/v1/models/faces?gender=${gender}`),
+  });
+  const faces = facesData?.items ?? [];
+
+  const { data: backgroundsData } = useQuery<{ items: BackgroundItem[] }>({
+    queryKey: ['embed-backgrounds', gender],
+    queryFn: () => api.get(`/v1/models/backgrounds?gender=${gender}`),
+  });
+  const backgrounds = backgroundsData?.items ?? [];
+
+  const { data: posesData } = useQuery<{ items: PoseItem[] }>({
+    queryKey: ['embed-poses', gender, garmentTypeId],
+    queryFn: () =>
+      api.get(
+        `/v1/models/poses?gender=${gender}${garmentTypeId ? `&garmentTypeId=${garmentTypeId}` : ''}`,
+      ),
+    enabled: !!garmentTypeId,
+  });
+  const poses = posesData?.items ?? [];
+
+  function togglePose(id: string) {
+    setPoseIds((prev) => (prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]));
+  }
+
+  const canGenerate =
+    !!garmentKey &&
+    !!faceId &&
+    !!backgroundId &&
+    poseIds.length > 0 &&
+    !isUploading &&
+    !isSubmitting;
+
+  async function handleGenerate() {
+    if (!canGenerate || isSubmitting) return;
+    setIsSubmitting(true);
+    setSubmitError('');
+    try {
+      const selectedGarmentType = garmentTypes.find((g) => g.id === garmentTypeId);
+      const selectedPoses = poses.filter((p) => poseIds.includes(p.id));
+      const needsLower = selectedPoses.some((p) => p.hasLower);
+      const needsShoes = selectedPoses.some((p) => p.hasShoes);
+      const { catalogueId, jobIds } = await api.post<{ catalogueId: string; jobIds: string[] }>(
+        '/v1/jobs/tryon',
+        {
+          inputs: {
+            upperGarmentKey: garmentKey,
+            faceId,
+            backgroundId,
+            poseIds,
+            garmentTypeId: garmentTypeId || undefined,
+            lowerCatalogId: needsLower
+              ? (selectedGarmentType?.defaultLowerCatalogId ?? undefined)
+              : undefined,
+            shoeCatalogId: needsShoes
+              ? (selectedGarmentType?.defaultShoeCatalogId ?? undefined)
+              : undefined,
+          },
+          aspectRatio: '1:1',
+          resolution: 'HD',
+          platform: 'Shopify',
+        },
+      );
+      const submittedLooks = poseIds.map((poseId) => {
+        const pose = poses.find((p) => p.id === poseId);
+        return { poseId, label: pose?.label ?? 'Pose', thumbnailUrl: pose?.thumbnailUrl ?? '' };
+      });
+      setActiveGeneration({
+        catalogueId,
+        jobs: jobIds.map((id, i) => ({
+          id,
+          poseId: submittedLooks[i]?.poseId ?? '',
+          label: submittedLooks[i]?.label ?? `Look ${i + 1}`,
+          thumbnailUrl: submittedLooks[i]?.thumbnailUrl ?? '',
+        })),
+      });
+    } catch (e) {
+      setSubmitError((e as Error).message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  function handleStartOver() {
+    setActiveGeneration(null);
+    setPoseIds([]);
+  }
+
+  function handleUseImage(args: { url: string; jobId: string; poseLabel: string }) {
+    postImageSelectedToParent({
+      imageUrl: args.url,
+      jobId: args.jobId,
+      poseLabel: args.poseLabel,
+    });
+  }
 
   const garmentPreviewUrl = useMemo(
     () => (garmentFile ? URL.createObjectURL(garmentFile) : ''),
@@ -259,6 +393,217 @@ export function EmbedStudioWizard() {
           <span style={{ fontSize: 12, color: C.pink, marginTop: 8 }}>{uploadError}</span>
         )}
       </div>
+
+      {activeGeneration ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <button
+            type="button"
+            onClick={handleStartOver}
+            style={{
+              alignSelf: 'flex-start',
+              background: 'none',
+              border: 'none',
+              color: C.pink,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              padding: 0,
+            }}
+          >
+            ← Start a new photo
+          </button>
+          <GenerationPanel
+            catalogueId={activeGeneration.catalogueId}
+            jobs={activeGeneration.jobs}
+            garmentPreviewUrl={garmentPreviewUrl}
+            onUseImage={handleUseImage}
+            hideCatalogueLink
+          />
+        </div>
+      ) : (
+        <>
+          <div style={sectionCardStyle}>
+            <SectionHead
+              title="Model face"
+              stepNumber={4}
+              right={
+                faces.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setFaceModalOpen(true)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: C.pink,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    View all
+                  </button>
+                )
+              }
+            />
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {faces.slice(0, 4).map((f) => (
+                <SelCard
+                  key={f.id}
+                  selected={faceId === f.id}
+                  onClick={() => setFaceId(f.id)}
+                  imageUrl={f.thumbnailUrl}
+                  label={f.label}
+                  w={100}
+                  h={130}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div style={sectionCardStyle}>
+            <SectionHead
+              title="Background"
+              stepNumber={5}
+              right={
+                backgrounds.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setBackgroundModalOpen(true)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: C.pink,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    View all
+                  </button>
+                )
+              }
+            />
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {backgrounds.slice(0, 4).map((b) => (
+                <SelCard
+                  key={b.id}
+                  selected={backgroundId === b.id}
+                  onClick={() => setBackgroundId(b.id)}
+                  imageUrl={b.thumbnailUrl}
+                  label={b.label}
+                  w={100}
+                  h={130}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div style={sectionCardStyle}>
+            <SectionHead
+              title="Pose(s)"
+              subtitle="Select one or more — each becomes its own generated photo"
+              stepNumber={6}
+              right={
+                poses.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setPoseModalOpen(true)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: C.pink,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    View all
+                  </button>
+                )
+              }
+            />
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {poses.slice(0, 4).map((p) => (
+                <SelCard
+                  key={p.id}
+                  selected={poseIds.includes(p.id)}
+                  onClick={() => togglePose(p.id)}
+                  imageUrl={p.thumbnailUrl}
+                  label={p.label}
+                  w={100}
+                  h={130}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}
+          >
+            <button
+              type="button"
+              disabled={!canGenerate}
+              onClick={handleGenerate}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                height: 44,
+                padding: '0 24px',
+                borderRadius: 10,
+                border: 'none',
+                fontSize: 14,
+                fontWeight: 700,
+                color: '#fff',
+                background: canGenerate
+                  ? 'linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)'
+                  : C.border2,
+                cursor: canGenerate ? 'pointer' : 'not-allowed',
+              }}
+            >
+              {isSubmitting ? <SpinnerIcon size={16} /> : null}
+              Generate product photo{poseIds.length > 1 ? 's' : ''}
+            </button>
+            {submitError && <span style={{ fontSize: 12, color: C.pink }}>{submitError}</span>}
+          </div>
+        </>
+      )}
+
+      {faceModalOpen && (
+        <SelectGridModal
+          title="Choose a model face"
+          items={faces}
+          selectedIds={faceId ? [faceId] : []}
+          onSelect={(id) => {
+            setFaceId(id);
+            setFaceModalOpen(false);
+          }}
+          onClose={() => setFaceModalOpen(false)}
+        />
+      )}
+      {backgroundModalOpen && (
+        <SelectGridModal
+          title="Choose a background"
+          items={backgrounds}
+          selectedIds={backgroundId ? [backgroundId] : []}
+          onSelect={(id) => {
+            setBackgroundId(id);
+            setBackgroundModalOpen(false);
+          }}
+          onClose={() => setBackgroundModalOpen(false)}
+        />
+      )}
+      {poseModalOpen && (
+        <SelectGridModal
+          title="Choose pose(s)"
+          items={poses}
+          selectedIds={poseIds}
+          multiSelect
+          continueLabel="Use {count} pose(s)"
+          onSelect={togglePose}
+          onClose={() => setPoseModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
