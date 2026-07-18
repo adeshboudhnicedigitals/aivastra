@@ -93,6 +93,39 @@ async function upsertGarment(
   return row;
 }
 
+/** Records a failed sync for a product we couldn't even fetch from Shopify
+ *  (deleted, wrong API scope, deprecated REST resource, etc.) — no product
+ *  data is available, so title/productType/tags/vendor/collections stay null. */
+async function upsertGarmentFailure(
+  app: FastifyInstance,
+  storeId: string,
+  productId: number,
+  failedReason: string,
+): Promise<void> {
+  const r2Key = `shopify-garments/${storeId}/${productId}/garment.jpg`;
+  const row = await upsertGarment(
+    app,
+    storeId,
+    productId,
+    r2Key,
+    '',
+    'failed',
+    null,
+    null,
+    null,
+    null,
+    failedReason,
+  );
+  if (row.funnelAssignmentSource !== 'manual') {
+    await assignFunnelFromRules(app, row.id, storeId, {
+      productType: null,
+      tags: null,
+      vendor: null,
+      collections: null,
+    });
+  }
+}
+
 export async function syncProduct(
   app: FastifyInstance,
   storeId: string,
@@ -260,7 +293,22 @@ export async function syncOneTask(
       const titleById = await fetchCollectionTitleMap(shop, token);
       const collections = await fetchProductCollectionTitles(shop, token, product.id, titleById);
       await syncProduct(app, store.id, { ...product, collections });
+      return;
     }
+    // Previously a silent no-op here: no row, no log — a persistently-failing
+    // product (deleted, wrong scope, deprecated REST resource) re-enqueued via
+    // customer.routes.ts on every try-on attempt and never left a trace to
+    // debug from. Record it the same way syncProduct's own try/catch does.
+    app.log.warn(
+      { storeId: store.id, productId: task.shopifyProductId, status: res.status },
+      'shopify product fetch failed during sync',
+    );
+    await upsertGarmentFailure(
+      app,
+      store.id,
+      task.shopifyProductId,
+      `product fetch HTTP ${res.status}`,
+    );
     return;
   }
 
@@ -272,7 +320,13 @@ export async function syncOneTask(
     `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/products.json?limit=250`;
   while (url) {
     const res: Response = await fetch(url, { headers: { 'X-Shopify-Access-Token': token } });
-    if (!res.ok) break;
+    if (!res.ok) {
+      // Previously a silent `break` here: the whole catalog sync would stop
+      // with zero rows written and zero log line — a bad/expired token made
+      // "My Products" look permanently empty with no way to tell why. Throwing
+      // lets sync-consumer.ts's existing catch log it as a failed task.
+      throw new Error(`products.json fetch failed: HTTP ${res.status} (${url})`);
+    }
     const { products } = (await res.json()) as { products: ShopifyProduct[] };
     for (const p of products) {
       const collections = await fetchProductCollectionTitles(shop, token, p.id, titleById);

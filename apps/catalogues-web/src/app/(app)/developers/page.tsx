@@ -6,11 +6,11 @@ import { TopBar } from '@/components/topbar';
 import { KeysPanel } from './KeysPanel';
 import { UsagePanel } from './UsagePanel';
 
-// Same API host the shared fetch wrapper (@/lib/api) targets — see
+// Same API host + same fallback as the shared fetch wrapper (@/lib/api) — see
 // apps/catalogues-web/src/lib/api.ts. This link points at the Fastify API's
 // own Swagger UI (apps/api/src/server.ts, routePrefix '/v1/dev/docs'), not a
 // frontend route, so NEXT_PUBLIC_BASE_PATH does not apply here.
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'https://app.aivastra.com';
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
 const CURL_EXAMPLE = `curl -X POST ${API_URL}/v1/dev/tryon \\
   -H "Authorization: Bearer sk_live_..." \\

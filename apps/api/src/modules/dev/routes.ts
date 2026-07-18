@@ -39,6 +39,54 @@ const rateLimitConfig = {
 };
 
 export async function devRoutes(app: FastifyInstance) {
+  app.get(
+    '/v1/dev/categories',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: {
+        tags: ['dev'],
+        summary: 'List try-on categories',
+        response: { 200: DevCategoriesResponse },
+      },
+    },
+    async () => {
+      const rows = await app.db
+        .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
+        .from(schema.tryonCategories)
+        .where(eq(schema.tryonCategories.isActive, true))
+        .orderBy(asc(schema.tryonCategories.sortOrder));
+      return { categories: rows };
+    },
+  );
+
+  app.get(
+    '/v1/dev/me',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      schema: { tags: ['dev'], summary: 'Get account info', response: { 200: DevMeResponse } },
+    },
+    async (req) => {
+      const [row] = await app.db
+        .select({
+          merchantId: schema.merchants.id,
+          companyName: schema.merchants.companyName,
+          credits: schema.userCredits.balance,
+        })
+        .from(schema.merchants)
+        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
+        .where(eq(schema.merchants.id, req.merchantId as string))
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
+      return {
+        merchantId: row.merchantId,
+        companyName: row.companyName,
+        credits: row.credits ?? 0,
+      };
+    },
+  );
+
   app.post(
     '/v1/dev/tryon',
     {
@@ -48,6 +96,13 @@ export async function devRoutes(app: FastifyInstance) {
       // JSON path needs more than Fastify's 1MB default. Multipart is unaffected —
       // @fastify/multipart streams via its own `fileSize` limit above, not this.
       bodyLimit: 30 * 1024 * 1024,
+      // attachValidation, not the default auto-reject: this route handles multipart
+      // and JSON itself (see below) and does its own DevTryonJsonBody.safeParse for
+      // the JSON path. `body` here exists so Scalar/the OpenAPI spec can generate a
+      // real request-body snippet -- Fastify still runs it against the multipart
+      // request too (where it will never match), so its result must stay unused;
+      // wiring it in as the actual gate would 400 every multipart upload.
+      attachValidation: true,
       schema: {
         tags: ['dev'],
         summary: 'Create a try-on job',
@@ -57,6 +112,7 @@ export async function devRoutes(app: FastifyInstance) {
           'images (fields: category, person, garment — plain base64 or a data: URI). ' +
           'Returns a job id to poll.',
         consumes: ['multipart/form-data', 'application/json'],
+        body: DevTryonJsonBody,
         response: { 202: DevTryonResponse },
       },
     },
@@ -218,54 +274,6 @@ export async function devRoutes(app: FastifyInstance) {
       return {
         jobId: job.id,
         status: job.status === 'QUEUED' ? ('QUEUED' as const) : ('RUNNING' as const),
-      };
-    },
-  );
-
-  app.get(
-    '/v1/dev/categories',
-    {
-      preHandler: app.requireApiKey,
-      config: rateLimitConfig,
-      schema: {
-        tags: ['dev'],
-        summary: 'List try-on categories',
-        response: { 200: DevCategoriesResponse },
-      },
-    },
-    async () => {
-      const rows = await app.db
-        .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
-        .from(schema.tryonCategories)
-        .where(eq(schema.tryonCategories.isActive, true))
-        .orderBy(asc(schema.tryonCategories.sortOrder));
-      return { categories: rows };
-    },
-  );
-
-  app.get(
-    '/v1/dev/me',
-    {
-      preHandler: app.requireApiKey,
-      config: rateLimitConfig,
-      schema: { tags: ['dev'], summary: 'Get account info', response: { 200: DevMeResponse } },
-    },
-    async (req) => {
-      const [row] = await app.db
-        .select({
-          merchantId: schema.merchants.id,
-          companyName: schema.merchants.companyName,
-          credits: schema.userCredits.balance,
-        })
-        .from(schema.merchants)
-        .leftJoin(schema.userCredits, eq(schema.userCredits.userId, schema.merchants.userId))
-        .where(eq(schema.merchants.id, req.merchantId as string))
-        .limit(1);
-      if (!row) throw new AppError('NOT_FOUND', 404, 'merchant not found');
-      return {
-        merchantId: row.merchantId,
-        companyName: row.companyName,
-        credits: row.credits ?? 0,
       };
     },
   );
