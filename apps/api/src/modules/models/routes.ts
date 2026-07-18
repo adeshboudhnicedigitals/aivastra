@@ -23,6 +23,8 @@ export async function modelsRoutes(app: FastifyInstance) {
           requiresLowerUpload: schema.garmentSubcategories.requiresLowerUpload,
           upperUploadLabel: schema.garmentSubcategories.upperUploadLabel,
           lowerUploadLabel: schema.garmentSubcategories.lowerUploadLabel,
+          requiresThirdUpload: schema.garmentSubcategories.requiresThirdUpload,
+          thirdUploadLabel: schema.garmentSubcategories.thirdUploadLabel,
           defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
           defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
           requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,

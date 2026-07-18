@@ -1,4 +1,7 @@
-﻿import { schema } from '@aivastra/db';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
@@ -75,6 +78,24 @@ import { shopifyAuthPlugin } from './plugins/shopify-auth.js';
 import { shopifyWidgetAuthPlugin } from './plugins/shopify-widget-auth.js';
 import { storagePlugin } from './plugins/storage.js';
 
+// Scalar renders info.description as markdown on the /v1/dev/docs "Introduction" page.
+// The quickstart is maintained as a standalone doc (readable outside a running server,
+// linkable from GitHub) — read it in as the single source of truth rather than
+// duplicating its content as an inline string here.
+const DEV_API_QUICKSTART_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../dev-api-quickstart.md',
+);
+
+function loadDevApiDescription(): string {
+  try {
+    // Drop the leading H1 — Scalar already renders info.title above this description.
+    return readFileSync(DEV_API_QUICKSTART_PATH, 'utf8').replace(/^#[^\n]*\n+/, '');
+  } catch {
+    return 'Generate a virtual try-on image from a person image and a garment image.';
+  }
+}
+
 export async function buildServer(env: Env) {
   const app = Fastify({ loggerInstance: createLogger('api') }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
@@ -89,8 +110,8 @@ export async function buildServer(env: Env) {
         'img-src': ["'self'", 'data:', r2Origin],
         'connect-src': ["'self'", r2Origin],
         // Scalar's docs page (/v1/dev/docs) inlines a static bootstrap script
-        // (Scalar.createApiReference(...)) â€” hash-pin it rather than 'unsafe-inline'.
-        'script-src': ["'self'", "'sha256-CbaFUsnqQe6vIwwkHIa6fmTcpDWG7gvFxSRaU1GSCAI='"],
+        // (Scalar.createApiReference(...)) — hash-pin it rather than 'unsafe-inline'.
+        'script-src': ["'self'", "'sha256-cWTMliztqFgvzhAh79uXn6mME2QZ5F1J5/jIafVbm1M='"],
       },
     },
   });
@@ -163,9 +184,20 @@ export async function buildServer(env: Env) {
     openapi: {
       info: {
         title: 'Try-On API',
-        description: 'Generate a virtual try-on image from a person image and a garment image.',
+        description: loadDevApiDescription(),
         version: '1.0.0',
       },
+      // Scalar renders this as a base-URL picker on the docs page and in the
+      // "Test Request" panel, so switching environments there doesn't require
+      // editing anything -- unlike the copy-paste $API_URL in the quickstart doc,
+      // which is necessarily static text. Localhost is dev-only noise on the
+      // public prod docs page, so it's only listed outside production.
+      servers: [
+        { url: 'https://app.aivastra.com', description: 'Production' },
+        ...(env.NODE_ENV === 'production'
+          ? []
+          : [{ url: 'http://localhost:4000', description: 'Local development' }]),
+      ],
       components: {
         securitySchemes: {
           apiKey: { type: 'http', scheme: 'bearer', description: 'Your sk_live_â€¦ API key' },
@@ -184,7 +216,10 @@ export async function buildServer(env: Env) {
   });
   await app.register(scalar, {
     routePrefix: '/v1/dev/docs',
-    configuration: { url: '/v1/dev/openapi.json' },
+    // hiddenClients: true drops the whole "Client Libraries" language picker --
+    // the quickstart doc (dev-api-quickstart.md, this page's own description)
+    // already covers curl/Node with the full multi-call flow.
+    configuration: { url: '/v1/dev/openapi.json', hiddenClients: true },
   });
   app.get('/v1/dev/openapi.json', { schema: { hide: true } }, async () => app.swagger());
 

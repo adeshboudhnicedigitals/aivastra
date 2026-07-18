@@ -1,7 +1,7 @@
 # Aivastra — Makefile shortcuts
 # Requires: pnpm, docker, node >=20
 
-.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy
+.PHONY: setup sync dev dev-api dev-web dev-dispatcher dev-admin build test typecheck lint docker-up docker-down docker-reset db-generate db-migrate seed-catalog health prod-up prod-down prod-restart prod-bootstrap prod-logs prod-ps shopify-deploy shopify-deploy-dev
 
 setup:
 	cp .env.example .env
@@ -75,6 +75,11 @@ seed-catalog:
 
 shopify-deploy:
 	cd apps/shopify-extension && npx shopify app deploy
+
+# Deploys shopify.app.dev.toml (separate Partner Dashboard app, ngrok-tunneled)
+# instead of the prod app's shopify.app.toml -- never omit --config here.
+shopify-deploy-dev:
+	cd apps/shopify-extension && npx shopify app deploy --config dev
 
 # ── Production (VPS only) ──────────────────────────────────────────────────
 # Always pass --env-file .env.production so Compose var-substitution (${VAR}

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
 
 jobs:
   lint:
@@ -108,7 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [lint, typecheck, test]
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - name: Deploy via SSH
@@ -131,7 +131,7 @@ jobs:
                echo '→ pulling latest code'
                git config --global --add safe.directory ${DEPLOY_PATH}
                cd ${DEPLOY_PATH}
-               git fetch https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git master
+               git fetch https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git main
                git reset --hard FETCH_HEAD
 
                echo '→ pulling base images'

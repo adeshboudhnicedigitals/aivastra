@@ -4,8 +4,26 @@ Send a person photo and a garment photo, get back a generated try-on image. This
 server-to-server API — no browser, no cookies, no admin-curated faces/poses. Just two
 images, a category, and a poll loop.
 
-Base URL in this guide: `http://localhost:4000` (dev). In production, use your deployment's
-API host.
+Every command below uses `$API_URL` as a placeholder for `https://app.aivastra.com` — it
+is **not** resolved automatically, set it yourself before running any example.
+
+> **Interactive reference:** every endpoint below is also documented live at
+> `$API_URL/v1/dev/docs` — a Scalar-rendered page generated straight from the API's
+> OpenAPI spec (`$API_URL/v1/dev/openapi.json`). Use it to explore request/response
+> schemas or try a call from the browser; use this guide for the end-to-end walkthrough.
+
+## 0. Getting a merchant account
+
+There's no public self-serve signup yet — merchant accounts are created by an admin:
+
+1. Contact your Aivastra admin/account manager and ask for a merchant account for your
+   company. Give them your email, company name, and contact details.
+2. The admin creates the account from the internal admin panel (**Merchants → Add
+   merchant**). This activates it immediately — no separate approval wait.
+3. You'll get login credentials (or the admin links an existing account) for the merchant
+   web app.
+4. Log in, go to **Developers** (`/developers`), and continue to §1 below to create your
+   API key.
 
 ## 1. Authentication
 
@@ -37,6 +55,8 @@ A missing, malformed, or revoked key returns `401 UNAUTHORIZED` (see the error t
    slug, sent either as a **multipart/form-data** upload or as a **JSON body with
    base64-encoded images** (see §3b) — pick whichever your stack finds easier. Returns
    `202` with a `jobId` immediately; generation happens asynchronously.
+   `person`/`garment` requirements: JPEG, PNG, or WebP, ≤10MB each (see §6) — there is
+   no enforced or recommended framing, pose, or lighting beyond that.
 3. **`GET /v1/dev/jobs/:id`** — poll until `status` is `COMPLETED` (with an `imageUrl`) or
    `FAILED` (with an `error`).
 
@@ -47,7 +67,7 @@ Optionally call **`GET /v1/dev/me`** any time as a key smoke test — it returns
 
 ```bash
 export API_KEY="sk_live_abc123def456ghi789jkl012mno345pqr678stu9"
-export API_URL="http://localhost:4000"
+export API_URL="https://app.aivastra.com"
 
 # 1. List categories
 curl -s "$API_URL/v1/dev/categories" \
@@ -73,7 +93,7 @@ curl -s "$API_URL/v1/dev/jobs/5f2b1a3e-9c4d-4e2a-8f1b-1234567890ab" \
 it, call `GET /v1/dev/jobs/:id` again — it reissues a fresh presigned URL for the same
 completed job.
 
-## 3b. curl example — JSON/base64 instead of multipart
+## 3b. JSON/base64 instead of multipart
 
 If your stack can't easily build a multipart body (some serverless/no-code platforms,
 certain HTTP clients), send the same three fields as JSON with base64-encoded images
@@ -106,7 +126,7 @@ Requires Node 20+ (global `fetch`, `FormData`, and `Blob` — no extra dependenc
 ```js
 import { readFileSync } from 'node:fs';
 
-const API_URL = process.env.DEV_API_URL ?? 'http://localhost:4000';
+const API_URL = process.env.DEV_API_URL ?? 'https://app.aivastra.com';
 const API_KEY = process.env.DEV_API_KEY; // e.g. "sk_live_abc123def456ghi789jkl012mno345pqr678stu9"
 
 if (!API_KEY) {

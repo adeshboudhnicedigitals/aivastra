@@ -71,6 +71,7 @@ export async function createJob(
     mannequinJobId,
     lowerCatalogId,
     lowerGarmentKey,
+    thirdGarmentKey,
     shoeCatalogId,
   } = body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
@@ -175,6 +176,7 @@ export async function createJob(
     resolvedUpperGarmentKey = upperGarmentKey;
   }
   if (lowerGarmentKey) await verifyGarmentKey(lowerGarmentKey);
+  if (thirdGarmentKey) await verifyGarmentKey(thirdGarmentKey);
 
   // Normalize to a single per-look list. This only rejects "neither form present" —
   // it does not independently re-enforce "not both", since CreateTryOnJobInputs's
@@ -562,6 +564,7 @@ export async function createJob(
         garmentTypeId: garmentTypeId ?? null,
         lowerCatalogId: effectiveLowerCatalogId,
         lowerGarmentKey: effectiveLowerGarmentKey,
+        thirdGarmentKey: thirdGarmentKey ?? null,
         shoeCatalogId: effectiveShoeCatalogId,
         userHint: promptGuard(body.userHint),
         params: {

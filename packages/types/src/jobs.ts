@@ -61,6 +61,7 @@ export const CreateTryOnJobInputs = z
     catalogueTemplateMappingId: z.string().uuid().optional(),
     lowerCatalogId: z.string().uuid().optional(),
     lowerGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
+    thirdGarmentKey: z.string().regex(INPUT_GARMENT_KEY).optional(),
     shoeCatalogId: z.string().uuid().optional(),
   })
   .refine((d) => Boolean(d.backgroundId && d.poseIds) !== Boolean(d.looks), {
