@@ -16,9 +16,10 @@ const GENDERS = [
   { value: 'girls', label: 'Girls' },
 ];
 
-// A subset of the fields Studio's GarmentType carries — this demo only
-// supports plain single-upload garment types (see the design spec's Scope
-// Boundaries section), so mannequin/dual-upload types are filtered out below.
+// A subset of the fields Studio's GarmentType carries. Mannequin/two-pass
+// garment types (saree flow) stay filtered out per the design spec's Scope
+// Boundaries section — that's a separate, larger feature — but two/three-
+// upload garment types are fully supported, matching Studio.
 interface EmbedGarmentType {
   id: string;
   label: string;
@@ -28,6 +29,9 @@ interface EmbedGarmentType {
   requiresMannequinStep?: boolean;
   defaultLowerCatalogId?: string | null;
   defaultShoeCatalogId?: string | null;
+  upperUploadLabel?: string | null;
+  lowerUploadLabel?: string | null;
+  thirdUploadLabel?: string | null;
 }
 interface FaceItem {
   id: string;
@@ -98,6 +102,12 @@ export function EmbedStudioWizard() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState('');
+  const [lowerGarmentFile, setLowerGarmentFile] = useState<File | null>(null);
+  const [lowerGarmentKey, setLowerGarmentKey] = useState('');
+  const [isUploadingLower, setIsUploadingLower] = useState(false);
+  const [thirdGarmentFile, setThirdGarmentFile] = useState<File | null>(null);
+  const [thirdGarmentKey, setThirdGarmentKey] = useState('');
+  const [isUploadingThird, setIsUploadingThird] = useState(false);
   const [faceId, setFaceId] = useState('');
   const [backgroundId, setBackgroundId] = useState('');
   const [poseIds, setPoseIds] = useState<string[]>([]);
@@ -220,6 +230,8 @@ export function EmbedStudioWizard() {
     !!backgroundId &&
     poseIds.length > 0 &&
     !isUploading &&
+    !isUploadingLower &&
+    !isUploadingThird &&
     !isSubmitting;
 
   async function handleGenerate() {
@@ -227,7 +239,6 @@ export function EmbedStudioWizard() {
     setIsSubmitting(true);
     setSubmitError('');
     try {
-      const selectedGarmentType = garmentTypes.find((g) => g.id === garmentTypeId);
       // Prefer the merchant's manual pick; only fall back to the garment type's
       // own default catalog item when a selected pose needs one and nothing was
       // picked — same precedence Studio's page.tsx uses at submit time.
@@ -247,7 +258,9 @@ export function EmbedStudioWizard() {
             poseIds,
             garmentTypeId: garmentTypeId || undefined,
             lowerCatalogId: effectiveLowerId,
+            lowerGarmentKey: lowerGarmentKey || undefined,
             shoeCatalogId: effectiveShoesId,
+            thirdGarmentKey: thirdGarmentKey || undefined,
           },
           aspectRatio: '1:1',
           resolution: 'HD',
@@ -307,15 +320,32 @@ export function EmbedStudioWizard() {
     };
   }, [garmentPreviewUrl]);
 
+  const lowerGarmentPreviewUrl = useMemo(
+    () => (lowerGarmentFile ? URL.createObjectURL(lowerGarmentFile) : ''),
+    [lowerGarmentFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (lowerGarmentPreviewUrl) URL.revokeObjectURL(lowerGarmentPreviewUrl);
+    };
+  }, [lowerGarmentPreviewUrl]);
+
+  const thirdGarmentPreviewUrl = useMemo(
+    () => (thirdGarmentFile ? URL.createObjectURL(thirdGarmentFile) : ''),
+    [thirdGarmentFile],
+  );
+  useEffect(() => {
+    return () => {
+      if (thirdGarmentPreviewUrl) URL.revokeObjectURL(thirdGarmentPreviewUrl);
+    };
+  }, [thirdGarmentPreviewUrl]);
+
   const { data: garmentTypesData } = useQuery<{ items: EmbedGarmentType[] }>({
     queryKey: ['embed-garment-types', gender],
     queryFn: () => api.get(`/v1/models/garment-types?gender=${gender}`),
   });
   const garmentTypes = useMemo(
-    () =>
-      (garmentTypesData?.items ?? []).filter(
-        (g) => !g.requiresMannequinStep && !g.requiresLowerUpload && !g.requiresThirdUpload,
-      ),
+    () => (garmentTypesData?.items ?? []).filter((g) => !g.requiresMannequinStep),
     [garmentTypesData],
   );
   const didAutoGarmentType = useMemo(() => ({ current: '' }), []);
@@ -326,12 +356,21 @@ export function EmbedStudioWizard() {
     }
   }, [garmentTypes, garmentTypeId, gender, didAutoGarmentType]);
 
+  const selectedGarmentType = garmentTypes.find((g) => g.id === garmentTypeId);
+  const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
+  const requiresThirdUpload = selectedGarmentType?.requiresThirdUpload ?? false;
+  const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload;
+
   function handleGenderSelect(value: string) {
     setGender(value);
     setGarmentTypeId('');
     setPoseIds([]);
     setLowerCatalogId('');
     setShoeCatalogId('');
+    setLowerGarmentFile(null);
+    setLowerGarmentKey('');
+    setThirdGarmentFile(null);
+    setThirdGarmentKey('');
   }
 
   function handleGarmentTypeSelect(id: string) {
@@ -342,6 +381,12 @@ export function EmbedStudioWizard() {
     setPoseIds([]);
     setLowerCatalogId('');
     setShoeCatalogId('');
+    // A different garment type may not want (or may want a different) second/
+    // third upload — don't carry a stale file across the switch.
+    setLowerGarmentFile(null);
+    setLowerGarmentKey('');
+    setThirdGarmentFile(null);
+    setThirdGarmentKey('');
   }
 
   async function handleGarmentUpload(file: File) {
@@ -371,6 +416,66 @@ export function EmbedStudioWizard() {
       setGarmentFile(null);
     } finally {
       setIsUploading(false);
+    }
+  }
+
+  async function handleLowerGarmentUpload(file: File) {
+    if (isUploadingLower) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      setUploadError('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setUploadError('');
+    setLowerGarmentFile(file);
+    setIsUploadingLower(true);
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {});
+      setLowerGarmentKey(r2Key);
+    } catch (e) {
+      setUploadError(`Lower garment upload failed: ${(e as Error).message}`);
+      setLowerGarmentFile(null);
+      setLowerGarmentKey('');
+    } finally {
+      setIsUploadingLower(false);
+    }
+  }
+
+  async function handleThirdGarmentUpload(file: File) {
+    if (isUploadingThird) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      setUploadError('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setUploadError('');
+    setThirdGarmentFile(file);
+    setIsUploadingThird(true);
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        expiresIn: number;
+      }>('/v1/uploads/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {});
+      setThirdGarmentKey(r2Key);
+    } catch (e) {
+      setUploadError(`Third garment upload failed: ${(e as Error).message}`);
+      setThirdGarmentFile(null);
+      setThirdGarmentKey('');
+    } finally {
+      setIsUploadingThird(false);
     }
   }
 
@@ -453,67 +558,233 @@ export function EmbedStudioWizard() {
       </div>
 
       <div style={sectionCardStyle}>
-        <SectionHead title="Upload the garment photo" stepNumber={3} />
-        <label
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            height: 160,
-            border: `1.5px dashed ${C.border2}`,
-            borderRadius: 12,
-            cursor: 'pointer',
-            overflow: 'hidden',
-            position: 'relative',
-            background: C.lighter,
-          }}
-        >
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleGarmentUpload(file);
+        <SectionHead
+          title={hasMultipleUploadBoxes ? 'Upload garment photos' : 'Upload the garment photo'}
+          stepNumber={3}
+        />
+        <div style={{ display: 'flex', gap: 10 }}>
+          <label
+            style={{
+              flex: 1,
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              height: 160,
+              border: `1.5px dashed ${C.border2}`,
+              borderRadius: 12,
+              cursor: 'pointer',
+              overflow: 'hidden',
+              position: 'relative',
+              background: C.lighter,
+              boxSizing: 'border-box',
             }}
-          />
-          {garmentPreviewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            // biome-ignore lint/performance/noImgElement: uncontrolled preview
-            <img
-              src={garmentPreviewUrl}
-              alt="Garment"
-              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+          >
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleGarmentUpload(file);
+              }}
             />
-          ) : (
-            <>
-              <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-                Click to choose a garment photo
-              </span>
-              <span style={{ fontSize: 11, color: C.mid }}>JPEG, PNG, or WebP — up to 10 MB</span>
-            </>
-          )}
-          {isUploading && (
-            <div
+            {garmentPreviewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              // biome-ignore lint/performance/noImgElement: uncontrolled preview
+              <img
+                src={garmentPreviewUrl}
+                alt="Garment"
+                style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+              />
+            ) : (
+              <>
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: C.text,
+                    textAlign: 'center',
+                    padding: '0 8px',
+                  }}
+                >
+                  {hasMultipleUploadBoxes
+                    ? (selectedGarmentType?.upperUploadLabel ?? 'Upload Top Wear')
+                    : 'Click to choose a garment photo'}
+                </span>
+                <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 10MB</span>
+              </>
+            )}
+            {isUploading && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(255,255,255,0.75)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: C.pink,
+                }}
+              >
+                <SpinnerIcon size={16} /> Uploading… {uploadProgress}%
+              </div>
+            )}
+          </label>
+
+          {requiresLowerUpload && (
+            <label
               style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'rgba(255,255,255,0.75)',
+                flex: 1,
+                minWidth: 0,
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
-                fontSize: 12,
-                fontWeight: 600,
-                color: C.pink,
+                height: 160,
+                border: `1.5px dashed ${C.border2}`,
+                borderRadius: 12,
+                cursor: 'pointer',
+                overflow: 'hidden',
+                position: 'relative',
+                background: C.lighter,
+                boxSizing: 'border-box',
               }}
             >
-              <SpinnerIcon size={16} /> Uploading… {uploadProgress}%
-            </div>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleLowerGarmentUpload(file);
+                }}
+              />
+              {lowerGarmentPreviewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                // biome-ignore lint/performance/noImgElement: uncontrolled preview
+                <img
+                  src={lowerGarmentPreviewUrl}
+                  alt="Lower garment"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
+              ) : (
+                <>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: C.text,
+                      textAlign: 'center',
+                      padding: '0 8px',
+                    }}
+                  >
+                    {selectedGarmentType?.lowerUploadLabel ?? 'Bottom Wear'}
+                  </span>
+                  <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 10MB</span>
+                </>
+              )}
+              {isUploadingLower && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'rgba(255,255,255,0.75)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: C.pink,
+                  }}
+                >
+                  <SpinnerIcon size={16} /> Uploading…
+                </div>
+              )}
+            </label>
           )}
-        </label>
+
+          {requiresThirdUpload && (
+            <label
+              style={{
+                flex: 1,
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                height: 160,
+                border: `1.5px dashed ${C.border2}`,
+                borderRadius: 12,
+                cursor: 'pointer',
+                overflow: 'hidden',
+                position: 'relative',
+                background: C.lighter,
+                boxSizing: 'border-box',
+              }}
+            >
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleThirdGarmentUpload(file);
+                }}
+              />
+              {thirdGarmentPreviewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                // biome-ignore lint/performance/noImgElement: uncontrolled preview
+                <img
+                  src={thirdGarmentPreviewUrl}
+                  alt="Third garment"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
+              ) : (
+                <>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: C.text,
+                      textAlign: 'center',
+                      padding: '0 8px',
+                    }}
+                  >
+                    {selectedGarmentType?.thirdUploadLabel ?? 'Upload Third Garment'}
+                  </span>
+                  <span style={{ fontSize: 11, color: C.mid }}>JPG, PNG, WebP · Max 10MB</span>
+                </>
+              )}
+              {isUploadingThird && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    background: 'rgba(255,255,255,0.75)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: C.pink,
+                  }}
+                >
+                  <SpinnerIcon size={16} /> Uploading…
+                </div>
+              )}
+            </label>
+          )}
+        </div>
         {uploadError && (
           <span style={{ fontSize: 12, color: C.pink, marginTop: 8 }}>{uploadError}</span>
         )}
