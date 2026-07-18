@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
+import { keys } from '@aivastra/storage';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { createJob } from '../jobs/create.js';
+import { createProductMedia } from './catalog-publish.js';
 import { assertShopifyCdn } from './products.sync.js';
 
 const GenerateBody = z.object({
@@ -165,6 +168,55 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
           published: r.shopifyMediaId != null,
         })),
       };
+    },
+  );
+
+  app.post(
+    '/v1/shopify/catalog/jobs/:id/publish',
+    { preHandler: app.requireShopifySession },
+    async (req) => {
+      const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
+      const { id: jobId } = req.params as { id: string };
+
+      const [tracked] = await app.db
+        .select()
+        .from(schema.shopifyCatalogJobs)
+        .where(
+          and(
+            eq(schema.shopifyCatalogJobs.jobId, jobId),
+            eq(schema.shopifyCatalogJobs.storeId, store.id),
+          ),
+        )
+        .limit(1);
+      if (!tracked) throw new AppError('NOT_FOUND', 404, 'catalog job not found');
+
+      if (tracked.shopifyMediaId) {
+        return { ok: true, mediaId: tracked.shopifyMediaId };
+      }
+
+      const [job] = await app.db
+        .select({ status: schema.jobs.status })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.id, jobId));
+      if (job?.status !== 'COMPLETED') {
+        throw new AppError('VALIDATION', 409, 'job has not completed yet');
+      }
+
+      const signed = await app.storage.presignGet(keys.output(jobId), 300);
+      const accessToken = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
+      const mediaId = await createProductMedia(
+        store.shopDomain,
+        accessToken,
+        tracked.shopifyProductId,
+        signed.url,
+      );
+
+      await app.db
+        .update(schema.shopifyCatalogJobs)
+        .set({ shopifyMediaId: mediaId, publishedAt: new Date() })
+        .where(eq(schema.shopifyCatalogJobs.jobId, jobId));
+
+      return { ok: true, mediaId };
     },
   );
 }
