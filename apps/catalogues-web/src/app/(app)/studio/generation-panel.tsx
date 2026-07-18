@@ -26,6 +26,8 @@ export interface GenerationPanelProps {
   onUseImage?: (args: { url: string; jobId: string; poseLabel: string }) => void;
   /** Hides the "View full catalogue →" link — set when this panel is embedded in a context (e.g. an iframe) where navigating away would strand the user. */
   hideCatalogueLink?: boolean;
+  /** Hides the "Download All" button and each result tile's download icon. */
+  hideDownload?: boolean;
 }
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
@@ -57,6 +59,7 @@ export function GenerationPanel({
   onCancel,
   onUseImage,
   hideCatalogueLink,
+  hideDownload,
 }: GenerationPanelProps) {
   const qc = useQueryClient();
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
@@ -629,33 +632,36 @@ export function GenerationPanel({
               {jobs.length} stunning variations generated for you
             </span>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            {/* Download All Button */}
-            <button
-              type="button"
-              onClick={handleDownloadAll}
-              disabled={downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                background: '#141414',
-                color: '#FEFEFE',
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 16px',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor:
-                  downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')
-                    ? 'not-allowed'
-                    : 'pointer',
-                opacity: downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED') ? 0.5 : 1,
-              }}
-            >
-              <DownloadIcon size={14} /> Download All
-            </button>
-          </div>
+          {!hideDownload && (
+            <div style={{ display: 'flex', gap: 10 }}>
+              {/* Download All Button */}
+              <button
+                type="button"
+                onClick={handleDownloadAll}
+                disabled={downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: '#141414',
+                  color: '#FEFEFE',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor:
+                    downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED')
+                      ? 'not-allowed'
+                      : 'pointer',
+                  opacity:
+                    downloading || jobs.every((j) => statuses[j.id] !== 'COMPLETED') ? 0.5 : 1,
+                }}
+              >
+                <DownloadIcon size={14} /> Download All
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Variations Grid */}
@@ -755,35 +761,37 @@ export function GenerationPanel({
                   )}
 
                   {/* Download icon on top right */}
-                  <button
-                    type="button"
-                    disabled={!isCompleted || !resultUrl}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (resultUrl) downloadImage(resultUrl, job.id);
-                    }}
-                    style={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      background: 'rgba(255, 255, 255, 0.85)',
-                      backdropFilter: 'blur(4px)',
-                      border: 'none',
-                      borderRadius: '50%',
-                      width: 28,
-                      height: 28,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
-                      opacity: isCompleted && resultUrl ? 1 : 0.45,
-                      color: '#141414',
-                      boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                      zIndex: 2,
-                    }}
-                  >
-                    <DownloadIcon size={14} />
-                  </button>
+                  {!hideDownload && (
+                    <button
+                      type="button"
+                      disabled={!isCompleted || !resultUrl}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (resultUrl) downloadImage(resultUrl, job.id);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        top: 8,
+                        right: 8,
+                        background: 'rgba(255, 255, 255, 0.85)',
+                        backdropFilter: 'blur(4px)',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: 28,
+                        height: 28,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: isCompleted && resultUrl ? 'pointer' : 'not-allowed',
+                        opacity: isCompleted && resultUrl ? 1 : 0.45,
+                        color: '#141414',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                        zIndex: 2,
+                      }}
+                    >
+                      <DownloadIcon size={14} />
+                    </button>
+                  )}
                   {onUseImage && isCompleted && resultUrl && (
                     <button
                       type="button"

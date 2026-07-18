@@ -23,7 +23,7 @@ const NAV: {
   {
     id: 'tryon',
     href: '/tryon',
-    label: 'Try-On',
+    label: 'Try On',
     icon: `${BASE}/assets/tryon-icon.svg`,
     badge: 'Beta',
   },
