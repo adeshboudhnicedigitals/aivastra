@@ -1,19 +1,27 @@
 import {
   Banner,
   BlockStack,
-  Button,
   Card,
   InlineGrid,
   InlineStack,
   Page,
+  Button as PolarisButton,
   Spinner,
   Text,
   Thumbnail,
 } from '@shopify/polaris';
+import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import type { CatalogGenerateJob, ShopifyProductListItem } from '../types';
+
+// Polaris types Button.children as `string | string[]`, but the runtime just
+// wraps children in <Text>, which renders any ReactNode fine — this repo's
+// thumbnail-card buttons rely on that. Widen the type instead of restructuring.
+const Button = PolarisButton as unknown as ComponentType<
+  Omit<ComponentProps<typeof PolarisButton>, 'children'> & { children?: ReactNode }
+>;
 
 interface Run {
   catalogueId: string;
