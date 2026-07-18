@@ -106,12 +106,27 @@ export function EmbedStudioWizard() {
     queryFn: () => api.get(`/v1/models/faces?gender=${gender}`),
   });
   const faces = facesData?.items ?? [];
+  // Mirrors the real Studio page's auto-select behavior (studio/page.tsx) so a
+  // face is already picked by the time the merchant reaches this step, rather
+  // than forcing an extra manual click Studio itself doesn't require.
+  useEffect(() => {
+    if (!faces.length) return;
+    if (!faces.some((f) => f.id === faceId)) {
+      setFaceId(faces[0]?.id ?? '');
+    }
+  }, [faces, faceId]);
 
   const { data: backgroundsData } = useQuery<{ items: BackgroundItem[] }>({
     queryKey: ['embed-backgrounds', gender],
     queryFn: () => api.get(`/v1/models/backgrounds?gender=${gender}`),
   });
   const backgrounds = backgroundsData?.items ?? [];
+  // Same auto-select parity with Studio's page.tsx for backgrounds.
+  useEffect(() => {
+    if (backgrounds.length && !backgroundId) {
+      setBackgroundId(backgrounds[0]?.id ?? '');
+    }
+  }, [backgrounds, backgroundId]);
 
   const { data: posesData } = useQuery<{ items: PoseItem[] }>({
     queryKey: ['embed-poses', gender, garmentTypeId],
@@ -230,6 +245,7 @@ export function EmbedStudioWizard() {
   function handleGenderSelect(value: string) {
     setGender(value);
     setGarmentTypeId('');
+    setPoseIds([]);
   }
 
   async function handleGarmentUpload(file: File) {
