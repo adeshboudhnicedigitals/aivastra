@@ -46,6 +46,29 @@ afterAll(async () => {
   await c?.stop();
 });
 
+async function seedWorkflow(overrides: {
+  lowerNodeId?: string | null;
+  shoeNodeId?: string | null;
+}) {
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `wf-${Date.now()}-${Math.random()}`,
+      label: 'Workflow',
+      jsonContent: {},
+      faceNodeId: '1',
+      poseNodeId: '2',
+      bgNodeId: '3',
+      upperNodeIds: ['4'],
+      lowerNodeId: overrides.lowerNodeId ?? null,
+      shoeNodeId: overrides.shoeNodeId ?? null,
+      facePhasePromptNode: '5',
+      garmentPhasePromptNode: '6',
+    })
+    .returning();
+  return wf;
+}
+
 describe('GET /v1/shopify/catalog/options', () => {
   it('rejects without a session token', async () => {
     const res = await app.inject({
@@ -75,5 +98,126 @@ describe('GET /v1/shopify/catalog/options', () => {
     expect(Array.isArray(body.poses)).toBe(true);
     expect(Array.isArray(body.lowerItems)).toBe(true);
     expect(Array.isArray(body.shoeItems)).toBe(true);
+  });
+
+  it('gender-scopes backgrounds: genderSlug-specific rows only match their gender, null-genderSlug rows match every gender', async () => {
+    const tag = `${Date.now()}-${Math.random()}`;
+    await app.db.insert(schema.modelBackgrounds).values({
+      label: `Men Only BG ${tag}`,
+      r2Key: `bg-men-${tag}.jpg`,
+      thumbnailKey: `bg-men-thumb-${tag}.jpg`,
+      genderSlug: 'men',
+      scope: 'general',
+      isActive: true,
+    });
+    await app.db.insert(schema.modelBackgrounds).values({
+      label: `All Genders BG ${tag}`,
+      r2Key: `bg-all-${tag}.jpg`,
+      thumbnailKey: `bg-all-thumb-${tag}.jpg`,
+      genderSlug: null,
+      scope: 'general',
+      isActive: true,
+    });
+
+    const resWomen = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/catalog/options?gender=women',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(resWomen.statusCode).toBe(200);
+    const womenBody = resWomen.json() as { backgrounds: { label: string }[] };
+    expect(womenBody.backgrounds.some((b) => b.label === `Men Only BG ${tag}`)).toBe(false);
+    expect(womenBody.backgrounds.some((b) => b.label === `All Genders BG ${tag}`)).toBe(true);
+
+    const resMen = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/catalog/options?gender=men',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(resMen.statusCode).toBe(200);
+    const menBody = resMen.json() as { backgrounds: { label: string }[] };
+    expect(menBody.backgrounds.some((b) => b.label === `Men Only BG ${tag}`)).toBe(true);
+    expect(menBody.backgrounds.some((b) => b.label === `All Genders BG ${tag}`)).toBe(true);
+  });
+
+  it('overlays poseGarmentConfigs for garmentTypeId: overrides hasLower/hasShoes and excludes poses inactive for that type', async () => {
+    const tag = `${Date.now()}-${Math.random()}`;
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({ genderSlug: 'women', slug: `sc-${tag}`, label: 'Shirt', isActive: true })
+      .returning();
+
+    // Default workflow: hasLower true, hasShoes false.
+    const defaultWf = await seedWorkflow({ lowerNodeId: '10', shoeNodeId: null });
+    // Override workflow: hasLower false, hasShoes true — the inverse, so the test can't
+    // pass by accident if the overlay is silently skipped.
+    const overrideWf = await seedWorkflow({ lowerNodeId: null, shoeNodeId: '11' });
+
+    const [overriddenPose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: `Overridden Pose ${tag}`,
+        genderSlug: 'women',
+        r2Key: `pose-override-${tag}.jpg`,
+        thumbnailKey: `pose-override-thumb-${tag}.jpg`,
+        scope: 'general',
+        isActive: true,
+        workflowTemplateId: defaultWf.id,
+      })
+      .returning();
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: overriddenPose.id,
+      subcategoryId: garmentType.id,
+      workflowTemplateId: overrideWf.id,
+      isActive: true,
+    });
+
+    const [inactivePose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: `Inactive-For-Type Pose ${tag}`,
+        genderSlug: 'women',
+        r2Key: `pose-inactive-${tag}.jpg`,
+        thumbnailKey: `pose-inactive-thumb-${tag}.jpg`,
+        scope: 'general',
+        isActive: true,
+        workflowTemplateId: defaultWf.id,
+      })
+      .returning();
+    await app.db.insert(schema.poseGarmentConfigs).values({
+      poseAssetId: inactivePose.id,
+      subcategoryId: garmentType.id,
+      isActive: false,
+    });
+
+    // Without garmentTypeId: both poses reflect their own default workflow (hasLower
+    // true, hasShoes false) and the inactive-for-type pose is NOT excluded.
+    const resNoType = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/catalog/options?gender=women',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(resNoType.statusCode).toBe(200);
+    const bodyNoType = resNoType.json() as {
+      poses: { id: string; hasLower: boolean; hasShoes: boolean }[];
+    };
+    const overriddenNoType = bodyNoType.poses.find((p) => p.id === overriddenPose.id);
+    expect(overriddenNoType).toMatchObject({ hasLower: true, hasShoes: false });
+    expect(bodyNoType.poses.some((p) => p.id === inactivePose.id)).toBe(true);
+
+    // With garmentTypeId: overridden pose reflects the override workflow, and the
+    // inactive-for-type pose is excluded entirely.
+    const resWithType = await app.inject({
+      method: 'GET',
+      url: `/v1/shopify/catalog/options?gender=women&garmentTypeId=${garmentType.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(resWithType.statusCode).toBe(200);
+    const bodyWithType = resWithType.json() as {
+      poses: { id: string; hasLower: boolean; hasShoes: boolean }[];
+    };
+    const overriddenWithType = bodyWithType.poses.find((p) => p.id === overriddenPose.id);
+    expect(overriddenWithType).toMatchObject({ hasLower: false, hasShoes: true });
+    expect(bodyWithType.poses.some((p) => p.id === inactivePose.id)).toBe(false);
   });
 });

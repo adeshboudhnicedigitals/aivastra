@@ -1,5 +1,5 @@
 import { schema } from '@aivastra/db';
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
@@ -109,6 +109,10 @@ export async function shopifyCatalogOptionsRoutes(app: FastifyInstance) {
             eq(schema.modelBackgrounds.isActive, true),
             isNull(schema.modelBackgrounds.deletedAt),
             eq(schema.modelBackgrounds.scope, 'general'),
+            or(
+              isNull(schema.modelBackgrounds.genderSlug),
+              eq(schema.modelBackgrounds.genderSlug, gender),
+            ),
           ),
         );
       const backgrounds = backgroundRows.map((b) => ({
@@ -139,13 +143,63 @@ export async function shopifyCatalogOptionsRoutes(app: FastifyInstance) {
             eq(schema.modelPoseAssets.scope, 'general'),
           ),
         );
-      const poses = poseRows.map((p) => ({
-        id: p.id,
-        label: p.label ?? p.fallbackLabel,
-        thumbnailUrl: app.storage.publicUrl(p.thumbnailKey),
-        hasLower: p.lowerNodeId != null,
-        hasShoes: p.shoeNodeId != null,
-      }));
+
+      // If garmentTypeId given, overlay per-type workflow overrides for hasLower/hasShoes,
+      // and per-type active overrides (a pose can be hidden for one garment type without
+      // touching its global isActive flag or its visibility under other garment types).
+      let configMap = new Map<string, { lowerNodeId: string | null; shoeNodeId: string | null }>();
+      let inactiveForType = new Set<string>();
+      if (garmentTypeId && poseRows.length > 0) {
+        const poseIds = poseRows.map((p) => p.id);
+        const configs = await app.db
+          .select({
+            poseAssetId: schema.poseGarmentConfigs.poseAssetId,
+            workflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+            isActive: schema.poseGarmentConfigs.isActive,
+            lowerNodeId: schema.workflowTemplates.lowerNodeId,
+            shoeNodeId: schema.workflowTemplates.shoeNodeId,
+          })
+          .from(schema.poseGarmentConfigs)
+          .leftJoin(
+            schema.workflowTemplates,
+            eq(schema.poseGarmentConfigs.workflowTemplateId, schema.workflowTemplates.id),
+          )
+          .where(
+            and(
+              inArray(schema.poseGarmentConfigs.poseAssetId, poseIds),
+              eq(schema.poseGarmentConfigs.subcategoryId, garmentTypeId),
+            ),
+          );
+        // Only override lower/shoe when the config row actually has a workflow override
+        // set — a prompt-only override (no workflowTemplateId) must fall back to the
+        // pose's own default workflow instead of wiping out hasLower/hasShoes.
+        configMap = new Map(
+          configs
+            .filter((c) => c.workflowTemplateId != null)
+            .map((c) => [
+              c.poseAssetId,
+              { lowerNodeId: c.lowerNodeId ?? null, shoeNodeId: c.shoeNodeId ?? null },
+            ]),
+        );
+        inactiveForType = new Set(
+          configs.filter((c) => c.isActive === false).map((c) => c.poseAssetId),
+        );
+      }
+
+      const poses = poseRows
+        .filter((p) => !inactiveForType.has(p.id))
+        .map((p) => {
+          const cfg = configMap.get(p.id);
+          const lowerNodeId = cfg !== undefined ? cfg.lowerNodeId : p.lowerNodeId;
+          const shoeNodeId = cfg !== undefined ? cfg.shoeNodeId : p.shoeNodeId;
+          return {
+            id: p.id,
+            label: p.label ?? p.fallbackLabel,
+            thumbnailUrl: app.storage.publicUrl(p.thumbnailKey),
+            hasLower: lowerNodeId != null,
+            hasShoes: shoeNodeId != null,
+          };
+        });
 
       const [lowerItems, shoeItems] = await Promise.all([
         fetchCatalogItems(app, 'lower', gender, garmentTypeId),
