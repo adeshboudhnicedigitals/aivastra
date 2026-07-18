@@ -63,3 +63,31 @@ export interface FunnelTemplateItem {
   label: string;
   rule: FunnelRule;
 }
+
+export interface CatalogOptionItem {
+  id: string;
+  label: string;
+  thumbnailUrl: string;
+}
+
+export interface CatalogPoseOption extends CatalogOptionItem {
+  hasLower: boolean;
+  hasShoes: boolean;
+}
+
+export interface CatalogOptions {
+  garmentTypes: { id: string; label: string }[];
+  faces: CatalogOptionItem[];
+  backgrounds: CatalogOptionItem[];
+  poses: CatalogPoseOption[];
+  lowerItems: CatalogOptionItem[];
+  shoeItems: CatalogOptionItem[];
+}
+
+export interface CatalogGenerateJob {
+  jobId: string;
+  status: string;
+  errorCode: string | null;
+  resultUrl: string | null;
+  published: boolean;
+}
