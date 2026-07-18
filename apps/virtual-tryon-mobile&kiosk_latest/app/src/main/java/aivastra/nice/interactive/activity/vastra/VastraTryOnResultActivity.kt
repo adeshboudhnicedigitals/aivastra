@@ -14,9 +14,7 @@ import aivastra.nice.interactive.utils.ViewControll
 import aivastra.nice.interactive.viewmodel.category.SareecategoryDataViewModel
 import android.animation.Animator
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.view.View
-import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
 import com.airbnb.lottie.LottieCompositionFactory
@@ -30,8 +28,6 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
     private var tryOnResultUrl:String?=null
     private var tryOnResultId:String?=null
     private lateinit var sareeCatViewmodel: SareecategoryDataViewModel
-    private var isProductLike = false
-    private var isProductAddedToCart = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,6 +38,11 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
 
     private fun initView() {
         sareeCatViewmodel = ViewModelProvider(this).get(SareecategoryDataViewModel::class.java)
+        sareeCatViewmodel.error.observe(this) { errorMsg ->
+            if (!errorMsg.isNullOrBlank()) {
+                ViewControll.showMessage(this, errorMsg)
+            }
+        }
         tryOnResultUrl = intent?.extras?.getString(AppConstant.TRY_ON_RESULT).toString()
         tryOnResultId = intent?.extras?.getString(AppConstant.TRY_ON_RESULT_ID).toString()
         try{
@@ -53,9 +54,7 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
             e.printStackTrace()
         }
         setMarchantCompanyLogo()
-        binding.llLike.setOnClickListener(this)
         binding.llDownload.setOnClickListener(this)
-        binding.llAddToCart.setOnClickListener(this)
         binding.imgBack.setOnClickListener(this)
     }
 
@@ -84,32 +83,8 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
 
     override fun onClick(v: View?) {
         val id = v?.id
-        if(id==R.id.ll_like){
-            if(isProductLike){
-                isProductLike = false
-                tryOnResultId?.let { sareeCatViewmodel.likeVastraTryOnResultAPI(it,"0") }
-                binding.llLike.imageTintList = null
-            }else{
-                isProductLike = true
-                tryOnResultId?.let { sareeCatViewmodel.likeVastraTryOnResultAPI(it,"1") }
-                binding.llLike.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.red))
-            }
-        }
         if(id==R.id.ll_download){
             tryOnResultUrl?.let { gotoNextScreen(it) }
-        }
-        if(id==R.id.ll_add_to_cart){
-            if(isProductAddedToCart){
-                isProductAddedToCart = false
-                tryOnResultId?.let { sareeCatViewmodel.addToCartVastraTryOnResultAPI(it,"0") }
-                binding.llAddToCart.imageTintList = null
-                ViewControll.showMessage(this,"Product removed from cart")
-            }else{
-                isProductAddedToCart = true
-                tryOnResultId?.let { sareeCatViewmodel.addToCartVastraTryOnResultAPI(it,"1") }
-                binding.llAddToCart.imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.dark_brown))
-                ViewControll.showMessage(this,"Product added to cart")
-            }
         }
         if(id==R.id.img_back){
             onBackPressedDispatcher.onBackPressed()

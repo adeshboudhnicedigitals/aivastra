@@ -22,6 +22,19 @@
             android:layout_height="@dimen/_100sdp"
             android:background="@drawable/bg_vastra_item"/>
 
+
+        <TextView
+            android:id="@+id/txt_sku"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/img_vastra_item"
+            android:layout_centerHorizontal="true"
+            android:layout_marginTop="@dimen/_2sdp"
+            android:textColor="@color/white"
+            android:fontFamily="@font/popins_medium"
+            android:textSize="@dimen/_10sdp"
+            android:singleLine="true" />
+
     </RelativeLayout>
 
 </layout>

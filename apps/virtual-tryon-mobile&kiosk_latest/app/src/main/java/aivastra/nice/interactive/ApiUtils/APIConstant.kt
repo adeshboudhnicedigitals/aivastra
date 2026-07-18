@@ -18,6 +18,16 @@ object APIConstant {
         const val DEVICE_LOGIN_FORCE = "v1/auth/device-login/force"
         const val DEVICE_REFRESH = "v1/auth/device-refresh"
         const val DEVICE_LOGOUT = "v1/auth/device-logout"
+
+        const val MERCHANT_CATALOG_SUBCATEGORIES = "v1/merchant/catalog/subcategories"
+        const val MERCHANT_CATALOG_ITEMS = "v1/merchant/catalog"
+
+        const val MERCHANT_TRYON_PRESIGN = "v1/merchant/tryon/presign"
+        const val MERCHANT_TRYON_JOBS = "v1/merchant/tryon/jobs"
+        fun merchantTryonJob(jobId: String) = "v1/merchant/tryon/jobs/$jobId"
+
+        const val MERCHANT_UPLOAD_SESSIONS = "v1/merchant/tryon/upload-sessions"
+        fun merchantUploadSessionStatus(token: String) = "v1/merchant/tryon/upload-sessions/$token"
     }
 
     object Parameter {

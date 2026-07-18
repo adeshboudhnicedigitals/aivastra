@@ -17,7 +17,6 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
-import com.example.facewixlatest.ApiUtils.APIConstant
 import java.util.*
 import kotlin.collections.ArrayList
 
@@ -86,13 +85,13 @@ class VastraCategoryItemAdapter(private val subcategoryList: ArrayList<DressesTy
                 try {
                    /* val imageLoader = binding.imgVastraItem.context.imageLoader
                     val request = ImageRequest.Builder(binding.root.context)
-                        .data(APIConstant.BASE_URL + itemData.fullpath)
+                        .data(itemData.fullpath)
                         .target(binding.imgVastraItem)
                         .size(400, 400)
                         .build()
                     val disposable = imageLoader.enqueue(request)*/
                     Glide.with(binding.root.context)
-                        .load(APIConstant.BASE_URL + itemData.fullpath)
+                        .load(itemData.fullpath)
                         .thumbnail(0.1f)                // shows preview immediately
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .skipMemoryCache(false)
@@ -101,6 +100,10 @@ class VastraCategoryItemAdapter(private val subcategoryList: ArrayList<DressesTy
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+                // Listing grid shows the SKU, not the price \u2014 price is shown only in the
+                // enlarged product preview dialog (SelectedVastraThemePreviewDialog).
+                binding.txtSku.isVisible = itemData.sku_number.isNotBlank()
+                binding.txtSku.text = "Sku:${itemData.sku_number}"
                 binding.executePendingBindings()
             }
         }
