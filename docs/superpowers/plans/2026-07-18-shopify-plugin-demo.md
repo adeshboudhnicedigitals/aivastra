@@ -1356,7 +1356,11 @@ Inside the `EmbedStudioWizard` function, directly after the existing `uploadErro
   }
 
   function handleUseImage(args: { url: string; jobId: string; poseLabel: string }) {
-    postImageSelectedToParent(args);
+    postImageSelectedToParent({
+      imageUrl: args.url,
+      jobId: args.jobId,
+      poseLabel: args.poseLabel,
+    });
   }
 ```
 
@@ -2498,4 +2502,4 @@ git commit -m "feat(web): add Shopify Plugin sidebar entry"
 
 **Placeholder scan:** no "TBD"/"TODO" strings; every code block is complete, runnable code with concrete values (e.g. `aspectRatio: '1:1'`, real Shopify screenshot content baked into `shopify-mock-data.ts`).
 
-**Type consistency:** `EmbedImageSelectedMessage` (Task 3) is the single shape used by both `postImageSelectedToParent` (Task 6, inside the iframe) and `isEmbedImageSelectedMessage` (Task 8, in the parent) — same field names (`imageUrl`, `jobId`, `poseLabel`) on both sides. `GenerationPanelProps.onUseImage` (Task 2) takes `{ url, jobId, poseLabel }` and Task 6's `handleUseImage` forwards exactly that shape into `postImageSelectedToParent`'s `{ imageUrl, jobId, poseLabel }` parameter — note the deliberate rename `url` → `imageUrl` at that one call site, which is correct and intentional (matches each function's own established naming), not a mismatch.
+**Type consistency:** `EmbedImageSelectedMessage` (Task 3) is the single shape used by both `postImageSelectedToParent` (Task 6, inside the iframe) and `isEmbedImageSelectedMessage` (Task 8, in the parent) — same field names (`imageUrl`, `jobId`, `poseLabel`) on both sides. `GenerationPanelProps.onUseImage` (Task 2) takes `{ url, jobId, poseLabel }`; Task 6's `handleUseImage` receives that shape and must explicitly map `url` → `imageUrl` when calling `postImageSelectedToParent` (its parameter is `{ imageUrl, jobId, poseLabel }`) — Task 6 Step 3's code now does this mapping explicitly rather than forwarding `args` as-is.
