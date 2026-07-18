@@ -39,7 +39,9 @@ function ShopifyChrome({ children }: { children: React.ReactNode }) {
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>shopify</span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* biome-ignore lint/performance/noImgElement: small static header logo */}
+          <img src={`${BASE}/assets/sellio-logo.png`} alt="Sellio" style={{ height: 22 }} />
           <span
             style={{
               fontSize: 11,
