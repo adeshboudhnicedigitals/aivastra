@@ -1,6 +1,6 @@
 'use client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, MonitorPlay, Package, Phone } from 'lucide-react';
+import { KeyRound, MonitorPlay, Package, Phone, Store } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -56,6 +56,13 @@ const NAV: {
     href: '/developers',
     label: 'Developers',
     icon: 'key',
+    merchantOnly: true,
+  },
+  {
+    id: 'shopify-plugin',
+    href: '/shopify-plugin',
+    label: 'Shopify Plugin',
+    icon: 'store',
     merchantOnly: true,
   },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
@@ -136,7 +143,9 @@ export function Sidebar() {
     },
     {
       title: 'BUSINESS',
-      items: visibleNav.filter((item) => ['pricing', 'developers'].includes(item.id)),
+      items: visibleNav.filter((item) =>
+        ['pricing', 'developers', 'shopify-plugin'].includes(item.id),
+      ),
     },
     {
       title: 'HELP',
@@ -264,6 +273,8 @@ export function Sidebar() {
                           <Package size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : item.icon === 'key' ? (
                           <KeyRound size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
+                        ) : item.icon === 'store' ? (
+                          <Store size={16} style={{ color: isActive ? '#FFFFFF' : '#BABABB' }} />
                         ) : (
                           // eslint-disable-next-line @next/next/no-img-element
                           // biome-ignore lint/performance/noImgElement: user upload icon
