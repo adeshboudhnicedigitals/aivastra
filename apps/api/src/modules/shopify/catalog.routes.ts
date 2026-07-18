@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { decryptToken } from '../../lib/crypto.js';
@@ -26,7 +26,14 @@ const GenerateBody = z.object({
   resolution: z.enum(['HD', '2K', '4K']),
 });
 
-const JobsQuery = z.object({ catalogueId: z.string().uuid() });
+const JobsQuery = z
+  .object({
+    catalogueId: z.string().uuid().optional(),
+    shopifyProductId: z.coerce.number().int().positive().optional(),
+  })
+  .refine((q) => q.catalogueId !== undefined || q.shopifyProductId !== undefined, {
+    message: 'catalogueId or shopifyProductId is required',
+  });
 
 const MAX_GARMENT_SOURCE_BYTES = 10 * 1024 * 1024;
 
@@ -183,33 +190,38 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
           err instanceof Error ? err.message : 'invalid request querystring',
         );
       }
-      const { catalogueId } = query;
+      const { catalogueId, shopifyProductId } = query;
+      const scope = catalogueId
+        ? eq(schema.jobs.catalogueId, catalogueId)
+        : eq(schema.shopifyCatalogJobs.shopifyProductId, shopifyProductId as number);
 
       const rows = await app.db
         .select({
           jobId: schema.jobs.id,
+          catalogueId: schema.jobs.catalogueId,
           status: schema.jobs.status,
           errorCode: schema.jobs.errorCode,
           resultKey: schema.jobOutputs.resultKey,
           shopifyMediaId: schema.shopifyCatalogJobs.shopifyMediaId,
+          sourceImageUrl: schema.shopifyCatalogJobs.sourceImageUrl,
+          createdAt: schema.shopifyCatalogJobs.createdAt,
         })
         .from(schema.jobs)
         .innerJoin(schema.shopifyCatalogJobs, eq(schema.shopifyCatalogJobs.jobId, schema.jobs.id))
         .leftJoin(schema.jobOutputs, eq(schema.jobOutputs.jobId, schema.jobs.id))
-        .where(
-          and(
-            eq(schema.jobs.catalogueId, catalogueId),
-            eq(schema.shopifyCatalogJobs.storeId, store.id),
-          ),
-        );
+        .where(and(scope, eq(schema.shopifyCatalogJobs.storeId, store.id)))
+        .orderBy(desc(schema.shopifyCatalogJobs.createdAt));
 
       return {
         items: rows.map((r) => ({
           jobId: r.jobId,
+          catalogueId: r.catalogueId,
           status: r.status,
           errorCode: r.errorCode,
           resultUrl: r.resultKey ? app.storage.publicUrl(r.resultKey) : null,
           published: r.shopifyMediaId != null,
+          sourceImageUrl: r.sourceImageUrl,
+          createdAt: r.createdAt,
         })),
       };
     },

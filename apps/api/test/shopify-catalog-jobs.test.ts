@@ -96,6 +96,33 @@ describe('GET /v1/shopify/catalog/jobs', () => {
     expect(body.items[0].published).toBe(false);
   });
 
+  it('returns the job when queried by shopifyProductId instead of catalogueId', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/catalog/jobs?shopifyProductId=999',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      items: { jobId: string; catalogueId: string; sourceImageUrl: string }[];
+    };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0].jobId).toBe(jobId);
+    expect(body.items[0].catalogueId).toBe(catalogueId);
+    expect(body.items[0].sourceImageUrl).toBe(
+      'https://cdn.shopify.com/s/files/1/0/0/products/x.jpg',
+    );
+  });
+
+  it('rejects 400 when authenticated but neither catalogueId nor shopifyProductId is given', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/catalog/jobs',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('excludes jobs belonging to a different store', async () => {
     const otherStore = await upsertShopifyStore(
       app,

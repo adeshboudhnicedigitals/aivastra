@@ -1,5 +1,6 @@
-import { Banner, Page, Select, TextField, Thumbnail } from '@shopify/polaris';
+import { Banner, Button, Page, Select, TextField, Thumbnail } from '@shopify/polaris';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api';
 import { STATUS_BADGE_BG, STATUS_BADGE_TEXT, STATUS_DOT_COLOR } from '../lib/statusColors';
 import type { FunnelTemplateItem, ShopifyProductListItem } from '../types';
@@ -76,6 +77,7 @@ function StatusBadge({
 }
 
 export default function ProductsPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -223,6 +225,7 @@ export default function ProductsPage() {
           <div style={{ flex: '1 1 auto' }}>Product</div>
           <div style={{ width: '140px' }}>Status</div>
           <div style={{ width: '220px' }}>Funnel</div>
+          <div style={{ width: '120px' }}>Images</div>
         </div>
 
         {loading && (
@@ -283,6 +286,14 @@ export default function ProductsPage() {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div style={{ width: '120px' }}>
+                <Button
+                  size="slim"
+                  onClick={() => navigate(`/generated-images?productId=${item.shopifyProductId}`)}
+                >
+                  View images
+                </Button>
               </div>
             </div>
           ))}
