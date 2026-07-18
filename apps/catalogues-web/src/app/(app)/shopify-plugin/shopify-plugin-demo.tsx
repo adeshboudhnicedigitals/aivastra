@@ -60,8 +60,9 @@ function ShopifyChrome({ children }: { children: React.ReactNode }) {
         <div
           style={{
             width: 200,
-            background: '#0e0e0e',
-            color: '#c9cccf',
+            background: '#fff',
+            color: '#3c3f42',
+            borderRight: '1px solid #e3e3e3',
             flexShrink: 0,
             padding: '16px 8px',
             display: 'flex',
@@ -77,8 +78,8 @@ function ShopifyChrome({ children }: { children: React.ReactNode }) {
                 padding: '8px 12px',
                 borderRadius: 6,
                 fontWeight: label === 'Products' ? 600 : 400,
-                background: label === 'Products' ? 'rgba(255,255,255,0.1)' : 'transparent',
-                color: label === 'Products' ? '#fff' : '#c9cccf',
+                background: label === 'Products' ? '#f1f2f4' : 'transparent',
+                color: label === 'Products' ? '#1a1a1a' : '#3c3f42',
               }}
             >
               {label}
@@ -88,7 +89,10 @@ function ShopifyChrome({ children }: { children: React.ReactNode }) {
             Sales channels
           </div>
           {SHOPIFY_SALES_CHANNELS.map((label) => (
-            <div key={label} style={{ padding: '8px 12px', borderRadius: 6, fontSize: 13 }}>
+            <div
+              key={label}
+              style={{ padding: '8px 12px', borderRadius: 6, fontSize: 13, color: '#3c3f42' }}
+            >
               {label}
             </div>
           ))}
