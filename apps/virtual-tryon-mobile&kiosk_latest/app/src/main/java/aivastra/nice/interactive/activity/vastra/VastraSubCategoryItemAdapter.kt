@@ -17,7 +17,6 @@ import androidx.recyclerview.widget.RecyclerView
 import coil.imageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.example.facewixlatest.ApiUtils.APIConstant
 import kotlin.collections.ArrayList
 import androidx.recyclerview.widget.ListAdapter
 
@@ -106,7 +105,7 @@ class VastraSubCategoryItemAdapter(private val onClickEvent:(DressesTypeDataMode
                     val imageLoader = binding.imgVastraItem.context.imageLoader
                     val request = ImageRequest.Builder(binding.root.context)
                         .diskCachePolicy(CachePolicy.ENABLED)
-                        .data(APIConstant.BASE_URL + itemData.fullpath)
+                        .data(itemData.fullpath)
                         .target(binding.imgVastraItem)
                         .build()
                     val disposable = imageLoader.enqueue(request)

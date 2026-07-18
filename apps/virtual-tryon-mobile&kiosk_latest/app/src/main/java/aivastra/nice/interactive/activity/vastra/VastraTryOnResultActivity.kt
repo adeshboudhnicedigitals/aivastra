@@ -32,6 +32,10 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
     private lateinit var sareeCatViewmodel: SareecategoryDataViewModel
     private var isProductLike = false
     private var isProductAddedToCart = false
+    // Set the moment the user taps like/cart, so the async initial-state fetch
+    // (fired on screen open) can't land afterward and silently undo the user's tap.
+    private var userHasToggledLike = false
+    private var userHasToggledCart = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,12 +55,16 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
         tryOnResultId = intent?.extras?.getString(AppConstant.TRY_ON_RESULT_ID).toString()
         tryOnResultId?.let { id ->
             sareeCatViewmodel.getTryonJobStatusForResultScreen(id) { liked, inCart ->
-                isProductLike = liked
-                isProductAddedToCart = inCart
-                binding.llLike.imageTintList =
-                    if (liked) ColorStateList.valueOf(ContextCompat.getColor(this, R.color.red)) else null
-                binding.llAddToCart.imageTintList =
-                    if (inCart) ColorStateList.valueOf(ContextCompat.getColor(this, R.color.dark_brown)) else null
+                if (!userHasToggledLike) {
+                    isProductLike = liked
+                    binding.llLike.imageTintList =
+                        if (liked) ColorStateList.valueOf(ContextCompat.getColor(this, R.color.red)) else null
+                }
+                if (!userHasToggledCart) {
+                    isProductAddedToCart = inCart
+                    binding.llAddToCart.imageTintList =
+                        if (inCart) ColorStateList.valueOf(ContextCompat.getColor(this, R.color.dark_brown)) else null
+                }
             }
         }
         try{
@@ -100,6 +108,7 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
     override fun onClick(v: View?) {
         val id = v?.id
         if(id==R.id.ll_like){
+            userHasToggledLike = true
             if(isProductLike){
                 isProductLike = false
                 tryOnResultId?.let { sareeCatViewmodel.likeVastraTryOnResultAPI(it,"0") }
@@ -114,6 +123,7 @@ class VastraTryOnResultActivity : BaseActivity(), View.OnClickListener {
             tryOnResultUrl?.let { gotoNextScreen(it) }
         }
         if(id==R.id.ll_add_to_cart){
+            userHasToggledCart = true
             if(isProductAddedToCart){
                 isProductAddedToCart = false
                 tryOnResultId?.let { sareeCatViewmodel.addToCartVastraTryOnResultAPI(it,"0") }

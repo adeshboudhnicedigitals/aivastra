@@ -1,4 +1,4 @@
-﻿import { schema } from '@aivastra/db';
+import { schema } from '@aivastra/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signAccess } from '../../src/modules/auth/service';
 import { buildTestApp, type TestApp } from '../helpers/api';

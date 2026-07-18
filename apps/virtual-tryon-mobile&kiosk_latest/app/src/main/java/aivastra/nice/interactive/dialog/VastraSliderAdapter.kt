@@ -13,7 +13,6 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
-import com.example.facewixlatest.ApiUtils.APIConstant
 
 class VastraSliderAdapter(
     private val context:Context,
@@ -34,7 +33,7 @@ class VastraSliderAdapter(
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
         Glide.with(context)
-            .load(APIConstant.BASE_URL + images[position].preview)
+            .load(images[position].preview)
             .thumbnail(0.1f)                // shows preview immediately
             .diskCacheStrategy(DiskCacheStrategy.ALL)
             .skipMemoryCache(false)

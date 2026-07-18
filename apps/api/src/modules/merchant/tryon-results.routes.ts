@@ -1,4 +1,4 @@
-﻿import { schema } from '@aivastra/db';
+import { schema } from '@aivastra/db';
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';

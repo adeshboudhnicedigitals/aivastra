@@ -174,8 +174,12 @@ class SareecategoryDataViewModel : ViewModel() {
 
     fun fetchDressTryOnAPI(activity: Activity, garmentId: String, deviceId: String) {
         viewModelScope.launch {
-            val r2Key = _uploadedPhotoR2Key.value
-            if (r2Key.isNullOrBlank()) {
+            // _uploadedPhotoR2Key is only populated in whichever Activity's ViewModel instance
+            // performed the upload (camera capture or QR-scan) — VastraTryOnActivity gets a fresh
+            // ViewModel instance, so it must fall back to the persisted copy.
+            val r2Key = _uploadedPhotoR2Key.value?.takeIf { it.isNotBlank() }
+                ?: PrefsManager.getUploadedPhotoR2Key()
+            if (r2Key.isBlank()) {
                 _error.postValue("App error: no confirmed photo to try on. Please capture or upload a photo again.")
                 return@launch
             }
@@ -318,6 +322,7 @@ class SareecategoryDataViewModel : ViewModel() {
                     _userOpenQrCodeLink.postValue(UploadImageModel(open = "yes"))
                     val r2Key = status.getString("r2Key")
                     _uploadedPhotoR2Key.postValue(r2Key)
+                    PrefsManager.saveUploadedPhotoR2Key(r2Key)
                     _uploadUserImageData.postValue(
                         UploadImageModel(
                             status = true,
@@ -382,6 +387,7 @@ class SareecategoryDataViewModel : ViewModel() {
                 )
                 PrefsManager.saveImageId(activity, id)
                 PrefsManager.saveCapturedImage(activity, imgFile.absolutePath)
+                PrefsManager.saveUploadedPhotoR2Key(r2Key)
             }.onFailure { cause ->
                 val (title, message) = ApiErrorPresenter.present(cause)
                 _error.postValue("$title: $message")

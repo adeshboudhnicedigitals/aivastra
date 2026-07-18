@@ -1,4 +1,4 @@
-﻿import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 
 // Ten minutes is enough for a customer to scan, take a photo, and upload it.

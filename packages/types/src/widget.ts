@@ -1,7 +1,7 @@
-﻿import { z } from 'zod';
+import { z } from 'zod';
 
 /**
- * Authoritative merchant plan billing data â€” the single source of truth for
+ * Authoritative merchant plan billing data — the single source of truth for
  * money. The API computes order amounts from THIS, never from client input.
  * The web pricing UI merges display-only metadata on top of these by slug.
  */
@@ -54,8 +54,8 @@ export const MerchantCatalogCreateBody = z.object({
   subcategoryId: z.string().uuid(),
   label: z.string().min(1).max(200),
   sku: z.string().max(120).optional(),
-  actualPrice: z.number().int().min(0), // rupees â€” converted to paise at the route layer
-  offerPrice: z.number().int().min(0), // rupees â€” converted to paise at the route layer
+  actualPrice: z.number().int().min(0), // rupees — converted to paise at the route layer
+  offerPrice: z.number().int().min(0), // rupees — converted to paise at the route layer
   r2Key: z.string().min(1),
   thumbnailKey: z.string().min(1),
 });
@@ -99,7 +99,7 @@ export const MerchantCatalogItem = z.object({
   subcategoryId: z.string().uuid(),
   label: z.string(),
   sku: z.string().nullable(),
-  actualPrice: z.number().int(), // rupees â€” converted from paise by the route layer
+  actualPrice: z.number().int(), // rupees — converted from paise by the route layer
   offerPrice: z.number().int(),
   r2Key: z.string(),
   thumbnailKey: z.string(),
@@ -274,7 +274,7 @@ export const MerchantTryonPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(10 * 1024 * 1024),
 });
 export type MerchantTryonPresignBody = z.infer<typeof MerchantTryonPresignBody>;
 

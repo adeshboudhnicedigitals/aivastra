@@ -14,6 +14,7 @@ object PrefsManager {
     private const val KEY_USER_ID = "USER_ID"
     private const val KEY_REFRESH_TOKEN = "REFRESH_TOKEN"
     private const val CAPTURED_IMAGE = "captured_image"
+    private const val UPLOADED_PHOTO_R2_KEY = "uploaded_photo_r2_key"
     const val KEY_FLASH = "flash"
      const val KEY_HDR = "hdr"
      const val KEY_WB = "white_balance"
@@ -52,7 +53,7 @@ object PrefsManager {
 
     fun clearKioskSession() {
         synchronized(this) {
-            appPrefs().edit().remove("SaveLoginUserDetails").apply()
+            securePrefs().edit().remove("SaveLoginUserDetails").apply()
             clearRefreshToken()
         }
     }
@@ -91,6 +92,25 @@ object PrefsManager {
     fun getCapturedImage(context: Context): String {
         val sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return sharedPreferences.getString(CAPTURED_IMAGE, "")?: ""
+    }
+
+    // The uploaded photo's r2Key is produced in one Activity's ViewModel (camera capture or
+    // QR-scan upload) but consumed from a different Activity's ViewModel instance
+    // (VastraTryOnActivity) — ViewModelProvider scopes ViewModels per-Activity, so it must be
+    // persisted the same way capturedImage above is, or the try-on request loses the key entirely.
+    fun saveUploadedPhotoR2Key(r2Key: String) {
+        val sharedPreferences = MyAPP.appContext!!.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        sharedPreferences.edit().putString(UPLOADED_PHOTO_R2_KEY, r2Key).apply()
+    }
+
+    fun getUploadedPhotoR2Key(): String {
+        val sharedPreferences = MyAPP.appContext!!.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return sharedPreferences.getString(UPLOADED_PHOTO_R2_KEY, "") ?: ""
+    }
+
+    fun clearUploadedPhotoR2Key() {
+        val sharedPreferences = MyAPP.appContext!!.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        sharedPreferences.edit().remove(UPLOADED_PHOTO_R2_KEY).apply()
     }
 
     fun getImageID(context: Context): String {
@@ -170,22 +190,20 @@ object PrefsManager {
         return sharedPreferences.getBoolean(key, true)
     }
 
+    // Uses securePrefs() (EncryptedSharedPreferences), not appPrefs() — this blob contains the
+    // bearer access token (UserLoginDataModel.User.apiKey), which needs the same protection as
+    // the refresh token below, not plain-text SharedPreferences.
     fun saveLoginUserData(user: UserLoginDataModel) {
         synchronized(this) {
-            val sharedPreferences: SharedPreferences =
-                MyAPP.appContext!!.getSharedPreferences(getAppname(), Context.MODE_PRIVATE)
-            val sharedPreferencesEditor = sharedPreferences.edit()
             val gson = Gson()
             val serializedObject: String = gson.toJson(user)
-            sharedPreferencesEditor.putString("SaveLoginUserDetails", serializedObject)
-            sharedPreferencesEditor.apply()
+            securePrefs().edit().putString("SaveLoginUserDetails", serializedObject).apply()
         }
     }
 
     val loginUserInfo: UserLoginDataModel
         get() {
-            val sharedPreferences: SharedPreferences =
-                MyAPP.appContext!!.getSharedPreferences(getAppname(), Context.MODE_PRIVATE)
+            val sharedPreferences = securePrefs()
             if (sharedPreferences.contains("SaveLoginUserDetails")) {
                 val gson = Gson()
                 return gson.fromJson(
@@ -197,14 +215,7 @@ object PrefsManager {
         }
 
     val isUserExist: Boolean
-        get() {
-            val sharedPreferences: SharedPreferences =
-                MyAPP.appContext!!.getSharedPreferences(
-                    getAppname(),
-                    Context.MODE_PRIVATE
-                )
-            return sharedPreferences.contains("SaveLoginUserDetails")
-        }
+        get() = securePrefs().contains("SaveLoginUserDetails")
 
 
     fun checkForNullKey(key: String?) {
