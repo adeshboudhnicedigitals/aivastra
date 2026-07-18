@@ -166,6 +166,37 @@ describe('POST /v1/shopify/catalog/generate', () => {
     expect(tracked.shopifyProductId).toBe(12345);
   });
 
+  it('deletes the uploaded R2 object when createJob fails afterward', async () => {
+    // faceId is a well-formed but non-existent UUID, so createJob throws
+    // BAD_CATALOG only after downloadProductImageToR2 has already written
+    // the object to R2 — this is what exercises the cleanup path.
+    const putObjectSpy = vi.spyOn(app.storage, 'putObject');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/shopify/catalog/generate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        shopifyProductId: 999,
+        sourceImageUrl: 'https://cdn.shopify.com/s/files/1/0/0/products/shirt-bad-face.jpg',
+        faceId: '00000000-0000-0000-0000-000000000000',
+        looks: [{ poseId, backgroundId }],
+        aspectRatio: '3:4',
+        resolution: 'HD',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    const body = res.json() as { error: { code: string } };
+    expect(body.error.code).toBe('BAD_CATALOG');
+
+    expect(putObjectSpy).toHaveBeenCalledTimes(1);
+    const uploadedKey = putObjectSpy.mock.calls[0][0];
+    expect(uploadedKey).toMatch(/^shopify-catalog-garments\//);
+    await expect(app.storage.headObject(uploadedKey)).rejects.toBeTruthy();
+
+    putObjectSpy.mockRestore();
+  });
+
   it('rejects when the store has no linked owner', async () => {
     const unlinked = await upsertShopifyStore(
       app,
