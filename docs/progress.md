@@ -169,6 +169,20 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 
 ---
 
+## 2026-07-15 - Fix: misleading "X/6 required nodes" workflow-upload message
+
+### Done
+- The admin workflow-upload modal's auto-detect summary counted 6 fixed fields (face, pose, background, upper, positive prompt, negative prompt) as if all were equally required, showing e.g. "⚠ 4/6 required nodes auto-detected — manually set the rest below" - stale messaging from before the flexible-workflow-roles feature. The real submit gate (`canSubmit`, same file) only requires pose + positive prompt + a garment role (upper OR lower, not specifically upper); face/background are fully optional, and negative prompt is only required if a face node is set. A fully valid, submittable regular workflow (e.g. lower-only, faceless) could show a scary partial-count warning.
+- Replaced the count with a `requiredMissing` list computed against the same real requirements `canSubmit` checks (evaluated against the raw auto-detect result, not the live hand-edited form state) - the message now either confirms everything required was found, or names exactly what's still missing (e.g. "⚠ Missing: a garment role (upper or lower) — set manually below") instead of an inaccurate count against the wrong denominator. The informational "Auto-detected" summary box below (which lists whatever *was* found, required or not) is untouched.
+
+### Failed / Not Done
+- None. Verified via typecheck/lint and manual trace through three scenarios, not a live browser session.
+
+### Open Questions / Decisions
+- None.
+
+---
+
 ## 2026-07-15 - Studio Left Panel Theme & Sidebar Upgrades
 
 ### Done
