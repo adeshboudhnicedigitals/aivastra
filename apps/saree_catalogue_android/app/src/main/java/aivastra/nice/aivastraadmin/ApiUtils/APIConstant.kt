@@ -11,6 +11,7 @@ object APIConstant {
 
     object API_ENDPOINTS {
         const val DEVICE_LOGIN = "v1/auth/device-login"
+        const val DEVICE_LOGIN_FORCE = "v1/auth/device-login/force"
         const val DEVICE_REFRESH = "v1/auth/device-refresh"
         const val DEVICE_LOGOUT = "v1/auth/device-logout"
 

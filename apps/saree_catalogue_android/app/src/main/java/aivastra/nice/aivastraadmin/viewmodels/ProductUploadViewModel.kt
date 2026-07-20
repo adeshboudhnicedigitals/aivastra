@@ -10,6 +10,11 @@ import com.example.facewixlatest.ApiUtils.APIConstant
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+data class DeviceLimitState(
+    val message: String,
+    val forceLogoutToken: String,
+)
+
 class ProductUploadViewModel : ViewModel() {
 
     private val _error = MutableLiveData<String?>()
@@ -17,6 +22,9 @@ class ProductUploadViewModel : ViewModel() {
 
     private val _sessionResult = MutableLiveData<UserSession?>()
     val sessionResult: LiveData<UserSession?> get() = _sessionResult
+
+    private val _deviceLimitReached = MutableLiveData<DeviceLimitState?>()
+    val deviceLimitReached: LiveData<DeviceLimitState?> get() = _deviceLimitReached
 
     fun resetError() {
         _error.postValue(null)
@@ -29,10 +37,30 @@ class ProductUploadViewModel : ViewModel() {
                 PrefsManager.saveSession(session)
                 PrefsManager.saveRefreshToken(session.refreshToken)
                 _sessionResult.postValue(session)
+            } catch (e: DeviceLimitReachedException) {
+                _deviceLimitReached.postValue(DeviceLimitState(e.message.orEmpty(), e.forceLogoutToken))
             } catch (e: Exception) {
                 _error.postValue(AuthRepository.errorMessage(e))
             }
         }
+    }
+
+    fun forceLogoutOtherDeviceAndLogin(forceLogoutToken: String, deviceId: String) {
+        viewModelScope.launch {
+            try {
+                val session = AuthRepository.forceDeviceLogin(forceLogoutToken, deviceId)
+                PrefsManager.saveSession(session)
+                PrefsManager.saveRefreshToken(session.refreshToken)
+                _deviceLimitReached.postValue(null)
+                _sessionResult.postValue(session)
+            } catch (e: Exception) {
+                _error.postValue(AuthRepository.errorMessage(e))
+            }
+        }
+    }
+
+    fun resetDeviceLimitState() {
+        _deviceLimitReached.postValue(null)
     }
 
     fun logout(onDone: () -> Unit) {

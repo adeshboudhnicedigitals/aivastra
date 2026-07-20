@@ -9,8 +9,10 @@ import aivastra.nice.aivastraadmin.R
 import aivastra.nice.aivastraadmin.databinding.ActivityLoginBinding
 import aivastra.nice.aivastraadmin.utils.PrefsManager
 import aivastra.nice.aivastraadmin.utils.ViewControll
+import aivastra.nice.aivastraadmin.viewmodels.DeviceLimitState
 import aivastra.nice.aivastraadmin.viewmodels.ProductUploadViewModel
 import aivastra.nice.interactive.Loader.LoaderManager
+import android.app.AlertDialog
 import android.content.Intent
 import android.provider.Settings
 import android.view.View
@@ -61,10 +63,27 @@ class LoginActivity : AppCompatActivity(), View.OnClickListener {
         val password = binding.etPassword.text?.toString()?.trim() ?: ""
         LoaderManager.show(this,findViewById(android.R.id.content),false)
         productUploadViewModel.deviceLogin(email, password, deviceId)
+        observeLoginResult(deviceId)
+    }
+
+    private fun callForceLoginAPI(forceLogoutToken: String, deviceId: String) {
+        LoaderManager.show(this, findViewById(android.R.id.content), false)
+        resetObserver()
+        productUploadViewModel.forceLogoutOtherDeviceAndLogin(forceLogoutToken, deviceId)
+        observeLoginResult(deviceId)
+    }
+
+    private fun observeLoginResult(deviceId: String) {
         productUploadViewModel.sessionResult.observe(this, Observer { session->
             LoaderManager.remove(this)
             if(session!=null){
                 gotoNextScreen()
+            }
+        })
+        productUploadViewModel.deviceLimitReached.observe(this, Observer { state ->
+            LoaderManager.remove(this)
+            if (state != null) {
+                showDeviceLimitDialog(state, deviceId)
             }
         })
         productUploadViewModel.error.observe(this, Observer { errorMsg->
@@ -76,6 +95,23 @@ class LoginActivity : AppCompatActivity(), View.OnClickListener {
             }
         })
     }
+
+    private fun showDeviceLimitDialog(state: DeviceLimitState, deviceId: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Device limit reached")
+            .setMessage("${state.message}\n\nLogout from the other device and continue here?")
+            .setNegativeButton("Cancel") { dialog, _ ->
+                dialog.dismiss()
+                productUploadViewModel.resetDeviceLimitState()
+                resetObserver()
+            }
+            .setPositiveButton("Logout Other Device") { dialog, _ ->
+                dialog.dismiss()
+                callForceLoginAPI(state.forceLogoutToken, deviceId)
+            }
+            .show()
+    }
+
     private fun gotoNextScreen(){
         val intent = Intent(this@LoginActivity, DashBoardActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -86,5 +122,6 @@ class LoginActivity : AppCompatActivity(), View.OnClickListener {
     private fun resetObserver(){
         productUploadViewModel.error.removeObservers(this)
         productUploadViewModel.sessionResult.removeObservers(this)
+        productUploadViewModel.deviceLimitReached.removeObservers(this)
     }
 }
