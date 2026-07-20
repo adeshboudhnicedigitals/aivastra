@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import type { CatalogCategory, CategoryTag, ModelBackground } from '../types';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 
 const SPECIAL_TAG_OPTIONS: { value: CategoryTag; label: string }[] = [
   { value: 'featured', label: 'Featured' },
@@ -196,24 +197,14 @@ export function EditBackgroundModal({
             </div>
             <div className="field">
               <label>Category</label>
-              <select
-                className="select"
-                value={form.categoryId ?? ''}
+              <SearchableSelect
+                options={categories.map((c) => ({ id: String(c.id), label: c.label }))}
+                value={form.categoryId != null ? String(form.categoryId) : ''}
                 disabled={saving}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    categoryId: e.target.value ? Number(e.target.value) : null,
-                  }))
-                }
-              >
-                <option value="">Uncategorized</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
+                placeholder="— search category —"
+                emptyLabel="Uncategorized"
+                onChange={(id) => setForm((f) => ({ ...f, categoryId: id ? Number(id) : null }))}
+              />
             </div>
             <div className="field">
               <label>

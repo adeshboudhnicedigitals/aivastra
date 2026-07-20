@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { Icon } from '../components/Icons';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch } from '../lib/data';
@@ -1143,51 +1144,34 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       }}
                     >
                       <label style={{ textTransform: 'capitalize' }}>{cat}</label>
-                      <select
-                        className="select"
+                      <SearchableSelect
+                        options={modelFacesList.filter((f) => f.gender === cat)}
                         value={merchantCatalogDefaults[cat]?.faceId ?? ''}
                         disabled={sysSaving}
-                        onChange={(e) =>
+                        placeholder="— search face —"
+                        onChange={(faceId) =>
                           setMerchantCatalogDefaults((prev) => ({
                             ...prev,
                             [cat]: {
                               ...prev[cat],
-                              faceId: e.target.value,
+                              faceId,
                               backgroundId: prev[cat]?.backgroundId ?? '',
                             },
                           }))
                         }
-                      >
-                        <option value="">— select face —</option>
-                        {modelFacesList
-                          .filter((f) => f.gender === cat)
-                          .map((f) => (
-                            <option key={f.id} value={f.id}>
-                              {f.label}
-                            </option>
-                          ))}
-                      </select>
-                      <select
-                        className="select"
+                      />
+                      <SearchableSelect
+                        options={modelBackgroundsList}
                         value={merchantCatalogDefaults[cat]?.backgroundId ?? ''}
                         disabled={sysSaving}
-                        onChange={(e) =>
+                        placeholder="— search background —"
+                        onChange={(backgroundId) =>
                           setMerchantCatalogDefaults((prev) => ({
                             ...prev,
-                            [cat]: {
-                              faceId: prev[cat]?.faceId ?? '',
-                              backgroundId: e.target.value,
-                            },
+                            [cat]: { faceId: prev[cat]?.faceId ?? '', backgroundId },
                           }))
                         }
-                      >
-                        <option value="">— select background —</option>
-                        {modelBackgroundsList.map((b) => (
-                          <option key={b.id} value={b.id}>
-                            {b.label}
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </div>
                   ))}
                   <div style={{ maxWidth: 200 }}>
