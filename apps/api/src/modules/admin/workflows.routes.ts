@@ -207,12 +207,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
         const posNode = body.garmentPhasePromptNode!;
 
-        if (!personNodeId)
-          throw new AppError(
-            'VALIDATION',
-            400,
-            'Could not detect person node — set tryonPersonNodeId manually',
-          );
+        // personNodeId is optional — some tryon/saree_step1 workflows bake the
+        // face in directly (e.g. a fixed-URL node) instead of a patchable LoadImage.
         if (!garmentNodeId)
           throw new AppError(
             'VALIDATION',
@@ -226,12 +222,14 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             'Could not detect output node — set tryonOutputNodeId manually',
           );
 
-        validateNodeExists(body.jsonContent, personNodeId, 'person');
+        if (personNodeId) {
+          validateNodeExists(body.jsonContent, personNodeId, 'person');
+          validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
+        }
         validateNodeExists(body.jsonContent, garmentNodeId, 'garment');
         validateNodeExists(body.jsonContent, outputNodeId, 'output');
         validateNodeExists(body.jsonContent, negNode, 'negative prompt');
         validateNodeExists(body.jsonContent, posNode, 'positive prompt');
-        validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
         validateNodeType(body.jsonContent, garmentNodeId, 'image', 'garment');
         validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
         validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
@@ -257,7 +255,7 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
             garmentPhasePromptNode: posNode,
             defaultFacePhasePrompt,
             defaultGarmentPhasePrompt,
-            tryonPersonNodeId: personNodeId,
+            tryonPersonNodeId: personNodeId || null,
             tryonGarmentNodeId: garmentNodeId,
             tryonOutputNodeId: outputNodeId,
           })

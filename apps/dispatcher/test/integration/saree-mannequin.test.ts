@@ -134,4 +134,87 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     );
     expect(obj.$metadata.httpStatusCode).toBe(200);
   });
+
+  async function seedMannequinJobNoPersonNode() {
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({ email: `mannequin-noface-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
+      .returning();
+
+    const [template] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step1-nopersonnode-${Date.now()}`,
+        label: 'Step1 No Person Node',
+        jsonContent: {
+          '2': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        },
+        workflowType: 'saree_step1',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: [],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+        tryonPersonNodeId: null,
+        tryonGarmentNodeId: '2',
+        tryonOutputNodeId: '10',
+      })
+      .returning();
+
+    const [garmentType] = await env.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `flat-saree-noface-${Date.now()}`,
+        label: 'Flat Saree No Face',
+        requiresMannequinStep: true,
+        mannequinWorkflowTemplateId: template.id,
+      })
+      .returning();
+
+    const [job] = await env.db
+      .insert(schema.jobs)
+      .values({ userId: user.id, status: 'QUEUED', priority: false, creditsCharged: 0 })
+      .returning();
+
+    await env.db.insert(schema.jobInputs).values({
+      jobId: job.id,
+      upperGarmentKey: `inputs/${job.id}/garment.jpg`,
+      faceId: null,
+      garmentTypeId: garmentType.id,
+      params: { kind: 'saree_mannequin' },
+    });
+
+    await env.s3.send(
+      new PutObjectCommand({
+        Bucket: env.r2Bucket,
+        Key: `inputs/${job.id}/garment.jpg`,
+        Body: Buffer.from('stub'),
+        ContentType: 'image/jpeg',
+      }),
+    );
+
+    return { jobId: job.id, userId: user.id };
+  }
+
+  it('processes a saree_mannequin job with no person node and null faceId to COMPLETED', async () => {
+    const { jobId, userId } = await seedMannequinJobNoPersonNode();
+    const log = createLogger('test');
+
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      jobId,
+      userId,
+      'jobs:normal',
+      '1-2',
+    );
+
+    const [job] = await env.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
+    expect(job?.status).toBe('COMPLETED');
+
+    const prompt = comfy.lastPrompt();
+    // Garment node was patched with the uploaded file; no person node exists to patch.
+    expect(prompt?.prompt['2']?.inputs?.image).toBeTruthy();
+  });
 });
