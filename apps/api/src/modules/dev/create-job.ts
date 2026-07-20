@@ -44,6 +44,10 @@ export async function createDevJobCore(
 
     await atomicDeduct(tx as unknown as DB, params.merchantUserId, params.cost, newJob.id);
 
+    // buildJobInputs()'s return shape is routing-significant: the dispatcher
+    // (apps/dispatcher/src/job/processor.ts) decides which processing path a
+    // job takes based on which of faceId/backgroundId/poseId/params.kind are
+    // present. Callers must get this shape right for their job kind.
     await tx.insert(schema.jobInputs).values({
       jobId: newJob.id,
       ...params.buildJobInputs(),
