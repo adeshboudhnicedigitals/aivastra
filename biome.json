@@ -17,7 +17,8 @@
       "!docs/*.html",
       "!docs/multi-app-ecosystem/design-reference",
       "!Logs-*.json",
-      "!Two-page design frames"
+      "!Two-page design frames",
+      "!apps/saree_catalogue_android"
     ]
   },
   "formatter": {
