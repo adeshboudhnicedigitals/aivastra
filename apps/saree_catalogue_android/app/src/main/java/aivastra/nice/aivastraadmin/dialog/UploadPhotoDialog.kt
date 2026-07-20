@@ -80,7 +80,11 @@ class UploadPhotoDialog(private  val selectedPhotoPath:String,
     }
 
     private fun initView() {
-        productUploadViewmodel = ViewModelProvider(this).get(ProductUploadViewModel::class.java)
+        // Scoped to the parent fragment, not this dialog — finalizeProduct() runs later
+        // against the parent's own ProductUploadViewModel instance, so pendingItemId set
+        // here by generateProduct() must land on the same instance or it's lost when this
+        // dialog is dismissed.
+        productUploadViewmodel = ViewModelProvider(requireParentFragment()).get(ProductUploadViewModel::class.java)
         Glide.with(requireActivity()).load(File(selectedPhotoPath)).into(binding.imgSelected)
         binding.iconCancle.setOnClickListener{
             dismiss()

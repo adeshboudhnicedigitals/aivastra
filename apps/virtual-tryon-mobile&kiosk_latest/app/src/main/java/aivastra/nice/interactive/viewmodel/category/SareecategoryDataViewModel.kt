@@ -28,6 +28,11 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
+// A try-on job that never reaches a terminal state (e.g. a worker requeue loop) would otherwise
+// keep the customer on the non-cancelable processing screen forever. Give up after two minutes and
+// surface it as a server-timeout so the existing error path dismisses the dialog.
+private const val TRYON_POLL_TIMEOUT_MS = 120_000L
+
 data class DeviceLimitState(
     val message: String,
     val forceLogoutToken: String,
@@ -88,6 +93,10 @@ class SareecategoryDataViewModel : ViewModel() {
     private val _tryonJobStatus = MutableLiveData<JSONObject?>()
     val tryonJobStatus: LiveData<JSONObject?> get() = _tryonJobStatus
     private var pollingJob: Job? = null
+
+    // The id of the try-on job currently being polled, so an explicit customer cancel can also tell
+    // the server to stop the job (and refund credits) rather than just abandoning the poll.
+    private var currentTryonJobId: String? = null
 
     fun requestCloseDialog() {
         _closeDialogCallback.postValue(true)
@@ -199,8 +208,14 @@ class SareecategoryDataViewModel : ViewModel() {
 
     private fun pollTryonJob(jobId: String, garmentId: String, deviceId: String, activity: Activity) {
         pollingJob?.cancel()
+        currentTryonJobId = jobId
         pollingJob = viewModelScope.launch {
+            val deadline = System.currentTimeMillis() + TRYON_POLL_TIMEOUT_MS
             while (true) {
+                if (System.currentTimeMillis() >= deadline) {
+                    _error.postValue(APIConstant.serverTimeOut)
+                    return@launch
+                }
                 val status = try {
                     repository.getTryonJobStatus(jobId)
                 } catch (cause: Throwable) {
@@ -255,6 +270,19 @@ class SareecategoryDataViewModel : ViewModel() {
     fun cancelTryonPolling() {
         pollingJob?.cancel()
         pollingJob = null
+    }
+
+    // Explicit customer cancel from the processing screen: stop polling and best-effort ask the
+    // server to cancel the job so the worker stops and credits are refunded. The DELETE can 409 if
+    // the job already moved past the cancellable window — that's fine, we still stop polling.
+    fun cancelCurrentTryonJob() {
+        pollingJob?.cancel()
+        pollingJob = null
+        val jobId = currentTryonJobId ?: return
+        currentTryonJobId = null
+        viewModelScope.launch {
+            runCatching { repository.cancelTryonJob(jobId) }
+        }
     }
     suspend fun getTryonPhotoUrlSync(r2Key: String): String = repository.getTryonPhotoUrl(r2Key)
     fun fetchVastraTryOnResultAPI(
@@ -417,18 +445,16 @@ class SareecategoryDataViewModel : ViewModel() {
         }
     }
 
+    // Branch on the backend's stable error CODE, not on message wording (which can change and break
+    // the matching). Falls back to the backend's own message, then a generic string.
     private fun authErrorMessage(cause: Throwable): String {
-        val raw = cause.message.orEmpty()
-        if (raw.contains("INVALID", ignoreCase = true) || raw.contains("invalid credentials", ignoreCase = true)) {
-            return "Invalid email or password"
+        val backend = cause as? ApiException.BackendError
+        return when (backend?.code) {
+            "INVALID" -> "Invalid email or password"
+            "EMAIL_NOT_VERIFIED" -> "Please verify this email before logging in"
+            null -> cause.message.orEmpty().ifBlank { APIConstant.errorSomethingWrong }
+            else -> backend.backendMessage.ifBlank { "Unable to login. Please try again." }
         }
-        if (raw.contains("EMAIL_NOT_VERIFIED", ignoreCase = true)) {
-            return "Please verify this email before logging in"
-        }
-        if (raw.contains("HTTP", ignoreCase = true)) {
-            return "Unable to login. Please try again."
-        }
-        return raw.ifBlank { APIConstant.errorSomethingWrong }
     }
 
     fun userVerifyApi(deviceId: String) {

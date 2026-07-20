@@ -52,14 +52,12 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 import java.util.UUID
 
 
 class UploadVastraFragment : Fragment(), View.OnClickListener {
 
     private lateinit var binding: FragmentUploadVastraBinding
-    private var currentPhotoPath:String? = null
     private lateinit var productUploadViewmodel: ProductUploadViewModel
     private var lastGeneratedResultUrl: String = ""
     private var selectedSubcategoryId: String? = null
@@ -119,104 +117,6 @@ class UploadVastraFragment : Fragment(), View.OnClickListener {
             dispatchTakePictureIntent()  // Start CameraX if all required permissions are granted
         }
     }
-
-   /* private fun dispatchTakePictureIntent() {
-        try {
-            val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-            takePictureIntent.putExtra("android.intent.extras.CAMERA_FACING", 1) // 1 = Front Camera
-            takePictureIntent.putExtra("android.intent.extras.LENS_FACING_FRONT", 1) // Alternative
-            takePictureIntent.putExtra("android.intent.extras.USE_FRONT_CAMERA", true) // Some devices support this
-
-            *//* // Check if a camera app is available
-             if (takePictureIntent.resolveActivity(packageManager) == null) {
-                 Toast.makeText(this, "No camera app available", Toast.LENGTH_SHORT).show()
-                 return
-             }*//*
-            val photoFile =  createImageFile()
-            if(photoFile!=null){
-                val photoURI: Uri = FileProvider.getUriForFile(
-                    requireActivity(),
-                    "${requireActivity().packageName}.provider",
-                    photoFile
-                )
-                currentPhotoPath = photoFile.absolutePath
-                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoURI)
-                takePictureIntent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                requireActivity().grantUriPermission(
-                    takePictureIntent.resolveActivity(requireActivity().packageManager)?.packageName ?: "",
-                    photoURI,
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-                takePictureLauncher.launch(takePictureIntent)
-            }
-        } catch (e: ActivityNotFoundException) {
-            e.printStackTrace()
-        }catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    @Throws(IOException::class)
-    private fun createImageFile(): File? {
-        val storageDir = requireActivity().getExternalFilesDir(Environment.DIRECTORY_PICTURES)
-        if(storageDir==null){
-            Toast.makeText(requireActivity(), "External storage picture directory not available", Toast.LENGTH_SHORT).show()
-            return null
-        }
-        val timeStamp: String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val file =  File.createTempFile("IMG_${timeStamp}_", ".jpg", storageDir)
-        return file
-    }
-
-    // Initialize ActivityResultLauncher
-    val takePictureLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
-                // Handle the captured image
-                if(currentPhotoPath!=null){
-                    val rotationFixedFilePath = fixImageRotation(currentPhotoPath!!)
-                    val photoURI: Uri = FileProvider.getUriForFile(
-                        requireActivity(),
-                        "${requireActivity().packageName}.provider",
-                        File(rotationFixedFilePath)
-                    )
-                    startUCropImage(photoURI)
-                }
-            }
-        }
-
-    private fun startUCropImage(uri: Uri) {
-        try {
-            val uniqueFileName = "croppedImage_${UUID.randomUUID()}.png"
-            val destinationUri = Uri.fromFile(File(requireActivity().cacheDir, uniqueFileName))
-            val intent = UCrop.of(uri, destinationUri)
-                .withMaxResultSize(1080, 1920) // Increase resolution
-                .withOptions(getUCropOptions()) // Set high-quality options
-                .getIntent(requireActivity())
-            uCropActivityResult.launch(intent)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    private fun getUCropOptions(): UCrop.Options {
-        return UCrop.Options().apply {
-            setCompressionQuality(100) // Max quality
-            setCompressionFormat(Bitmap.CompressFormat.PNG) // Avoid quality loss
-        }
-    }
-
-    val uCropActivityResult =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result: ActivityResult ->
-            if (result.data != null && result.resultCode == RESULT_OK) {
-                val uri = UCrop.getOutput(result.data!!)
-                if(uri!=null){
-                    val selectedImageFile = File(FileUtils.getPath(requireActivity(), uri))
-                    gotoNextScreen(selectedImageFile.absolutePath)
-                }
-            }
-        }
-*/
 
     private fun dispatchTakePictureIntent() {
         try {
@@ -483,57 +383,6 @@ class UploadVastraFragment : Fragment(), View.OnClickListener {
         }
     }
 
-    private fun fixImageRotation(imagePath: String): String {
-        return try {
-            val exif = ExifInterface(imagePath)
-
-            // Read EXIF rotation (may be 0 on some devices)
-            var rotationDegrees = when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                else -> 0
-            }
-
-            Log.e("Camera2", "Camera Orientation from EXIF: $rotationDegrees")
-
-            // Load Bitmap
-            val bitmap = BitmapFactory.decodeFile(imagePath)
-
-            // If EXIF is 0 but image is sideways (width > height), fix rotation
-            /*  if (rotationDegrees == 0 && bitmap.width > bitmap.height) {
-                  rotationDegrees = -90
-                  Log.e("Camera2", "Image is sideways, fixing rotation: $rotationDegrees")
-              }*/
-
-            // Create Matrix for transformation
-            val matrix = Matrix()
-            matrix.postRotate(rotationDegrees.toFloat())
-
-            val isFrontCamera = isFrontCameraImage(imagePath)
-
-            // Fix Mirroring for Front Camera
-            if (isFrontCamera) {
-                matrix.postScale(-1f, 1f, bitmap.width / 2f, bitmap.height / 2f)
-                Log.e("Camera2", "Front Camera detected, fixing mirroring")
-            }
-
-            // Rotate the bitmap
-            val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-
-            // Save the corrected image
-            val correctedFile = File(requireActivity().getExternalFilesDir(null), "corrected_${System.currentTimeMillis()}.jpg")
-            FileOutputStream(correctedFile).use { out ->
-                rotatedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
-            }
-
-            correctedFile.absolutePath
-        } catch (e: Exception) {
-            e.printStackTrace()
-            imagePath
-        }
-    }
-
     private fun isFrontCameraImage(imagePath: String): Boolean {
         return try {
             val exif = ExifInterface(imagePath)
@@ -714,11 +563,6 @@ class UploadVastraFragment : Fragment(), View.OnClickListener {
         binding.etOfferPrice.text.clear()
     }
 
-
-    fun getFileSize(filePath: String): Long {
-        val file = File(filePath)
-        return file.length() // Returns size in bytes
-    }
 
     private fun isSubcategorySelected(): Boolean {
         if(selectedSubcategoryId==null){

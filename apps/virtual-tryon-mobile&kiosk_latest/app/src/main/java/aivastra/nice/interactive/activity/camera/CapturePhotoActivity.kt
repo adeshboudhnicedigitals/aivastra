@@ -65,6 +65,13 @@ class CapturePhotoActivity : BaseActivity() {
     private var selectedVastraItem : DressesTypeDataModel.Data.Subcategory.Item? = null
     private var isReturningFromCamera = false
 
+    // A QR upload session is created only after the customer taps "Scan & Send Photo" (not eagerly
+    // on every resume) — the create endpoint is rate-limited, and creating one on the Take-Photo
+    // path or on each resume wasted sessions and could trip the limit. The token is kept so a
+    // resume can restart polling on the SAME session instead of minting a new one.
+    private var isScanMode = false
+    private var uploadSessionToken: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityCapturePhotoBinding.inflate(layoutInflater)
@@ -144,8 +151,14 @@ class CapturePhotoActivity : BaseActivity() {
             isReturningFromCamera = false
             return
         }
-        resetObserver()
-        getQrCodeLinkFromAPI()
+        // Only resume polling if the customer already started the scan flow, and reuse the existing
+        // session token rather than creating a fresh one. Entering this screen (or the Take-Photo
+        // path) no longer mints an upload session.
+        val token = uploadSessionToken
+        if (isScanMode && !token.isNullOrBlank()) {
+            resetObserver()
+            checkUserUploadImageStatus(token)
+        }
     }
 
     override fun onPause() {
@@ -163,6 +176,7 @@ class CapturePhotoActivity : BaseActivity() {
         binding.imgQrcode.isVisible = true
         binding.progressLoader.isVisible = false
         binding.txtProgressStatus.text = getString(R.string.scan_amp_send_photo)
+        isScanMode = true
         sareeCatViewmodel.getQrCodeLinkAPI(this)
         sareeCatViewmodel.qrCodeLinkData.observe(this) { qrCodeLinkData ->
             LoaderManager.remove(this)
@@ -172,6 +186,7 @@ class CapturePhotoActivity : BaseActivity() {
                     binding.imgQrcode.setImageBitmap(qrCodeOfUploadImage)
                     val linkSplits = qrCodeLinkData.url.split("/")
                     val securityCode = linkSplits.get(linkSplits.size-1)
+                    uploadSessionToken = securityCode
                     checkUserUploadImageStatus(securityCode)
                 }
             }
@@ -179,9 +194,12 @@ class CapturePhotoActivity : BaseActivity() {
         sareeCatViewmodel.error.observe(this){errorMsg->
             LoaderManager.remove(this)
             if(errorMsg!=null){
+                // Transient failure (rate limit, network blip): let the customer stay on the screen
+                // and retry or use Take Photo, rather than closing the capture screen under them.
                 ViewControll.showMessage(this,errorMsg)
+                isScanMode = false
+                uploadSessionToken = null
                 resetObserver()
-                finish()
             }
         }
     }

@@ -67,19 +67,6 @@ class ProductSubCategoryAdapter(private val subcategoryList: List<MerchantCatalo
             return subcategoryList.size
         }
 
-        override fun getItemViewType(position: Int): Int {
-            return position
-        }
-
-
-        fun resetSelection() {
-            val previousPosition = selectedPosition
-            selectedPosition = -1
-            if (previousPosition != -1) {
-                notifyItemChanged(previousPosition) // Reset previous selection
-            }
-        }
-
         class RecyclerViewViewHolder(binding: ItemVastraCategoryNewBinding) :
             RecyclerView.ViewHolder(binding.getRoot()) {
             var binding: ItemVastraCategoryNewBinding
