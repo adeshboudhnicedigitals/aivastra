@@ -238,8 +238,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     }
 
     if (workflowType === 'tryon' || workflowType === 'saree_step1') {
-      if (!tryonPersonNodeId.trim() || !tryonGarmentNodeId.trim() || !tryonOutputNodeId.trim()) {
-        setError('Person, garment, and output node IDs are required');
+      if (!tryonGarmentNodeId.trim() || !tryonOutputNodeId.trim()) {
+        setError('Garment and output node IDs are required');
         return;
       }
       if (!positivePromptNode || !negativePromptNode) {
@@ -278,7 +278,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           label: label.trim(),
           jsonContent,
           workflowType,
-          tryonPersonNodeId: tryonPersonNodeId.trim(),
+          tryonPersonNodeId: tryonPersonNodeId.trim() || undefined,
           tryonGarmentNodeId: tryonGarmentNodeId.trim(),
           tryonOutputNodeId: tryonOutputNodeId.trim(),
           facePhasePromptNode: negativePromptNode,
@@ -351,7 +351,6 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     label.trim() &&
     (workflowType === 'tryon' || workflowType === 'saree_step1'
       ? parsed &&
-        tryonPersonNodeId &&
         tryonGarmentNodeId &&
         tryonOutputNodeId &&
         positivePromptNode &&
@@ -583,7 +582,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                 <div className="field">
                   <label>
-                    Person node <span style={{ color: 'var(--danger)' }}>*</span>
+                    Person node (optional — leave blank if face is fixed inside the workflow)
                   </label>
                   <input
                     className="input"
