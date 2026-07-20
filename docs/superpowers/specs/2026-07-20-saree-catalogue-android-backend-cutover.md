@@ -35,7 +35,9 @@ The legacy screen (`VastraProductCategoryFragment`) has two nesting levels — a
 
 **SKU search gap:** the legacy app searches by exact SKU (`app_searchproductv1`, `SKU_NUMBER` param). The existing `GET /v1/merchant/catalog?search=` filters on `label` via `ilike`, not `sku` (`apps/api/src/modules/merchant/catalog.routes.ts:339-342`) — `merchant_catalog_items.sku` exists as a column but isn't part of the search predicate. This spec does **not** change the backend search endpoint (out of scope for this cutover — a client-only rewrite). The Android search box is wired to the same endpoint as-is; search-by-label is an accepted, documented behavior change from search-by-SKU-only. Revisit if this proves disruptive in practice.
 
-### Generate + finalize product (replaces `app_addthemev1` and the pallu-type dropdown)
+### Generate + finalize product (replaces `app_custome_drapping`, `app_tryonresultv1`, `app_addthemev1`, and the pallu-type dropdown)
+
+**Correction from initial framing:** `app_custome_drapping`/`app_tryonresultv1` (`UploadPhotoDialog.kt`'s `fetchCustomSareeTryOnAPI` + `ProductUploadViewModel.pollTryOnResult`) are not a separate customer-facing try-on feature — this app has no such screen anywhere (`SelectedVastraThemePreviewDialog` is a static image slider over already-generated product photos, no API calls). They're the drape-preview-generation step of the merchant's own product-creation flow: capture flat photo → generate a preview → (separately) pick category/SKU/price → finalize. `/v1/merchant/tryon/*` (customer-photo-against-existing-product try-on, used by the sibling kiosk app) does not apply to this app at all and is not used anywhere in this cutover.
 
 This is a client-orchestrated sequence, mirroring `apps/catalogues-web/src/app/(app)/catalogue-manager/api.ts` and `BulkUploadModal.tsx`'s `handleGenerateAll`/`finalizeCompletedJob` exactly:
 
@@ -49,10 +51,6 @@ This is a client-orchestrated sequence, mirroring `apps/catalogues-web/src/app/(
 
 **Rollout prerequisite (not a code task):** before this app is usable end-to-end, an admin must create the drape-style `garment_subcategories` + `merchant_catalog_subcategories` rows in the existing admin panel. Until that data exists, the subcategory picker will be empty and generation cannot proceed. This blocks manual QA of Task 6/9 below but not the code changes themselves.
 
-### Customer try-on (replaces `app_custome_drapping` + `app_tryonresultv1` as used from `UploadPhotoDialog`)
-
-`POST /v1/merchant/tryon/presign` (`{contentType, contentLength}`) → `{uploadUrl, r2Key, expiresIn}`; `PUT` the customer's photo. `POST /v1/merchant/tryon/jobs` (`{merchantCatalogItemId, customerPhotoKey: r2Key}`) → job id. Poll `GET /v1/merchant/tryon/jobs/:id` (`apps/api/src/modules/merchant/tryon.routes.ts`, `serializeJob()`) until `status === 'COMPLETED'`, response includes `resultKey`, `shareUrl`, `errorCode`, `liked`, `inCart`.
-
 ### Error handling
 
 `apps/api` returns `{"error": {"code": "...", "message": "..."}}` on failure (`apps/api/src/server.ts`'s `setErrorHandler`) — nothing like legacy's raw JSON + `"false"` string sentinel. Mirror the sibling app's `parseBackendError()` / sealed `ApiException` (`BackendError(code, backendMessage, httpStatus)`, `NetworkError`, `ClientError`) exactly. `SocketTimeoutException`/`IOException` map to `NetworkError`; any non-2xx response is parsed for the `error` envelope, falling back to `HTTP_<status>` if the body isn't in that shape.
@@ -61,13 +59,14 @@ This is a client-orchestrated sequence, mirroring `apps/catalogues-web/src/app/(
 
 - The sibling app's `NetworkInterceptor`/`NetworkMonitor`/`NetworkState`/`NetworkUtils` connectivity-banner system — a global "you're offline"/"slow connection" UI layer unrelated to the backend swap itself. `ApiException.NetworkError` already surfaces connectivity failures per-call; that's sufficient here.
 - "Force device login" override UI for `DEVICE_LIMIT_REACHED`.
+- `/v1/merchant/tryon/*` (customer-photo-against-existing-product try-on) — this app has no customer-facing try-on screen; not wired up anywhere.
 - Changing the `/v1/merchant/catalog` search endpoint to also match `sku` (see SKU search gap above).
 - Any change to `apps/api`, `packages/db`, `packages/types`, or any other backend/web code — this is an Android-app-only change against existing, unmodified endpoints.
 - Profile screen fields with no backend equivalent: legacy shows `merchantPhoto` and `companyLogo` (Glide-loaded images); `deviceLoginUserPayload()` has no such fields (`id, email, displayName, tier, maxActiveDevices` only — no photo/logo anywhere in the `merchants` schema either). These `Glide.load()` calls are removed, not silently left pointed at now-missing data; profile displays `displayName ?: email` and `email`.
 
 ## Testing
 
-This codebase's established Android testing convention (confirmed via `docs/progress.md`'s prior Android work, e.g. "2026-07-17 - Merchant Try-On Android Integration") is compile/assemble verification plus a manual device/emulator walkthrough — there is no existing JVM unit-test suite or instrumentation-test convention to extend, and building one is out of scope for a backend-cutover task. Verification is `:app:compileDebugKotlin` and `:app:assembleDebug`, plus a manual walkthrough (login → browse subcategories → generate+finalize a product → confirm it's visible via `GET /v1/merchant/catalog` or the web catalogue-manager → customer try-on against that product). Any genuinely pure function introduced (URL resolution, a poll-status classifier) gets one small JUnit test under `app/src/test/java/...`, per this project's general practice of leaving one runnable check behind non-trivial logic — not a broader suite.
+This codebase's established Android testing convention (confirmed via `docs/progress.md`'s prior Android work, e.g. "2026-07-17 - Merchant Try-On Android Integration") is compile/assemble verification plus a manual device/emulator walkthrough — there is no existing JVM unit-test suite or instrumentation-test convention to extend, and building one is out of scope for a backend-cutover task. Verification is `:app:compileDebugKotlin` and `:app:assembleDebug`, plus a manual walkthrough (login → browse subcategories → capture a flat photo → generate+finalize a product with SKU/price → confirm it's visible via `GET /v1/merchant/catalog` or the web catalogue-manager). Any genuinely pure function introduced (URL resolution, a poll-status classifier) gets one small JUnit test under `app/src/test/java/...`, per this project's general practice of leaving one runnable check behind non-trivial logic — not a broader suite.
 
 ## Self-review
 
