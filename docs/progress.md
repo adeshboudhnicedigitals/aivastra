@@ -1,3 +1,26 @@
+## 2026-07-20 - Merchant catalog: fix production ComfyUI crash (missing mannequin step)
+
+Production device walkthrough of the saree-catalogue Android app surfaced a real generation crash (`Bounded Image Crop with Mask: index is out of bounds for dimension with size 0`), root-caused via dispatcher logs to `saree_step2` receiving an all-white image because the merchant-catalog job flow never ran the mannequin-compositing step first — it fed the merchant's raw flat photo straight into a workflow that expects a mannequin-draped one. Designed via `superpowers:brainstorming`, planned via `superpowers:writing-plans` (`docs/superpowers/plans/2026-07-20-merchant-catalog-mannequin-step.md`), implemented by Codex following that plan, verified end-to-end in this session.
+
+### Done
+- **`apps/dispatcher/src/job/mannequin-phase.ts`** (new): extracted the mannequin-compositing ComfyUI submission logic out of `processSareeMannequinJob` into a reusable `runMannequinPhase()` with no job-lifecycle side effects (no status transitions, no `finalizeOutput`, no `xack`) — callers route failures through their own existing failure handling.
+- **`apps/dispatcher/src/job/processor.ts`**: the `requiresMannequinStep` branch now runs `runMannequinPhase()` inline before the existing `saree_step2` submission, but only when `job_inputs.params.needsMannequinStep === true` — an explicit opt-in, not automatic. This preserves the web studio flow's existing (correct) client-side pre-resolution behavior unchanged (verified via the existing `saree-step2-workflow-override.test.ts`, which has no such flag set and must keep using its pre-resolved key as-is).
+- **`apps/api/src/modules/merchant/create-job.ts`**: sets `needsMannequinStep: garmentType.requiresMannequinStep` on job creation — the only caller opted in so far.
+- **`packages/storage/src/keys.ts`**: added `mannequinIntermediate(jobId)` key builder for the phase's intermediate R2 output.
+- Also fixed the same session, deployed to production ahead of this: `apps/dispatcher/src/comfyui/progress.ts` was discarding ComfyUI's actual `execution_error` detail (node/exception) and only logging a generic `"execution error for prompt <id>"` — this is what made the root-cause diagnosis possible in the first place (`13f1612e`).
+- Also fixed: `apps/api/src/modules/merchant/catalog.routes.ts`'s `GET /v1/merchant/catalog/subcategories` now self-provisions a merchant's saree-pipeline subcategory row on first read (no admin UI ever created these, so a fresh merchant was permanently stuck with an empty picker) — scoped to `requiresMannequinStep` garment types specifically, after an earlier pass without that filter incorrectly seeded the entire unrelated customer-studio garment taxonomy.
+- Also fixed: the Android app (`apps/saree_catalogue_android`) now shows a "Logout Other Device" confirmation on `DEVICE_LIMIT_REACHED` instead of a dead-end generic error, mirroring the sibling kiosk app's existing pattern.
+- Full verification: monorepo typecheck, Biome lint, dispatcher unit suite (52/52), new integration test (2/2), both pre-existing saree regression tests (3/3) unmodified, API unit suite — all pass.
+- 5 commits: `85bdd268`, `ce5bc8cb`, `1567194b`, `a57c1bbb`, `876cc5a9`.
+
+### Failed / Not Done
+- Not yet deployed or re-verified against production — the actual crash was only reproduced and root-caused, the fix hasn't yet been through a real device walkthrough.
+
+### Open Questions / Decisions
+- **Widget and Shopify job creation** don't set `needsMannequinStep` and would hit the same original bug if ever pointed at a `requiresMannequinStep` garment type. Deliberately left unaddressed — no such job type exercises this path today; the dispatcher-side fix is available to them for free whenever it becomes relevant.
+- **No retry caching for the mannequin phase** — a job retry re-runs both phases from scratch, matching this codebase's existing full-restart retry model everywhere else. Explicitly chosen over adding a new caching mechanism.
+- **Full dispatcher integration suite has 3 pre-existing failures** (`happy-path.test.ts`, `recovery.test.ts`, `retry.test.ts`) — all seed `catalog_items` without the `type` column, which became `NOT NULL` back in commit `20877960` (~2 months before this branch). Confirmed unrelated to this work via git blame; not fixed here.
+
 ## 2026-07-20 - Dev API: POST /v1/dev/saree-mannequin
 
 New saree-mannequin ComfyUI workflow (`sdrapewithpalluapi.json`) wired end-to-end: person/face node made optional across admin upload, `/admin/workflows` create route, and the dispatcher (`processSareeMannequinJob`), since this workflow bakes the face in via a fixed URL node instead of a patchable image node. Live `saree_step1` template on Flat Saree's `mannequinWorkflowTemplateId` swapped to the new JSON directly in the local DB during testing; a second row (`sdrapewithpalluapi`) was later created via the admin panel and Flat Saree repointed to it — the DB-swapped row is now an unused duplicate, not yet cleaned up.
