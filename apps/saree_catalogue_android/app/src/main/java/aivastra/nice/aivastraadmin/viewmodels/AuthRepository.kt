@@ -8,6 +8,11 @@ import com.example.facewixlatest.ApiUtils.ApiException
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.json.JSONObject
 
+class DeviceLimitReachedException(
+    message: String,
+    val forceLogoutToken: String,
+) : Exception(message)
+
 object AuthRepository {
     private val mapper = ObjectMapper()
 
@@ -18,8 +23,33 @@ object AuthRepository {
             put("deviceId", deviceId)
             put("platform", "mobile")
         }.toString()
-        val response = APICaller.postJson(APIConstant.API_ENDPOINTS.DEVICE_LOGIN, body)
+        val response = try {
+            APICaller.postJson(APIConstant.API_ENDPOINTS.DEVICE_LOGIN, body)
+        } catch (e: ApiException.BackendError) {
+            throw deviceLimitExceptionOrRethrow(e)
+        }
         return mapper.readValue(response, UserSession::class.java)
+    }
+
+    suspend fun forceDeviceLogin(forceLogoutToken: String, deviceId: String): UserSession {
+        val body = JSONObject().apply {
+            put("forceLogoutToken", forceLogoutToken)
+            put("deviceId", deviceId)
+            put("platform", "mobile")
+        }.toString()
+        val response = APICaller.postJson(APIConstant.API_ENDPOINTS.DEVICE_LOGIN_FORCE, body)
+        return mapper.readValue(response, UserSession::class.java)
+    }
+
+    /** DEVICE_LIMIT_REACHED carries a forceLogoutToken the caller needs to confirm-and-retry. */
+    private fun deviceLimitExceptionOrRethrow(e: ApiException.BackendError): Throwable {
+        if (e.code != "DEVICE_LIMIT_REACHED") return e
+        val token = try {
+            JSONObject(e.rawBody).getJSONObject("error").optString("forceLogoutToken", "")
+        } catch (_: Exception) {
+            ""
+        }
+        return if (token.isNotBlank()) DeviceLimitReachedException(e.backendMessage, token) else e
     }
 
     suspend fun deviceLogout() {
