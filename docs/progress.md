@@ -21,6 +21,29 @@ Then designed and implemented a new public dev-API endpoint exposing the mannequ
 - Whether to keep, revert, or deactivate the orphaned `saree_step1`/`6c23fdfa-...` workflow template row.
 - Whether to scope the admin person-node-optional relaxation to `saree_step1` only, or symmetrically relax `processTryonDirectJob` for `tryon` too.
 
+## 2026-07-20 - Saree Catalogue Android: backend cutover (Tasks 1-9)
+
+Executed `docs/superpowers/plans/2026-07-20-saree-catalogue-android-backend-cutover.md` on `feat/saree-catalogue-backend-integration` — cuts `apps/saree_catalogue_android` (a legacy merchant Android app, previously untracked in this repo) over from its standalone legacy backend (`api.aivastra.com`, static shared-secret + api_key auth) to `apps/api`'s existing device-login auth and `/v1/merchant/catalog/*` routes. Client-only rewrite; no backend/web code changed. Split between two workers: Codex (Tasks 1-6, 8 initial pass, 9) and Claude (Task 7 direct implementation, Task 8 commit-scope correction).
+
+### Done
+- **Task 1-2**: Gradle wiring (`API_BASE_URL` build config, `security-crypto` dep) + full network-core rewrite (`ApiException`, `APIConstant`, `APICaller` — coroutines-based, mirrored from the sibling app `virtual-tryon-mobile&kiosk_latest`).
+- **Task 3-4**: `EncryptedSharedPreferences` session/token storage (replacing plaintext), device-login auth flow (`/v1/auth/device-login`/`device-refresh`/`device-logout`) wired into Login/Profile/Splash screens.
+- **Task 5**: Deleted `ProductUploadDataRepository.kt`, `ApiUtils/APIInterface.kt`, and every remaining legacy-endpoint-calling function out of `ProductUploadViewModel.kt`, in one consolidated sweep before rebuilding screens — restructured mid-execution from the original per-screen approach after the first pass surfaced repeated "is this compile failure expected" ambiguity.
+- **Task 6**: Catalog browse against `/v1/merchant/catalog/subcategories`/`/v1/merchant/catalog`; collapsed the legacy's two-level category→subcategory nav to the new backend's single-level subcategory list.
+- **Task 7**: Presign→generate→poll→import→patch product-creation flow (`/v1/merchant/catalog/presign`/`generate`/`generate/:jobId`/`import`, then `PATCH /v1/merchant/catalog/:id` for SKU/pricing) replacing the legacy drape-preview + finalize flow. Found and fixed one real bug during implementation: a Kotlin smart-cast failure (`status` is a `var`, so `status.resultUrl` didn't smart-cast to non-null after the null-guard) — fixed by capturing into a local `val`.
+- **Task 8**: Verified and deleted 5 dead legacy response models + 2 orphaned `PrefsManager` helpers.
+- **Task 9**: `:app:compileDebugKotlin`, `:app:testDebugUnitTest`, `:app:assembleDebug` all pass; APK builds at `app/build/outputs/apk/debug/app-debug.apk`.
+- **Repo hygiene fixes surfaced along the way**: Task 8's plan-specified `git add -A apps/saree_catalogue_android/` would have committed a compiled release APK and baseline-profile artifacts (never gitignored — only `/build` was excluded, not `app/release/`). Fixed `app/.gitignore`, split into a narrowly-scoped Task 8 commit (`PrefsManager.kt` only) plus a separate deliberate commit bringing the rest of the previously-untracked Android app baseline into version control (108 files — manifest, resources, remaining screens, gradle wrapper), checked for secrets first (none found). Also excluded `apps/saree_catalogue_android` from `biome.json`'s scope after a Lottie animation JSON asset tripped the formatter pre-commit hook (it's a Kotlin/Gradle project, not JS/TS tooling).
+
+### Failed / Not Done
+- **Manual device/emulator walkthrough (Task 9 Step 4) — not run.** `adb` unavailable in the implementation environment, so no emulator/device could be exercised; Postgres/Redis/MinIO were running but `apps/api`/`apps/dispatcher` weren't, and no merchant test account or seeded `garment_subcategories`/`merchant_catalog_subcategories` data existed. This was anticipated by the plan from the start, not a surprise gap.
+- **Rollout prerequisite still outstanding**: before the walkthrough (or real usage) can succeed, an admin must create at least one `garment_subcategories` row (with `defaultPoseId` set) and a matching `merchant_catalog_subcategories` row (`category: 'women'`) in the existing admin panel — no code in this plan creates that data.
+
+### Open Questions / Decisions
+- **SKU search gap accepted, not fixed**: legacy searched by exact SKU; `/v1/merchant/catalog?search=` matches on `label` only (`sku` column exists but isn't in the search predicate). Documented as an accepted behavior change, out of scope for a client-only cutover.
+- **"Pallu type" (drape style) collapsed into subcategory selection**: previously two separate legacy pickers (pallu type before capture, product category after generating) are now a single subcategory choice made once, up front — admin must pre-configure one `garment_subcategories`/`merchant_catalog_subcategories` pair per drape style under `category='women'`.
+- Branch not yet merged — `feat/saree-catalogue-backend-integration` is ahead of `main`, PR not opened. Manual walkthrough (or a decision to skip it) is the remaining blocker before that's worth considering.
+
 ---
 
 ## 2026-07-18 - Shopify Product Catalog Generation: final-review fixes
