@@ -1,7 +1,6 @@
 package aivastra.nice.aivastraadmin.utils
 
 import aivastra.nice.aivastraadmin.app.MyAPP
-import aivastra.nice.aivastraadmin.viewmodels.VastraTryOnResultModel
 import aivastra.nice.interactive.viewmodel.Login.UserSession
 import android.content.Context
 import android.content.SharedPreferences
@@ -135,24 +134,6 @@ object PrefsManager {
     fun getBoolean(key: String): Boolean = appPrefs().getBoolean(key, false)
 
     fun getBooleanTrue(key: String): Boolean = appPrefs().getBoolean(key, true)
-
-    fun saveCustomSareeResultData(user: VastraTryOnResultModel) {
-        synchronized(this) {
-            appPrefs().edit().putString("saveCustomSareeResultData", Gson().toJson(user)).apply()
-        }
-    }
-
-    val getCustomSareeTryOnResultData: VastraTryOnResultModel
-        get() {
-            val sharedPreferences = appPrefs()
-            if (sharedPreferences.contains("saveCustomSareeResultData")) {
-                return Gson().fromJson(
-                    sharedPreferences.getString("saveCustomSareeResultData", ""),
-                    VastraTryOnResultModel::class.java,
-                )
-            }
-            return VastraTryOnResultModel()
-        }
 
     fun checkForNullKey(key: String?) {
         if (key == null) throw NullPointerException()
