@@ -164,31 +164,33 @@ describe('POST /v1/dev/saree-mannequin (unconfigured)', () => {
     // Fresh merchant/app instance with no createTestSareeMannequinGarmentType call.
     const c2 = await startContainers();
     const app2 = await buildTestApp(c2);
-    await app2.ready();
-    const addr2 = app2.server.address();
-    const base2 = `http://127.0.0.1:${typeof addr2 === 'object' && addr2 ? addr2.port : 0}`;
-    const m2 = await createTestMerchant(app2, { balance: 100 });
-    const { key: key2 } = await createTestApiKey(app2, m2.merchantId);
+    try {
+      await app2.ready();
+      const addr2 = app2.server.address();
+      const base2 = `http://127.0.0.1:${typeof addr2 === 'object' && addr2 ? addr2.port : 0}`;
+      const m2 = await createTestMerchant(app2, { balance: 100 });
+      const { key: key2 } = await createTestApiKey(app2, m2.merchantId);
 
-    const before = await app2.db
-      .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, m2.userId));
+      const before = await app2.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, m2.userId));
 
-    const res = await fetch(`${base2}/v1/dev/saree-mannequin`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${key2}` },
-      body: form(),
-    });
-    expect(res.status).toBe(400);
+      const res = await fetch(`${base2}/v1/dev/saree-mannequin`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key2}` },
+        body: form(),
+      });
+      expect(res.status).toBe(400);
 
-    const after = await app2.db
-      .select()
-      .from(schema.userCredits)
-      .where(eq(schema.userCredits.userId, m2.userId));
-    expect(after[0]?.balance).toBe(before[0]?.balance);
-
-    await app2.close();
-    await c2.stop();
+      const after = await app2.db
+        .select()
+        .from(schema.userCredits)
+        .where(eq(schema.userCredits.userId, m2.userId));
+      expect(after[0]?.balance).toBe(before[0]?.balance);
+    } finally {
+      await app2.close();
+      await c2.stop();
+    }
   });
 });
