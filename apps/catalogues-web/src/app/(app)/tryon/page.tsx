@@ -1,6 +1,6 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { InfoIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
@@ -22,6 +22,114 @@ type GarmentCatalogImage = {
 };
 
 const DEFAULT_CREDITS_COST = 5;
+
+function CustomSelect({
+  label,
+  options,
+  defaultValue,
+}: {
+  label: string;
+  options: string[];
+  defaultValue: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [value, setValue] = useState(defaultValue);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: C.text, fontWeight: 500, marginBottom: 6 }}>{label}</div>
+      <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+        <div
+          onClick={() => setIsOpen(!isOpen)}
+          style={{
+            height: 40,
+            borderRadius: 8,
+            border: `1px solid ${C.border}`,
+            padding: '0 12px',
+            fontSize: 13,
+            background: C.white,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            color: C.text,
+          }}
+        >
+          <span>{value}</span>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </div>
+
+        {isOpen && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 4px)',
+              left: 0,
+              width: '100%',
+              background: C.white,
+              borderRadius: 8,
+              border: `1px solid ${C.border}`,
+              boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+              zIndex: 50,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            {options.map((opt) => (
+              <div
+                key={opt}
+                onClick={() => {
+                  setValue(opt);
+                  setIsOpen(false);
+                }}
+                style={{
+                  padding: '10px 12px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  background: opt === value ? '#F5F3FF' : C.white,
+                  color: opt === value ? '#818CF8' : C.text,
+                  transition: 'background 0.15s'
+                }}
+                onMouseEnter={(e) => {
+                  if (opt !== value) e.currentTarget.style.background = '#F9FAFB';
+                }}
+                onMouseLeave={(e) => {
+                  if (opt !== value) e.currentTarget.style.background = C.white;
+                }}
+              >
+                {opt}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function UploadZone({
   file: _file,
@@ -82,7 +190,7 @@ function UploadZone({
         position: 'relative',
       }}
     >
-      {/* Info button — top-right corner */}
+      {/* Info button â€” top-right corner */}
       {sampleUrl && (
         <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 10 }}>
           <button
@@ -220,7 +328,7 @@ function UploadZone({
                 lineHeight: 1.5,
               }}
             >
-              Drag and drop an image here · JPG, PNG · Max 10MB
+              Drag and drop an image here Â· JPG, PNG Â· Max 10MB
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.text }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -275,21 +383,23 @@ function UploadZone({
         )}
       </div>
 
-      {/* Tip */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-        {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
-        <img
-          src="/assets/bulb.svg"
-          alt=""
-          width={12}
-          height={14}
-          style={{ flexShrink: 0, marginTop: 1 }}
-        />
-        <span style={{ fontSize: 10, fontWeight: 600, color: C.pink, flexShrink: 0 }}>Tips</span>
-        <span style={{ fontSize: 10, fontWeight: 400, lineHeight: '16px', color: C.mid }}>
-          {tip}
-        </span>
-      </div>
+      {/* Tip â€” only shown when tip text is provided */}
+      {tip && (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+          {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
+          <img
+            src="/assets/bulb.svg"
+            alt=""
+            width={12}
+            height={14}
+            style={{ flexShrink: 0, marginTop: 1 }}
+          />
+          <span style={{ fontSize: 10, fontWeight: 600, color: C.pink, flexShrink: 0 }}>Tips</span>
+          <span style={{ fontSize: 10, fontWeight: 400, lineHeight: '16px', color: C.mid }}>
+            {tip}
+          </span>
+        </div>
+      )}
 
       <input
         ref={inputRef}
@@ -393,15 +503,15 @@ function GarmentCatalogModal({
               lineHeight: 1,
             }}
           >
-            ✕
+            âœ•
           </button>
         </div>
         <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
           {isLoading ? (
-            <div style={{ textAlign: 'center', color: C.mid, padding: '2rem' }}>Loading…</div>
+            <div style={{ textAlign: 'center', color: C.mid, padding: '2rem' }}>Loadingâ€¦</div>
           ) : images.length === 0 ? (
             <div style={{ textAlign: 'center', color: C.mid, padding: '2rem', fontSize: 13 }}>
-              No eligible catalog images yet — generate one in Studio first.
+              No eligible catalog images yet â€” generate one in Studio first.
             </div>
           ) : (
             <div
@@ -490,7 +600,7 @@ export default function TryOnPage() {
       });
       setContactDone(true);
     } catch {
-      // silently stay open — user can retry
+      // silently stay open â€” user can retry
     } finally {
       setContactSubmitting(false);
     }
@@ -612,890 +722,392 @@ export default function TryOnPage() {
   return (
     <>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <TopBar title="AI Virtual Try On (Beta)" subtitle="" />
+        <TopBar title="AI Virtual Try-On" subtitle="Create Stunning try-on images in seconds with AI" />
 
         <div
           style={{
             flex: 1,
             minHeight: 0,
             overflowY: 'auto',
-            padding: '20px 20px 24px',
+            padding: '20px 24px',
             boxSizing: 'border-box',
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gridTemplateRows: '1fr',
-            gap: 20,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 24,
+            backgroundColor: '#FCFCFC'
           }}
         >
-          {/* Grid: 2 columns × 2 rows — upload | preview / integrate | kiosk */}
-          {/* ── Upload panel ── */}
-          <div
-            style={{
-              borderRadius: 24,
-              background: C.white,
-              boxShadow: `inset 0 0 0 1px ${C.border}, 0 4px 15px rgba(0,0,0,0.04)`,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 16,
-              padding: 16,
-              boxSizing: 'border-box',
-              minHeight: 400,
-              minWidth: 320,
-            }}
-          >
-            {/* Garment picker + person upload */}
-            <div style={{ display: 'flex', gap: 16, flex: 1, minHeight: 0 }}>
-              <div
-                style={{
-                  flex: 1,
-                  minHeight: 0,
-                  borderRadius: 12,
-                  background: C.bg,
-                  boxShadow: `inset 0 0 0 1px ${C.border}`,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  padding: 12,
-                  boxSizing: 'border-box',
-                }}
-              >
-                <div>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
-                    1. Select Garment
-                  </span>
-                </div>
-
-                {/* biome-ignore lint/a11y/useSemanticElements: matches UploadZone's drop-zone pattern */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => !generating && setShowGarmentPicker(true)}
-                  onKeyDown={(e) => e.key === 'Enter' && !generating && setShowGarmentPicker(true)}
-                  style={{
-                    flex: 1,
-                    margin: '12px 0',
-                    borderRadius: 12,
-                    outline: `1px dashed ${selectedGarmentJob ? 'transparent' : C.lighter}`,
-                    outlineOffset: -1,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 12,
-                    padding: 12,
-                    boxSizing: 'border-box',
-                    cursor: generating ? 'default' : 'pointer',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {selectedGarmentJob?.thumbnailUrl ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    // biome-ignore lint/performance/noImgElement: selected garment thumbnail
-                    <img
-                      src={selectedGarmentJob.thumbnailUrl}
-                      alt={selectedGarmentJob.garmentTypeName}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'contain',
-                        borderRadius: 8,
-                      }}
-                    />
-                  ) : (
-                    <>
-                      <div
-                        style={{
-                          width: 56,
-                          height: 56,
-                          borderRadius: '50%',
-                          background: C.white,
-                          boxShadow: `inset 0 0 0 1px ${C.border2}`,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <svg
-                          aria-hidden="true"
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                        >
-                          <path
-                            d="M3 7L7 4H9.5C9.5 5.38 10.62 6.5 12 6.5C13.38 6.5 14.5 5.38 14.5 4H17L21 7L18.5 9.5L17 8V20H7V8L5.5 9.5L3 7Z"
-                            stroke={C.mid}
-                            strokeWidth="1.2"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </div>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 500,
-                          textAlign: 'center',
-                          color: C.light,
-                          lineHeight: 1.5,
-                        }}
-                      >
-                        Select a image from your generated catalogues
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <svg
-                          aria-hidden="true"
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          style={{ opacity: 0.7, color: C.text }}
-                        >
-                          <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
-                        </svg>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: C.text }}>
-                          Browse from Catalog
-                        </span>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {selectedGarmentJob && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                      marginBottom: 8,
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 11,
-                        color: C.mid,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {selectedGarmentJob.garmentTypeName}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowGarmentPicker(true)}
-                      disabled={generating}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: C.pink,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        cursor: generating ? 'default' : 'pointer',
-                        padding: 0,
-                      }}
-                    >
-                      Change
-                    </button>
-                  </div>
-                )}
-
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                  {/* biome-ignore lint/performance/noImgElement: static SVG asset */}
-                  <img
-                    src="/assets/bulb.svg"
-                    alt=""
-                    width={12}
-                    height={14}
-                    style={{ flexShrink: 0, marginTop: 1 }}
-                  />
-                  <span style={{ fontSize: 10, fontWeight: 600, color: C.pink, flexShrink: 0 }}>
-                    Tips
-                  </span>
-                  <span style={{ fontSize: 10, fontWeight: 400, lineHeight: '16px', color: C.mid }}>
-                    Pick any garment you&apos;ve already generated in Studio — its tryon workflow
-                    applies automatically.
-                  </span>
-                </div>
-              </div>
-
-              <UploadZone
-                file={personFile}
-                preview={personPreview}
-                progress={personProgress}
-                label="2. Upload Person Image"
-                tip="Front-facing images with good lighting deliver the most accurate results."
-                disabled={generating}
-                sampleUrl={personSampleUrl}
-                onFile={(f) => pickFile(f, setPersonFile, setPersonPreview)}
-                icon={
-                  <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="8" r="3.5" stroke={C.mid} strokeWidth="1.2" />
-                    <path
-                      d="M5 20C5 17 8 15 12 15C16 15 19 17 19 20"
-                      stroke={C.mid}
-                      strokeWidth="1.2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                }
-              />
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div
-                style={{
-                  fontSize: 13,
-                  color: '#f87171',
-                  padding: '6px 10px',
-                  background: 'rgba(220,38,38,0.12)',
-                  borderRadius: 8,
-                }}
-              >
-                {error}
-              </div>
-            )}
-
-            {/* Footer: credits + generate */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                height: 52,
-                flexShrink: 0,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {/* biome-ignore lint/performance/noImgElement: credit icon */}
-                <img
-                  src="/assets/credit.png"
-                  alt=""
-                  width={16}
-                  height={16}
-                  style={{ opacity: 0.6 }}
-                />
-                <span style={{ fontSize: 14, fontWeight: 500, color: C.mid }}>
-                  Uses {creditsCost} credits
-                  {credits && (
-                    <span style={{ color: C.light, marginLeft: 6 }}>
-                      ({credits.balance} available)
-                    </span>
-                  )}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={!canGenerate}
-                style={{
-                  height: 52,
-                  paddingInline: 32,
-                  borderRadius: 12,
-                  background: canGenerate ? grad : C.border,
-                  border: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 10,
-                  cursor: canGenerate ? 'pointer' : 'not-allowed',
-                  boxShadow: canGenerate ? '0 6px 18px rgba(245,92,122,0.28)' : 'none',
-                  transition: 'opacity .15s',
-                  flexShrink: 0,
-                }}
-              >
-                <span
-                  style={{ fontSize: 15, fontWeight: 600, color: canGenerate ? '#fff' : C.light }}
-                >
-                  {generating ? 'Generating…' : 'Generate Try On'}
-                </span>
-                {!generating && (
-                  // biome-ignore lint/performance/noImgElement: static SVG asset
-                  <img
-                    src="/assets/generate-icon.svg"
-                    alt=""
-                    width={20}
-                    height={20}
-                    style={{ opacity: canGenerate ? 1 : 0.4 }}
-                  />
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* ── Preview panel ── */}
-          <div
-            style={{
-              borderRadius: 24,
-              background: C.bg,
-              boxShadow: `inset 0 0 0 1px ${C.border}, 0 4px 15px rgba(0,0,0,0.04)`,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              minHeight: 400,
-              minWidth: 320,
-            }}
-          >
-            {/* Header */}
-            <div
-              style={{
-                borderBottom: `1px solid ${C.border}`,
-                padding: 16,
-                boxSizing: 'border-box',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4,
-                justifyContent: 'center',
-                flexShrink: 0,
-                height: 76,
-              }}
-            >
-              <span style={{ fontSize: 18, fontWeight: 600, color: C.text }}>
-                Your Try On Preview
-              </span>
-              {resultUrl && (
-                <span style={{ fontSize: 13, fontWeight: 500, color: C.mid }}>
-                  Try on generated successfully.
-                </span>
-              )}
-            </div>
-
-            {/* Body */}
-            <div
-              style={{
-                flex: 1,
-                minHeight: 0,
-                padding: 16,
-                boxSizing: 'border-box',
-                display: 'flex',
-                flexDirection: 'column',
-              }}
-            >
-              {resultUrl ? (
-                /* Result image */
-                <div style={{ flex: 1, borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {/* biome-ignore lint/performance/noImgElement: try-on result image */}
-                  <img
-                    src={resultUrl}
-                    alt="Try on result"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  />
-                </div>
-              ) : (
-                /* Empty state */
+                    {/* Steps Indicator */}
+          <div style={{ background: '#FFFFFF', padding: '16px', borderRadius: 20, border: '1px solid #F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+            {[
+              { num: '01', title: 'Select Garment', desc: 'Choose your outfit', color: '#7C3AED', lightColor: '#EDE9FE' },
+              { num: '02', title: 'Upload Person', desc: 'Front-facing photo', color: '#EC4899', lightColor: '#FCE7F3' },
+              { num: '03', title: 'AI Generate', desc: '10-15 seconds', color: '#F97316', lightColor: '#FFEDD5' },
+              { num: '04', title: 'Download', desc: 'Save & share', color: '#10B981', lightColor: '#D1FAE5' },
+            ].map((step, idx, arr) => (
+              <div key={step.num} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 16 }}>
                 <div
                   style={{
                     flex: 1,
-                    borderRadius: 8,
-                    outline: `2px dashed ${C.border2}`,
-                    outlineOffset: -2,
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center',
                     gap: 16,
-                    padding: 24,
-                    boxSizing: 'border-box',
+                    background: '#FFFFFF',
+                    padding: '12px 20px',
+                    borderRadius: 14,
+                    border: '1px solid #F3F4F6',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
                   }}
                 >
                   <div
                     style={{
-                      width: 120,
-                      height: 120,
+                      width: 44,
+                      height: 44,
                       borderRadius: '50%',
-                      background: C.bg,
-                      boxShadow: `inset 0 0 0 1px ${C.border}`,
+                      background: step.lightColor,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
+                      flexShrink: 0
                     }}
                   >
-                    {generating ? (
-                      <svg
-                        aria-hidden="true"
-                        width="40"
-                        height="40"
-                        viewBox="0 0 40 40"
-                        fill="none"
-                      >
-                        <circle cx="20" cy="20" r="16" stroke={C.border2} strokeWidth="3" />
-                        <path
-                          d="M20 4 A16 16 0 0 1 36 20"
-                          stroke={C.pink}
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                        >
-                          <animateTransform
-                            attributeName="transform"
-                            type="rotate"
-                            from="0 20 20"
-                            to="360 20 20"
-                            dur="1s"
-                            repeatCount="indefinite"
-                          />
-                        </path>
-                      </svg>
-                    ) : (
-                      <svg
-                        aria-hidden="true"
-                        width="48"
-                        height="48"
-                        viewBox="0 0 48 48"
-                        fill="none"
-                      >
-                        <circle cx="24" cy="16" r="7" stroke={C.border2} strokeWidth="2" />
-                        <path
-                          d="M10 40C10 33 16 29 24 29C32 29 38 33 38 40"
-                          stroke={C.border2}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                        <path
-                          d="M28 24L40 36"
-                          stroke={C.border2}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                        <path
-                          d="M36 40L24 28"
-                          stroke={C.border2}
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 6,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span
-                      style={{ fontSize: 16, fontWeight: 600, color: C.text, textAlign: 'center' }}
-                    >
-                      {generating ? 'Generating your try on…' : 'No try on generated yet'}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 500,
-                        color: C.mid,
-                        textAlign: 'center',
-                        maxWidth: 340,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {generating
-                        ? 'This may take a moment. Please wait.'
-                        : 'Upload your images and click Generate Try On to preview the result here.'}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Contact Us modal */}
-        {showContact && (
-          // biome-ignore lint/a11y/useKeyWithClickEvents: modal backdrop close on click
-          // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop
-          <div
-            onClick={() => !contactSubmitting && setShowContact(false)}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 1000,
-              background: 'rgba(0,0,0,0.45)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 16,
-            }}
-          >
-            {/* biome-ignore lint/a11y/useKeyWithClickEvents: stopPropagation only, not itself interactive */}
-            {/* biome-ignore lint/a11y/noStaticElementInteractions: stopPropagation only, not itself interactive */}
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                background: C.white,
-                borderRadius: 16,
-                width: '100%',
-                maxWidth: contactDone ? 560 : 440,
-                boxShadow: '0 24px 60px rgba(0,0,0,0.2)',
-                overflow: 'hidden',
-              }}
-            >
-              {/* Header — hidden on success */}
-              {!contactDone && (
-                <div
-                  style={{
-                    padding: '20px 24px 16px',
-                    borderBottom: `1px solid ${C.border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
-                      Want AI Virtual Try On for Your Store?
-                    </span>
-                    {contactSource && (
-                      <span style={{ fontSize: 11, color: C.mid }}>
-                        Share few details, and we&apos;ll contact you soon.
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowContact(false)}
-                    disabled={contactSubmitting}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      padding: 4,
-                      color: C.mid,
-                      fontSize: 18,
-                      lineHeight: 1,
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-
-              {/* Body */}
-              <div style={{ padding: contactDone ? 0 : '20px 24px 24px' }}>
-                {contactDone ? (
-                  <div style={{ position: 'relative', width: '100%' }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {/* biome-ignore lint/performance/noImgElement: contact us banner image */}
-                    <img
-                      src="/assets/contact-us-finalinfo.png"
-                      alt=""
-                      style={{ width: '100%', height: 'auto', display: 'block' }}
-                    />
                     <div
                       style={{
-                        position: 'absolute',
-                        inset: 0,
+                        width: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        background: step.color,
+                        color: '#fff',
                         display: 'flex',
-                        flexDirection: 'column',
                         alignItems: 'center',
-                        justifyContent: 'flex-start',
-                        textAlign: 'center',
-                        padding: '0 24px 24px',
-                        paddingTop: '42%',
-                        gap: 10,
-                        overflowY: 'visible',
+                        justifyContent: 'center',
+                        fontSize: 13,
+                        fontWeight: 600,
                       }}
                     >
-                      <span style={{ fontSize: 20, fontWeight: 700, color: '#111111' }}>
-                        Great Choice!
-                      </span>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
-                        Your request has been submitted successfully.
-                      </span>
-                      <span style={{ fontSize: 12, color: '#3a3a3a', lineHeight: 1.6 }}>
-                        Our team will give you a quick call to understand your requirements and
-                        guide you through the next steps.
-                      </span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: 'rgb(249,115,22)' }}>
-                        No waiting. No complicated process.
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowContact(false)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          outline: 'none',
-                          cursor: 'pointer',
-                          padding: 0,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          fontSize: 14,
-                          fontWeight: 600,
-                          color: '#111',
-                        }}
-                      >
-                        Continue Browsing
-                        <svg
-                          aria-hidden="true"
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M5 12h14" />
-                          <path d="m12 5 7 7-7 7" />
-                        </svg>
-                      </button>
-                      <span style={{ fontSize: 11, color: '#555' }}>
-                        ⏱ Average response time: Within 30 minutes during business hours.
-                      </span>
+                      {step.num}
                     </div>
                   </div>
-                ) : (
-                  <form
-                    onSubmit={(e) => void handleContactSubmit(e)}
-                    style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label
-                        htmlFor="contact-name"
-                        style={{ fontSize: 12, fontWeight: 600, color: C.text }}
-                      >
-                        Full Name <span style={{ color: C.pink }}>*</span>
-                      </label>
-                      <input
-                        id="contact-name"
-                        required
-                        value={contactName}
-                        onChange={(e) => setContactName(e.target.value)}
-                        disabled={contactSubmitting}
-                        placeholder="John Doe"
-                        style={{
-                          height: 40,
-                          borderRadius: 8,
-                          border: `1px solid ${C.border2}`,
-                          padding: '0 12px',
-                          fontSize: 13,
-                          color: C.text,
-                          background: C.bg,
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                          width: '100%',
-                        }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label
-                        htmlFor="contact-email"
-                        style={{ fontSize: 12, fontWeight: 600, color: C.text }}
-                      >
-                        Email <span style={{ color: C.pink }}>*</span>
-                      </label>
-                      <input
-                        id="contact-email"
-                        required
-                        type="email"
-                        value={contactEmail}
-                        onChange={(e) => setContactEmail(e.target.value)}
-                        disabled={contactSubmitting}
-                        placeholder="you@example.com"
-                        style={{
-                          height: 40,
-                          borderRadius: 8,
-                          border: `1px solid ${C.border2}`,
-                          padding: '0 12px',
-                          fontSize: 13,
-                          color: C.text,
-                          background: C.bg,
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                          width: '100%',
-                        }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label
-                        htmlFor="contact-phone"
-                        style={{ fontSize: 12, fontWeight: 600, color: C.text }}
-                      >
-                        Phone Number <span style={{ color: C.pink }}>*</span>
-                      </label>
-                      <input
-                        id="contact-phone"
-                        required
-                        type="tel"
-                        inputMode="numeric"
-                        value={contactPhone}
-                        onChange={(e) => {
-                          const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
-                          setContactPhone(
-                            digits.length > 5 ? `${digits.slice(0, 5)} ${digits.slice(5)}` : digits,
-                          );
-                        }}
-                        disabled={contactSubmitting}
-                        placeholder="98765 43210"
-                        style={{
-                          height: 40,
-                          borderRadius: 8,
-                          border: `1px solid ${C.border2}`,
-                          padding: '0 12px',
-                          fontSize: 13,
-                          color: C.text,
-                          background: C.bg,
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                          width: '100%',
-                        }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label
-                        htmlFor="contact-message"
-                        style={{ fontSize: 12, fontWeight: 600, color: C.text }}
-                      >
-                        Message
-                      </label>
-                      <textarea
-                        id="contact-message"
-                        value={contactMessage}
-                        onChange={(e) => setContactMessage(e.target.value)}
-                        disabled={contactSubmitting}
-                        placeholder="Tell us about your use case…"
-                        rows={3}
-                        style={{
-                          borderRadius: 8,
-                          border: `1px solid ${C.border2}`,
-                          padding: '10px 12px',
-                          fontSize: 13,
-                          color: C.text,
-                          background: C.bg,
-                          outline: 'none',
-                          boxSizing: 'border-box',
-                          width: '100%',
-                          resize: 'vertical',
-                          fontFamily: 'inherit',
-                        }}
-                      />
-                    </div>
-                    <div
-                      style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setShowContact(false)}
-                        disabled={contactSubmitting}
-                        style={{
-                          height: 38,
-                          padding: '0 16px',
-                          borderRadius: 8,
-                          border: 'none',
-                          background: 'transparent',
-                          color: C.mid,
-                          fontSize: 13,
-                          fontWeight: 500,
-                          cursor: contactSubmitting ? 'not-allowed' : 'pointer',
-                        }}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={contactSubmitting}
-                        style={{
-                          height: 38,
-                          padding: '0 20px',
-                          borderRadius: 8,
-                          border: 'none',
-                          background: grad,
-                          color: '#fff',
-                          fontSize: 13,
-                          fontWeight: 600,
-                          cursor: contactSubmitting ? 'not-allowed' : 'pointer',
-                          opacity: contactSubmitting ? 0.7 : 1,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {contactSubmitting ? 'Sending…' : 'Request a Call'}
-                      </button>
-                    </div>
-                  </form>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{step.title}</div>
+                    <div style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>{step.desc}</div>
+                  </div>
+                </div>
+                {idx < arr.length - 1 && (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="m9 18 6-6-6-6"/>
+                  </svg>
                 )}
               </div>
-            </div>
+            ))}
           </div>
-        )}
-      </div>
 
-      <div style={{ padding: '0 20px 20px' }}>
-        <div
-          style={{
-            height: 90,
-            borderRadius: 16,
-            background: C.card,
-            border: `1px solid ${C.border}`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            padding: '0 40px',
-            boxSizing: 'border-box',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {/* biome-ignore lint/performance/noImgElement: speaker illustration */}
-            <img src="/assets/speaker-vec.svg" alt="" width={30} height={28} />
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: C.text }}>
-                Ready to Transform Your Shopping Experience?
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.22fr', gap: 24 }}>
+            {/* Left Column */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              {/* Select Garment & Upload Person Row */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                {/* 1. Select Garment */}
+                <div style={{ background: C.white, borderRadius: 16, border: 'none', padding: '16px', display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>1. Select Image from Catalogues</span>
+                    <InfoIcon size={16} color={C.mid} />
+                  </div>
+                  
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => !generating && setShowGarmentPicker(true)}
+                    onKeyDown={(e) => e.key === 'Enter' && !generating && setShowGarmentPicker(true)}
+                    style={{
+                      flex: 1,
+                      minHeight: 260,
+                      borderRadius: 12,
+                      border: `2px dashed ${selectedGarmentJob ? 'transparent' : '#C4B5FD'}`,
+                      outlineOffset: -2,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 12,
+                      padding: 16,
+                      boxSizing: 'border-box',
+                      cursor: generating ? 'default' : 'pointer',
+                      overflow: 'hidden',
+                      background: 'transparent'
+                    }}
+                  >
+                    {selectedGarmentJob?.thumbnailUrl ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      // biome-ignore lint/performance/noImgElement: selected garment thumbnail
+                      <img
+                        src={selectedGarmentJob.thumbnailUrl}
+                        alt={selectedGarmentJob.garmentTypeName}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'contain',
+                          borderRadius: 8,
+                        }}
+                      />
+                    ) : (
+                      <>
+                        <div
+                          style={{
+                            width: 56,
+                            height: 56,
+                            borderRadius: '50%',
+                            background: '#F5F3FF',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <path d="M3 7L7 4H9.5C9.5 5.38 10.62 6.5 12 6.5C13.38 6.5 14.5 5.38 14.5 4H17L21 7L18.5 9.5L17 8V20H7V8L5.5 9.5L3 7Z" stroke="#818CF8" strokeWidth="1.5" strokeLinejoin="round" />
+                          </svg>
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 500, textAlign: 'center', color: C.mid, lineHeight: 1.6 }}>
+                          Drag and drop an image here &middot; JPG, PNG &middot; Max 10MB
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FFFFFF', border: '1px solid #E5E7EB', padding: '8px 18px', borderRadius: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
+                          </svg>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#1F2937' }}>Browse from Catalogues</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Upload Person */}
+                <div style={{ background: C.white, borderRadius: 16, border: 'none', padding: '16px', display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>2. Upload Person Image</span>
+                    <InfoIcon size={16} color={C.mid} />
+                  </div>
+
+                  {/* Dashed border wraps upload zone + tips + badges */}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', border: '2px dashed #FBCFE8', borderRadius: 12, background: 'transparent', padding: '0 0 12px 0', gap: 10 }}>
+                    <UploadZone
+                      file={personFile}
+                      preview={personPreview}
+                      progress={personProgress}
+                      label=""
+                      tip=""
+                      disabled={generating}
+                      sampleUrl={personSampleUrl}
+                      onFile={(f) => pickFile(f, setPersonFile, setPersonPreview)}
+                      icon={
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="8" r="3.5" stroke="#F472B6" strokeWidth="1.5" />
+                          <path d="M5 20C5 17 8 15 12 15C16 15 19 17 19 20" stroke="#F472B6" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                      }
+                    />
+                    {/* Tips + Badges inside the dashed border */}
+                    <div style={{ paddingInline: 12 }}>
+
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                        <div style={{ background: '#F3F4F6', color: '#374151', fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#818CF8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                          Front Facing
+                        </div>
+                        <div style={{ background: '#F3F4F6', color: '#374151', fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#818CF8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                          Good Lighting
+                        </div>
+                        <div style={{ background: '#F3F4F6', color: '#374151', fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 20, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#818CF8" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                          Clear Image
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 400, color: C.light, lineHeight: 1.5 }}>
-                Launch Ai Vastra Virtual Try On on your website or enhance your retail store with
-                our AI Kiosk solution. Contact us today, and we'll get back to you immediately.
+
+              {/* Try-On Settings + Credits + Generate â€” single unified card */}
+              <div style={{ background: C.white, borderRadius: 16, border: 'none', padding: '20px', display: 'flex', flexDirection: 'column', gap: 0, boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
+                {/* Settings header + dropdowns */}
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 16 }}>Try-On Settings</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
+                  <CustomSelect label="Model" defaultValue="Female" options={['Female', 'Male', 'Kids', 'Unisex']} />
+                  <CustomSelect label="Fit Preference" defaultValue="Regular" options={['Regular', 'Slim', 'Oversized', 'Relaxed']} />
+                  <CustomSelect label="Output Quality" defaultValue="High (2K)" options={['Standard (1K)', 'High (2K)', 'Ultra (4K)']} />
+                  <CustomSelect label="Background" defaultValue="Clean (Auto)" options={['Clean (Auto)', 'Studio', 'Street', 'Original']} />
+                </div>
+
+                {/* Tips row */}
+                <div style={{ display: 'flex', gap: 6, marginTop: 16, alignItems: 'center', background: 'linear-gradient(90deg, #FDF4FF 0%, #F5F3FF 100%)', padding: '10px 16px', borderRadius: 8 }}>
+                  <img src="/assets/bulb.svg" width={12} height={14} alt=""/>
+                  <span style={{ fontSize: 11, color: '#818CF8', fontWeight: 600 }}>Tips:</span>
+                  <span style={{ fontSize: 11, color: '#6B7280' }}>For best results, use front-facing images with good lighting and clear outfit details.</span>
+                </div>
+
+                {/* Error (inline, inside the card) */}
+                {error && (
+                  <div style={{ fontSize: 13, color: '#f87171', padding: '10px 14px', background: 'rgba(220,38,38,0.12)', borderRadius: 8, marginTop: 12 }}>
+                    {error}
+                  </div>
+                )}
+
+                {/* Divider */}
+                <div style={{ height: 1, background: '#E5E7EB', marginTop: 16, marginBottom: 16, marginInline: -20 }} />
+
+                {/* Credits + Generate button row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 8, background: '#FDF2F8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <img src="/assets/credit.png" width={20} height={20} alt="" />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{creditsCost} credits required</div>
+                      <div style={{ fontSize: 12, color: C.mid }}>You have {credits?.balance ?? 0} credits ({Math.floor((credits?.balance ?? 0) / creditsCost)} generations)</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={handleGenerate}
+                      disabled={!canGenerate}
+                      style={{
+                        height: 48,
+                        paddingInline: 32,
+                        borderRadius: 12,
+                        background: canGenerate ? grad : C.border,
+                        border: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 10,
+                        cursor: canGenerate ? 'pointer' : 'not-allowed',
+                        boxShadow: canGenerate ? '0 6px 18px rgba(245,92,122,0.28)' : 'none',
+                        transition: 'opacity .15s',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <img src="/assets/generate-icon.svg" alt="" width={20} height={20} style={{ filter: 'brightness(0) invert(1)', opacity: canGenerate ? 1 : 0.4 }} />
+                      <span style={{ fontSize: 15, fontWeight: 600, color: canGenerate ? '#fff' : C.light }}>
+                        {generating ? 'Generatingâ€¦' : 'Generate Try-On'}
+                      </span>
+                    </button>
+                    {!generating && <div style={{ fontSize: 11, color: C.mid }}>Estimated Time:~ 25 seconds</div>}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => openContact('cta-banner')}
-            style={{
-              height: 38,
-              padding: '0 24px',
-              borderRadius: 8,
-              border: 'none',
-              background: '#000',
-              color: '#fff',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Contact Us
-            <svg
-              aria-hidden="true"
-              xmlns="http://www.w3.org/2000/svg"
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-            </svg>
-          </button>
-        </div>
-      </div>
+
+            {/* Right Column (Preview) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{ flex: 1, background: C.white, borderRadius: 16, border: 'none', display: 'flex', flexDirection: 'column', padding: 20, minHeight: 500, boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>Your Try-On Preview</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.bg, border: `1px solid ${C.border}`, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, color: C.text, cursor: 'pointer' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                      Compare
+                    </button>
+                    <button style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.bg, border: `1px solid ${C.border}`, padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, color: C.text, cursor: 'pointer' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+                      Full Screen
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ flex: 1, display: 'flex', gap: 12, minHeight: 0 }}>
+                  {resultUrl ? (
+                    <>
+                      <div style={{ flex: 1, position: 'relative', borderRadius: 8, overflow: 'hidden', background: '#e5e7eb' }}>
+                        <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(0,0,0,0.4)', color: '#fff', padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, zIndex: 10 }}>Before</div>
+                        {personPreview && <img src={personPreview} alt="Before" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                      </div>
+                      <div style={{ flex: 1, position: 'relative', borderRadius: 8, overflow: 'hidden', background: '#e5e7eb' }}>
+                        <div style={{ position: 'absolute', top: 12, right: 12, background: '#818CF8', color: '#fff', padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, zIndex: 10 }}>After AI</div>
+                        <img src={resultUrl} alt="After AI" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ flex: 1, borderRadius: 8, background: '#F9FAFB', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+                      {generating ? (
+                        <>
+                           <svg aria-hidden="true" width="40" height="40" viewBox="0 0 40 40" fill="none">
+                            <circle cx="20" cy="20" r="16" stroke={C.border2} strokeWidth="3" />
+                            <path d="M20 4 A16 16 0 0 1 36 20" stroke={C.pink} strokeWidth="3" strokeLinecap="round">
+                              <animateTransform attributeName="transform" type="rotate" from="0 20 20" to="360 20 20" dur="1s" repeatCount="indefinite" />
+                            </path>
+                          </svg>
+                          <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>Generating your try on...</span>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{ width: 80, height: 80, borderRadius: '50%', background: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
+                             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#D1D5DB" strokeWidth="2"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
+                          </div>
+                          <span style={{ fontSize: 14, color: C.mid }}>Your preview will appear here</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginTop: 16 }}>
+                  <button style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 40, background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download
+                  </button>
+                  <button style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 40, background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600, color: C.text, cursor: 'pointer' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                    Share
+                  </button>
+                </div>
+
+                {/* Badges */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 16, border: '1px solid #E5E7EB', padding: '16px', borderRadius: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#F5F3FF', color: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>AI Powered</div>
+                            <div style={{ fontSize: 11, color: C.mid }}>High Accuracy</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#F5F3FF', color: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Private & Secure</div>
+                            <div style={{ fontSize: 11, color: C.mid }}>Your data is safe</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#F5F3FF', color: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Commercial Use</div>
+                            <div style={{ fontSize: 11, color: C.mid }}>100% Allowed</div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#F5F3FF', color: '#6366F1', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>No Watermark</div>
+                            <div style={{ fontSize: 11, color: C.mid }}>Clean Output</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
 
       {/* Garment catalog picker modal */}
       {showGarmentPicker && (
@@ -1507,3 +1119,4 @@ export default function TryOnPage() {
     </>
   );
 }
+
