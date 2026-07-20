@@ -1,3 +1,28 @@
+## 2026-07-20 - Dev API: POST /v1/dev/saree-mannequin
+
+New saree-mannequin ComfyUI workflow (`sdrapewithpalluapi.json`) wired end-to-end: person/face node made optional across admin upload, `/admin/workflows` create route, and the dispatcher (`processSareeMannequinJob`), since this workflow bakes the face in via a fixed URL node instead of a patchable image node. Live `saree_step1` template on Flat Saree's `mannequinWorkflowTemplateId` swapped to the new JSON directly in the local DB during testing; a second row (`sdrapewithpalluapi`) was later created via the admin panel and Flat Saree repointed to it — the DB-swapped row is now an unused duplicate, not yet cleaned up.
+
+Then designed and implemented a new public dev-API endpoint exposing the mannequin step directly (separate from `/v1/dev/tryon`, whose `category: 'saree'` already maps to an unrelated template), executed via subagent-driven-development (7 tasks, each implemented + reviewed by a fresh subagent, plus one final whole-branch review).
+
+### Done
+- **Person/face node optional end-to-end** (commit 9dc3eb4): `apps/admin-web/src/components/WorkflowUploadModal.tsx`, `apps/api/src/modules/admin/workflows.routes.ts`, `apps/dispatcher/src/job/processor.ts` no longer hard-require a `tryonPersonNodeId`/`faceId` for `tryon`/`saree_step1` workflow templates.
+- **`createDevJobCore`**: extracted from `createDevTryonJob` (`apps/api/src/modules/dev/create-job.ts`) — shared insert/deduct/enqueue/refund-on-fail transaction helper, parameterized by cost/watermark/metric-kind/job-inputs-builder. `/v1/dev/tryon`'s route, contract, and behavior verified unchanged (confirmed by 3 separate reviews, including the final whole-branch pass).
+- **`POST /v1/dev/saree-mannequin`** (`apps/api/src/modules/dev/routes.ts`, `create-saree-mannequin-job.ts`): single `garment` image in (multipart or JSON/base64), no `category`/`person` params — resolves the workflow via the one `garment_subcategories` row with `requires_mannequin_step = true`. Charges credits via the existing `getTryonCreditCost`. Polled via the existing unmodified `GET /v1/dev/jobs/:id`.
+- **Dispatcher `faceId` guard fix**: `processSareeMannequinJob`'s early input guard now only requires `faceId` when the resolved template actually has a `tryonPersonNodeId` — previously hard-required it unconditionally, which would have rejected every dev-API job (always sends `faceId: null`).
+- Docs: `apps/api/dev-api-quickstart.md` §3c documents the new endpoint.
+- Tests: `apps/api/test/dev-saree-mannequin-create.test.ts` (10 cases, real Postgres/Redis/MinIO), `apps/dispatcher/test/integration/saree-mannequin.test.ts` gained a no-person-node/`faceId: null` case. Full `dev-*` suite (71 tests) and dispatcher integration suite re-verified with no regression.
+- Final whole-branch review (Opus): ready to merge, zero Critical/Important findings. One recommended one-line fix applied (stale routing comment on the saree-mannequin branch in `processor.ts` referencing `faceId` as required — commit d6ecdb9).
+
+### Failed / Not Done
+- Orphaned duplicate `workflow_templates` row (`saree_step1` slug, id `6c23fdfa-...`) from the earlier DB-swap testing step — not reverted or deactivated, flagged to the user, no decision made yet.
+- Minor findings deferred (not fixed, tracked for a future pass): `create-saree-mannequin-job.ts` does 2 sequential SELECTs instead of one join; the new test file's "unconfigured" case still leaks test containers if `startContainers()`/`buildTestApp()` itself throws (only the assertions are wrapped in try/finally); same file's insufficient-credits test restores `setCredits(100)` after its assertion rather than in `finally`; a `useOptionalChain` lint cosmetic nit; the admin person-node-optional relaxation applies to both `tryon` and `saree_step1` workflow types even though only `saree_step1` needs it (fails safe today — `processTryonDirectJob` still rejects a personNodeId-less `tryon` template — but is a latent inconsistency worth scoping down later).
+
+### Open Questions / Decisions
+- Whether to keep, revert, or deactivate the orphaned `saree_step1`/`6c23fdfa-...` workflow template row.
+- Whether to scope the admin person-node-optional relaxation to `saree_step1` only, or symmetrically relax `processTryonDirectJob` for `tryon` too.
+
+---
+
 ## 2026-07-18 - Shopify Product Catalog Generation: final-review fixes
 
 Fixed 4 Important findings from a whole-branch final code review of `feat/shopify-product-catalog-generation` (`apps/api/src/modules/shopify/catalog.routes.ts` and `catalog-options.routes.ts`). Out of scope by explicit instruction: App Bridge / Admin UI Extension `Link`-navigation issue (Critical, separate human decision).
