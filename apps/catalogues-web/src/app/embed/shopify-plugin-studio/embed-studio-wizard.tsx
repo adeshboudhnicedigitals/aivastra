@@ -492,12 +492,8 @@ export function EmbedStudioWizard() {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: C.text }}>
-          Generate a product photo with Ai Vastra
+          Generate a product photo with Sellio
         </h2>
-        <p style={{ margin: 0, fontSize: 13, color: C.mid }}>
-          Every step below calls our real generation pipeline — the result is a genuine AI photo,
-          not a placeholder.
-        </p>
       </div>
 
       <div style={sectionCardStyle}>
