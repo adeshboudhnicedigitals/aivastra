@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { Icon } from '../components/Icons';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
 
 interface WorkflowOption {
@@ -386,19 +387,14 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               </div>
               <div className="field">
                 <label>Workflow</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={workflows}
                   value={workflowTemplateId}
                   disabled={creating}
-                  onChange={(e) => setWorkflowTemplateId(e.target.value)}
-                >
-                  <option value="">Select a workflow</option>
-                  {workflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setWorkflowTemplateId}
+                  placeholder="— search workflow —"
+                  emptyLabel="Select a workflow"
+                />
               </div>
               <div className="field">
                 <label>Sort order</label>
@@ -472,19 +468,14 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               </div>
               <div className="field">
                 <label>Workflow</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={workflows}
                   value={editWorkflowTemplateId}
                   disabled={editSaving}
-                  onChange={(e) => setEditWorkflowTemplateId(e.target.value)}
-                >
-                  <option value="">Select a workflow</option>
-                  {workflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setEditWorkflowTemplateId}
+                  placeholder="— search workflow —"
+                  emptyLabel="Select a workflow"
+                />
               </div>
               <div className="field">
                 <label>Sort order</label>
@@ -570,21 +561,14 @@ export default function ShopifyFunnelsPage({ toast }: Props) {
               </p>
               <div className="field">
                 <label>Move products to</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={items.filter((i) => i.id !== reassignSource.id)}
                   value={reassignTargetId}
                   disabled={reassigning}
-                  onChange={(e) => setReassignTargetId(e.target.value)}
-                >
-                  <option value="">Select a funnel template</option>
-                  {items
-                    .filter((i) => i.id !== reassignSource.id)
-                    .map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.label}
-                      </option>
-                    ))}
-                </select>
+                  onChange={setReassignTargetId}
+                  placeholder="— search funnel template —"
+                  emptyLabel="Select a funnel template"
+                />
               </div>
             </div>
             <div className="modal-foot">

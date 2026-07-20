@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 
 interface ParsedNode {
   id: string;
@@ -86,20 +87,14 @@ function NodeSelect({
           {hint}
         </span>
       )}
-      <select
-        className="select"
+      <SearchableSelect
+        options={nodes.map((n) => ({ id: n.id, label: `[${n.id}] ${n.title} (${n.class_type})` }))}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         disabled={disabled}
-        style={{ fontSize: 13 }}
-      >
-        <option value="">— select node —</option>
-        {nodes.map((n) => (
-          <option key={n.id} value={n.id}>
-            [{n.id}] {n.title} ({n.class_type})
-          </option>
-        ))}
-      </select>
+        emptyLabel="— select node —"
+        placeholder="— search node —"
+      />
     </div>
   );
 }
@@ -772,24 +767,23 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 {upperNodeIds.map((uid, idx) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: controlled selects with no per-row state; values can repeat/be empty
                   <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                    <select
-                      className="select"
-                      value={uid}
-                      disabled={saving}
-                      style={{ flex: 1, fontSize: 13 }}
-                      onChange={(e) => {
-                        const next = [...upperNodeIds];
-                        next[idx] = e.target.value;
-                        setUpperNodeIds(next);
-                      }}
-                    >
-                      <option value="">— select node —</option>
-                      {nodes.image.map((n) => (
-                        <option key={n.id} value={n.id}>
-                          [{n.id}] {n.title} ({n.class_type})
-                        </option>
-                      ))}
-                    </select>
+                    <div style={{ flex: 1 }}>
+                      <SearchableSelect
+                        options={nodes.image.map((n) => ({
+                          id: n.id,
+                          label: `[${n.id}] ${n.title} (${n.class_type})`,
+                        }))}
+                        value={uid}
+                        disabled={saving}
+                        emptyLabel="— select node —"
+                        placeholder="— search node —"
+                        onChange={(id) => {
+                          const next = [...upperNodeIds];
+                          next[idx] = id;
+                          setUpperNodeIds(next);
+                        }}
+                      />
+                    </div>
                     {upperNodeIds.length > 1 && (
                       <button
                         className="btn sm ghost"

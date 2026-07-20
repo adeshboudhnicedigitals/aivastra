@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
@@ -395,24 +396,19 @@ export default function SareePage({ toast, onNav }: Props) {
           garment type to a specific tryon workflow template, just like garment types in Assets.
         </p>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <select
-            className="select"
-            style={{ maxWidth: 400 }}
-            value={settings?.workflowTemplateId ?? ''}
-            disabled={savingWorkflowId}
-            onChange={(e) => {
-              const id = e.target.value;
-              void handleWorkflowChange(id);
-            }}
-          >
-            <option value="">— none —</option>
-            {workflows.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.label}
-                {!w.isActive ? ' (inactive)' : ''}
-              </option>
-            ))}
-          </select>
+          <div style={{ maxWidth: 400, width: '100%' }}>
+            <SearchableSelect
+              options={workflows.map((w) => ({
+                id: w.id,
+                label: `${w.label}${!w.isActive ? ' (inactive)' : ''}`,
+              }))}
+              value={settings?.workflowTemplateId ?? ''}
+              disabled={savingWorkflowId}
+              emptyLabel="— none —"
+              placeholder="— search workflow —"
+              onChange={(id) => void handleWorkflowChange(id)}
+            />
+          </div>
           {savingWorkflowId && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Saving…</span>}
         </div>
       </div>

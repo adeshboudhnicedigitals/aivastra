@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
@@ -980,19 +981,14 @@ function ShotTypeWorkflowsPanel({ sub, workflows, toast }: ShotTypeWorkflowsPane
           {items.map((item) => (
             <div key={item.shotType} className="field" style={{ margin: 0 }}>
               <label>{SHOT_TYPE_LABELS[item.shotType]}</label>
-              <select
-                className="select"
+              <SearchableSelect
+                options={workflows.map((w) => ({ id: w.id, label: w.label }))}
                 value={item.workflowTemplateId ?? ''}
                 disabled={savingShotType === item.shotType}
-                onChange={(e) => void setDefault(item.shotType, e.target.value || null)}
-              >
-                <option value="">— none —</option>
-                {workflows.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => void setDefault(item.shotType, val || null)}
+                emptyLabel="— none —"
+                placeholder="— search workflow —"
+              />
             </div>
           ))}
         </div>
@@ -1413,20 +1409,15 @@ function MappedTemplateWorkflowModal({
                         )}
                       </div>
                     </div>
-                    <select
-                      className="select"
-                      aria-label={`Workflow for ${item.displayName ?? item.label}`}
+                    <SearchableSelect
+                      options={workflows.map((w) => ({ id: w.id, label: w.label }))}
                       value={item.workflowTemplateId ?? ''}
                       disabled={savingId === item.id}
-                      onChange={(event) => void setWorkflow(item.id, event.target.value || null)}
-                    >
-                      <option value="">Select workflow...</option>
-                      {workflows.map((workflow) => (
-                        <option key={workflow.id} value={workflow.id}>
-                          {workflow.label}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(val) => void setWorkflow(item.id, val || null)}
+                      emptyLabel="Select workflow..."
+                      placeholder="— search workflow —"
+                      ariaLabel={`Workflow for ${item.displayName ?? item.label}`}
+                    />
                     <button
                       className="btn sm ghost"
                       disabled={!item.workflowTemplateId || savingId === item.id}
@@ -1718,20 +1709,15 @@ function PoseConfigsPanel({
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>
                 {selectedIds.length} selected
               </span>
-              <select
-                className="select"
-                style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+              <SearchableSelect
+                options={workflows.map((w) => ({ id: w.id, label: w.label }))}
                 value={bulkWorkflow}
                 disabled={bulkSaving}
-                onChange={(e) => setBulkWorkflow(e.target.value)}
-              >
-                <option value="">Pick workflow…</option>
-                {workflows.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setBulkWorkflow(val)}
+                emptyLabel="Pick workflow…"
+                placeholder="— search workflow —"
+                style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+              />
               <button
                 className="btn sm primary"
                 disabled={!bulkWorkflow || bulkSaving}
@@ -1770,21 +1756,16 @@ function PoseConfigsPanel({
 
       <div className="field" style={{ maxWidth: 360, margin: '12px 0' }}>
         <label>Default pose (merchant catalogue generation)</label>
-        <select
-          className="select"
+        <SearchableSelect
+          options={items
+            .filter((i) => i.isActive)
+            .map((i) => ({ id: i.id, label: i.displayName ?? i.label }))}
           value={sub.defaultPoseId ?? ''}
           disabled={savingDefaultPose}
-          onChange={(e) => void onSaveDefaultPose(sub.id, e.target.value || null)}
-        >
-          <option value="">— none (generation disabled for this type) —</option>
-          {items
-            .filter((i) => i.isActive)
-            .map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.displayName ?? i.label}
-              </option>
-            ))}
-        </select>
+          onChange={(val) => void onSaveDefaultPose(sub.id, val || null)}
+          emptyLabel="— none (generation disabled for this type) —"
+          placeholder="— search pose —"
+        />
         <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
           Used when a merchant uploads a flat garment for this type — the pose (and its workflow) is
           fixed so every generated image is try-on-suitable.
@@ -1970,12 +1951,11 @@ function PoseConfigsPanel({
             >
               <div className="field">
                 <label>Workflow override</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={workflows.map((w) => ({ id: w.id, label: w.label }))}
                   value={editWorkflow}
                   disabled={savingId === editing.id}
-                  onChange={(e) => {
-                    const newId = e.target.value;
+                  onChange={(newId) => {
                     setEditWorkflow(newId);
                     // Always follow the newly selected workflow's own default prompt — same
                     // convention as the pose-asset-level edit modal — so switching workflows
@@ -1986,21 +1966,14 @@ function PoseConfigsPanel({
                       wf?.defaultGarmentPhasePrompt ?? editing.defaultPromptGarmentPhase ?? '',
                     );
                   }}
-                >
-                  <option value="">
-                    Use default (
-                    {editing.defaultWorkflowTemplateId
+                  emptyLabel={`Use default (${
+                    editing.defaultWorkflowTemplateId
                       ? (workflows.find((w) => w.id === editing.defaultWorkflowTemplateId)?.label ??
                         '?')
-                      : 'none'}
-                    )
-                  </option>
-                  {workflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.label}
-                    </option>
-                  ))}
-                </select>
+                      : 'none'
+                  })`}
+                  placeholder="— search workflow —"
+                />
                 <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 12 }}>
                   Changing this updates the prompt below to that workflow's own default — edit it
                   after to customize further.
