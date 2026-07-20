@@ -20,8 +20,6 @@ class ProductCategoryItemAdapter(private val onClickEvent:(MerchantCatalogItem,I
 
     {
 
-        var currentSearchBy: String = ""
-
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerViewViewHolder {
             val binding: ItemVastraBinding = DataBindingUtil.inflate(
                 LayoutInflater.from(parent.context),
@@ -43,11 +41,6 @@ class ProductCategoryItemAdapter(private val onClickEvent:(MerchantCatalogItem,I
         fun selectedItemPosition(position: Int){
             onClickEvent(getItem(position),position) // Trigger click listener
         }
-
-        fun updateSearchBy(searchBy:String) {
-            currentSearchBy = searchBy
-        }
-
 
         class RecyclerViewViewHolder(binding: ItemVastraBinding) :
             RecyclerView.ViewHolder(binding.getRoot()) {

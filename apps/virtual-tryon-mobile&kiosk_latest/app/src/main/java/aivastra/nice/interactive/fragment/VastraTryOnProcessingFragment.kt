@@ -38,10 +38,20 @@ class VastraTryOnProcessingFragment : DialogFragment() {
     private var textRunnable: Runnable? = null
     private var lottieDrawable: LottieDrawable? = null
 
+    // Invoked when the customer cancels the try-on (Cancel button or Back) so the host activity can
+    // stop polling, cancel the server job, and re-enable the screen. Without this the processing
+    // screen was inescapable when a job never reached a terminal state.
+    var onCancelRequested: (() -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setStyle(STYLE_NO_TITLE, R.style.Theme_AiVastra)
-        isCancelable = false
+        isCancelable = true
+    }
+
+    override fun onCancel(dialog: DialogInterface) {
+        super.onCancel(dialog)
+        onCancelRequested?.invoke()
     }
 
     override fun onCreateView(
@@ -62,12 +72,20 @@ class VastraTryOnProcessingFragment : DialogFragment() {
             )
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         }
+        // Only the Cancel button / Back should dismiss — a stray touch on the full-screen dialog
+        // must not cancel a try-on that is legitimately still processing.
+        dialog?.setCanceledOnTouchOutside(false)
         // Removed system bar modification (causes relayout spike on kiosk)
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 //        startLoaderAnimation()
 //        startTextProcessAnimation()
+
+        binding.btnCancel.setOnClickListener {
+            onCancelRequested?.invoke()
+            dismissDialogSafe()
+        }
 
         // 🚀 VERY IMPORTANT: Delay player init
         binding.root.postDelayed({

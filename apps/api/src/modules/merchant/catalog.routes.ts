@@ -11,7 +11,7 @@ import {
   MerchantCatalogSubcategoryUpdateBody,
   MerchantCatalogUpdateBody,
 } from '@aivastra/types';
-import { and, count, desc, eq, ilike, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -379,9 +379,19 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
     const { search = '', subcategoryId } = req.query as { search?: string; subcategoryId?: string };
-    const conditions = [eq(schema.merchantCatalogItems.merchantId, merchantId)];
-    if (search.trim())
-      conditions.push(ilike(schema.merchantCatalogItems.label, `%${search.trim()}%`));
+    const conditions: (SQL | undefined)[] = [
+      eq(schema.merchantCatalogItems.merchantId, merchantId),
+    ];
+    if (search.trim()) {
+      const pattern = `%${search.trim()}%`;
+      // Merchants search by SKU as often as by label — match either.
+      conditions.push(
+        or(
+          ilike(schema.merchantCatalogItems.label, pattern),
+          ilike(schema.merchantCatalogItems.sku, pattern),
+        ),
+      );
+    }
     if (subcategoryId)
       conditions.push(eq(schema.merchantCatalogItems.subcategoryId, subcategoryId));
 
