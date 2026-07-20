@@ -244,77 +244,6 @@
             <TextView
                 android:layout_width="@dimen/_80sdp"
                 android:layout_height="wrap_content"
-                android:text="Category"
-                android:textColor="@color/black"
-                android:textAlignment="center"
-                android:layout_gravity="center"
-                android:fontFamily="@font/popins_medium"
-                android:textSize="@dimen/_12ssp"/>
-
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/spinnerLayout"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginStart="@dimen/_10sdp"
-                app:endIconMode="dropdown_menu"
-                app:endIconScaleType="centerCrop"
-                app:endIconTint="@color/black"
-                app:hintEnabled="false"
-                app:endIconMinSize="@dimen/_30sdp">
-
-                <AutoCompleteTextView
-                    android:id="@+id/materialSpinner"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/app_background_corner"
-                    android:textColor="@color/black"
-                    android:textAlignment="textStart"
-                    android:gravity="start"
-                    android:hint="Select Category"
-                    android:textColorHint="@color/dark_gray"
-                    android:textSize="@dimen/_12ssp"
-                    android:fontFamily="@font/popins_medium"
-                    android:inputType="none"
-                    android:singleLine="true"
-                    android:includeFontPadding="false"
-                    android:ellipsize="end"
-                    android:paddingVertical="@dimen/_7sdp"
-                    android:paddingHorizontal="@dimen/_12sdp"
-                    android:focusable="false"
-                    android:cursorVisible="false" />
-            </com.google.android.material.textfield.TextInputLayout>
-
-
-            <EditText
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:padding="@dimen/_10sdp"
-                android:layout_marginLeft="@dimen/_10sdp"
-                android:background="@drawable/app_background_corner"
-                android:hint="Select Category"
-                android:visibility="gone"
-                android:textColor="@color/black"
-                android:id="@+id/et_username"
-                android:imeOptions="actionNext"
-                android:textSize="@dimen/_12ssp"
-                android:textColorHint="@color/dark_gray"/>
-
-
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginLeft="@dimen/_10sdp"
-            android:layout_marginRight="@dimen/_10sdp"
-            android:layout_marginTop="@dimen/_10sdp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:layout_width="@dimen/_80sdp"
-                android:layout_height="wrap_content"
                 android:text="SKU No"
                 android:textColor="@color/black"
                 android:textAlignment="center"
@@ -350,23 +279,6 @@
                     android:paddingHorizontal="@dimen/_12sdp" />
 
             </com.google.android.material.textfield.TextInputLayout>
-
-
-            <EditText
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:padding="@dimen/_10sdp"
-                android:layout_marginLeft="@dimen/_10sdp"
-                android:background="@drawable/app_background_corner"
-                android:hint="Enter SKU No"
-                android:visibility="gone"
-                android:textColorHint="@color/dark_gray"
-                android:fontFamily="@font/popins_medium"
-                android:textColor="@color/black"
-                android:textSize="@dimen/_12ssp"
-                android:id="@+id/et_password"
-                android:imeOptions="actionDone"/>
-
 
         </LinearLayout>
 
