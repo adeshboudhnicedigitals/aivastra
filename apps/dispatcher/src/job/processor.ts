@@ -809,7 +809,7 @@ async function processSareeMannequinJob(
   const faceId = inputs.faceId;
   const garmentTypeId = inputs.garmentTypeId;
 
-  if (!garmentKey || !faceId || !garmentTypeId) {
+  if (!garmentKey || !garmentTypeId) {
     await markFailed(
       cfg,
       jobId,
@@ -884,14 +884,32 @@ async function processSareeMannequinJob(
     return;
   }
 
+  // Only templates with a person node need a caller-supplied face — templates
+  // that bake the face in directly (e.g. a fixed URL node) have nothing to
+  // resolve here regardless of what faceId arrived as.
+  if (personNodeId && !faceId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_INPUTS_MISSING',
+      jobLog,
+      startedAt,
+    );
+    return;
+  }
+
   // Templates with no person node bake the face in directly (e.g. a fixed URL
   // node) — nothing to resolve or patch, faceId is accepted but unused.
   let personKey: string | undefined;
   if (personNodeId) {
+    // Guarded above: personNodeId truthy implies faceId is non-null here.
     const [faceRow] = await db
       .select({ r2Key: schema.modelFaces.r2Key, faceSideR2Key: schema.modelFaces.faceSideR2Key })
       .from(schema.modelFaces)
-      .where(eq(schema.modelFaces.id, faceId));
+      .where(eq(schema.modelFaces.id, faceId!));
     if (!faceRow) {
       await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
       return;
