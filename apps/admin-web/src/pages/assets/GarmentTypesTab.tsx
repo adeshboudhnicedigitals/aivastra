@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditGarmentTypeModal } from '../../components/EditGarmentTypeModal';
 import { Icon } from '../../components/Icons';
@@ -27,6 +27,59 @@ const GENDER_TABS = [
   { k: 'boys' as const, l: 'Boys' },
   { k: 'girls' as const, l: 'Girls' },
 ];
+
+const SECTION_BADGE_SIZE = 24;
+const SECTION_BADGE_GAP = 10;
+
+function SectionHeader({
+  n,
+  title,
+  description,
+  right,
+}: {
+  n: number;
+  title: string;
+  description: string;
+  right?: ReactNode;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: SECTION_BADGE_GAP }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: SECTION_BADGE_SIZE,
+              height: SECTION_BADGE_SIZE,
+              borderRadius: '50%',
+              background: 'var(--pink)',
+              color: '#fff',
+              fontSize: 12,
+              fontWeight: 700,
+              flexShrink: 0,
+            }}
+          >
+            {n}
+          </span>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{title}</h2>
+        </div>
+        <p
+          style={{
+            margin: '6px 0 0',
+            paddingLeft: SECTION_BADGE_SIZE + SECTION_BADGE_GAP,
+            color: 'var(--muted)',
+            fontSize: 13,
+          }}
+        >
+          {description}
+        </p>
+      </div>
+      {right}
+    </div>
+  );
+}
 
 export function GarmentTypesTab() {
   const {
@@ -269,26 +322,13 @@ export function GarmentTypesTab() {
       <div className="page-head">
         <div>
           {subView.kind === 'configs' && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                marginBottom: 6,
-                fontSize: 13,
-                color: 'var(--muted)',
-              }}
+            <button
+              className="btn sm ghost"
+              onClick={() => setSubView({ kind: 'list' })}
+              style={{ padding: '2px 8px', fontSize: 13, marginBottom: 10 }}
             >
-              <button
-                className="btn sm ghost"
-                onClick={() => setSubView({ kind: 'list' })}
-                style={{ padding: '2px 8px', fontSize: 13 }}
-              >
-                Garment Types
-              </button>
-              <Icon.Chevron />
-              <span>{subView.sub.label}</span>
-            </div>
+              <Icon.ArrowLeft /> Back to Garment Types
+            </button>
           )}
           <h1>{subView.kind === 'configs' ? `${subView.sub.label} — Setup` : 'Garment Types'}</h1>
           <p className="lede">
@@ -341,11 +381,11 @@ export function GarmentTypesTab() {
               borderTop: '1px solid var(--border)',
             }}
           >
-            <h2 style={{ margin: 0, fontSize: 18 }}>3. Custom look poses</h2>
-            <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-              Configure standalone poses used by Create your own look. Template workflows are
-              configured inside each mapped template above.
-            </p>
+            <SectionHeader
+              n={3}
+              title="Custom look poses"
+              description="Configure standalone poses used by Create your own look. Template workflows are configured inside each mapped template above."
+            />
           </div>
 
           <PoseConfigsPanel
@@ -355,7 +395,6 @@ export function GarmentTypesTab() {
             savingId={savingConfigId}
             workflows={workflows}
             storagePublicUrl={storagePublicUrl}
-            onBack={() => setSubView({ kind: 'list' })}
             onSave={saveConfig}
             onToggleActive={(poseAssetId, isActive) =>
               togglePoseActive(subView.sub.id, poseAssetId, isActive)
@@ -927,11 +966,11 @@ function ShotTypeWorkflowsPanel({ sub, workflows, toast }: ShotTypeWorkflowsPane
 
   return (
     <section style={{ marginTop: 12 }}>
-      <h2 style={{ margin: 0, fontSize: 18 }}>1. Shot-type default workflows</h2>
-      <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-        Set once per shot type — applies to every pose tagged with it, across every template mapped
-        to {sub.label}, now and in the future.
-      </p>
+      <SectionHeader
+        n={1}
+        title="Shot-type default workflows"
+        description={`Set once per shot type — applies to every pose tagged with it, across every template mapped to ${sub.label}, now and in the future.`}
+      />
       {loading ? (
         <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--muted)' }}>
           Loading…
@@ -1028,20 +1067,19 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
   };
 
   return (
-    <section style={{ marginTop: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 18 }}>2. Catalogue templates</h2>
-          <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-            Select the {sub.genderSlug} templates users can choose for {sub.label}.
-          </p>
-        </div>
-        {!loading && (
-          <span className="badge">
-            {items.filter((item) => item.mapped).length} of {items.length} mapped
-          </span>
-        )}
-      </div>
+    <section>
+      <SectionHeader
+        n={2}
+        title="Catalogue templates"
+        description={`Select the ${sub.genderSlug} templates users can choose for ${sub.label}.`}
+        right={
+          !loading && (
+            <span className="badge">
+              {items.filter((item) => item.mapped).length} of {items.length} mapped
+            </span>
+          )
+        }
+      />
 
       {loading ? (
         <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
@@ -1463,6 +1501,9 @@ function MappedTemplateWorkflowModal({
   );
 }
 
+const effectiveWorkflowId = (item: PoseGarmentConfig) =>
+  item.config?.workflowTemplateId ?? item.defaultWorkflowTemplateId;
+
 interface PoseConfigsPanelProps {
   sub: GarmentType;
   items: PoseGarmentConfig[];
@@ -1470,7 +1511,6 @@ interface PoseConfigsPanelProps {
   savingId: string | null;
   workflows: WorkflowOption[];
   storagePublicUrl: string | null;
-  onBack: () => void;
   onSave: (
     garmentTypeId: string,
     poseAssetId: string,
@@ -1493,7 +1533,6 @@ function PoseConfigsPanel({
   savingId,
   workflows,
   storagePublicUrl,
-  onBack,
   onSave,
   onToggleActive,
   onSaveDefaultPose,
@@ -1505,11 +1544,30 @@ function PoseConfigsPanel({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkWorkflow, setBulkWorkflow] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
+  // '' = all workflows, 'none' = poses with no workflow assigned (override or default), else a workflow id
+  const [workflowFilter, setWorkflowFilter] = useState('');
+
+  const filteredItems = useMemo(() => {
+    if (!workflowFilter) return items;
+    if (workflowFilter === 'none') return items.filter((i) => !effectiveWorkflowId(i));
+    return items.filter((i) => effectiveWorkflowId(i) === workflowFilter);
+  }, [items, workflowFilter]);
+
+  // Only offer workflows actually in use on this page's poses, not every workflow in the system.
+  const usedWorkflowIds = useMemo(
+    () => [...new Set(items.map(effectiveWorkflowId).filter((id): id is string => !!id))],
+    [items],
+  );
+  const usedWorkflowOptions = useMemo(
+    () => usedWorkflowIds.map((id) => workflows.find((w) => w.id === id)).filter((w) => !!w),
+    [usedWorkflowIds, workflows],
+  );
+  const hasUnassignedPose = items.some((i) => !effectiveWorkflowId(i));
 
   const toggleSelect = (id: string) =>
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  const selectAll = () => setSelectedIds(items.map((i) => i.id));
+  const selectAll = () => setSelectedIds(filteredItems.map((i) => i.id));
   const clearSelection = () => setSelectedIds([]);
 
   const applyBulkWorkflow = async () => {
@@ -1533,6 +1591,19 @@ function PoseConfigsPanel({
       );
       clearSelection();
       setBulkWorkflow('');
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const applyBulkActive = async (active: boolean) => {
+    if (selectedIds.length === 0) return;
+    setBulkSaving(true);
+    try {
+      // Same path the per-card Switch uses — preserves any workflow/prompt override
+      // instead of wiping it the way "Clear override" does.
+      await Promise.all(selectedIds.map((id) => onToggleActive(id, active)));
+      clearSelection();
     } finally {
       setBulkSaving(false);
     }
@@ -1610,18 +1681,37 @@ function PoseConfigsPanel({
           marginTop: 12,
           marginBottom: 4,
           flexWrap: 'wrap',
-          justifyContent: 'space-between',
         }}
       >
-        <button className="btn ghost" onClick={onBack}>
-          <Icon.ArrowLeft /> Back
-        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <select
+            className="select"
+            style={{ fontSize: 12, padding: '3px 8px', height: 30 }}
+            value={workflowFilter}
+            onChange={(e) => {
+              setWorkflowFilter(e.target.value);
+              clearSelection();
+            }}
+          >
+            <option value="">Filter: all workflows</option>
+            {hasUnassignedPose && <option value="none">No workflow assigned</option>}
+            {usedWorkflowOptions.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label}
+              </option>
+            ))}
+          </select>
           <button
             className="btn sm ghost"
-            onClick={selectedIds.length === items.length ? clearSelection : selectAll}
+            onClick={
+              selectedIds.length === filteredItems.length && filteredItems.length > 0
+                ? clearSelection
+                : selectAll
+            }
           >
-            {selectedIds.length === items.length ? 'Deselect all' : 'Select all'}
+            {selectedIds.length === filteredItems.length && filteredItems.length > 0
+              ? 'Deselect all'
+              : 'Select all'}
           </button>
           {selectedIds.length > 0 && (
             <>
@@ -1648,6 +1738,20 @@ function PoseConfigsPanel({
                 onClick={() => void applyBulkWorkflow()}
               >
                 {bulkSaving ? 'Applying…' : 'Apply workflow'}
+              </button>
+              <button
+                className="btn sm ghost"
+                disabled={bulkSaving}
+                onClick={() => void applyBulkActive(false)}
+              >
+                {bulkSaving ? 'Disabling…' : 'Bulk disable'}
+              </button>
+              <button
+                className="btn sm ghost"
+                disabled={bulkSaving}
+                onClick={() => void applyBulkActive(true)}
+              >
+                {bulkSaving ? 'Enabling…' : 'Bulk enable'}
               </button>
               <button
                 className="btn sm ghost"
@@ -1687,6 +1791,12 @@ function PoseConfigsPanel({
         </span>
       </div>
 
+      {filteredItems.length === 0 && (
+        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
+          No poses match this filter.
+        </div>
+      )}
+
       <div
         style={{
           display: 'grid',
@@ -1695,7 +1805,7 @@ function PoseConfigsPanel({
           marginTop: 8,
         }}
       >
-        {items.map((item) => {
+        {filteredItems.map((item) => {
           const overrideWorkflow = item.config?.workflowTemplateId
             ? workflows.find((w) => w.id === item.config?.workflowTemplateId)?.label
             : null;
