@@ -128,8 +128,15 @@ object ViewControll {
 
     fun setCompanyLogo(activity: Context,imageView: ImageView){
         try{
+            // Kiosk logins don't carry a companyLogo, so the URL is usually blank — Glide.load("")
+            // just fails and logs noise. Use the bundled logo directly instead.
+            val logo = PrefsManager.loginUserInfo.user.companyLogo
+            if (logo.isBlank()) {
+                imageView.setImageResource(R.drawable.app_logo_vertical)
+                return
+            }
             Glide.with(activity)
-                .load(PrefsManager.loginUserInfo.user.companyLogo)
+                .load(logo)
                 .placeholder(R.drawable.app_logo_vertical)
                 .error(R.drawable.app_logo_vertical)
                 .into(imageView)
@@ -140,8 +147,13 @@ object ViewControll {
 
     fun setCompanyLogoHorizontal(activity: Context,imageView: ImageView){
         try{
+            val logo = PrefsManager.loginUserInfo.user.companyLogo
+            if (logo.isBlank()) {
+                imageView.setImageResource(R.drawable.logo_horizontal)
+                return
+            }
             Glide.with(activity)
-                .load(PrefsManager.loginUserInfo.user.companyLogo)
+                .load(logo)
                 .placeholder(R.drawable.logo_horizontal)
                 .error(R.drawable.logo_horizontal)
                 .into(imageView)

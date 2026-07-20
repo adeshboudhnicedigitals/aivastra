@@ -44,5 +44,20 @@
         android:layout_marginTop="@dimen/_140sdp"
         app:lottie_rawRes="@raw/star_loader_animation" />
 
+    <TextView
+        android:id="@+id/btnCancel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="@dimen/_60sdp"
+        android:background="#66000000"
+        android:fontFamily="@font/popins_bold"
+        android:paddingLeft="@dimen/_28sdp"
+        android:paddingTop="@dimen/_10sdp"
+        android:paddingRight="@dimen/_28sdp"
+        android:paddingBottom="@dimen/_10sdp"
+        android:text="@string/cancel"
+        android:textColor="@color/white"
+        android:textSize="@dimen/_12sdp" />
 
 </FrameLayout>
