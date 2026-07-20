@@ -149,7 +149,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           )
         : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
 
-      const rows = await app.db
+      let rows = await app.db
         .select()
         .from(schema.merchantCatalogSubcategories)
         .where(where)
@@ -157,6 +157,48 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           schema.merchantCatalogSubcategories.sortOrder,
           desc(schema.merchantCatalogSubcategories.createdAt),
         );
+
+      // No admin UI creates these rows, so a merchant who has never been
+      // seeded for this category would otherwise be stuck forever with an
+      // empty picker. Self-provision one subcategory per active admin
+      // garment type for the category on first read.
+      if (rows.length === 0 && category) {
+        const garmentTypes = await app.db
+          .select({ id: schema.garmentSubcategories.id, label: schema.garmentSubcategories.label })
+          .from(schema.garmentSubcategories)
+          .where(
+            and(
+              eq(schema.garmentSubcategories.genderSlug, category),
+              eq(schema.garmentSubcategories.isActive, true),
+              // Merchant catalogue only supports the saree (mannequin) pipeline —
+              // garmentSubcategories also holds the unrelated customer-studio
+              // upper/lower garment taxonomy for the same genders.
+              eq(schema.garmentSubcategories.requiresMannequinStep, true),
+            ),
+          )
+          .orderBy(schema.garmentSubcategories.sortOrder);
+
+        if (garmentTypes.length > 0) {
+          await app.db.insert(schema.merchantCatalogSubcategories).values(
+            garmentTypes.map((gt, i) => ({
+              merchantId,
+              category,
+              name: gt.label,
+              garmentSubcategoryId: gt.id,
+              sortOrder: i,
+            })),
+          );
+
+          rows = await app.db
+            .select()
+            .from(schema.merchantCatalogSubcategories)
+            .where(where)
+            .orderBy(
+              schema.merchantCatalogSubcategories.sortOrder,
+              desc(schema.merchantCatalogSubcategories.createdAt),
+            );
+        }
+      }
 
       return { items: await Promise.all(rows.map((row) => serializeSubcategory(app, row))) };
     },

@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import { AssetThumb } from './AssetThumb';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 import { Switch } from './Switch';
 
 interface Props {
@@ -637,19 +638,14 @@ export function EditGarmentTypeModal({
               )}
               <div className="field">
                 <label>Tryon Category</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={tryonCategories.map((c) => ({ id: c.id, label: c.name }))}
                   value={tryonCategoryId}
                   disabled={saving}
-                  onChange={(e) => setTryonCategoryId(e.target.value)}
-                >
-                  <option value="">— none —</option>
-                  {tryonCategories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  emptyLabel="— none —"
+                  placeholder="— search category —"
+                  onChange={setTryonCategoryId}
+                />
                 <span className="hint">
                   Maps this garment type to a tryon workflow for the "Browse from Catalog" picker on
                   the tryon page.
@@ -684,42 +680,32 @@ export function EditGarmentTypeModal({
                 <>
                   <div className="field">
                     <label>Mannequin (Step 1) Workflow</label>
-                    <select
-                      className="select"
+                    <SearchableSelect
+                      options={workflows
+                        .filter((w) => w.workflowType === 'saree_step1' && w.isActive)
+                        .map((w) => ({ id: w.id, label: `${w.label} (${w.slug})` }))}
                       value={mannequinWorkflowTemplateId}
                       disabled={saving}
-                      onChange={(e) => setMannequinWorkflowTemplateId(e.target.value)}
-                    >
-                      <option value="">— none —</option>
-                      {workflows
-                        .filter((w) => w.workflowType === 'saree_step1' && w.isActive)
-                        .map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.label} ({w.slug})
-                          </option>
-                        ))}
-                    </select>
+                      emptyLabel="— none —"
+                      placeholder="— search workflow —"
+                      onChange={setMannequinWorkflowTemplateId}
+                    />
                     <span className="hint">
                       Drapes the uploaded garment onto the selected face, once per job.
                     </span>
                   </div>
                   <div className="field">
                     <label>Draping (Step 2) Workflow</label>
-                    <select
-                      className="select"
+                    <SearchableSelect
+                      options={workflows
+                        .filter((w) => w.workflowType === 'regular' && w.isActive)
+                        .map((w) => ({ id: w.id, label: `${w.label} (${w.slug})` }))}
                       value={sareeStep2WorkflowTemplateId}
                       disabled={saving}
-                      onChange={(e) => setSareeStep2WorkflowTemplateId(e.target.value)}
-                    >
-                      <option value="">— none —</option>
-                      {workflows
-                        .filter((w) => w.workflowType === 'regular' && w.isActive)
-                        .map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.label} ({w.slug})
-                          </option>
-                        ))}
-                    </select>
+                      emptyLabel="— none —"
+                      placeholder="— search workflow —"
+                      onChange={setSareeStep2WorkflowTemplateId}
+                    />
                     <span className="hint">
                       Used for EVERY pose in a job for this garment type — overrides each pose's own
                       workflow assignment.
