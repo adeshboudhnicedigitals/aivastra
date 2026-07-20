@@ -147,8 +147,10 @@ export async function processJob(
   // Saree mannequin (step-1) jobs: kind === 'saree_mannequin' in jobInputs.params.
   // Draped-mannequin generation, run once per flat-saree job regardless of pose
   // count; 0 credits; never surfaced to the user (see createSareeMannequinJob).
-  // Has faceId (the selected model) but no backgroundId/poseId — that combination
-  // distinguishes it from every other job shape.
+  // No backgroundId/poseId is what distinguishes this from every other job shape —
+  // faceId itself is optional here: present for Studio-triggered jobs (a real
+  // selected model), null for dev-API jobs whose template bakes the face in via
+  // a fixed URL node instead (see processSareeMannequinJob's tryonPersonNodeId check).
   if (!inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree_mannequin') {
     await processSareeMannequinJob(cfg, job, inputs, userId, stream, messageId, jobLog, startedAt);
     return;
