@@ -24,6 +24,7 @@ import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { finalizeOutput } from '../workflow/finalize.js';
 import { patchWorkflow } from '../workflow/patcher.js';
+import { runMannequinPhase } from './mannequin-phase.js';
 import { transitionJob } from './state.js';
 
 const MAX_ATTEMPTS = 2;
@@ -223,6 +224,7 @@ export async function processJob(
   let effectiveWorkflowTemplateId = poseRow.workflowTemplateId;
   let effectivePromptFacePhase = poseRow.promptFacePhase;
   let effectivePromptGarmentPhase = poseRow.promptGarmentPhase;
+  let effectiveUpperGarmentKey = inputs.upperGarmentKey;
   const snapshottedWorkflowTemplateId =
     typeof rawParams.workflowTemplateId === 'string' ? rawParams.workflowTemplateId : null;
   if (snapshottedWorkflowTemplateId) {
@@ -235,6 +237,7 @@ export async function processJob(
       .select({
         requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
         sareeStep2WorkflowTemplateId: schema.garmentSubcategories.sareeStep2WorkflowTemplateId,
+        mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
       })
       .from(schema.garmentSubcategories)
       .where(eq(schema.garmentSubcategories.id, inputs.garmentTypeId));
@@ -246,6 +249,56 @@ export async function processJob(
       // a catalogue-template-mapping snapshot, so in practice this is the
       // top-precedence tier whenever it applies.
       effectiveWorkflowTemplateId = garmentTypeRow.sareeStep2WorkflowTemplateId;
+
+      // Callers that hand the dispatcher a raw (never-mannequin-processed) flat
+      // photo opt in via params.needsMannequinStep - the web studio flow instead
+      // pre-resolves this client-side (resolveMannequinGarmentKey) BEFORE the
+      // job is even created, so its upperGarmentKey is already a mannequin
+      // output and this branch must NOT be entered for it (see
+      // saree-step2-workflow-override.test.ts, which asserts that exact
+      // pre-resolved-key behavior and has no needsMannequinStep set).
+      if (rawParams.needsMannequinStep === true) {
+        if (!garmentTypeRow.mannequinWorkflowTemplateId) {
+          await markFailed(
+            cfg,
+            jobId,
+            userId,
+            stream,
+            messageId,
+            'MANNEQUIN_WORKFLOW_NOT_CONFIGURED',
+            jobLog,
+            startedAt,
+          );
+          return;
+        }
+        if (!inputs.upperGarmentKey) {
+          await markFailed(
+            cfg,
+            jobId,
+            userId,
+            stream,
+            messageId,
+            'MANNEQUIN_INPUTS_MISSING',
+            jobLog,
+            startedAt,
+          );
+          return;
+        }
+        try {
+          effectiveUpperGarmentKey = await runMannequinPhase(cfg, {
+            jobId,
+            garmentKey: inputs.upperGarmentKey,
+            faceId: inputs.faceId,
+            mannequinWorkflowTemplateId: garmentTypeRow.mannequinWorkflowTemplateId,
+            jobLog,
+          });
+        } catch (err) {
+          jobLog.error({ err }, 'mannequin phase failed');
+          const errMsg = err instanceof Error ? err.message : String(err);
+          await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+          return;
+        }
+      }
     } else {
       const [cfgRow] = await db
         .select({
@@ -400,8 +453,8 @@ export async function processJob(
     // Display images (faceRow.r2Key, bgRow.r2Key) are UI-only and never sent to ComfyUI.
     jobLog.info({ needsFace, needsBg, needsUpper }, 'uploading inputs to ComfyUI');
     const baseTasks: Promise<string>[] = [uploadToComfy(poseKey, 'pose')];
-    if (needsUpper && inputs.upperGarmentKey)
-      baseTasks.push(uploadToComfy(inputs.upperGarmentKey, 'garment'));
+    if (needsUpper && effectiveUpperGarmentKey)
+      baseTasks.push(uploadToComfy(effectiveUpperGarmentKey, 'garment'));
     if (needsFace) baseTasks.push(uploadToComfy(faceSideKey, 'face'));
     if (needsBg) baseTasks.push(uploadToComfy(bgKey, 'bg'));
     if (lowerKey) baseTasks.push(uploadToComfy(lowerKey, 'lower'));
@@ -412,7 +465,7 @@ export async function processJob(
     let idx = 0;
     // biome-ignore lint/style/noNonNullAssertion: baseTasks always produces the pose entry first
     const poseFile = uploaded[idx++]!;
-    const upperGarmentFile = needsUpper && inputs.upperGarmentKey ? uploaded[idx++] : undefined;
+    const upperGarmentFile = needsUpper && effectiveUpperGarmentKey ? uploaded[idx++] : undefined;
     const faceSideFile = needsFace ? uploaded[idx++] : undefined;
     const backgroundFile = needsBg ? uploaded[idx++] : undefined;
     const lowerGarmentFile = lowerKey ? uploaded[idx++] : undefined;
@@ -491,6 +544,7 @@ export async function processJob(
           outputHeight: jobOutputHeight ?? null,
           _r2Keys: {
             upperGarmentKey: inputs.upperGarmentKey,
+            effectiveUpperGarmentKey,
             faceSideKey,
             poseKey,
             bgKey,

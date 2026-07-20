@@ -2,6 +2,7 @@ export const keys = {
   inputGarment: (jobId: string) => `inputs/${jobId}/garment.jpg`,
   output: (jobId: string) => `outputs/${jobId}/result.png`,
   outputThumb: (jobId: string) => `outputs/${jobId}/result.thumb.jpg`,
+  mannequinIntermediate: (jobId: string) => `outputs/${jobId}/mannequin-intermediate.png`,
   merchantCatalogItem: (merchantId: string, id: string) =>
     `merchant-catalog/${merchantId}/${id}/image.jpg`,
   merchantCatalogItemThumb: (merchantId: string, id: string) =>
