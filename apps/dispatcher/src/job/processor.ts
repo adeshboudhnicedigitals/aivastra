@@ -147,8 +147,10 @@ export async function processJob(
   // Saree mannequin (step-1) jobs: kind === 'saree_mannequin' in jobInputs.params.
   // Draped-mannequin generation, run once per flat-saree job regardless of pose
   // count; 0 credits; never surfaced to the user (see createSareeMannequinJob).
-  // Has faceId (the selected model) but no backgroundId/poseId — that combination
-  // distinguishes it from every other job shape.
+  // No backgroundId/poseId is what distinguishes this from every other job shape —
+  // faceId itself is optional here: present for Studio-triggered jobs (a real
+  // selected model), null for dev-API jobs whose template bakes the face in via
+  // a fixed URL node instead (see processSareeMannequinJob's tryonPersonNodeId check).
   if (!inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree_mannequin') {
     await processSareeMannequinJob(cfg, job, inputs, userId, stream, messageId, jobLog, startedAt);
     return;
@@ -809,7 +811,7 @@ async function processSareeMannequinJob(
   const faceId = inputs.faceId;
   const garmentTypeId = inputs.garmentTypeId;
 
-  if (!garmentKey || !faceId || !garmentTypeId) {
+  if (!garmentKey || !garmentTypeId) {
     await markFailed(
       cfg,
       jobId,
@@ -870,7 +872,7 @@ async function processSareeMannequinJob(
   const personNodeId = template.tryonPersonNodeId;
   const garmentNodeId = template.tryonGarmentNodeId;
   const outputNodeId = template.tryonOutputNodeId;
-  if (!personNodeId || !garmentNodeId || !outputNodeId) {
+  if (!garmentNodeId || !outputNodeId) {
     await markFailed(
       cfg,
       jobId,
@@ -884,15 +886,42 @@ async function processSareeMannequinJob(
     return;
   }
 
-  const [faceRow] = await db
-    .select({ r2Key: schema.modelFaces.r2Key, faceSideR2Key: schema.modelFaces.faceSideR2Key })
-    .from(schema.modelFaces)
-    .where(eq(schema.modelFaces.id, faceId));
-  if (!faceRow) {
-    await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
+  // Only templates with a person node need a caller-supplied face — templates
+  // that bake the face in directly (e.g. a fixed URL node) have nothing to
+  // resolve here regardless of what faceId arrived as.
+  if (personNodeId && !faceId) {
+    await markFailed(
+      cfg,
+      jobId,
+      userId,
+      stream,
+      messageId,
+      'MANNEQUIN_INPUTS_MISSING',
+      jobLog,
+      startedAt,
+    );
     return;
   }
-  const personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
+
+  // Templates with no person node bake the face in directly (e.g. a fixed URL
+  // node) — nothing to resolve or patch, faceId is accepted but unused.
+  let personKey: string | undefined;
+  if (personNodeId) {
+    // Guarded above: personNodeId truthy implies faceId is non-null here.
+    if (!faceId) {
+      await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
+      return;
+    }
+    const [faceRow] = await db
+      .select({ r2Key: schema.modelFaces.r2Key, faceSideR2Key: schema.modelFaces.faceSideR2Key })
+      .from(schema.modelFaces)
+      .where(eq(schema.modelFaces.id, faceId));
+    if (!faceRow) {
+      await markFailed(cfg, jobId, userId, stream, messageId, 'NO_FACE_IMAGE', jobLog, startedAt);
+      return;
+    }
+    personKey = faceRow.faceSideR2Key ?? faceRow.r2Key;
+  }
 
   await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
 
@@ -931,7 +960,7 @@ async function processSareeMannequinJob(
 
     jobLog.info('uploading mannequin inputs to ComfyUI');
     const [personFile, garmentFile] = await Promise.all([
-      uploadToComfy(personKey, 'mannequin_person'),
+      personKey ? uploadToComfy(personKey, 'mannequin_person') : Promise.resolve(undefined),
       uploadToComfy(garmentKey, 'mannequin_garment'),
     ]);
     jobLog.info({ personFile, garmentFile }, 'mannequin inputs uploaded');
@@ -940,7 +969,7 @@ async function processSareeMannequinJob(
       string,
       { inputs?: Record<string, unknown> }
     >;
-    if (workflow[personNodeId]?.inputs) {
+    if (personNodeId && personFile && workflow[personNodeId]?.inputs) {
       // biome-ignore lint/style/noNonNullAssertion: guarded by optional-chain check above
       workflow[personNodeId].inputs!.image = personFile;
     }

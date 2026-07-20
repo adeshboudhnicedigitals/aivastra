@@ -25,6 +25,12 @@ export const DevTryonJsonBody = z.object({
   garment: z.string().min(1),
 });
 
+// JSON/base64 alternative to the multipart upload for the saree-mannequin
+// endpoint — single image, no category/person (see DevTryonJsonBody above).
+export const DevSareeMannequinJsonBody = z.object({
+  garment: z.string().min(1),
+});
+
 export const DevCategoriesResponse = z.object({
   categories: z.array(z.object({ slug: z.string(), name: z.string() })),
 });
