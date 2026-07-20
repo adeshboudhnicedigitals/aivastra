@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { Icon } from '../components/Icons';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { WorkflowUploadModal } from '../components/WorkflowUploadModal';
 import { ApiError, apiErrorMessage, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
@@ -786,21 +787,16 @@ export default function WorkflowsPage({ toast }: Props) {
               </p>
               <div className="field">
                 <label>Target workflow</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={workflows
+                    .filter((w) => w.id !== reassigning.id)
+                    .map((w) => ({ id: w.id, label: `${w.label} (${w.slug})` }))}
                   value={reassignTargetId}
                   disabled={reassignSaving}
-                  onChange={(e) => setReassignTargetId(e.target.value)}
-                >
-                  <option value="">— Select —</option>
-                  {workflows
-                    .filter((w) => w.id !== reassigning.id)
-                    .map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.label} ({w.slug})
-                      </option>
-                    ))}
-                </select>
+                  onChange={setReassignTargetId}
+                  placeholder="— search workflow —"
+                  emptyLabel="— Select —"
+                />
               </div>
             </div>
             <div className="modal-foot">

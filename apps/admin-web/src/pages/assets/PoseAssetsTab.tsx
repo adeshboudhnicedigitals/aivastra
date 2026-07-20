@@ -4,6 +4,7 @@ import { EditPoseAssetModal } from '../../components/EditPoseAssetModal';
 import { Icon } from '../../components/Icons';
 import { Pager } from '../../components/Pager';
 import { PoseUploadModal } from '../../components/PoseUploadModal';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import { apiErrorMessage, apiFetch, getToken } from '../../lib/data';
 import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../../types';
@@ -373,32 +374,24 @@ export function PoseAssetsTab() {
               value={paSearch}
               onChange={(e) => setPaSearch(e.target.value)}
             />
-            <select
-              className="select"
-              style={{ minWidth: 140, width: 'auto' }}
-              value={paFilterWorkflow}
-              onChange={(e) => setPaFilterWorkflow(e.target.value)}
-            >
-              <option value="">All workflows</option>
-              {paWorkflowOptions.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="select"
-              style={{ minWidth: 130, width: 'auto' }}
-              value={paFilterPose}
-              onChange={(e) => setPaFilterPose(e.target.value)}
-            >
-              <option value="">All poses</option>
-              {paPoseVariants.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
+            <div style={{ minWidth: 140, width: 'auto' }}>
+              <SearchableSelect
+                options={paWorkflowOptions}
+                value={paFilterWorkflow}
+                onChange={setPaFilterWorkflow}
+                emptyLabel="All workflows"
+                placeholder="All workflows"
+              />
+            </div>
+            <div style={{ minWidth: 130, width: 'auto' }}>
+              <SearchableSelect
+                options={paPoseVariants.map((v) => ({ id: v, label: v }))}
+                value={paFilterPose}
+                onChange={setPaFilterPose}
+                emptyLabel="All poses"
+                placeholder="All poses"
+              />
+            </div>
             <select
               className="select"
               style={{ minWidth: 110, width: 'auto' }}
@@ -756,18 +749,13 @@ export function PoseAssetsTab() {
             >
               <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
                 Workflow template
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={workflows}
                   value={bulkWorkflowId}
                   disabled={bulkWorkflowSaving}
-                  onChange={(e) => setBulkWorkflowId(e.target.value)}
-                >
-                  {workflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setBulkWorkflowId}
+                  placeholder="— search workflow —"
+                />
               </label>
             </div>
             <div className="modal-foot">
@@ -897,19 +885,13 @@ export function PoseAssetsTab() {
                 <label style={{ display: 'block', marginBottom: 4, fontWeight: 600 }}>
                   Workflow template
                 </label>
-                <select
-                  className="input"
+                <SearchableSelect
+                  options={workflows}
                   value={bulkImportWorkflowId}
-                  onChange={(e) => setBulkImportWorkflowId(e.target.value)}
+                  onChange={setBulkImportWorkflowId}
                   disabled={bulkImporting}
-                  required
-                >
-                  {workflows.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.label}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="— search workflow —"
+                />
               </div>
               <p style={{ fontSize: 12, color: 'var(--muted)' }}>
                 ZIP must contain <code>poses/</code> folder with pose images. Filenames become the

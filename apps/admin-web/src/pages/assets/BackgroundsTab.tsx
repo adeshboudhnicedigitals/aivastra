@@ -3,6 +3,7 @@ import { AssetThumb } from '../../components/AssetThumb';
 import { BackgroundUploadModal } from '../../components/BackgroundUploadModal';
 import { EditBackgroundModal } from '../../components/EditBackgroundModal';
 import { Icon } from '../../components/Icons';
+import { SearchableSelect } from '../../components/SearchableSelect';
 import { Switch } from '../../components/Switch';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import { makeThumbnail } from '../../lib/thumbnail';
@@ -871,21 +872,14 @@ export function BackgroundsTab() {
             <div className="modal-body">
               <div className="field">
                 <label>Category</label>
-                <select
-                  className="select"
-                  value={bulkCategoryId ?? ''}
+                <SearchableSelect
+                  options={categories.map((c) => ({ id: String(c.id), label: c.label }))}
+                  value={bulkCategoryId != null ? String(bulkCategoryId) : ''}
                   disabled={bulkCategorySaving}
-                  onChange={(e) =>
-                    setBulkCategoryId(e.target.value ? Number(e.target.value) : null)
-                  }
-                >
-                  <option value="">Uncategorized</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="— search category —"
+                  emptyLabel="Uncategorized"
+                  onChange={(id) => setBulkCategoryId(id ? Number(id) : null)}
+                />
               </div>
             </div>
             <div className="modal-foot">

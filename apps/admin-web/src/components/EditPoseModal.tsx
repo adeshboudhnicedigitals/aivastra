@@ -4,6 +4,7 @@ import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } f
 import { makeThumbnail } from '../lib/thumbnail';
 import type { ModelBackground, ModelFace, ModelPose, WorkflowOption } from '../types';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 
 function ImagePicker({
   id,
@@ -333,24 +334,21 @@ export function EditPoseModal({
 
           <div className="field">
             <label>Workflow template</label>
-            <select
-              className="select"
+            <SearchableSelect
+              options={[
+                ...workflows.map((wf) => ({
+                  id: wf.id,
+                  label: `${wf.label}${wf.lowerNodeId ? ' · lower' : ''}${wf.shoeNodeId ? ' · shoes' : ''}${!wf.isActive ? ' (inactive)' : ''}`,
+                })),
+                ...(workflows.some((wf) => wf.id === form.workflowTemplateId)
+                  ? []
+                  : [{ id: form.workflowTemplateId, label: 'Current workflow' }]),
+              ]}
               value={form.workflowTemplateId}
               disabled={saving}
-              onChange={(e) => setForm((f) => ({ ...f, workflowTemplateId: e.target.value }))}
-            >
-              {workflows.map((wf) => (
-                <option key={wf.id} value={wf.id}>
-                  {wf.label}
-                  {wf.lowerNodeId ? ' · lower' : ''}
-                  {wf.shoeNodeId ? ' · shoes' : ''}
-                  {!wf.isActive ? ' (inactive)' : ''}
-                </option>
-              ))}
-              {workflows.length === 0 && (
-                <option value={form.workflowTemplateId}>Current workflow</option>
-              )}
-            </select>
+              placeholder="— search workflow —"
+              onChange={(id) => setForm((f) => ({ ...f, workflowTemplateId: id }))}
+            />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -377,18 +375,16 @@ export function EditPoseModal({
                   />
                 ) : null;
               })()}
-              <select
-                className="select"
+              <SearchableSelect
+                options={faces.map((face) => ({
+                  id: face.id,
+                  label: `[${face.gender}] ${face.label}`,
+                }))}
                 value={form.faceId}
                 disabled={saving}
-                onChange={(e) => setForm((f) => ({ ...f, faceId: e.target.value }))}
-              >
-                {faces.map((face) => (
-                  <option key={face.id} value={face.id}>
-                    [{face.gender}] {face.label}
-                  </option>
-                ))}
-              </select>
+                placeholder="— search face —"
+                onChange={(id) => setForm((f) => ({ ...f, faceId: id }))}
+              />
             </div>
             <div className="field">
               <label>Background</label>
@@ -413,18 +409,13 @@ export function EditPoseModal({
                   />
                 ) : null;
               })()}
-              <select
-                className="select"
+              <SearchableSelect
+                options={backgrounds.map((bg) => ({ id: bg.id, label: bg.label }))}
                 value={form.backgroundId}
                 disabled={saving}
-                onChange={(e) => setForm((f) => ({ ...f, backgroundId: e.target.value }))}
-              >
-                {backgrounds.map((bg) => (
-                  <option key={bg.id} value={bg.id}>
-                    {bg.label}
-                  </option>
-                ))}
-              </select>
+                placeholder="— search background —"
+                onChange={(id) => setForm((f) => ({ ...f, backgroundId: id }))}
+              />
             </div>
           </div>
 
