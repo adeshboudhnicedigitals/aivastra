@@ -49,4 +49,12 @@ class ProductUploadViewModel : ViewModel() {
         _sessionResult.postValue(null)
         _error.postValue(null)
     }
+    private val _subcategories = MutableLiveData<List<MerchantCatalogSubcategory>>()
+    val subcategories: LiveData<List<MerchantCatalogSubcategory>> get() = _subcategories
+    private val _catalogItems = MutableLiveData<List<MerchantCatalogItem>>()
+    val catalogItems: LiveData<List<MerchantCatalogItem>> get() = _catalogItems
+    fun fetchSubcategories(category: String = "women") { viewModelScope.launch { try { _subcategories.postValue(MerchantCatalogRepository.fetchSubcategories(category)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
+    fun fetchItems(subcategoryId: String) { viewModelScope.launch { try { _catalogItems.postValue(MerchantCatalogRepository.fetchItems(subcategoryId = subcategoryId)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
+    fun searchItems(query: String) { viewModelScope.launch { try { _catalogItems.postValue(MerchantCatalogRepository.fetchItems(search = query)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
+    fun resetSubcategories() { _subcategories.postValue(emptyList()); _error.postValue(null) }
 }
