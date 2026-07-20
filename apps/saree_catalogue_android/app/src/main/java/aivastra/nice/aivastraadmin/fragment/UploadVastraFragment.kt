@@ -678,6 +678,11 @@ class UploadVastraFragment : Fragment(), View.OnClickListener {
             selectedSubcategoryId = subcategoryList[0].id
             binding.materialSpinnerPalluType.setText(subcategoryList[0].name, false)
         }
+
+        // Only one saree type today means there's nothing to actually choose between —
+        // disable the picker rather than make the merchant tap a dropdown with one entry.
+        // Re-enables itself automatically once a second subcategory exists.
+        binding.materialSpinnerPalluType.isEnabled = subcategoryList.size > 1
     }
 
     fun handleBack(){
