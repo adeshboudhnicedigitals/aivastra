@@ -38,11 +38,23 @@ export async function waitForCompletion(
 
     const history = (await res.json()) as Record<string, unknown>;
     const entry = history[promptId] as
-      | { outputs?: Record<string, unknown>; status?: { status_str?: string } }
+      | {
+          outputs?: Record<string, unknown>;
+          status?: { status_str?: string; messages?: [string, Record<string, unknown>][] };
+        }
       | undefined;
 
     if (entry?.status?.status_str === 'error') {
-      throw new Error(`ComfyUI execution error for prompt ${promptId}`);
+      // ComfyUI's /history status_str alone ("error") drops the actual cause — the
+      // node/exception detail lives in status.messages under an "execution_error" entry.
+      // Surface it so failures are diagnosable from dispatcher logs without needing to
+      // separately query the worker or its own process logs.
+      const errorMsg = entry.status?.messages?.find(([type]) => type === 'execution_error')?.[1];
+      const detail = errorMsg
+        ? `${errorMsg.node_type ?? '?'} (node ${errorMsg.node_id ?? '?'}): ${errorMsg.exception_message ?? errorMsg.exception_type ?? 'unknown'}`
+        : 'no execution_error detail in ComfyUI history';
+      log?.info({ promptId, comfyError: errorMsg }, 'ComfyUI execution error detail');
+      throw new Error(`ComfyUI execution error for prompt ${promptId}: ${detail}`);
     }
 
     if (entry?.outputs && Object.keys(entry.outputs).length > 0) {
