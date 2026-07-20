@@ -112,3 +112,50 @@ export async function createTestTryonCategory(
 
   return { categoryId: cat.id, workflowTemplateId: wf.id };
 }
+
+/**
+ * Creates a garment_subcategories row with requires_mannequin_step = true, plus
+ * the saree_step1 workflow template it points at. Mirrors createTestTryonCategory
+ * above, adapted for the mannequin-step shape (garment + output node only —
+ * no pose/upper/lower/face-node fields apply to workflowType 'saree_step1').
+ */
+export async function createTestSareeMannequinGarmentType(
+  app: TestApp,
+  opts: { isActive?: boolean; templateIsActive?: boolean; withPersonNode?: boolean } = {},
+) {
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `saree-step1-${randomUUID()}`,
+      label: 'Test Saree Step1 WF',
+      jsonContent: {
+        '31': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        '134': { class_type: 'SaveImage', inputs: {} },
+      },
+      poseNodeId: 'x',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'x',
+      workflowType: 'saree_step1',
+      tryonPersonNodeId: opts.withPersonNode ? '1' : null,
+      tryonGarmentNodeId: '31',
+      tryonOutputNodeId: '134',
+      isActive: opts.templateIsActive ?? true,
+    })
+    .returning();
+  if (!wf) throw new Error('failed to create test saree step1 workflow template');
+
+  const [garmentType] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug: 'women',
+      slug: `flat-saree-${randomUUID()}`,
+      label: 'Test Flat Saree',
+      isActive: opts.isActive ?? true,
+      requiresMannequinStep: true,
+      mannequinWorkflowTemplateId: wf.id,
+    })
+    .returning();
+  if (!garmentType) throw new Error('failed to create test flat-saree garment type');
+
+  return { garmentTypeId: garmentType.id, workflowTemplateId: wf.id };
+}
