@@ -46,7 +46,7 @@ export const MerchantCatalogPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type MerchantCatalogPresignBody = z.infer<typeof MerchantCatalogPresignBody>;
 
@@ -174,6 +174,16 @@ export type MerchantCatalogSubcategoryListResponse = z.infer<
 export const MerchantCatalogGenerateBody = z.object({
   subcategoryId: z.string().uuid(),
   flatImageKey: z.string().min(1),
+  // When true, skip the normal pose/background/face compositing (step 2) and
+  // finalize the job with the mannequin-drape (step 1) output directly. Only
+  // valid for garment types with requires_mannequin_step = true.
+  mannequinOnly: z.boolean().optional(),
+  // Selects which mannequin (step-1) workflow template generates this job —
+  // matched against saree_mannequin_styles.label (case-insensitive), not the
+  // row's id, so callers can send the human-readable style name shown in
+  // admin/the app instead of looking up a UUID. Omitted = falls back to the
+  // garment type's own mannequinWorkflowTemplateId (unchanged behavior).
+  sareeStyleId: z.string().min(1).optional(),
 });
 export type MerchantCatalogGenerateBody = z.infer<typeof MerchantCatalogGenerateBody>;
 
@@ -190,6 +200,19 @@ export const MerchantCatalogGenerateStatus = z.object({
   errorCode: z.string().nullable(),
 });
 export type MerchantCatalogGenerateStatus = z.infer<typeof MerchantCatalogGenerateStatus>;
+
+export const MerchantSareeStyle = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  previewUrl: z.string().url().nullable(),
+  sortOrder: z.number().int(),
+});
+export type MerchantSareeStyle = z.infer<typeof MerchantSareeStyle>;
+
+export const MerchantSareeStyleListResponse = z.object({
+  items: z.array(MerchantSareeStyle),
+});
+export type MerchantSareeStyleListResponse = z.infer<typeof MerchantSareeStyleListResponse>;
 
 export const MerchantCatalogGenerateBulkStatusResponse = z.object({
   items: z.array(MerchantCatalogGenerateStatus),
@@ -243,7 +266,7 @@ export const KioskPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type KioskPresignBody = z.infer<typeof KioskPresignBody>;
 
@@ -274,7 +297,7 @@ export const MerchantTryonPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(10 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type MerchantTryonPresignBody = z.infer<typeof MerchantTryonPresignBody>;
 
@@ -320,7 +343,7 @@ export const PublicUploadSessionPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type PublicUploadSessionPresignBody = z.infer<typeof PublicUploadSessionPresignBody>;
 
@@ -368,7 +391,7 @@ export const ShopifyCustomerPresignRequest = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type ShopifyCustomerPresignRequest = z.infer<typeof ShopifyCustomerPresignRequest>;
 

@@ -1,5 +1,6 @@
 package aivastra.nice.aivastraadmin.activity
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import aivastra.nice.aivastraadmin.R
@@ -7,6 +8,8 @@ import aivastra.nice.aivastraadmin.databinding.ActivityDashBoardBinding
 import aivastra.nice.aivastraadmin.fragment.ContactFragment
 import aivastra.nice.aivastraadmin.fragment.UploadVastraFragment
 import aivastra.nice.aivastraadmin.fragment.VastraProductCategoryFragment
+import aivastra.nice.aivastraadmin.utils.ViewControll
+import com.example.facewixlatest.ApiUtils.APICaller
 
 import android.view.MenuItem
 import androidx.activity.addCallback
@@ -23,6 +26,26 @@ class DashBoardActivity : AppCompatActivity() {
         binding = ActivityDashBoardBinding.inflate(layoutInflater)
         setContentView(binding.root)
         initView()
+        // The one authenticated container in the app — registers here so any authed API call,
+        // from any fragment/ViewModel, redirects to a clean login instead of leaving the user
+        // stuck on a broken screen after the session dies (see APICaller.setSessionExpiredListener).
+        APICaller.setSessionExpiredListener {
+            runOnUiThread { goToLoginAfterSessionExpired() }
+        }
+    }
+
+    private fun goToLoginAfterSessionExpired() {
+        if (isFinishing || isDestroyed) return
+        ViewControll.showMessage(this, "Your session has expired. Please log in again.")
+        val intent = Intent(this, LoginActivity::class.java)
+        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        startActivity(intent)
+        finish()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        APICaller.setSessionExpiredListener(null)
     }
 
     private fun initView() {

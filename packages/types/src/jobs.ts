@@ -152,7 +152,7 @@ export const PresignUploadBody = z.object({
     .number()
     .int()
     .positive()
-    .max(10 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 
 export const PresignUploadResponse = z.object({

@@ -81,6 +81,9 @@ class ProductUploadViewModel : ViewModel() {
     }
     private val _subcategories = MutableLiveData<List<MerchantCatalogSubcategory>>()
     val subcategories: LiveData<List<MerchantCatalogSubcategory>> get() = _subcategories
+    private val _sareeStyles = MutableLiveData<List<SareeStyle>>()
+    val sareeStyles: LiveData<List<SareeStyle>> get() = _sareeStyles
+    fun fetchSareeStyles() { viewModelScope.launch { try { _sareeStyles.postValue(MerchantCatalogRepository.fetchSareeStyles()) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
     private val _catalogItems = MutableLiveData<List<MerchantCatalogItem>>()
     val catalogItems: LiveData<List<MerchantCatalogItem>> get() = _catalogItems
     fun fetchSubcategories(category: String = "women") { viewModelScope.launch { try { _subcategories.postValue(MerchantCatalogRepository.fetchSubcategories(category)) } catch (e: Exception) { _error.postValue(AuthRepository.errorMessage(e)) } } }
@@ -100,7 +103,7 @@ class ProductUploadViewModel : ViewModel() {
 
     private var pendingItemId: String? = null
 
-    fun generateProduct(file: java.io.File, subcategoryId: String) {
+    fun generateProduct(file: java.io.File, subcategoryId: String, sareeStyleId: String?) {
         viewModelScope.launch {
             try {
                 _generateState.postValue(GenerateState.Uploading)
@@ -109,14 +112,14 @@ class ProductUploadViewModel : ViewModel() {
                 MerchantCatalogRepository.uploadFlatImage(presign.uploadUrl, file, contentType)
 
                 _generateState.postValue(GenerateState.Generating)
-                val jobId = MerchantCatalogRepository.generate(subcategoryId, presign.r2Key)
+                val jobId = MerchantCatalogRepository.generate(subcategoryId, presign.r2Key, sareeStyleId)
 
                 val startedAt = System.currentTimeMillis()
                 var status: MerchantCatalogGenerateStatus
                 do {
                     delay(2500)
                     status = MerchantCatalogRepository.pollGenerateStatus(jobId)
-                    if (System.currentTimeMillis() - startedAt > 180_000) {
+                    if (System.currentTimeMillis() - startedAt > 1_800_000) {
                         _generateState.postValue(GenerateState.Failed(APIConstant.serverTimeOut))
                         return@launch
                     }

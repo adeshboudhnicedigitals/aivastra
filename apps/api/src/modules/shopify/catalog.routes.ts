@@ -35,10 +35,10 @@ const JobsQuery = z
     message: 'catalogueId or shopifyProductId is required',
   });
 
-const MAX_GARMENT_SOURCE_BYTES = 10 * 1024 * 1024;
+const MAX_GARMENT_SOURCE_BYTES = 20 * 1024 * 1024;
 
 /** Mirrors PATCH /v1/shopify/products/:id's download-to-R2 logic (products.routes.ts):
- *  10MB cap, 10s abort timeout, no-redirect fetch. Namespaced by store+product so
+ *  20MB cap, 10s abort timeout, no-redirect fetch. Namespaced by store+product so
  *  concurrent generations across stores/products never collide on the same key. */
 async function downloadProductImageToR2(
   app: FastifyInstance,
@@ -63,11 +63,19 @@ async function downloadProductImageToR2(
   if (!res.ok) throw new AppError('SHOPIFY', 502, 'failed to download the selected product image');
   const contentLength = res.headers.get('content-length');
   if (contentLength && parseInt(contentLength, 10) > MAX_GARMENT_SOURCE_BYTES) {
-    throw new AppError('BAD_REQUEST', 400, 'source image exceeds 10MB');
+    throw new AppError(
+      'BAD_REQUEST',
+      400,
+      `source image exceeds ${MAX_GARMENT_SOURCE_BYTES / (1024 * 1024)}MB`,
+    );
   }
   const arrayBuffer = await res.arrayBuffer();
   if (arrayBuffer.byteLength > MAX_GARMENT_SOURCE_BYTES) {
-    throw new AppError('BAD_REQUEST', 400, 'source image exceeds 10MB');
+    throw new AppError(
+      'BAD_REQUEST',
+      400,
+      `source image exceeds ${MAX_GARMENT_SOURCE_BYTES / (1024 * 1024)}MB`,
+    );
   }
   const contentType = res.headers.get('content-type') ?? 'image/jpeg';
   const r2Key = `shopify-catalog-garments/${storeId}/${shopifyProductId}/${randomUUID()}.jpg`;
