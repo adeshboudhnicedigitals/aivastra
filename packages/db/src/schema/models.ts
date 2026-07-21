@@ -144,6 +144,23 @@ export const workflowTemplates = pgTable('workflow_templates', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Merchant-catalogue mannequin drape styles — orthogonal to garment_subcategories.
+// Any style can generate any saree-eligible garment subcategory; each style just
+// points at a different step-1 (mannequin) workflow template (different prompt/
+// LoRA weights). See docs/superpowers/specs/2026-07-21-saree-mannequin-style-selection-design.md.
+export const sareeMannequinStyles = pgTable('saree_mannequin_styles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  label: text('label').notNull(),
+  previewImageKey: text('preview_image_key'),
+  mannequinWorkflowTemplateId: uuid('mannequin_workflow_template_id')
+    .notNull()
+    .references(() => workflowTemplates.id),
+  sortOrder: integer('sort_order').notNull().default(0),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Centralised pose image asset — single source of truth for poses, filtered by genderSlug.
 // Replaces model_poses: no longer tied to garment type mappings.
 export const modelPoseAssets = pgTable('model_pose_assets', {
