@@ -23,6 +23,7 @@ import java.io.File
 
 class UploadPhotoDialog(private  val selectedPhotoPath:String,
                         private  val subcategoryId:String,
+                        private  val sareeStyleId:String?,
                         private val onCompleted:(String)->Unit) : BottomSheetDialogFragment() {
 
     private lateinit var binding: DialogUploadPhotoBinding
@@ -98,7 +99,7 @@ class UploadPhotoDialog(private  val selectedPhotoPath:String,
         keepScreenOn()
         LoaderManager.show(requireActivity(),dialog?.window?.decorView as ViewGroup,true)
         LoaderManager.setMessage(getString(R.string.uploading_your_product))
-        productUploadViewmodel.generateProduct(File(selectedPhotoPath), subcategoryId)
+        productUploadViewmodel.generateProduct(File(selectedPhotoPath), subcategoryId, sareeStyleId)
         productUploadViewmodel.generateState.observe(this) { state ->
             when (state) {
                 is ProductUploadViewModel.GenerateState.Completed -> {
