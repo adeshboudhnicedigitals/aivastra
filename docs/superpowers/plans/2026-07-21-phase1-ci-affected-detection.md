@@ -725,7 +725,7 @@ export function assertTargetsMatchWorkspace(
 
 Run: `pnpm test:ci-scripts`
 
-Expected: PASS, 17 tests total. The `reproduces the documented shared-package impact table` case is the important one — it proves the graph matches `docs/production-cicd-plan.md` §4.2 without hardcoding it.
+Expected: PASS, 18 tests total. The `reproduces the documented shared-package impact table` case is the important one — it proves the graph matches `docs/production-cicd-plan.md` §4.2 without hardcoding it.
 
 - [ ] **Step 5: Format and commit**
 
@@ -1132,7 +1132,7 @@ export function classify(input: ClassifyInput): DetectResult {
 
 Run: `pnpm test:ci-scripts`
 
-Expected: PASS, 41 tests total.
+Expected: PASS, 46 tests total (18 from Tasks 2–3 plus 28 in this file — count the `it(...)` blocks above if the exact figure ever drifts; the file's own test list is authoritative, not this number).
 
 - [ ] **Step 5: Format and commit**
 
@@ -1404,7 +1404,7 @@ export function changedFilesBetween(range: DiffRange, git: GitRunner = runGit): 
 
 Run: `pnpm test:ci-scripts`
 
-Expected: PASS, 54 tests total.
+Expected: PASS, 61 tests total (46 from Tasks 2–4 plus 15 in this file — the file's own test list is authoritative if this number ever drifts).
 
 - [ ] **Step 5: Format and commit**
 
@@ -1704,7 +1704,7 @@ In `package.json`, add to `scripts` immediately after `"test:ci-scripts"`:
 
 Run: `pnpm test:ci-scripts`
 
-Expected: PASS, 61 tests total.
+Expected: PASS, 68 tests total (61 from Tasks 2–5 plus 7 in this file — the file's own test list is authoritative if this number ever drifts).
 
 - [ ] **Step 6: Run the detector against a real range and read the output**
 
@@ -2128,7 +2128,7 @@ Add a dated entry at the top of `docs/progress.md`:
 ## 2026-07-21 — Phase 1 CI affected-target detection
 
 **Done**
-- Added `config/ci-targets.json` and `scripts/ci/` detector with 61 tests.
+- Added `config/ci-targets.json` and `scripts/ci/` detector with 68 tests.
 - Rewrote `.github/workflows/ci.yml`: `detect` job, conditional lint/typecheck/test, stable `ci-gate`.
 - Scoped the production deploy to affected Compose services; removed Postgres/Redis from the restart path; migrations now run only when `migration_changed=true`.
 - Branch protection now requires `ci-gate` only.
@@ -2391,7 +2391,7 @@ In `main()`, replace the `writeFileSync(outPath, ...)` line and the `classify` c
 
 Run: `pnpm test:ci-scripts`
 
-Expected: PASS, 74 tests total.
+Expected: PASS, 80 tests total (68 from Tasks 2–6 plus 12 in this file — the file's own test list is authoritative if this number ever drifts).
 
 - [ ] **Step 6: Verify the override from the command line**
 
