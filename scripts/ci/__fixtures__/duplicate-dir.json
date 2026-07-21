@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "targets": [
+    {
+      "name": "api",
+      "dir": "apps/api",
+      "packageName": "@aivastra/api",
+      "dockerfile": "apps/api/Dockerfile",
+      "composeService": "api"
+    },
+    {
+      "name": "api-clone",
+      "dir": "apps/api",
+      "packageName": "@aivastra/api-clone",
+      "dockerfile": "apps/api/Dockerfile",
+      "composeService": "api-clone"
+    }
+  ],
+  "separateSurfaces": [],
+  "testablePackages": [],
+  "docsPaths": [],
+  "ciPaths": [],
+  "infraPaths": [],
+  "deploymentBundlePaths": [],
+  "globalRebuildPaths": []
+}
