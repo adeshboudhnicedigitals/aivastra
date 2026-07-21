@@ -278,14 +278,6 @@ export function EmbedStudioWizard() {
     }
   }
 
-  // Lower Garment / Footwear are conditional steps — number them relative to
-  // the fixed steps (1-6) only when they're actually shown, same pattern as
-  // Studio's page.tsx stepNumberOf for its own optional sections.
-  const extraStepKeys = [needsLower && 'lower', needsShoes && 'shoes'].filter(
-    (key): key is string => !!key,
-  );
-  const stepNumberOf = (key: string) => 7 + extraStepKeys.indexOf(key);
-
   function handleStartOver() {
     setActiveGeneration(null);
     setPoseIds([]);
@@ -351,6 +343,15 @@ export function EmbedStudioWizard() {
   const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
   const requiresThirdUpload = selectedGarmentType?.requiresThirdUpload ?? false;
   const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload;
+
+  // Lower Garment / Footwear are conditional steps — number them relative to
+  // the fixed steps (1-6) only when they're actually shown, same pattern as
+  // Studio's page.tsx stepNumberOf for its own optional sections.
+  const extraStepKeys = [
+    needsLower && !requiresLowerUpload && 'lower',
+    needsShoes && 'shoes',
+  ].filter((key): key is string => !!key);
+  const stepNumberOf = (key: string) => 7 + extraStepKeys.indexOf(key);
 
   const canGenerate =
     !!garmentKey &&
@@ -949,7 +950,7 @@ export function EmbedStudioWizard() {
             </div>
           </div>
 
-          {needsLower && (
+          {needsLower && !requiresLowerUpload && (
             <div style={sectionCardStyle}>
               <SectionHead
                 title="Lower Garment"
