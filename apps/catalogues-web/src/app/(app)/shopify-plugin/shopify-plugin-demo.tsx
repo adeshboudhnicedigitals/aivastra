@@ -1,6 +1,5 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { url } from 'inspector';
 import { useEffect, useState } from 'react';
 import { SparkleIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
