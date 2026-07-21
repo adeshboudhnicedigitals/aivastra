@@ -7,7 +7,7 @@ import { Sidebar } from '@/components/sidebar';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
-// The /shopify-plugin mock page renders its own full Shopify admin chrome,
+// The /sellio mock page renders its own full Shopify admin chrome,
 // including its own left nav rail — showing the real Ai Vastra Sidebar at
 // the same time makes two sidebars collide visually. Hide it on that route
 // by default, with a floating toggle so the merchant (or a demo presenter)
@@ -15,12 +15,12 @@ const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const path = BASE && pathname?.startsWith(BASE) ? pathname.slice(BASE.length) : pathname;
-  const isShopifyPlugin = path === '/shopify-plugin' || path?.startsWith('/shopify-plugin/');
-  const [sidebarVisible, setSidebarVisible] = useState(!isShopifyPlugin);
+  const isSellio = path === '/sellio' || path?.startsWith('/sellio/');
+  const [sidebarVisible, setSidebarVisible] = useState(!isSellio);
 
   useEffect(() => {
-    setSidebarVisible(!isShopifyPlugin);
-  }, [isShopifyPlugin]);
+    setSidebarVisible(!isSellio);
+  }, [isSellio]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', position: 'relative' }}>
@@ -29,7 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <ProfileGate>{children}</ProfileGate>
       </div>
       {process.env.NODE_ENV === 'development' && <ChatWidget />}
-      {isShopifyPlugin && (
+      {isSellio && (
         <button
           type="button"
           onClick={() => setSidebarVisible((v) => !v)}

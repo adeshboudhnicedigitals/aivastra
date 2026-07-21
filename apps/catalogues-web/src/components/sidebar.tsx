@@ -58,8 +58,8 @@ const NAV: {
     merchantOnly: true,
   },
   {
-    id: 'shopify-plugin',
-    href: '/shopify-plugin',
+    id: 'sellio',
+    href: '/sellio',
     label: 'Sellio',
     icon: 'store',
     merchantOnly: true,
@@ -142,9 +142,7 @@ export function Sidebar() {
     },
     {
       title: 'BUSINESS',
-      items: visibleNav.filter((item) =>
-        ['pricing', 'developers', 'shopify-plugin'].includes(item.id),
-      ),
+      items: visibleNav.filter((item) => ['pricing', 'developers', 'sellio'].includes(item.id)),
     },
     {
       title: 'HELP',
