@@ -1,7 +1,7 @@
-// Shared contract for the postMessage channel between the Shopify-plugin demo
-// page (parent, apps/catalogues-web .../shopify-plugin/shopify-plugin-demo.tsx)
+// Shared contract for the postMessage channel between the Sellio demo
+// page (parent, apps/catalogues-web .../sellio/sellio-demo.tsx)
 // and the embedded generation wizard it loads in a same-origin <iframe>
-// (apps/catalogues-web/src/app/embed/shopify-plugin-studio/). Both sides must
+// (apps/catalogues-web/src/app/embed/sellio-studio/). Both sides must
 // stay in lockstep with this shape — import it, never hand-roll the message.
 
 export const EMBED_IMAGE_SELECTED = 'aivastra:image-selected' as const;

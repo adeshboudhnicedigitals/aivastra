@@ -4,6 +4,6 @@ export const metadata = {
   title: 'Generate with Ai Vastra',
 };
 
-export default function ShopifyPluginStudioEmbedPage() {
+export default function SellioStudioEmbedPage() {
   return <EmbedStudioWizard />;
 }
