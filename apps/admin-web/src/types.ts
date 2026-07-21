@@ -228,7 +228,8 @@ export type JobStatus =
   | 'UPLOADING'
   | 'COMPLETED'
   | 'FAILED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'PENDING_MANNEQUIN';
 
 export interface Job {
   id: string;
