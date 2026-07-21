@@ -116,7 +116,7 @@ class ProductUploadViewModel : ViewModel() {
                 do {
                     delay(2500)
                     status = MerchantCatalogRepository.pollGenerateStatus(jobId)
-                    if (System.currentTimeMillis() - startedAt > 180_000) {
+                    if (System.currentTimeMillis() - startedAt > 1_800_000) {
                         _generateState.postValue(GenerateState.Failed(APIConstant.serverTimeOut))
                         return@launch
                     }
