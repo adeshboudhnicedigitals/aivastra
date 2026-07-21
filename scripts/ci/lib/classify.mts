@@ -87,6 +87,8 @@ export function classify(input: ClassifyInput): DetectResult {
 
     if (file.startsWith(MIGRATION_PREFIX)) {
       result.migrationChanged = true;
+      // No `continue` here: the same file must also match a target/member below
+      // so its package (and recursive consumers) still get selected for deploy.
     }
 
     if (matchAny(file, config.ciPaths)) {

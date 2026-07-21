@@ -176,6 +176,9 @@ if (process.argv[1]?.endsWith('detect-affected.mts')) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`detect-affected failed: ${message}\n`);
+    process.stdout.write(
+      `::warning::detect-affected crashed and fell back to deploying all services: ${message}\n`,
+    );
     if (process.env.GITHUB_OUTPUT) {
       // Fail safe: an unexpected detector error must select everything.
       appendFileSync(
@@ -193,6 +196,6 @@ if (process.argv[1]?.endsWith('detect-affected.mts')) {
         ].join('\n'),
       );
     }
-    process.exitCode = 1;
+    process.exitCode = 0;
   }
 }
