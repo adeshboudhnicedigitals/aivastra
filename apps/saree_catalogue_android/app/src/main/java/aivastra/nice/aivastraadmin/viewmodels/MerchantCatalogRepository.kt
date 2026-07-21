@@ -29,7 +29,12 @@ object MerchantCatalogRepository {
         APICaller.putToPresignedUrl(uploadUrl, file.asRequestBody(contentType.toMediaType()))
     }
 
-    suspend fun generate(subcategoryId: String, flatImageKey: String): String {
+    suspend fun fetchSareeStyles(): List<SareeStyle> {
+        val response = APICaller.getJsonAuthed(APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SAREE_STYLES, PrefsManager.getAccessToken())
+        return mapper.readValue(response, SareeStyleListResponse::class.java).items
+    }
+
+    suspend fun generate(subcategoryId: String, flatImageKey: String, sareeStyleId: String?): String {
         // This app only ever generates saree catalog images — skip the normal pose/
         // background/face compositing step and finalize with the mannequin-drape
         // output directly (see createMerchantSareeMannequinJob on the API side).
@@ -37,6 +42,7 @@ object MerchantCatalogRepository {
             put("subcategoryId", subcategoryId)
             put("flatImageKey", flatImageKey)
             put("mannequinOnly", true)
+            if (sareeStyleId != null) put("sareeStyleId", sareeStyleId)
         }.toString()
         val response = APICaller.postJsonAuthed(APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_GENERATE, body, PrefsManager.getAccessToken())
         return mapper.readValue(response, MerchantCatalogGenerateResponse::class.java).jobId

@@ -153,7 +153,17 @@ export async function processJob(
   // selected model), null for dev-API jobs whose template bakes the face in via
   // a fixed URL node instead (see processSareeMannequinJob's tryonPersonNodeId check).
   if (!inputs.backgroundId && !inputs.poseId && rawParams.kind === 'saree_mannequin') {
-    await processSareeMannequinJob(cfg, job, inputs, userId, stream, messageId, jobLog, startedAt);
+    await processSareeMannequinJob(
+      cfg,
+      job,
+      inputs,
+      rawParams,
+      userId,
+      stream,
+      messageId,
+      jobLog,
+      startedAt,
+    );
     return;
   }
 
@@ -852,6 +862,7 @@ async function processSareeMannequinJob(
   cfg: ProcessorConfig,
   job: SareeMannequinJob,
   inputs: typeof schema.jobInputs.$inferSelect,
+  rawParams: Record<string, unknown>,
   userId: string,
   stream: string,
   messageId: string,
@@ -879,13 +890,22 @@ async function processSareeMannequinJob(
     return;
   }
 
-  const [garmentType] = await db
-    .select({
-      mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
-    })
-    .from(schema.garmentSubcategories)
-    .where(eq(schema.garmentSubcategories.id, garmentTypeId));
-  const workflowTemplateId = garmentType?.mannequinWorkflowTemplateId;
+  // A saree style, if the merchant picked one, snapshots its own mannequin
+  // workflow template ID directly into params — takes precedence over the
+  // garment type's default. See createMerchantSareeMannequinJob.
+  const snapshottedWorkflowTemplateId =
+    typeof rawParams.workflowTemplateId === 'string' ? rawParams.workflowTemplateId : null;
+
+  let workflowTemplateId = snapshottedWorkflowTemplateId;
+  if (!workflowTemplateId) {
+    const [garmentType] = await db
+      .select({
+        mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
+      })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    workflowTemplateId = garmentType?.mannequinWorkflowTemplateId ?? null;
+  }
   if (!workflowTemplateId) {
     await markFailed(
       cfg,

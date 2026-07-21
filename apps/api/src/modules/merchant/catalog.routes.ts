@@ -15,7 +15,11 @@ import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createMerchantCatalogJob, createMerchantSareeMannequinJob } from './create-job.js';
+import {
+  createMerchantCatalogJob,
+  createMerchantSareeMannequinJob,
+  createMerchantSareeMannequinJob1,
+} from './create-job.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
@@ -725,6 +729,34 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get('/v1/merchant/catalog/saree-styles', { preHandler: app.requireMerchant }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.sareeMannequinStyles.id,
+        label: schema.sareeMannequinStyles.label,
+        previewImageKey: schema.sareeMannequinStyles.previewImageKey,
+        sortOrder: schema.sareeMannequinStyles.sortOrder,
+      })
+      .from(schema.sareeMannequinStyles)
+      .where(eq(schema.sareeMannequinStyles.isActive, true))
+      .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
+
+    const items = await Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        label: row.label,
+        previewUrl: row.previewImageKey
+          ? await app.storage
+              .presignGet(row.previewImageKey, 3600)
+              .then((result) => result.url)
+              .catch(() => null)
+          : null,
+        sortOrder: row.sortOrder,
+      })),
+    );
+    return { items };
+  });
+
   app.post(
     '/v1/merchant/catalog/generate',
     { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBody } },
@@ -732,7 +764,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { subcategoryId, flatImageKey, mannequinOnly } = req.body as z.infer<
+      const { subcategoryId, flatImageKey, mannequinOnly, sareeStyleId } = req.body as z.infer<
         typeof MerchantCatalogGenerateBody
       >;
 
@@ -762,6 +794,59 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             garmentSubcategoryId: row.garmentSubcategoryId,
             flatImageKey,
             merchantId,
+            sareeStyleId,
+          })
+        : await createMerchantCatalogJob(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            category: row.category,
+            flatImageKey,
+            subcategoryId,
+            merchantId,
+          });
+
+      reply.code(201);
+      return { jobId };
+    },
+  );
+  app.post(
+    '/v1/merchant/catalog/generate2',
+    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBody } },
+    async (req, reply) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { subcategoryId, flatImageKey, mannequinOnly, sareeStyleId } = req.body as z.infer<
+        typeof MerchantCatalogGenerateBody
+      >;
+
+      const [row] = await app.db
+        .select({
+          userId: schema.merchants.userId,
+          category: schema.merchantCatalogSubcategories.category,
+          garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
+        })
+        .from(schema.merchantCatalogSubcategories)
+        .innerJoin(
+          schema.merchants,
+          eq(schema.merchants.id, schema.merchantCatalogSubcategories.merchantId),
+        )
+        .where(
+          and(
+            eq(schema.merchantCatalogSubcategories.id, subcategoryId),
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+          ),
+        )
+        .limit(1);
+      if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
+
+      const { jobId } = mannequinOnly
+        ? await createMerchantSareeMannequinJob1(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            flatImageKey,
+            merchantId,
+            sareeStyleId,
           })
         : await createMerchantCatalogJob(app, {
             userId: row.userId,
