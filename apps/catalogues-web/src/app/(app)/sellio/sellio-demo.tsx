@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { SparkleIcon, XIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { api } from '@/lib/api';
-import { isEmbedImageSelectedMessage } from '@/lib/shopify-plugin-embed-protocol';
+import { isEmbedImageSelectedMessage } from '@/lib/sellio-embed-protocol';
 import { MOCK_PRODUCT, SHOPIFY_LEFT_NAV, SHOPIFY_SALES_CHANNELS } from './shopify-mock-data';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -133,7 +133,7 @@ function StaticField({
   );
 }
 
-export function ShopifyPluginDemo() {
+export function SellioDemo() {
   const { data: me, isLoading: meLoading } = useQuery<{ isMerchant?: boolean }>({
     queryKey: ['me'],
     queryFn: () => api.get('/v1/me'),
@@ -447,36 +447,10 @@ export function ShopifyPluginDemo() {
               </button>
             </div>
             <iframe
-              src={`${BASE}/embed/shopify-plugin-studio`}
+              src={`${BASE}/embed/sellio-studio`}
               title="Ai Vastra product photo generator"
               style={{ flex: 1, border: 'none', width: '100%' }}
             />
-            <div
-              style={{
-                padding: '12px 20px',
-                borderTop: `1px solid ${C.border}`,
-                display: 'flex',
-                justifyContent: 'flex-end',
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setStudioModalOpen(false)}
-                style={{
-                  height: 36,
-                  padding: '0 18px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)',
-                  color: '#fff',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Done
-              </button>
-            </div>
           </div>
         </div>
       )}

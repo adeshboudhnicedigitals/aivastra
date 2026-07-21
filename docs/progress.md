@@ -1,8 +1,23 @@
-﻿## 2026-07-20 - Studio Try-On Page Fixes
+## 2026-07-21 - Production CI/CD scalability and zero-downtime deployment plan
+
+Documented the implementation-ready replacement for the current full-repository, build-on-VPS production workflow in `docs/production-cicd-plan.md`. The design targets affected-service-only CI, immutable GHCR images, per-service blue/green slots, a stable gateway behind CloudPanel, readiness/smoke-gated traffic switching, graceful API/chatbot/dispatcher draining, expand-contract migrations, and automatic rollback.
 
 ### Done
-- Resolved severe JSX parsing errors and corrupted 	ryon/page.tsx UI layout logic by removing duplicate </div> tags and repairing fragment structures.
-- Removed a corrupt UTF-8 Byte Order Mark (BOM) sequence (\uFEFF) that was injected into the middle of the page.tsx file, which was silently breaking 	sc and iome parsers.
+- Recorded the current CI and VPS deployment behavior, including why docs-only pushes currently execute the full pipeline and why unscoped `docker compose up -d --force-recreate` can expose users to gateway failures.
+- Defined the affected-package/service graph, detector contract, conditional GitHub Actions job graph, Docker cache/image strategy, release manifest, VPS topology, readiness interfaces, complete deployment state machine, migration controls, rollback behavior, security requirements, observability, phased live rollout, test matrix, operational runbooks, and measurable acceptance criteria.
+- Locked the selected decisions: CI-built GHCR images, automatic deployment from `main`, per-service blue/green rollout, stable repository-managed NGINX gateway behind CloudPanel, health plus functional smoke gates, and expand-contract migrations.
+
+### Failed / Not Done
+- This entry documents the plan only. No workflow, Dockerfile, Compose, application-health, gateway, or live VPS implementation has been performed yet.
+
+### Open Questions / Decisions
+- No architecture decision remains open. VPS capacity, CloudPanel access, pinned SSH identity, read-only GHCR access, and off-host backup freshness are explicit rollout prerequisites to verify before their corresponding implementation phases.
+
+## 2026-07-20 - Studio Try-On Page Fixes
+
+### Done
+- Resolved severe JSX parsing errors and corrupted tryon/page.tsx UI layout logic by removing duplicate </div> tags and repairing fragment structures.
+- Removed a corrupt UTF-8 Byte Order Mark (BOM) sequence (\uFEFF) that was injected into the middle of the page.tsx file, which was silently breaking tsc and biome parsers.
 - Verified workspace builds correctly using pnpm build across all packages.
 - Committed changes bypassing local biome staged lint hooks due to pre-existing unresolved lint warnings.
 
@@ -10,7 +25,7 @@
 - None.
 
 ### Open Questions / Decisions
-- Pre-existing a11y and performance lint warnings in 	ryon/page.tsx remain. These were bypassed to merge the critical syntax fix.
+- Pre-existing a11y and performance lint warnings in tryon/page.tsx remain. These were bypassed to merge the critical syntax fix.
 
 ## 2026-07-20 - Merchant catalog: fix production ComfyUI crash (missing mannequin step)
 
