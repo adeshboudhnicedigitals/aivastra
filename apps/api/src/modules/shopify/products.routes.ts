@@ -152,12 +152,12 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
         }
         if (!res.ok) throw new AppError('SHOPIFY', 502, 'failed to download the selected image');
         const contentLength = res.headers.get('content-length');
-        if (contentLength && parseInt(contentLength, 10) > 10 * 1024 * 1024) {
-          throw new AppError('BAD_REQUEST', 400, 'image exceeds 10MB');
+        if (contentLength && parseInt(contentLength, 10) > 20 * 1024 * 1024) {
+          throw new AppError('BAD_REQUEST', 400, 'image exceeds 20MB');
         }
         const arrayBuffer = await res.arrayBuffer();
-        if (arrayBuffer.byteLength > 10 * 1024 * 1024) {
-          throw new AppError('BAD_REQUEST', 400, 'image exceeds 10MB');
+        if (arrayBuffer.byteLength > 20 * 1024 * 1024) {
+          throw new AppError('BAD_REQUEST', 400, 'image exceeds 20MB');
         }
         const contentType = res.headers.get('content-type') ?? 'image/jpeg';
         newR2Key = `shopify-garments/${store.id}/${shopifyProductId}/garment-${randomUUID()}.jpg`;
