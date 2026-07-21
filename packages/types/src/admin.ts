@@ -94,6 +94,11 @@ export const SystemConfigBody = z.object({
       creditCost: z.number().int().positive().max(1_000),
     })
     .optional(),
+  sareeMannequinDev: z
+    .object({
+      creditCost: z.number().int().positive().max(1_000),
+    })
+    .optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────

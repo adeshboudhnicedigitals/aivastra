@@ -111,6 +111,9 @@ export const CreateTryOnJobRequest = z.object({
 /** Fallback default — the actual charged cost is admin-configurable, see getTryonCreditCost(). */
 export const SIMPLE_TRYON_COST = 5;
 
+/** Fallback default — the actual charged cost is admin-configurable, see getSareeMannequinDevCreditCost(). */
+export const SAREE_MANNEQUIN_DEV_COST = 10;
+
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),
   sourceJobId: z.string().uuid(),
