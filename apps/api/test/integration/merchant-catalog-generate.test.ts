@@ -102,10 +102,19 @@ async function seedBackground(app: TestApp) {
   return bg;
 }
 
+// Merchant catalogue subcategories only accept garment types with
+// requiresMannequinStep = true — see the matching filter on the
+// GET/POST/PATCH routes in catalog.routes.ts.
 async function seedGarmentType(app: TestApp, genderSlug: string, defaultPoseId: string | null) {
   const [row] = await app.db
     .insert(schema.garmentSubcategories)
-    .values({ genderSlug, slug: `type-${randomUUID()}`, label: 'Type', defaultPoseId })
+    .values({
+      genderSlug,
+      slug: `type-${randomUUID()}`,
+      label: 'Type',
+      defaultPoseId,
+      requiresMannequinStep: true,
+    })
     .returning();
   return row;
 }

@@ -30,7 +30,14 @@ object MerchantCatalogRepository {
     }
 
     suspend fun generate(subcategoryId: String, flatImageKey: String): String {
-        val body = org.json.JSONObject().apply { put("subcategoryId", subcategoryId); put("flatImageKey", flatImageKey) }.toString()
+        // This app only ever generates saree catalog images — skip the normal pose/
+        // background/face compositing step and finalize with the mannequin-drape
+        // output directly (see createMerchantSareeMannequinJob on the API side).
+        val body = org.json.JSONObject().apply {
+            put("subcategoryId", subcategoryId)
+            put("flatImageKey", flatImageKey)
+            put("mannequinOnly", true)
+        }.toString()
         val response = APICaller.postJsonAuthed(APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_GENERATE, body, PrefsManager.getAccessToken())
         return mapper.readValue(response, MerchantCatalogGenerateResponse::class.java).jobId
     }

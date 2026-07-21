@@ -37,10 +37,18 @@ async function authHeader(userId: string) {
   return { authorization: `Bearer ${token}` };
 }
 
+// Merchant catalogue subcategories only accept garment types with
+// requiresMannequinStep = true — see the matching filter on the
+// GET/POST/PATCH routes in catalog.routes.ts.
 async function seedGarmentType(app: TestApp, genderSlug: string) {
   const [row] = await app.db
     .insert(schema.garmentSubcategories)
-    .values({ genderSlug, slug: `shirt-${randomUUID()}`, label: 'Shirt' })
+    .values({
+      genderSlug,
+      slug: `saree-${randomUUID()}`,
+      label: 'Saree',
+      requiresMannequinStep: true,
+    })
     .returning();
   return row;
 }

@@ -15,7 +15,7 @@ import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createMerchantCatalogJob } from './create-job.js';
+import { createMerchantCatalogJob, createMerchantSareeMannequinJob } from './create-job.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
@@ -149,10 +149,31 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           )
         : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
 
+      // Merchant catalogue only supports the saree (mannequin) pipeline — filter out any
+      // subcategory whose garment type doesn't require the mannequin step (e.g. stray
+      // "shirts"-style rows from before this was enforced on create/update below), the same
+      // way the self-provisioning branch already restricts what it seeds.
+      const merchantCatalogSubcategoryColumns = {
+        id: schema.merchantCatalogSubcategories.id,
+        merchantId: schema.merchantCatalogSubcategories.merchantId,
+        category: schema.merchantCatalogSubcategories.category,
+        name: schema.merchantCatalogSubcategories.name,
+        garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
+        sortOrder: schema.merchantCatalogSubcategories.sortOrder,
+        createdAt: schema.merchantCatalogSubcategories.createdAt,
+        updatedAt: schema.merchantCatalogSubcategories.updatedAt,
+      };
       let rows = await app.db
-        .select()
+        .select(merchantCatalogSubcategoryColumns)
         .from(schema.merchantCatalogSubcategories)
-        .where(where)
+        .innerJoin(
+          schema.garmentSubcategories,
+          eq(
+            schema.garmentSubcategories.id,
+            schema.merchantCatalogSubcategories.garmentSubcategoryId,
+          ),
+        )
+        .where(and(where, eq(schema.garmentSubcategories.requiresMannequinStep, true)))
         .orderBy(
           schema.merchantCatalogSubcategories.sortOrder,
           desc(schema.merchantCatalogSubcategories.createdAt),
@@ -190,9 +211,16 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           );
 
           rows = await app.db
-            .select()
+            .select(merchantCatalogSubcategoryColumns)
             .from(schema.merchantCatalogSubcategories)
-            .where(where)
+            .innerJoin(
+              schema.garmentSubcategories,
+              eq(
+                schema.garmentSubcategories.id,
+                schema.merchantCatalogSubcategories.garmentSubcategoryId,
+              ),
+            )
+            .where(and(where, eq(schema.garmentSubcategories.requiresMannequinStep, true)))
             .orderBy(
               schema.merchantCatalogSubcategories.sortOrder,
               desc(schema.merchantCatalogSubcategories.createdAt),
@@ -219,6 +247,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           and(
             eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
             eq(schema.garmentSubcategories.isActive, true),
+            // Merchant catalogue only supports the saree (mannequin) pipeline — see the
+            // matching filter on GET above.
+            eq(schema.garmentSubcategories.requiresMannequinStep, true),
           ),
         )
         .limit(1);
@@ -264,6 +295,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             and(
               eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
               eq(schema.garmentSubcategories.isActive, true),
+              // Merchant catalogue only supports the saree (mannequin) pipeline — see the
+              // matching filter on GET above.
+              eq(schema.garmentSubcategories.requiresMannequinStep, true),
             ),
           )
           .limit(1);
@@ -698,7 +732,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { subcategoryId, flatImageKey } = req.body as z.infer<
+      const { subcategoryId, flatImageKey, mannequinOnly } = req.body as z.infer<
         typeof MerchantCatalogGenerateBody
       >;
 
@@ -722,14 +756,21 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .limit(1);
       if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
 
-      const { jobId } = await createMerchantCatalogJob(app, {
-        userId: row.userId,
-        garmentSubcategoryId: row.garmentSubcategoryId,
-        category: row.category,
-        flatImageKey,
-        subcategoryId,
-        merchantId,
-      });
+      const { jobId } = mannequinOnly
+        ? await createMerchantSareeMannequinJob(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            flatImageKey,
+            merchantId,
+          })
+        : await createMerchantCatalogJob(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            category: row.category,
+            flatImageKey,
+            subcategoryId,
+            merchantId,
+          });
 
       reply.code(201);
       return { jobId };
