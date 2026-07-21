@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { ProcessorConfig } from './processor.js';
 import { transitionJob } from './state.js';
 
@@ -12,11 +12,16 @@ const TERMINAL_FAILURE_STATUSES = new Set(['FAILED', 'CANCELLED']);
  * terminal state. This is the ONLY thing that turns a mannequin job's success
  * into an actual queued tryon job — deliberately server-side and connection-
  * independent (no browser/SSE dependency), unlike the client-driven flow this
- * replaces. Idempotent: safe to run concurrently with itself on an interval,
- * safe to re-run after a crash (it only ever acts on rows still in
- * PENDING_MANNEQUIN, and the status flip is the first thing each branch does
- * — a re-run after promotion/refund finds the row no longer PENDING_MANNEQUIN
- * and skips it).
+ * replaces. Idempotent and concurrency-safe: safe to run concurrently with
+ * itself (this sweep has no re-entrancy guard and runs on a 5s interval, so
+ * overlapping invocations are expected under load), and safe to re-run after
+ * a crash. The COMPLETED branch claims each row with a compare-and-swap
+ * UPDATE (`WHERE status = 'PENDING_MANNEQUIN'`) before doing anything else,
+ * so only one of two overlapping sweeps ever proceeds to XADD a given job.
+ * The FAILED/CANCELLED branch relies on the unique index on
+ * `credit_ledger(job_id, reason)` (`onConflictDoNothing`) to make the refund
+ * exactly-once. Either way, a re-run after promotion/refund finds the row no
+ * longer PENDING_MANNEQUIN and skips it.
  */
 export async function promoteSareeStep2Jobs(cfg: ProcessorConfig): Promise<void> {
   const { db, redis, pub, log } = cfg;
@@ -76,16 +81,38 @@ export async function promoteSareeStep2Jobs(cfg: ProcessorConfig): Promise<void>
     }
 
     if (mannequinStatus === 'COMPLETED') {
+      // Atomically claim the row before doing anything else: only proceed if
+      // this invocation is the one that flips it out of PENDING_MANNEQUIN.
+      // Without this guard, two overlapping sweeps (this function has no
+      // re-entrancy guard and runs on a 5s interval) can both SELECT the same
+      // row above before either transitions it, and both would then XADD the
+      // same already-charged job onto the queue stream — double GPU work on
+      // one charge. The compare-and-swap WHERE clause ensures only the first
+      // caller to reach this UPDATE gets rows back; a concurrent loser sees
+      // an empty result and skips the row (it's no longer PENDING_MANNEQUIN
+      // by the time it would re-check anyway).
+      const claimed = await db
+        .update(schema.jobs)
+        .set({ status: 'QUEUED' })
+        .where(and(eq(schema.jobs.id, row.jobId), eq(schema.jobs.status, 'PENDING_MANNEQUIN')))
+        .returning({ id: schema.jobs.id });
+      if (claimed.length === 0) {
+        // Another concurrent sweep already claimed this row — nothing to do.
+        continue;
+      }
+
       const outputKey = keys.output(row.mannequinJobId);
-      // Update the parent's status is not needed here — only the child row.
       // Re-running this sweep after a crash mid-promotion is safe: the update
-      // is idempotent (same key written again), and transitionJob only flips
-      // status away from PENDING_MANNEQUIN once, after which this row is no
-      // longer selected by the query above.
+      // is idempotent (same key written again), and the claim above only
+      // flips status away from PENDING_MANNEQUIN once, after which this row
+      // is no longer selected by the query at the top of this function.
       await db
         .update(schema.jobInputs)
         .set({ upperGarmentKey: outputKey })
         .where(eq(schema.jobInputs.jobId, row.jobId));
+      // transitionJob's own status write is now a harmless no-op (we already
+      // hold the sole claim on this row) — it's still called for its
+      // job_events audit-trail insert and SSE publish side effects.
       await transitionJob(db, pub, row.jobId, userId, 'QUEUED', {}, log);
       await redis.xadd(
         `jobs:${row.queueStream}`,

@@ -266,4 +266,93 @@ describe('promoteSareeStep2Jobs', () => {
       .where(eq(schema.jobs.id, step2Job.id));
     expect(updatedJob?.status).toBe('QUEUED');
   });
+
+  it('promotes exactly once when two sweeps run genuinely concurrently (Promise.all)', async () => {
+    const userId = await seedUser();
+    const [mannequinJob] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'COMPLETED',
+        source: 'saree_mannequin',
+        creditsCharged: 0,
+        queueStream: 'normal',
+      })
+      .returning();
+    const [step2Job] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'PENDING_MANNEQUIN',
+        source: 'catalog',
+        creditsCharged: 25,
+        queueStream: 'normal',
+      })
+      .returning();
+    await cfg.db.insert(schema.jobInputs).values({
+      jobId: step2Job.id,
+      upperGarmentKey: null,
+      params: { mannequinJobId: mannequinJob.id },
+    });
+
+    // Genuinely overlapping invocations (not sequential) — simulates two
+    // 5s-interval sweep ticks racing each other over the same row. Only one
+    // must win the atomic claim in the COMPLETED branch.
+    await Promise.all([promoteSareeStep2Jobs(cfg), promoteSareeStep2Jobs(cfg)]);
+
+    const streamLen = await cfg.redis.xlen('jobs:normal');
+    expect(streamLen).toBe(1);
+    const [updatedJob] = await cfg.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, step2Job.id));
+    expect(updatedJob?.status).toBe('QUEUED');
+  });
+
+  it('refunds exactly once across two invocations for a FAILED mannequin parent', async () => {
+    const userId = await seedUser();
+    await cfg.db.insert(schema.userCredits).values({ userId, balance: 0 });
+    const [mannequinJob] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'FAILED',
+        source: 'saree_mannequin',
+        creditsCharged: 0,
+        queueStream: 'normal',
+      })
+      .returning();
+    const [step2Job] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'PENDING_MANNEQUIN',
+        source: 'catalog',
+        creditsCharged: 25,
+        queueStream: 'normal',
+      })
+      .returning();
+    await cfg.db.insert(schema.jobInputs).values({
+      jobId: step2Job.id,
+      upperGarmentKey: null,
+      params: { mannequinJobId: mannequinJob.id },
+    });
+
+    await promoteSareeStep2Jobs(cfg);
+    await promoteSareeStep2Jobs(cfg);
+
+    const [updatedJob] = await cfg.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, step2Job.id));
+    expect(updatedJob?.status).toBe('FAILED');
+    const [after] = await cfg.db
+      .select({ balance: schema.userCredits.balance })
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    // Refunded exactly once (25), not twice (50) — the credit_ledger unique
+    // index on (job_id, reason) plus onConflictDoNothing makes the second
+    // invocation's refund attempt a no-op.
+    expect(after?.balance).toBe(25);
+  });
 });
