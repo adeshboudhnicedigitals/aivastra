@@ -52,3 +52,4 @@ assets/*
 /apitest/
 
 /PROFILE_AUDIT.md
+affected.json
