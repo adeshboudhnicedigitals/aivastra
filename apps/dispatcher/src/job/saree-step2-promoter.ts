@@ -91,9 +91,20 @@ export async function promoteSareeStep2Jobs(cfg: ProcessorConfig): Promise<void>
       // caller to reach this UPDATE gets rows back; a concurrent loser sees
       // an empty result and skips the row (it's no longer PENDING_MANNEQUIN
       // by the time it would re-check anyway).
+      //
+      // createdAt is reset to now() here deliberately: this row's original
+      // createdAt reflects the step-2 job's *submit* time, which can be
+      // arbitrarily long before the mannequin (step 1) job actually
+      // completes. The sweeper's Pass 1 ("orphaned QUEUED jobs",
+      // apps/dispatcher/src/stream/sweeper.ts) fails+refunds any QUEUED job
+      // whose createdAt is older than QUEUED_SLA_MS, on the assumption that
+      // QUEUED jobs are enqueued and become QUEUED at roughly the same
+      // moment. Without this reset, a step-2 job promoted after a >10min
+      // step-1 wait would be swept as STUCK_IN_QUEUE the very next tick,
+      // even though it was just legitimately queued.
       const claimed = await db
         .update(schema.jobs)
-        .set({ status: 'QUEUED' })
+        .set({ status: 'QUEUED', createdAt: new Date() })
         .where(and(eq(schema.jobs.id, row.jobId), eq(schema.jobs.status, 'PENDING_MANNEQUIN')))
         .returning({ id: schema.jobs.id });
       if (claimed.length === 0) {
