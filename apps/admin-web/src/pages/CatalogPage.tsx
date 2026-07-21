@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BatchCatalogUploadModal } from '../components/BatchCatalogUploadModal';
 import { Icon } from '../components/Icons';
 import { Pager } from '../components/Pager';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { Switch } from '../components/Switch';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
@@ -451,20 +452,15 @@ export default function CatalogPage({ onNav: _onNav, toast }: Props) {
               </div>
               <div className="field">
                 <label>Gender category</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={categories
+                    .filter((c) => c.typeSlug === editItem.type)
+                    .map((c) => ({ id: String(c.id), label: c.label }))}
                   value={editCategoryId}
                   disabled={editSaving}
-                  onChange={(e) => setEditCategoryId(e.target.value)}
-                >
-                  {categories
-                    .filter((c) => c.typeSlug === editItem.type)
-                    .map((c) => (
-                      <option key={c.id} value={String(c.id)}>
-                        {c.label}
-                      </option>
-                    ))}
-                </select>
+                  placeholder="— search category —"
+                  onChange={setEditCategoryId}
+                />
               </div>
               <div className="field">
                 <label>Sort order</label>

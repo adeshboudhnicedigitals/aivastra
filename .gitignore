@@ -50,3 +50,5 @@ assets/*
 /seed-images/
 /docs/multi-app-ecosystem/
 /apitest/
+
+/PROFILE_AUDIT.md

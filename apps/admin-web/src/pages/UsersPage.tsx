@@ -3,6 +3,7 @@ import { Icon } from '../components/Icons';
 import { KV } from '../components/KV';
 import { NameAvatar } from '../components/NameAvatar';
 import { Pager } from '../components/Pager';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
 import { Th } from '../components/Th';
@@ -785,19 +786,14 @@ export default function UsersPage({ onNav, toast }: Props) {
                 {editingAccountField === 'plan' ? (
                   <div className="field">
                     <label htmlFor="user-credit-plan">Credit plan</label>
-                    <select
+                    <SearchableSelect
                       id="user-credit-plan"
-                      className="select"
+                      options={effectiveTierOptions.map((slug) => ({ id: slug, label: slug }))}
                       value={selectedTier}
                       disabled={tierSaving}
-                      onChange={(e) => setSelectedTier(e.target.value)}
-                    >
-                      {effectiveTierOptions.map((slug) => (
-                        <option key={slug} value={slug}>
-                          {slug}
-                        </option>
-                      ))}
-                    </select>
+                      placeholder="— search plan —"
+                      onChange={setSelectedTier}
+                    />
                     <span className="hint">
                       This changes the account's pricing and credit-plan entitlement.
                     </span>

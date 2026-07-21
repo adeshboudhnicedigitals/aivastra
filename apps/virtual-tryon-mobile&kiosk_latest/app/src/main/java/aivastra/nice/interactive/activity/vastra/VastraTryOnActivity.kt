@@ -604,6 +604,18 @@ class VastraTryOnActivity : BaseActivity() {
         lottieDrawable.playAnimation()
     }
 
+    // Customer tapped Cancel (or pressed Back) on the processing screen: stop polling, tell the
+    // server to cancel the job, and return them to the item list so they can retry — previously the
+    // non-cancelable dialog left them stuck until the app was force-killed.
+    private fun handleUserCancelTryOn() {
+        isHandled = true
+        sareeCatViewmodel.cancelCurrentTryonJob()
+        resetAllOberserver()
+        dismissTryOnProcessingDialog()
+        binding.llDressTryOnProcess.llMainRoot.isVisible = false
+        ViewControll.enableActivityClick(this)
+    }
+
     private fun showTryOnProcessingDialog(){
         if (vastraTryOnProcessingDialog?.isAdded == true) {
             return
@@ -611,6 +623,7 @@ class VastraTryOnActivity : BaseActivity() {
         if (vastraTryOnProcessingDialog == null) {
             vastraTryOnProcessingDialog = VastraTryOnProcessingFragment()
         }
+        vastraTryOnProcessingDialog?.onCancelRequested = { handleUserCancelTryOn() }
         vastraTryOnProcessingDialog?.show(supportFragmentManager, "VastraTryOnProcessingFragment")
 //        val intent = Intent(this,VastraTryOnProcessFullscreenActivity::class.java)
 //        startActivity(intent)

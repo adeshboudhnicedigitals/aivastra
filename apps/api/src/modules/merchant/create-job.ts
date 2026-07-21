@@ -38,7 +38,10 @@ export async function createMerchantCatalogJob(
   },
 ): Promise<{ jobId: string }> {
   const [garmentType] = await app.db
-    .select({ defaultPoseId: schema.garmentSubcategories.defaultPoseId })
+    .select({
+      defaultPoseId: schema.garmentSubcategories.defaultPoseId,
+      requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+    })
     .from(schema.garmentSubcategories)
     .where(
       and(
@@ -147,6 +150,11 @@ export async function createMerchantCatalogJob(
         outputHeight: outputDims.height,
         aspectRatio,
         resolution,
+        // The merchant's flatImageKey is always a raw, never-processed photo -
+        // tells the dispatcher to run the mannequin compositing step inline
+        // before the real generation. See apps/dispatcher/src/job/processor.ts's
+        // requiresMannequinStep branch.
+        needsMannequinStep: garmentType.requiresMannequinStep,
       },
     });
   });

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { SearchableSelect } from '../components/SearchableSelect';
 import { useAuth } from '../context/AuthContext';
 import { apiErrorMessage, apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
 import { makeThumbnail } from '../lib/thumbnail';
@@ -578,20 +579,17 @@ export default function TryonPage({ toast }: Props) {
               {/* Workflow */}
               <div className="field">
                 <label>Workflow template</label>
-                <select
-                  className="select"
+                <SearchableSelect
+                  options={tryonWorkflows.map((wf) => ({
+                    id: wf.id,
+                    label: `${wf.label}${!wf.isActive ? ' (inactive)' : ''}`,
+                  }))}
                   value={formWorkflowId}
                   disabled={formSaving}
-                  onChange={(e) => setFormWorkflowId(e.target.value)}
-                >
-                  <option value="">— none —</option>
-                  {tryonWorkflows.map((wf) => (
-                    <option key={wf.id} value={wf.id}>
-                      {wf.label}
-                      {!wf.isActive ? ' (inactive)' : ''}
-                    </option>
-                  ))}
-                </select>
+                  emptyLabel="— none —"
+                  placeholder="— search workflow —"
+                  onChange={setFormWorkflowId}
+                />
               </div>
 
               {/* Sort order */}

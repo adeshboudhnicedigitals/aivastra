@@ -119,6 +119,39 @@ curl -s -X POST "$API_URL/v1/dev/tryon" \
 magic-byte content check as the multipart path — base64 inflates the wire size by ~33%, so
 a 10MB image becomes a ~13.4MB JSON field.
 
+## 3c. Saree mannequin generation
+
+A separate, single-image endpoint: `POST /v1/dev/saree-mannequin`. Send one `garment` image
+(the saree/garment cloth photo) — no `person` image, no `category`. The model/face is fixed by
+the configured workflow, not caller-supplied. Same 202 + poll pattern, same `GET
+/v1/dev/jobs/:id` polling, same credit/refund/error behavior as `/v1/dev/tryon` above.
+
+```bash
+curl -s -X POST "$API_URL/v1/dev/saree-mannequin" \
+  -H "Authorization: Bearer $API_KEY" \
+  -F "garment=@saree.jpg"
+# => {"jobId": "...", "status": "QUEUED"}
+```
+
+Or JSON/base64:
+
+```bash
+python3 -c "
+import json, base64
+garment = base64.b64encode(open('saree.jpg', 'rb').read()).decode()
+print(json.dumps({'garment': garment}))
+" > body.json
+
+curl -s -X POST "$API_URL/v1/dev/saree-mannequin" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data @body.json
+```
+
+If no mannequin-step garment type is configured (or its workflow is inactive), this returns
+`400 BAD_CATEGORY` with no credits charged — same kill-switch behavior as an unknown/inactive
+`category` on `/v1/dev/tryon`.
+
 ## 4. Node.js example — `FormData` + `fetch` with a backing-off poll loop
 
 Requires Node 20+ (global `fetch`, `FormData`, and `Blob` — no extra dependencies).

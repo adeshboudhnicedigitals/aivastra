@@ -35,7 +35,7 @@ open class BaseActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         makeBarsTransparentAndVisible()
-//        apiErrorHandleDialog()
+        apiErrorHandleDialog()
     }
 
     override fun setContentView(layoutResID: Int) {
@@ -79,22 +79,14 @@ open class BaseActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 NetworkMonitor.observe().collect {
-                    Log.e("NetworkState Observer received","$it")
+                    // Only connectivity is surfaced globally here — it's the one state that stays
+                    // accurate (driven by ConnectivityManager onAvailable/onLost). SLOW / TIMEOUT /
+                    // SERVER_ERROR are transient per-request outcomes already reported in-context by
+                    // ApiErrorPresenter; showing them from this replayed StateFlow caused stale and
+                    // duplicated alerts on unrelated screens.
                     when (it) {
                         NetworkState.NO_INTERNET -> {
                             NetworkDialogManager.showNoInternetDialog(this@BaseActivity)
-                        }
-
-                        NetworkState.SLOW -> {
-                            NetworkDialogManager.showSlowInternetDialog(this@BaseActivity)
-                        }
-
-                        NetworkState.TIMEOUT -> {
-                            NetworkDialogManager.showTimeoutDialog(this@BaseActivity)
-                        }
-
-                        NetworkState.SERVER_ERROR -> {
-                            NetworkDialogManager.showServerErrorDialog(this@BaseActivity)
                         }
 
                         else -> {}

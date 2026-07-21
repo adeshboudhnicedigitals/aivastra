@@ -22,11 +22,10 @@ class NetworkInterceptor(private val context: Context) : Interceptor {
 //            val end = System.currentTimeMillis()
 //            val duration = end - start
 
-            if (NetworkUtils.isSlowInternet(context)) {
-                NetworkMonitor.updateState(NetworkState.SLOW)
-            }
-
-            if (response.code != 200) {
+            // Only real server failures (5xx) are server errors. 2xx (incl. 201 Created), 3xx, 401
+            // (routine token refresh) and other 4xx are normal/​client-handled responses — flagging
+            // them as SERVER_ERROR previously fired false "server error" states.
+            if (response.code >= 500) {
                 NetworkMonitor.updateState(NetworkState.SERVER_ERROR)
             }
 
