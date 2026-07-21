@@ -102,6 +102,58 @@ async function seedBackground(app: TestApp) {
   return bg;
 }
 
+async function seedSareeStyle(app: TestApp, mannequinWorkflowTemplateId: string, isActive = true) {
+  const [style] = await app.db
+    .insert(schema.sareeMannequinStyles)
+    .values({
+      label: `Style ${randomUUID()}`,
+      mannequinWorkflowTemplateId,
+      isActive,
+    })
+    .returning();
+  return style;
+}
+
+async function seedMannequinWorkflowTemplate(app: TestApp) {
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `saree-step1-${randomUUID()}`,
+      label: 'Saree Step1',
+      jsonContent: {
+        '1': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        '2': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+      },
+      workflowType: 'saree_step1',
+      faceNodeId: '',
+      poseNodeId: '',
+      bgNodeId: '',
+      upperNodeIds: [],
+      facePhasePromptNode: '',
+      garmentPhasePromptNode: '',
+      tryonPersonNodeId: '1',
+      tryonGarmentNodeId: '2',
+      tryonOutputNodeId: '10',
+    })
+    .returning();
+  return wf;
+}
+
+async function seedMannequinOnlyGarmentType(app: TestApp, genderSlug: string) {
+  const wf = await seedMannequinWorkflowTemplate(app);
+  const [row] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug,
+      slug: `mannequin-type-${randomUUID()}`,
+      label: 'Mannequin Type',
+      requiresMannequinStep: true,
+      mannequinWorkflowTemplateId: wf.id,
+    })
+    .returning();
+  return { garmentType: row, defaultWorkflowTemplate: wf };
+}
+
 // Merchant catalogue subcategories only accept garment types with
 // requiresMannequinStep = true — see the matching filter on the
 // GET/POST/PATCH routes in catalog.routes.ts.
@@ -469,6 +521,195 @@ describe('merchant catalog generate (single, Path B)', () => {
         payload: { subcategoryId, flatImageKeys: unownedKeys },
       });
       expect(bulk.statusCode).toBe(400);
+    });
+  });
+
+  describe('sareeStyleId', () => {
+    it('snapshots the style workflow template into job_inputs.params when provided', async () => {
+      const { userId } = await createMerchant(app, 'style-happy@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+      const { garmentType, defaultWorkflowTemplate } = await seedMannequinOnlyGarmentType(
+        app,
+        'women',
+      );
+      const styleTemplate = await seedMannequinWorkflowTemplate(app);
+      const style = await seedSareeStyle(app, styleTemplate.id);
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const presign = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/presign',
+        headers: auth,
+        payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+      });
+      const { r2Key: flatImageKey, uploadUrl } = presign.json() as {
+        r2Key: string;
+        uploadUrl: string;
+      };
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: Buffer.from('flat'),
+      });
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: { subcategoryId, flatImageKey, mannequinOnly: true, sareeStyleId: style.id },
+      });
+      expect(generate.statusCode).toBe(201);
+      const { jobId } = generate.json() as { jobId: string };
+
+      const [inputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, jobId));
+      const params = inputs.params as Record<string, unknown>;
+      expect(params.workflowTemplateId).toBe(styleTemplate.id);
+      expect(params.workflowTemplateId).not.toBe(defaultWorkflowTemplate.id);
+    });
+
+    it('falls back to the garment type default when sareeStyleId is omitted', async () => {
+      const { userId } = await createMerchant(app, 'style-omitted@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+      const { garmentType } = await seedMannequinOnlyGarmentType(app, 'women');
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const presign = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/presign',
+        headers: auth,
+        payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+      });
+      const { r2Key: flatImageKey, uploadUrl } = presign.json() as {
+        r2Key: string;
+        uploadUrl: string;
+      };
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: Buffer.from('flat'),
+      });
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: { subcategoryId, flatImageKey, mannequinOnly: true },
+      });
+      expect(generate.statusCode).toBe(201);
+      const { jobId } = generate.json() as { jobId: string };
+
+      const [inputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, jobId));
+      const params = inputs.params as Record<string, unknown>;
+      expect(params.workflowTemplateId).toBeUndefined();
+    });
+
+    it('rejects with 400 when sareeStyleId is inactive', async () => {
+      const { userId } = await createMerchant(app, 'style-inactive@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+      const { garmentType } = await seedMannequinOnlyGarmentType(app, 'women');
+      const styleTemplate = await seedMannequinWorkflowTemplate(app);
+      const inactiveStyle = await seedSareeStyle(app, styleTemplate.id, false);
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: {
+          subcategoryId,
+          flatImageKey: 'merchant-catalog/x/flat/y/garment.jpg',
+          mannequinOnly: true,
+          sareeStyleId: inactiveStyle.id,
+        },
+      });
+      expect(generate.statusCode).toBe(400);
+    });
+
+    it('rejects with 400 when sareeStyleId does not exist', async () => {
+      const { userId } = await createMerchant(app, 'style-missing@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+      const { garmentType } = await seedMannequinOnlyGarmentType(app, 'women');
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: {
+          subcategoryId,
+          flatImageKey: 'merchant-catalog/x/flat/y/garment.jpg',
+          mannequinOnly: true,
+          sareeStyleId: randomUUID(),
+        },
+      });
+      expect(generate.statusCode).toBe(400);
+    });
+  });
+
+  describe('GET /v1/merchant/catalog/saree-styles', () => {
+    it('returns only active styles, ordered by sortOrder', async () => {
+      const { userId } = await createMerchant(app, 'style-list@example.com');
+      const auth = await authHeader(userId);
+      const wf = await seedMannequinWorkflowTemplate(app);
+      await app.db.update(schema.sareeMannequinStyles).set({ isActive: false });
+      await app.db
+        .insert(schema.sareeMannequinStyles)
+        .values({ label: 'Zeta Style', mannequinWorkflowTemplateId: wf.id, sortOrder: 1 });
+      await app.db
+        .insert(schema.sareeMannequinStyles)
+        .values({ label: 'Alpha Style', mannequinWorkflowTemplateId: wf.id, sortOrder: 0 });
+      await app.db.insert(schema.sareeMannequinStyles).values({
+        label: 'Hidden Style',
+        mannequinWorkflowTemplateId: wf.id,
+        isActive: false,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/merchant/catalog/saree-styles',
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { items: Array<{ label: string }> };
+      expect(body.items.map((i) => i.label)).toEqual(['Alpha Style', 'Zeta Style']);
     });
   });
 });

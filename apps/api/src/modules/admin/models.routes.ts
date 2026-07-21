@@ -1112,4 +1112,96 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     });
     reply.raw.end();
   });
+
+  // ── Saree Mannequin Styles ──────────────────────────────────────────────
+
+  app.get('/admin/assets/saree-styles', { preHandler: RW }, async () => {
+    const rows = await app.db
+      .select()
+      .from(schema.sareeMannequinStyles)
+      .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
+    return { items: rows };
+  });
+
+  app.post(
+    '/admin/assets/saree-styles/presign',
+    { preHandler: RW, schema: { body: z.object({ contentType: AssetContentType }) } },
+    async (req) => {
+      const { contentType } = req.body as { contentType: string };
+      const r2Key = keys.sareeStyle(randomUUID());
+      const presign = await app.storage.presignPut(r2Key, contentType, 5_000_000, 300);
+      return { r2Key, uploadUrl: presign.url };
+    },
+  );
+
+  app.post(
+    '/admin/assets/saree-styles',
+    {
+      preHandler: RW,
+      schema: {
+        body: z.object({
+          label: z.string().min(1),
+          previewImageKey: z.string().optional(),
+          mannequinWorkflowTemplateId: z.string().uuid(),
+          sortOrder: z.number().int().optional(),
+          isActive: z.boolean().optional(),
+        }),
+      },
+    },
+    async (req, reply) => {
+      const body = req.body as {
+        label: string;
+        previewImageKey?: string;
+        mannequinWorkflowTemplateId: string;
+        sortOrder?: number;
+        isActive?: boolean;
+      };
+      const [inserted] = await app.db
+        .insert(schema.sareeMannequinStyles)
+        .values({
+          label: body.label,
+          previewImageKey: body.previewImageKey ?? null,
+          mannequinWorkflowTemplateId: body.mannequinWorkflowTemplateId,
+          sortOrder: body.sortOrder ?? 0,
+          isActive: body.isActive ?? true,
+        })
+        .returning();
+      reply.code(201);
+      return inserted;
+    },
+  );
+
+  app.patch(
+    '/admin/assets/saree-styles/:id',
+    {
+      preHandler: RW,
+      schema: {
+        params: uuidParam,
+        body: z.object({
+          label: z.string().min(1).optional(),
+          previewImageKey: z.string().optional(),
+          mannequinWorkflowTemplateId: z.string().uuid().optional(),
+          sortOrder: z.number().int().optional(),
+          isActive: z.boolean().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as {
+        label?: string;
+        previewImageKey?: string;
+        mannequinWorkflowTemplateId?: string;
+        sortOrder?: number;
+        isActive?: boolean;
+      };
+      const [updated] = await app.db
+        .update(schema.sareeMannequinStyles)
+        .set({ ...body, updatedAt: new Date() })
+        .where(eq(schema.sareeMannequinStyles.id, id))
+        .returning();
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'saree style not found');
+      return updated;
+    },
+  );
 }
