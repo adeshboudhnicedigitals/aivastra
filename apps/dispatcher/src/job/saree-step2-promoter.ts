@@ -38,7 +38,10 @@ export async function promoteSareeStep2Jobs(cfg: ProcessorConfig): Promise<void>
     })
     .from(schema.jobs)
     .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
-    .where(eq(schema.jobs.status, 'PENDING_MANNEQUIN'));
+    .where(eq(schema.jobs.status, 'PENDING_MANNEQUIN'))
+    // Matches the sweeper's convention (stream/sweeper.ts) — bounds each tick's
+    // cost as the jobs table grows; any remainder drains on the next 5s tick.
+    .limit(50);
 
   if (pending.length === 0) return;
 
