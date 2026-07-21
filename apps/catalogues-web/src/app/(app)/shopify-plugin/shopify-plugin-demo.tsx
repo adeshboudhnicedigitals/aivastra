@@ -26,24 +26,13 @@ function ShopifyChrome({ children }: { children: React.ReactNode }) {
         fontFamily: 'inherit',
       }}
     >
-      <div
-        style={{
-          height: 48,
-          background: '#0e0e0e',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '0 16px',
-          color: '#fff',
-          flexShrink: 0,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          {/* biome-ignore lint/performance/noImgElement: small static header logo */}
-          <img src={`${BASE}/assets/sellio-logo.png`} alt="Sellio" style={{ height: 34 }} />
-        </div>
-        <div style={{ fontSize: 12, color: '#c9cccf' }}>Ai Vastra Store Dev</div>
+      <div style={{ flexShrink: 0, display: 'flex', background: '#1a1a1a' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`${BASE}/assets/sellio-logo.png`}
+          alt="Sellio Nav"
+          style={{ width: '100%', height: 'auto', display: 'block' }}
+        />
       </div>
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <div
@@ -238,54 +227,76 @@ export function ShopifyPluginDemo() {
                     )}
                   </div>
                 ))}
-                <div
+                <button
+                  type="button"
                   style={{
-                    width: 100,
-                    height: 100,
+                    height: 36,
+                    padding: '0 18px',
                     borderRadius: 8,
-                    border: '1px dashed #c9cccf',
+                    border: '1px solid #c9cccf',
+                    background: '#fff',
+                    color: '#1a1a1a',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#8a8a8a',
-                    fontSize: 24,
+                    gap: 6,
+                    alignSelf: 'flex-start',
                   }}
                 >
-                  +
+                  Upload Images
+                </button>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    height: 36,
+                    color: '#8a8a8a',
+                    fontSize: 13,
+                    fontWeight: 500,
+                  }}
+                >
+                  or
                 </div>
+
                 <button
                   type="button"
                   onClick={() => setStudioModalOpen(true)}
                   style={{
-                    width: 100,
-                    height: 100,
+                    height: 36,
+                    padding: '0 18px',
                     borderRadius: 8,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)',
+                    color: '#fff',
+                    fontSize: 13,
+                    fontWeight: 600,
                     cursor: 'pointer',
-                    background:
-                      'linear-gradient(#fff,#fff) padding-box, linear-gradient(135deg, #521D9C 0%, #BD2587 50%, #F96657 100%) border-box',
-                    border: '2px dashed transparent',
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center',
                     gap: 6,
+                    alignSelf: 'flex-start',
                   }}
                 >
-                  <span style={{ color: '#BD2587' }}>
-                    <SparkleIcon />
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 600,
-                      color: '#BD2587',
-                      textAlign: 'center',
-                      lineHeight: 1.2,
-                      padding: '0 6px',
-                    }}
+                  <svg
+                    aria-hidden="true"
+                    width={16}
+                    height={16}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   >
-                    Generate catalogue with Sellio
-                  </span>
+                    <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z" />
+                    <path d="M20 2v4" />
+                    <path d="M22 4h-4" />
+                    <circle cx="4" cy="20" r="2" />
+                  </svg>
+                  Create AI Catalogue
                 </button>
               </div>
             </div>

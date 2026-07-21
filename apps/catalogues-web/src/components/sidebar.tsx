@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { MoonIcon, SunIcon } from './icons';
-import { C } from './tokens';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
