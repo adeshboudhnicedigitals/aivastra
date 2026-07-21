@@ -40,5 +40,6 @@ export const keys = {
   sareeModelImageThumb: () => `saree/global/model.thumb.jpg`,
   sareeSampleImage: () => `saree/global/sample.jpg`,
   sareeSampleImageThumb: () => `saree/global/sample.thumb.jpg`,
+  sareeStyle: (id: string) => `saree-styles/${id}.jpg`,
   supportAttachment: (id: string, ext: string) => `support/${id}.${ext}`,
 };

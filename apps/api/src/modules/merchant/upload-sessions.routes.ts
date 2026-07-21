@@ -119,8 +119,8 @@ export async function merchantUploadSessionRoutes(app: FastifyInstance) {
       } catch {
         throw new AppError('BAD_UPLOAD', 400, 'photo not found - please retry the upload');
       }
-      if (head.contentLength > 5 * 1024 * 1024) {
-        throw new AppError('BAD_UPLOAD', 413, 'photo exceeds 5MB limit');
+      if (head.contentLength > 20 * 1024 * 1024) {
+        throw new AppError('BAD_UPLOAD', 413, 'photo exceeds 20MB limit');
       }
 
       await markUploadSessionUploaded(app, token);

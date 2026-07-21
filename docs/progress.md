@@ -24,6 +24,25 @@ Fix: `POST /v1/jobs/saree-mannequin` now creates the step-1 mannequin job **and*
 ### Open Questions / Decisions
 - This branch (`fix/saree-two-step-generation`) has **not** been pushed and no PR has been opened — that's a decision left to the user, not done automatically as part of this task.
 
+## 2026-07-21 - Saree mannequin style selection
+
+Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-21-saree-mannequin-style-selection.md`: administrators can manage global saree mannequin styles, merchants can select an active style, the selected workflow is snapshotted onto the job, the dispatcher honors that snapshot, and the Android catalogue app exposes the picker with a backward-compatible fallback.
+
+### Done
+- Added the `saree_mannequin_styles` schema, generated migration, backward-compatible seed migration, storage key helper, and shared Zod request/response contracts.
+- Added the merchant styles-list endpoint and optional `sareeStyleId` generation input. Job creation validates active styles and snapshots the selected mannequin workflow template in the same job parameters consumed by the dispatcher.
+- Updated dispatcher routing to prefer the snapshotted style workflow while retaining the existing garment-type default. The focused dispatcher integration suite passed (3/3).
+- Added authenticated admin CRUD/presign routes and an Admin Web `Saree Styles` asset tab for preview upload, workflow selection, ordering, and activation.
+- Added Android constants, models, repository loading, ViewModel state, selection dialog, card resources, and upload-fragment wiring. The row collapses when fewer than two styles are available and generation remains compatible when no style is configured.
+- Verification passed: full monorepo typecheck; Biome check across 600 files; full API unit suite; touched API integration files (3 files, 17/17); dispatcher unit suite (3 files, 52/52); focused dispatcher integration suite (3/3); Android Kotlin compile and debug assembly.
+- Completed implementation commits: `e22d83bf`, `16734b56`, `fb19624f`, `6c5972e7`, and `b4ad8421`.
+
+### Failed / Not Done
+- The post-deployment manual admin/device walkthrough is intentionally still pending. It requires at least two configured styles with distinct previews/workflows and a running deployed stack.
+
+### Open Questions / Decisions
+- No implementation decision remains open. Before rollout validation, configure a second active style and verify that each selection produces the intended distinct pallu drape.
+
 ## 2026-07-21 - Production CI/CD scalability and zero-downtime deployment plan
 
 Documented the implementation-ready replacement for the current full-repository, build-on-VPS production workflow in `docs/production-cicd-plan.md`. The design targets affected-service-only CI, immutable GHCR images, per-service blue/green slots, a stable gateway behind CloudPanel, readiness/smoke-gated traffic switching, graceful API/chatbot/dispatcher draining, expand-contract migrations, and automatic rollback.
@@ -3788,4 +3807,3 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
-
