@@ -1,3 +1,18 @@
+## 2026-07-21 - Production CI/CD scalability and zero-downtime deployment plan
+
+Documented the implementation-ready replacement for the current full-repository, build-on-VPS production workflow in `docs/production-cicd-plan.md`. The design targets affected-service-only CI, immutable GHCR images, per-service blue/green slots, a stable gateway behind CloudPanel, readiness/smoke-gated traffic switching, graceful API/chatbot/dispatcher draining, expand-contract migrations, and automatic rollback.
+
+### Done
+- Recorded the current CI and VPS deployment behavior, including why docs-only pushes currently execute the full pipeline and why unscoped `docker compose up -d --force-recreate` can expose users to gateway failures.
+- Defined the affected-package/service graph, detector contract, conditional GitHub Actions job graph, Docker cache/image strategy, release manifest, VPS topology, readiness interfaces, complete deployment state machine, migration controls, rollback behavior, security requirements, observability, phased live rollout, test matrix, operational runbooks, and measurable acceptance criteria.
+- Locked the selected decisions: CI-built GHCR images, automatic deployment from `main`, per-service blue/green rollout, stable repository-managed NGINX gateway behind CloudPanel, health plus functional smoke gates, and expand-contract migrations.
+
+### Failed / Not Done
+- This entry documents the plan only. No workflow, Dockerfile, Compose, application-health, gateway, or live VPS implementation has been performed yet.
+
+### Open Questions / Decisions
+- No architecture decision remains open. VPS capacity, CloudPanel access, pinned SSH identity, read-only GHCR access, and off-host backup freshness are explicit rollout prerequisites to verify before their corresponding implementation phases.
+
 ## 2026-07-20 - Merchant catalog: fix production ComfyUI crash (missing mannequin step)
 
 Production device walkthrough of the saree-catalogue Android app surfaced a real generation crash (`Bounded Image Crop with Mask: index is out of bounds for dimension with size 0`), root-caused via dispatcher logs to `saree_step2` receiving an all-white image because the merchant-catalog job flow never ran the mannequin-compositing step first — it fed the merchant's raw flat photo straight into a workflow that expects a mannequin-draped one. Designed via `superpowers:brainstorming`, planned via `superpowers:writing-plans` (`docs/superpowers/plans/2026-07-20-merchant-catalog-mannequin-step.md`), implemented by Codex following that plan, verified end-to-end in this session.
