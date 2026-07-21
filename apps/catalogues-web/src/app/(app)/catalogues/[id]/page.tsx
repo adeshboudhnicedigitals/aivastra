@@ -61,6 +61,7 @@ const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
 
 // [min%, max%, durationMs] for each non-terminal stage
 const STAGE_RANGES: Record<string, [number, number, number]> = {
+  PENDING_MANNEQUIN: [0, 3, 0],
   QUEUED: [0, 5, 0],
   PREPROCESSING: [5, 25, 30_000],
   GENERATING: [25, 88, 240_000],
@@ -153,7 +154,7 @@ function ImageCard({
 }) {
   const isCompleted = job.status === 'COMPLETED';
   const isFailed = job.status === 'FAILED';
-  const isQueued = job.status === 'QUEUED';
+  const isQueued = job.status === 'QUEUED' || job.status === 'PENDING_MANNEQUIN';
   const isActive = !TERMINAL.includes(job.status) && !isQueued;
 
   const [deleting, setDeleting] = useState(false);
@@ -198,11 +199,13 @@ function ImageCard({
   const cardBg = isCompleted ? C.lighter : C.dark;
 
   const stageLabel =
-    job.status === 'PREPROCESSING'
-      ? 'Preparing…'
-      : job.status === 'UPLOADING'
-        ? 'Saving…'
-        : 'Generating…';
+    job.status === 'PENDING_MANNEQUIN'
+      ? 'Preparing garment…'
+      : job.status === 'PREPROCESSING'
+        ? 'Preparing…'
+        : job.status === 'UPLOADING'
+          ? 'Saving…'
+          : 'Generating…';
 
   return (
     <>
