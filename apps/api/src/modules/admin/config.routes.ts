@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   DEFAULT_MAX_OUTPUT_PX,
   DEFAULT_RESOLUTION_CONFIG,
+  DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
   DEFAULT_TRYON_CONFIG,
 } from '../../lib/resolution-config.js';
 import { requireAdmin } from './guard.js';
@@ -31,6 +32,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       cfg.resolutions = cfg.resolutions ?? DEFAULT_RESOLUTION_CONFIG;
       cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
       cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
+      cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
       return cfg;
     },
   );

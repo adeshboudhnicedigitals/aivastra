@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 
 export type JobStatus =
+  | 'PENDING_MANNEQUIN'
   | 'QUEUED'
   | 'PREPROCESSING'
   | 'GENERATING'

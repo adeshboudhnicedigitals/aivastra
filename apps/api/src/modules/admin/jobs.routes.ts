@@ -19,6 +19,7 @@ const JobsQuery = z.object({
       'COMPLETED',
       'FAILED',
       'CANCELLED',
+      'PENDING_MANNEQUIN',
     ])
     .optional(),
   search: z.string().optional(),
