@@ -28,6 +28,8 @@ export interface GenerationPanelProps {
   hideCatalogueLink?: boolean;
   /** Hides the "Download All" button and each result tile's download icon. */
   hideDownload?: boolean;
+  /** Hides the "AI Processing" input/steps/preview block — that walkthrough is Studio-only; embedded contexts (e.g. the Shopify plugin) go straight to the Generated Results grid. */
+  hideProcessingPreview?: boolean;
 }
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
@@ -60,6 +62,7 @@ export function GenerationPanel({
   onUseImage,
   hideCatalogueLink,
   hideDownload,
+  hideProcessingPreview,
 }: GenerationPanelProps) {
   const qc = useQueryClient();
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
@@ -110,13 +113,14 @@ export function GenerationPanel({
     }
   });
 
+  const allSettled =
+    jobs.length > 0 && jobs.every((j) => TERMINAL_STATUSES.has(statuses[j.id] ?? 'QUEUED'));
+
   // Notify the parent once every job in this batch has reached a terminal
   // status, so it can re-enable the Generate button while results still render.
   useEffect(() => {
-    const allSettled =
-      jobs.length > 0 && jobs.every((j) => TERMINAL_STATUSES.has(statuses[j.id] ?? 'QUEUED'));
     if (allSettled) onAllSettled?.();
-  }, [jobs, statuses, onAllSettled]);
+  }, [allSettled, onAllSettled]);
 
   const completedIds = jobs.filter((j) => statuses[j.id] === 'COMPLETED').map((j) => j.id);
   const resultQueries = useQueries({
@@ -196,417 +200,426 @@ export function GenerationPanel({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '100%' }}>
-      {/* ── Block 1: AI Processing ── */}
-      <div
-        style={{
-          background: C.card,
-          borderRadius: 20,
-          border: `1px solid ${C.border}`,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
-          padding: 24,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 20,
-          width: '100%',
-          boxSizing: 'border-box',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
-              AI Processing
-            </h3>
-            <span style={{ fontSize: 13, color: C.mid }}>Our AI is working its magic</span>
-          </div>
-        </div>
-
+      {/* ── Block 1: AI Processing (Studio only — see hideProcessingPreview) ── */}
+      {!hideProcessingPreview && (
         <div
           style={{
-            background:
-              'linear-gradient(180deg, rgba(82, 29, 156, 0.04) 0%, rgba(117, 74, 176, 0.01) 100%)',
+            background: C.card,
+            borderRadius: 20,
             border: `1px solid ${C.border}`,
-            borderRadius: 16,
-            padding: '24px 20px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.05)',
+            padding: 24,
             display: 'flex',
-            alignItems: 'center',
-            gap: 12,
+            flexDirection: 'column',
+            gap: 20,
             width: '100%',
             boxSizing: 'border-box',
           }}
         >
-          {/* Column 1: Input Image */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
+                AI Processing
+              </h3>
+              <span style={{ fontSize: 13, color: C.mid }}>Our AI is working its magic</span>
+            </div>
+          </div>
+
           <div
             style={{
-              flex: 1.2,
-              background: 'transparent',
-              padding: 0,
+              background:
+                'linear-gradient(180deg, rgba(82, 29, 156, 0.04) 0%, rgba(117, 74, 176, 0.01) 100%)',
+              border: `1px solid ${C.border}`,
+              borderRadius: 16,
+              padding: '24px 20px',
               display: 'flex',
-              flexDirection: 'column',
               alignItems: 'center',
               gap: 12,
-              height: 280,
-              justifyContent: 'space-between',
+              width: '100%',
               boxSizing: 'border-box',
             }}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Input Image</span>
-              <span style={{ fontSize: 11, color: C.light }}>Your uploaded garment</span>
-            </div>
+            {/* Column 1: Input Image */}
             <div
               style={{
-                width: '100%',
-                flex: 1,
-                borderRadius: 8,
-                overflow: 'hidden',
-                border: `1px solid ${C.border2}`,
-                position: 'relative',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: C.lighter,
-              }}
-            >
-              {garmentPreviewUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={garmentPreviewUrl}
-                  alt="Garment Preview"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                />
-              ) : (
-                <div style={{ color: C.light, fontSize: 12 }}>No image</div>
-              )}
-            </div>
-          </div>
-
-          {/* Chevron Separator 1 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              height: 280,
-              position: 'relative',
-              flexShrink: 0,
-            }}
-          >
-            <div style={{ width: 1, height: '100%', background: C.border2 }} />
-            <div
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-                width: 24,
-                height: 24,
-                borderRadius: '50%',
-                border: '1px solid rgba(82, 29, 156, 0.2)',
-                background: C.card,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#521D9C',
-                boxShadow: '0 2px 6px rgba(82, 29, 156, 0.08)',
-                fontSize: 12,
-                fontWeight: 'bold',
-                zIndex: 2,
-              }}
-            >
-              ›
-            </div>
-          </div>
-
-          {/* Column 2: Steps Checklist */}
-          <div
-            style={{
-              flex: 1.6,
-              background: 'transparent',
-              padding: '0 24px',
-              display: 'flex',
-              flexDirection: 'column',
-              height: 280,
-              justifyContent: 'space-between',
-              boxSizing: 'border-box',
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'center' }}>
-                AI Processing
-              </span>
-              <span style={{ fontSize: 11, color: C.light, textAlign: 'center' }}>
-                Generating studio quality images
-              </span>
-            </div>
-
-            <div
-              style={{
+                flex: 1.2,
+                background: 'transparent',
+                padding: 0,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 6,
-                margin: '10px 0',
-                paddingLeft: 12,
+                alignItems: 'center',
+                gap: 12,
+                height: 280,
+                justifyContent: 'space-between',
+                boxSizing: 'border-box',
               }}
             >
-              {steps.map((step, idx) => {
-                const isDone = progressPercent >= step.threshold;
-                const isCurrent =
-                  progressPercent < step.threshold &&
-                  (idx === 0 || progressPercent >= (steps[idx - 1]?.threshold ?? 0));
-
-                return (
-                  <div key={step.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {isDone ? (
-                      <div
-                        style={{
-                          width: 16,
-                          height: 16,
-                          borderRadius: '50%',
-                          background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: '#fff',
-                          fontSize: 9,
-                          fontWeight: 'bold',
-                        }}
-                      >
-                        ✓
-                      </div>
-                    ) : isCurrent ? (
-                      <SpinnerIcon size={16} />
-                    ) : (
-                      <div
-                        style={{
-                          width: 16,
-                          height: 16,
-                          borderRadius: '50%',
-                          border: `2px solid ${C.border2}`,
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                    )}
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: isCurrent ? 600 : 500,
-                        color: isDone ? C.text : isCurrent ? '#521D9C' : C.light,
-                      }}
-                    >
-                      {step.label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 12,
-                  fontWeight: 500,
-                }}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
               >
-                <span style={{ color: C.mid }}>
-                  {progressPercent === 100
-                    ? 'Rendering Final Output....'
-                    : 'Rendering Final Output....'}
-                </span>
-                <span style={{ color: C.text }}>{progressPercent}%</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Input Image</span>
+                <span style={{ fontSize: 11, color: C.light }}>Your uploaded garment</span>
               </div>
               <div
                 style={{
                   width: '100%',
-                  height: 6,
-                  background: C.lighter,
-                  borderRadius: 3,
+                  flex: 1,
+                  borderRadius: 8,
                   overflow: 'hidden',
+                  border: `1px solid ${C.border2}`,
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: C.lighter,
                 }}
               >
-                <div
-                  style={{
-                    width: `${progressPercent}%`,
-                    height: '100%',
-                    background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
-                    borderRadius: 3,
-                    transition: 'width 0.4s ease-out',
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Chevron Separator 2 */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              height: 280,
-              position: 'relative',
-              flexShrink: 0,
-            }}
-          >
-            <div style={{ width: 1, height: '100%', background: C.border2 }} />
-            <div
-              style={{
-                position: 'absolute',
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-                width: 24,
-                height: 24,
-                borderRadius: '50%',
-                border: '1px solid rgba(82, 29, 156, 0.2)',
-                background: C.card,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#521D9C',
-                boxShadow: '0 2px 6px rgba(82, 29, 156, 0.08)',
-                fontSize: 12,
-                fontWeight: 'bold',
-                zIndex: 2,
-              }}
-            >
-              ›
-            </div>
-          </div>
-
-          {/* Column 3: Preview Output */}
-          <div
-            style={{
-              flex: 1.2,
-              background: 'transparent',
-              padding: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 12,
-              height: 280,
-              justifyContent: 'space-between',
-              boxSizing: 'border-box',
-            }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Preview Output</span>
-              <span style={{ fontSize: 11, color: C.light }}>Studio quality result</span>
-            </div>
-            <div
-              style={{
-                width: '100%',
-                flex: 1,
-                borderRadius: 8,
-                overflow: 'hidden',
-                border: `1px solid ${C.border2}`,
-                position: 'relative',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: C.lighter,
-              }}
-            >
-              {currentCompleted && currentResultUrl ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                {garmentPreviewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={currentResultUrl}
-                    alt="Preview Output"
+                    src={garmentPreviewUrl}
+                    alt="Garment Preview"
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                   />
-                  <div
-                    style={{ position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 6 }}
-                  >
-                    {onUseImage && current && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          onUseImage({
-                            url: currentResultUrl,
-                            jobId: current.id,
-                            poseLabel: current.label,
-                          })
-                        }
+                ) : (
+                  <div style={{ color: C.light, fontSize: 12 }}>No image</div>
+                )}
+              </div>
+            </div>
+
+            {/* Chevron Separator 1 */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                height: 280,
+                position: 'relative',
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ width: 1, height: '100%', background: C.border2 }} />
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  border: '1px solid rgba(82, 29, 156, 0.2)',
+                  background: C.card,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#521D9C',
+                  boxShadow: '0 2px 6px rgba(82, 29, 156, 0.08)',
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                  zIndex: 2,
+                }}
+              >
+                ›
+              </div>
+            </div>
+
+            {/* Column 2: Steps Checklist */}
+            <div
+              style={{
+                flex: 1.6,
+                background: 'transparent',
+                padding: '0 24px',
+                display: 'flex',
+                flexDirection: 'column',
+                height: 280,
+                justifyContent: 'space-between',
+                boxSizing: 'border-box',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'center' }}>
+                  AI Processing
+                </span>
+                <span style={{ fontSize: 11, color: C.light, textAlign: 'center' }}>
+                  Generating studio quality images
+                </span>
+              </div>
+
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  margin: '10px 0',
+                  paddingLeft: 12,
+                }}
+              >
+                {steps.map((step, idx) => {
+                  const isDone = progressPercent >= step.threshold;
+                  const isCurrent =
+                    progressPercent < step.threshold &&
+                    (idx === 0 || progressPercent >= (steps[idx - 1]?.threshold ?? 0));
+
+                  return (
+                    <div
+                      key={step.label}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+                    >
+                      {isDone ? (
+                        <div
+                          style={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: '50%',
+                            background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#fff',
+                            fontSize: 9,
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          ✓
+                        </div>
+                      ) : isCurrent ? (
+                        <SpinnerIcon size={16} />
+                      ) : (
+                        <div
+                          style={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: '50%',
+                            border: `2px solid ${C.border2}`,
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                      )}
+                      <span
                         style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          height: 32,
-                          padding: '0 12px',
-                          borderRadius: 8,
-                          background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
-                          color: '#fff',
-                          border: 'none',
                           fontSize: 12,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                          fontWeight: isCurrent ? 600 : 500,
+                          color: isDone ? C.text : isCurrent ? '#521D9C' : C.light,
                         }}
                       >
-                        Use this image
-                      </button>
-                    )}
-                    <a
-                      href={currentResultUrl}
-                      target="_blank"
-                      rel="noreferrer"
+                        {step.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: 12,
+                    fontWeight: 500,
+                  }}
+                >
+                  <span style={{ color: C.mid }}>
+                    {progressPercent === 100
+                      ? 'Rendering Final Output....'
+                      : 'Rendering Final Output....'}
+                  </span>
+                  <span style={{ color: C.text }}>{progressPercent}%</span>
+                </div>
+                <div
+                  style={{
+                    width: '100%',
+                    height: 6,
+                    background: C.lighter,
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${progressPercent}%`,
+                      height: '100%',
+                      background: 'linear-gradient(180deg, #521D9C 0%, #754AB0 100%)',
+                      borderRadius: 3,
+                      transition: 'width 0.4s ease-out',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Chevron Separator 2 */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                height: 280,
+                position: 'relative',
+                flexShrink: 0,
+              }}
+            >
+              <div style={{ width: 1, height: '100%', background: C.border2 }} />
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  width: 24,
+                  height: 24,
+                  borderRadius: '50%',
+                  border: '1px solid rgba(82, 29, 156, 0.2)',
+                  background: C.card,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#521D9C',
+                  boxShadow: '0 2px 6px rgba(82, 29, 156, 0.08)',
+                  fontSize: 12,
+                  fontWeight: 'bold',
+                  zIndex: 2,
+                }}
+              >
+                ›
+              </div>
+            </div>
+
+            {/* Column 3: Preview Output */}
+            <div
+              style={{
+                flex: 1.2,
+                background: 'transparent',
+                padding: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 12,
+                height: 280,
+                justifyContent: 'space-between',
+                boxSizing: 'border-box',
+              }}
+            >
+              <div
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+              >
+                <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>Preview Output</span>
+                <span style={{ fontSize: 11, color: C.light }}>Studio quality result</span>
+              </div>
+              <div
+                style={{
+                  width: '100%',
+                  flex: 1,
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                  border: `1px solid ${C.border2}`,
+                  position: 'relative',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: C.lighter,
+                }}
+              >
+                {currentCompleted && currentResultUrl ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={currentResultUrl}
+                      alt="Preview Output"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                    />
+                    <div
+                      style={{ position: 'absolute', right: 8, bottom: 8, display: 'flex', gap: 6 }}
+                    >
+                      {onUseImage && current && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUseImage({
+                              url: currentResultUrl,
+                              jobId: current.id,
+                              poseLabel: current.label,
+                            })
+                          }
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            height: 32,
+                            padding: '0 12px',
+                            borderRadius: 8,
+                            background: 'linear-gradient(135deg, #521D9C 0%, #754AB0 100%)',
+                            color: '#fff',
+                            border: 'none',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                          }}
+                        >
+                          Use this image
+                        </button>
+                      )}
+                      <a
+                        href={currentResultUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: 8,
+                          background: C.card,
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+                          border: `1px solid ${C.border}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: C.text,
+                        }}
+                      >
+                        <FullscreenIcon />
+                      </a>
+                    </div>
+                  </>
+                ) : current ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={garmentPreviewUrl || current.thumbnailUrl}
+                      alt="Loading Preview"
                       style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 8,
-                        background: C.card,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-                        border: `1px solid ${C.border}`,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        objectPosition: 'top center',
+                        filter: currentFailed ? 'none' : 'blur(6px)',
+                        opacity: 0.6,
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        color: C.text,
+                        background: 'rgba(0,0,0,0.1)',
                       }}
                     >
-                      <FullscreenIcon />
-                    </a>
-                  </div>
-                </>
-              ) : current ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={garmentPreviewUrl || current.thumbnailUrl}
-                    alt="Loading Preview"
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      objectPosition: 'top center',
-                      filter: currentFailed ? 'none' : 'blur(6px)',
-                      opacity: 0.6,
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      background: 'rgba(0,0,0,0.1)',
-                    }}
-                  >
-                    {currentFailed ? (
-                      <XIcon size={24} color={C.pink} />
-                    ) : (
-                      <div style={{ color: C.pink }}>
-                        <SpinnerIcon size={24} />
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <div style={{ color: C.light, fontSize: 12 }}>Waiting...</div>
-              )}
+                      {currentFailed ? (
+                        <XIcon size={24} color={C.pink} />
+                      ) : (
+                        <div style={{ color: C.pink }}>
+                          <SpinnerIcon size={24} />
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ color: C.light, fontSize: 12 }}>Waiting...</div>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ── Block 2: Generated Results ── */}
       <div
@@ -626,10 +639,12 @@ export function GenerationPanel({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <h3 style={{ margin: 0, fontSize: 20, fontWeight: 600, color: C.text }}>
-              Generated Results
+              {allSettled ? 'Generated Results' : 'Generating Results'}
             </h3>
             <span style={{ fontSize: 13, color: C.mid }}>
-              {jobs.length} stunning variations generated for you
+              {allSettled
+                ? `${jobs.length} stunning variations generated for you`
+                : 'Your studio-quality images are on the way'}
             </span>
           </div>
           {!hideDownload && (

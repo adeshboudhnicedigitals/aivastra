@@ -6,6 +6,7 @@ import { SelectGridModal } from '@/app/(app)/studio/select-modal';
 import { SectionHead, SelCard, sectionCardStyle } from '@/app/(app)/studio/shared-cards';
 import { SpinnerIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
+import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { postImageSelectedToParent } from '@/lib/shopify-plugin-embed-protocol';
 
@@ -224,16 +225,6 @@ export function EmbedStudioWizard() {
     });
   }
 
-  const canGenerate =
-    !!garmentKey &&
-    !!faceId &&
-    !!backgroundId &&
-    poseIds.length > 0 &&
-    !isUploading &&
-    !isUploadingLower &&
-    !isUploadingThird &&
-    !isSubmitting;
-
   async function handleGenerate() {
     if (!canGenerate || isSubmitting) return;
     setIsSubmitting(true);
@@ -360,6 +351,36 @@ export function EmbedStudioWizard() {
   const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
   const requiresThirdUpload = selectedGarmentType?.requiresThirdUpload ?? false;
   const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload;
+
+  const canGenerate =
+    !!garmentKey &&
+    (!requiresLowerUpload || !!lowerGarmentKey) &&
+    (!requiresThirdUpload || !!thirdGarmentKey) &&
+    !!faceId &&
+    !!backgroundId &&
+    poseIds.length > 0 &&
+    !isUploading &&
+    !isUploadingLower &&
+    !isUploadingThird &&
+    !isSubmitting;
+
+  const generateBlocker = isSubmitting
+    ? 'Generating…'
+    : isUploading || isUploadingLower || isUploadingThird
+      ? 'Waiting for upload to finish…'
+      : !garmentKey
+        ? 'Please upload a garment image'
+        : requiresLowerUpload && !lowerGarmentKey
+          ? 'Please upload the lower garment image'
+          : requiresThirdUpload && !thirdGarmentKey
+            ? 'Please upload the third garment image'
+            : !faceId
+              ? 'Please select a model face'
+              : !backgroundId
+                ? 'Please select a background'
+                : poseIds.length === 0
+                  ? 'Please select at least one pose'
+                  : '';
 
   function handleGenderSelect(value: string) {
     setGender(value);
@@ -811,6 +832,7 @@ export function EmbedStudioWizard() {
             onUseImage={handleUseImage}
             hideCatalogueLink
             hideDownload
+            hideProcessingPreview
           />
         </div>
       ) : (
@@ -1028,28 +1050,30 @@ export function EmbedStudioWizard() {
           <div
             style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}
           >
-            <button
-              type="button"
-              disabled={!canGenerate}
-              onClick={handleGenerate}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                height: 44,
-                padding: '0 24px',
-                borderRadius: 10,
-                border: 'none',
-                fontSize: 14,
-                fontWeight: 700,
-                color: '#fff',
-                background: canGenerate ? grad : C.border2,
-                cursor: canGenerate ? 'pointer' : 'not-allowed',
-              }}
-            >
-              {isSubmitting ? <SpinnerIcon size={16} /> : null}
-              Generate product photo{poseIds.length > 1 ? 's' : ''}
-            </button>
+            <Tooltip tip={generateBlocker || undefined}>
+              <button
+                type="button"
+                disabled={!canGenerate}
+                onClick={handleGenerate}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  height: 44,
+                  padding: '0 24px',
+                  borderRadius: 10,
+                  border: 'none',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: '#fff',
+                  background: canGenerate ? grad : C.border2,
+                  cursor: canGenerate ? 'pointer' : 'not-allowed',
+                }}
+              >
+                {isSubmitting ? <SpinnerIcon size={16} /> : null}
+                Generate product image{poseIds.length > 1 ? 's' : ''}
+              </button>
+            </Tooltip>
             {submitError && <span style={{ fontSize: 12, color: C.pink }}>{submitError}</span>}
           </div>
         </>

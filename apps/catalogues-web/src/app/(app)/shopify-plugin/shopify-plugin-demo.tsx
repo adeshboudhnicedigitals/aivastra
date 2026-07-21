@@ -440,32 +440,6 @@ export function ShopifyPluginDemo() {
               title="Ai Vastra product photo generator"
               style={{ flex: 1, border: 'none', width: '100%' }}
             />
-            <div
-              style={{
-                padding: '12px 20px',
-                borderTop: `1px solid ${C.border}`,
-                display: 'flex',
-                justifyContent: 'flex-end',
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setStudioModalOpen(false)}
-                style={{
-                  height: 36,
-                  padding: '0 18px',
-                  borderRadius: 8,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #7c3aed 0%, #BD2587 100%)',
-                  color: '#fff',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Done
-              </button>
-            </div>
           </div>
         </div>
       )}

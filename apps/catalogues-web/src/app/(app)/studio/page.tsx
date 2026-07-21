@@ -1208,6 +1208,8 @@ export default function StudioPage(): React.ReactElement {
   const canGenerate =
     selectedCount > 0 &&
     !!garmentKey &&
+    (!requiresLowerUpload || !!lowerGarmentKey) &&
+    (!requiresThirdUpload || !!thirdGarmentKey) &&
     !!faceId &&
     (catalogueTemplateId === 'custom' ? !!backgroundId : true) &&
     customDimsReady &&
@@ -1224,13 +1226,17 @@ export default function StudioPage(): React.ReactElement {
       ? 'Waiting for upload to finish…'
       : !garmentKey
         ? 'Upload a garment image first'
-        : selectedCount === 0
-          ? catalogueTemplateId === 'custom'
-            ? 'Select at least one pose'
-            : 'Select at least one look'
-          : !customDimsReady
-            ? 'Enter valid width and height for custom size'
-            : '';
+        : requiresLowerUpload && !lowerGarmentKey
+          ? 'Upload the lower garment image first'
+          : requiresThirdUpload && !thirdGarmentKey
+            ? 'Upload the third garment image first'
+            : selectedCount === 0
+              ? catalogueTemplateId === 'custom'
+                ? 'Select at least one pose'
+                : 'Select at least one look'
+              : !customDimsReady
+                ? 'Enter valid width and height for custom size'
+                : '';
 
   // Sections 1-4 (Create Catalogue For / Outfit Type / Upload / Choose AI Model)
   // are always visible and keep their static stepNumber. Everything after that is
