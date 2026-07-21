@@ -149,10 +149,44 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           )
         : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
 
-      // Merchant catalogue only supports the saree (mannequin) pipeline — filter out any
-      // subcategory whose garment type doesn't require the mannequin step (e.g. stray
-      // "shirts"-style rows from before this was enforced on create/update below), the same
-      // way the self-provisioning branch already restricts what it seeds.
+      // General-purpose: lists subcategories across every garment type for this
+      // merchant/category, backed by the same unfiltered /v1/models/garment-types
+      // list the web catalogue-manager already uses. The saree Android app has its
+      // own dedicated GET /v1/merchant/catalog/saree-subcategories below — do not
+      // add a requiresMannequinStep filter here, it would break every non-saree
+      // category's ability to create/list subcategories.
+      const rows = await app.db
+        .select()
+        .from(schema.merchantCatalogSubcategories)
+        .where(where)
+        .orderBy(
+          schema.merchantCatalogSubcategories.sortOrder,
+          desc(schema.merchantCatalogSubcategories.createdAt),
+        );
+
+      return { items: await Promise.all(rows.map((row) => serializeSubcategory(app, row))) };
+    },
+  );
+
+  app.get(
+    '/v1/merchant/catalog/saree-subcategories',
+    { preHandler: app.requireMerchant },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { category } = req.query as { category?: string };
+      const where = category
+        ? and(
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+            eq(schema.merchantCatalogSubcategories.category, category),
+          )
+        : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
+
+      // Dedicated to the saree catalogue Android app — only ever shows/creates
+      // subcategories for garment types that use the mannequin (saree) pipeline.
+      // Does not affect the general /v1/merchant/catalog/subcategories endpoint
+      // the web catalogue-manager uses for every other category/garment type.
       const merchantCatalogSubcategoryColumns = {
         id: schema.merchantCatalogSubcategories.id,
         merchantId: schema.merchantCatalogSubcategories.merchantId,
@@ -182,7 +216,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       // No admin UI creates these rows, so a merchant who has never been
       // seeded for this category would otherwise be stuck forever with an
       // empty picker. Self-provision one subcategory per active admin
-      // garment type for the category on first read.
+      // saree garment type for the category on first read.
       if (rows.length === 0 && category) {
         const garmentTypes = await app.db
           .select({ id: schema.garmentSubcategories.id, label: schema.garmentSubcategories.label })
@@ -191,9 +225,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             and(
               eq(schema.garmentSubcategories.genderSlug, category),
               eq(schema.garmentSubcategories.isActive, true),
-              // Merchant catalogue only supports the saree (mannequin) pipeline —
-              // garmentSubcategories also holds the unrelated customer-studio
-              // upper/lower garment taxonomy for the same genders.
               eq(schema.garmentSubcategories.requiresMannequinStep, true),
             ),
           )
@@ -247,9 +278,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           and(
             eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
             eq(schema.garmentSubcategories.isActive, true),
-            // Merchant catalogue only supports the saree (mannequin) pipeline — see the
-            // matching filter on GET above.
-            eq(schema.garmentSubcategories.requiresMannequinStep, true),
           ),
         )
         .limit(1);
@@ -295,9 +323,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             and(
               eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
               eq(schema.garmentSubcategories.isActive, true),
-              // Merchant catalogue only supports the saree (mannequin) pipeline — see the
-              // matching filter on GET above.
-              eq(schema.garmentSubcategories.requiresMannequinStep, true),
             ),
           )
           .limit(1);
