@@ -154,9 +154,10 @@ async function seedMannequinOnlyGarmentType(app: TestApp, genderSlug: string) {
   return { garmentType: row, defaultWorkflowTemplate: wf };
 }
 
-// Merchant catalogue subcategories only accept garment types with
-// requiresMannequinStep = true — see the matching filter on the
-// GET/POST/PATCH routes in catalog.routes.ts.
+// requiresMannequinStep: true is required here for the mannequinOnly/two-step
+// generate flow itself (createMerchantCatalogJob / createMerchantSareeMannequinJob),
+// not for subcategory creation — the shared /v1/merchant/catalog/subcategories
+// routes accept any active garment type regardless of this flag.
 async function seedGarmentType(app: TestApp, genderSlug: string, defaultPoseId: string | null) {
   const [row] = await app.db
     .insert(schema.garmentSubcategories)
