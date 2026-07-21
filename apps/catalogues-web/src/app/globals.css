@@ -56,6 +56,17 @@
   --c-merchant-blue-tint: rgba(100, 100, 240, 0.08);
   --c-pink-tint: rgba(245, 92, 122, 0.12);
   --c-amber-tint: rgba(246, 181, 83, 0.12);
+
+  /* Try-On page specific tokens */
+  --tryon-garment-dashed: #c4b5fd;
+  --tryon-person-dashed: #fbcfe8;
+  --tryon-step-bg-1: #ede9fe;
+  --tryon-step-bg-2: #fce7f3;
+  --tryon-step-bg-3: #ffedd5;
+  --tryon-step-bg-4: #d1fae5;
+  --tryon-garment-icon-bg: #f5f3ff;
+  --tryon-badge-icon-bg: #f5f3ff;
+  --tryon-tips-bg: linear-gradient(90deg, #fdf4ff 0%, #f5f3ff 100%);
 }
 
 html.dark {
@@ -105,6 +116,17 @@ html.dark {
   --c-merchant-blue-tint: rgba(139, 139, 255, 0.12);
   --c-pink-tint: rgba(245, 92, 122, 0.18);
   --c-amber-tint: rgba(246, 181, 83, 0.18);
+
+  /* Try-On page dark overrides — muted so they're not glaring */
+  --tryon-garment-dashed: rgba(196, 181, 253, 0.28);
+  --tryon-person-dashed: rgba(251, 207, 232, 0.22);
+  --tryon-step-bg-1: rgba(124, 58, 237, 0.18);
+  --tryon-step-bg-2: rgba(236, 72, 153, 0.18);
+  --tryon-step-bg-3: rgba(249, 115, 22, 0.18);
+  --tryon-step-bg-4: rgba(16, 185, 129, 0.18);
+  --tryon-garment-icon-bg: rgba(129, 140, 248, 0.14);
+  --tryon-badge-icon-bg: rgba(99, 102, 241, 0.14);
+  --tryon-tips-bg: rgba(129, 140, 248, 0.08);
 }
 
 html {
