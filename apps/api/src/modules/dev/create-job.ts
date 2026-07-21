@@ -9,6 +9,83 @@ import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { atomicDeduct, refund } from '../credits/ledger.js';
 
 /**
+ * Shared insert/deduct/enqueue/refund-on-fail core for every dev-API job kind.
+ * Deliberately NOT part of jobs/create.ts — see createDevTryonJob's original
+ * comment for why the dev API needs its own creation path.
+ */
+export async function createDevJobCore(
+  app: FastifyInstance,
+  params: {
+    merchantUserId: string;
+    apiKeyId: string;
+    cost: number;
+    watermark: boolean;
+    metricKind: string;
+    buildJobInputs: () => Omit<typeof schema.jobInputs.$inferInsert, 'jobId'>;
+  },
+): Promise<{ jobId: string }> {
+  const catalogueId = randomUUID();
+  const [job] = await app.db.transaction(async (tx) => {
+    const [newJob] = await tx
+      .insert(schema.jobs)
+      .values({
+        userId: params.merchantUserId,
+        apiKeyId: params.apiKeyId,
+        catalogueId,
+        status: 'QUEUED',
+        priority: false,
+        queueStream: 'normal',
+        watermark: params.watermark,
+        creditsCharged: params.cost,
+        source: 'api',
+      })
+      .returning();
+    if (!newJob) throw new AppError('INTERNAL', 500, 'failed to create job');
+
+    await atomicDeduct(tx as unknown as DB, params.merchantUserId, params.cost, newJob.id);
+
+    // buildJobInputs()'s return shape is routing-significant: the dispatcher
+    // (apps/dispatcher/src/job/processor.ts) decides which processing path a
+    // job takes based on which of faceId/backgroundId/poseId/params.kind are
+    // present. Callers must get this shape right for their job kind.
+    await tx.insert(schema.jobInputs).values({
+      jobId: newJob.id,
+      ...params.buildJobInputs(),
+    });
+    return [newJob];
+  });
+  if (!job) throw new AppError('INTERNAL', 500, 'failed to create job');
+
+  try {
+    await app.redis.xadd(
+      'jobs:normal',
+      'MAXLEN',
+      '~',
+      10000,
+      '*',
+      'jobId',
+      job.id,
+      'userId',
+      params.merchantUserId,
+    );
+    jobsCreatedTotal.inc({ priority: 'normal', kind: params.metricKind });
+  } catch (err) {
+    app.log.error(
+      { err, jobId: job.id },
+      `redis xadd failed — dev ${params.metricKind} job will be refunded`,
+    );
+    await refund(app.db, params.merchantUserId, params.cost, job.id, 'REFUND_ENQUEUE_FAIL');
+    await app.db
+      .update(schema.jobs)
+      .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
+      .where(eq(schema.jobs.id, job.id));
+    throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
+  }
+
+  return { jobId: job.id };
+}
+
+/**
  * Creates a developer-API try-on job from a raw person image + raw garment image
  * + category slug.
  *
@@ -34,9 +111,9 @@ export async function createDevTryonJob(
 ): Promise<{ jobId: string }> {
   const cost = await getTryonCreditCost(app);
 
-  // Kill-switch parity with createSimpleTryonJob: a category an admin deactivated,
-  // or one whose workflow template is inactive, must not resolve. This runs before
-  // any credit movement, so a rejected request is always free.
+  // Kill-switch parity: a category an admin deactivated, or one whose workflow
+  // template is inactive, must not resolve. This runs before any credit
+  // movement, so a rejected request is always free.
   const [category] = await app.db
     .select({
       workflowTemplateId: schema.tryonCategories.workflowTemplateId,
@@ -63,64 +140,18 @@ export async function createDevTryonJob(
   const [user] = await app.db
     .select({ isBanned: schema.users.isBanned })
     .from(schema.users)
-    .where(eq(schema.users.id, params.merchantUserId))
-    .limit(1);
+    .where(eq(schema.users.id, params.merchantUserId));
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'account suspended');
 
-  const catalogueId = randomUUID();
-  const [job] = await app.db.transaction(async (tx) => {
-    const [newJob] = await tx
-      .insert(schema.jobs)
-      .values({
-        userId: params.merchantUserId,
-        apiKeyId: params.apiKeyId,
-        catalogueId,
-        status: 'QUEUED',
-        priority: false,
-        queueStream: 'normal',
-        watermark: false,
-        creditsCharged: cost,
-        source: 'api',
-      })
-      .returning();
-    if (!newJob) throw new AppError('INTERNAL', 500, 'failed to create job');
-
-    await atomicDeduct(tx as unknown as DB, params.merchantUserId, cost, newJob.id);
-
-    // No faceId/backgroundId/poseId: that absence, plus params.personKey, is
-    // exactly what routes this job to the tryon path in the dispatcher
-    // (apps/dispatcher/src/job/processor.ts:134). Do not add those fields here.
-    await tx.insert(schema.jobInputs).values({
-      jobId: newJob.id,
+  return createDevJobCore(app, {
+    merchantUserId: params.merchantUserId,
+    apiKeyId: params.apiKeyId,
+    cost,
+    watermark: false,
+    metricKind: 'tryon',
+    buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,
       params: { personKey: params.personKey, workflowTemplateId: category.workflowTemplateId },
-    });
-    return [newJob];
+    }),
   });
-  if (!job) throw new AppError('INTERNAL', 500, 'failed to create job');
-
-  try {
-    await app.redis.xadd(
-      'jobs:normal',
-      'MAXLEN',
-      '~',
-      10000,
-      '*',
-      'jobId',
-      job.id,
-      'userId',
-      params.merchantUserId,
-    );
-    jobsCreatedTotal.inc({ priority: 'normal', kind: 'tryon' });
-  } catch (err) {
-    app.log.error({ err, jobId: job.id }, 'redis xadd failed — dev tryon job will be refunded');
-    await refund(app.db, params.merchantUserId, cost, job.id, 'REFUND_ENQUEUE_FAIL');
-    await app.db
-      .update(schema.jobs)
-      .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
-      .where(eq(schema.jobs.id, job.id));
-    throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
-  }
-
-  return { jobId: job.id };
 }

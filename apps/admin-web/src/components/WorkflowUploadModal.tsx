@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { apiErrorMessage, apiFetch } from '../lib/data';
 import type { WorkflowOption } from '../types';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 
 interface ParsedNode {
   id: string;
@@ -86,20 +87,14 @@ function NodeSelect({
           {hint}
         </span>
       )}
-      <select
-        className="select"
+      <SearchableSelect
+        options={nodes.map((n) => ({ id: n.id, label: `[${n.id}] ${n.title} (${n.class_type})` }))}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={onChange}
         disabled={disabled}
-        style={{ fontSize: 13 }}
-      >
-        <option value="">— select node —</option>
-        {nodes.map((n) => (
-          <option key={n.id} value={n.id}>
-            [{n.id}] {n.title} ({n.class_type})
-          </option>
-        ))}
-      </select>
+        emptyLabel="— select node —"
+        placeholder="— search node —"
+      />
     </div>
   );
 }
@@ -238,8 +233,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     }
 
     if (workflowType === 'tryon' || workflowType === 'saree_step1') {
-      if (!tryonPersonNodeId.trim() || !tryonGarmentNodeId.trim() || !tryonOutputNodeId.trim()) {
-        setError('Person, garment, and output node IDs are required');
+      if (!tryonGarmentNodeId.trim() || !tryonOutputNodeId.trim()) {
+        setError('Garment and output node IDs are required');
         return;
       }
       if (!positivePromptNode || !negativePromptNode) {
@@ -278,7 +273,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           label: label.trim(),
           jsonContent,
           workflowType,
-          tryonPersonNodeId: tryonPersonNodeId.trim(),
+          tryonPersonNodeId: tryonPersonNodeId.trim() || undefined,
           tryonGarmentNodeId: tryonGarmentNodeId.trim(),
           tryonOutputNodeId: tryonOutputNodeId.trim(),
           facePhasePromptNode: negativePromptNode,
@@ -330,7 +325,8 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
       }
     : null;
 
-  // Count how many required fields are auto-detected (regular only)
+  // Count of auto-filled fields, for the "Auto-detected" summary box below —
+  // purely informational, not a required/optional judgment (see requiredMissing).
   const detectedCount =
     parsed && workflowType === 'regular'
       ? [
@@ -342,7 +338,25 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
           (parsed.detected as DetectedMappings).negativePromptNode,
         ].filter(Boolean).length
       : 0;
-  const requiredCount = 6;
+
+  // What canSubmit (below) actually treats as required for a regular workflow:
+  // pose + positive prompt always; a garment role (upper OR lower, not
+  // specifically upper); negative prompt only if a face node is present. face
+  // and background are otherwise fully optional. Evaluated against the raw
+  // auto-detect result, not the live (possibly hand-edited) form state.
+  const requiredMissing =
+    parsed && workflowType === 'regular'
+      ? [
+          !(parsed.detected as DetectedMappings).poseNodeId && 'pose',
+          !(parsed.detected as DetectedMappings).positivePromptNode && 'positive prompt',
+          ((parsed.detected as DetectedMappings).upperNodeIds?.length ?? 0) === 0 &&
+            !(parsed.detected as DetectedMappings).lowerNodeId &&
+            'a garment role (upper or lower)',
+          (parsed.detected as DetectedMappings).faceNodeId &&
+            !(parsed.detected as DetectedMappings).negativePromptNode &&
+            'negative prompt (a face node was detected)',
+        ].filter((x): x is string => typeof x === 'string')
+      : [];
 
   const canSubmit =
     !saving &&
@@ -351,7 +365,6 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
     label.trim() &&
     (workflowType === 'tryon' || workflowType === 'saree_step1'
       ? parsed &&
-        tryonPersonNodeId &&
         tryonGarmentNodeId &&
         tryonOutputNodeId &&
         positivePromptNode &&
@@ -537,16 +550,16 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 style={{
                   fontSize: 12,
                   color:
-                    detectedCount === requiredCount
+                    requiredMissing.length === 0
                       ? 'var(--success, #4caf50)'
                       : 'var(--warning, #f59e0b)',
                   marginTop: 4,
                   display: 'block',
                 }}
               >
-                {detectedCount === requiredCount
-                  ? `✓ All ${requiredCount} required nodes auto-detected`
-                  : `⚠ ${detectedCount}/${requiredCount} required nodes auto-detected — manually set the rest below`}
+                {requiredMissing.length === 0
+                  ? '✓ All required nodes auto-detected'
+                  : `⚠ Missing: ${requiredMissing.join(', ')} — set manually below`}
               </span>
             )}
           </div>
@@ -583,7 +596,7 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
                 <div className="field">
                   <label>
-                    Person node <span style={{ color: 'var(--danger)' }}>*</span>
+                    Person node (optional — leave blank if face is fixed inside the workflow)
                   </label>
                   <input
                     className="input"
@@ -754,24 +767,23 @@ export function WorkflowUploadModal({ onCreated, onClose, toast }: Props) {
                 {upperNodeIds.map((uid, idx) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: controlled selects with no per-row state; values can repeat/be empty
                   <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                    <select
-                      className="select"
-                      value={uid}
-                      disabled={saving}
-                      style={{ flex: 1, fontSize: 13 }}
-                      onChange={(e) => {
-                        const next = [...upperNodeIds];
-                        next[idx] = e.target.value;
-                        setUpperNodeIds(next);
-                      }}
-                    >
-                      <option value="">— select node —</option>
-                      {nodes.image.map((n) => (
-                        <option key={n.id} value={n.id}>
-                          [{n.id}] {n.title} ({n.class_type})
-                        </option>
-                      ))}
-                    </select>
+                    <div style={{ flex: 1 }}>
+                      <SearchableSelect
+                        options={nodes.image.map((n) => ({
+                          id: n.id,
+                          label: `[${n.id}] ${n.title} (${n.class_type})`,
+                        }))}
+                        value={uid}
+                        disabled={saving}
+                        emptyLabel="— select node —"
+                        placeholder="— search node —"
+                        onChange={(id) => {
+                          const next = [...upperNodeIds];
+                          next[idx] = id;
+                          setUpperNodeIds(next);
+                        }}
+                      />
+                    </div>
                     {upperNodeIds.length > 1 && (
                       <button
                         className="btn sm ghost"

@@ -41,18 +41,7 @@ function ShopifyChrome({ children }: { children: React.ReactNode }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: small static header logo */}
-          <img src={`${BASE}/assets/sellio-logo.png`} alt="Sellio" style={{ height: 22 }} />
-          <span
-            style={{
-              fontSize: 11,
-              fontWeight: 600,
-              background: 'rgba(255,255,255,0.12)',
-              borderRadius: 6,
-              padding: '2px 8px',
-            }}
-          >
-            Spring '26
-          </span>
+          <img src={`${BASE}/assets/sellio-logo.png`} alt="Sellio" style={{ height: 34 }} />
         </div>
         <div style={{ fontSize: 12, color: '#c9cccf' }}>Ai Vastra Store Dev</div>
       </div>
@@ -221,6 +210,7 @@ export function ShopifyPluginDemo() {
                     }}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {/* biome-ignore lint/performance/noImgElement: dynamic remote thumbnail */}
                     <img
                       src={img.url}
                       alt=""
@@ -294,7 +284,7 @@ export function ShopifyPluginDemo() {
                       padding: '0 6px',
                     }}
                   >
-                    Generate with Ai Vastra
+                    Generate catalogue with Sellio
                   </span>
                 </button>
               </div>
@@ -430,9 +420,7 @@ export function ShopifyPluginDemo() {
                 borderBottom: `1px solid ${C.border}`,
               }}
             >
-              <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
-                Generate product photos with Ai Vastra
-              </span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: C.text }}></span>
               <button
                 type="button"
                 onClick={() => setStudioModalOpen(false)}

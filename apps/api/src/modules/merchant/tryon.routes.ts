@@ -188,7 +188,11 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
         throw new AppError('BAD_UPLOAD', 400, 'uploaded photo not found');
       }
       if (photoHead.contentLength > MAX_TRYON_UPLOAD_BYTES) {
-        throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 5MB limit');
+        throw new AppError(
+          'BAD_UPLOAD',
+          413,
+          `uploaded photo exceeds ${MAX_TRYON_UPLOAD_BYTES / (1024 * 1024)}MB limit`,
+        );
       }
 
       const [merchant] = await app.db

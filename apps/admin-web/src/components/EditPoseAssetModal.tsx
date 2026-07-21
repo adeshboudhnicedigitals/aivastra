@@ -4,6 +4,7 @@ import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data'
 import { makeThumbnail } from '../lib/thumbnail';
 import type { GenderSlug, ModelPoseAsset, WorkflowOption } from '../types';
 import { Icon } from './Icons';
+import { SearchableSelect } from './SearchableSelect';
 
 async function putFile(url: string, file: Blob): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -326,28 +327,22 @@ export function EditPoseAssetModal({ asset, workflows, onSaved, onClose, toast }
 
           <div className="field">
             <label>Workflow template</label>
-            <select
-              className="select"
+            <SearchableSelect
+              options={workflows.map((wf) => ({
+                id: wf.id,
+                label: `${wf.label}${wf.lowerNodeId ? ' · lower' : ''}${wf.shoeNodeId ? ' · shoes' : ''}${!wf.isActive ? ' (inactive)' : ''}`,
+              }))}
               value={workflowTemplateId}
               disabled={saving}
-              onChange={(e) => {
-                const newId = e.target.value;
+              emptyLabel="— none —"
+              placeholder="— search workflow —"
+              onChange={(newId) => {
                 setWorkflowTemplateId(newId);
                 // Always follow the newly selected workflow's default prompt — admin can
                 // still hand-edit the textarea below before saving if they want an override.
                 setPrompt(workflows.find((w) => w.id === newId)?.defaultGarmentPhasePrompt ?? '');
               }}
-            >
-              <option value="">— none —</option>
-              {workflows.map((wf) => (
-                <option key={wf.id} value={wf.id}>
-                  {wf.label}
-                  {wf.lowerNodeId ? ' · lower' : ''}
-                  {wf.shoeNodeId ? ' · shoes' : ''}
-                  {!wf.isActive ? ' (inactive)' : ''}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
           <ImagePicker

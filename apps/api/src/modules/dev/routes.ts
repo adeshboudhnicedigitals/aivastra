@@ -6,6 +6,7 @@ import {
   DevJobParams,
   DevJobResponse,
   DevMeResponse,
+  DevSareeMannequinJsonBody,
   DevTryonJsonBody,
   DevTryonResponse,
 } from '@aivastra/types';
@@ -13,6 +14,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import { createDevTryonJob } from './create-job.js';
+import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
 import { hashApiKey } from './keys.js';
 
@@ -213,6 +215,95 @@ export async function devRoutes(app: FastifyInstance) {
         apiKeyId,
         categorySlug,
         personKey,
+        garmentKey,
+      });
+
+      return reply.code(202).send({ jobId, status: 'QUEUED' });
+    },
+  );
+
+  app.post(
+    '/v1/dev/saree-mannequin',
+    {
+      preHandler: app.requireApiKey,
+      config: rateLimitConfig,
+      // One image, base64-inflated ~1.34x — 10MB source caps around 13.4MB of JSON text.
+      bodyLimit: 15 * 1024 * 1024,
+      attachValidation: true,
+      schema: {
+        tags: ['dev'],
+        summary: 'Generate a saree-draped mannequin image from a garment cloth photo',
+        description:
+          'Upload a saree/garment cloth image, either as multipart/form-data (field: garment) ' +
+          'or as a JSON body with a base64-encoded image (field: garment — plain base64 or a ' +
+          'data: URI). The face/model is fixed by the configured workflow, not caller-supplied. ' +
+          'Returns a job id to poll.',
+        consumes: ['multipart/form-data', 'application/json'],
+        body: DevSareeMannequinJsonBody,
+        response: { 202: DevTryonResponse },
+      },
+    },
+    async (req, reply) => {
+      const merchantId = req.merchantId as string;
+      const merchantUserId = req.merchantUserId as string;
+      const apiKeyId = req.apiKeyId as string;
+
+      let garmentFile: { buf: Buffer; mime: string } | undefined;
+
+      const isJson = (req.headers['content-type'] ?? '').startsWith('application/json');
+
+      if (isJson) {
+        const parsed = DevSareeMannequinJsonBody.safeParse(req.body);
+        if (!parsed.success) {
+          throw new AppError(
+            'VALIDATION',
+            400,
+            parsed.error.issues[0]?.message ?? 'invalid request body',
+          );
+        }
+        const raw = parsed.data.garment.replace(/^data:[^;]+;base64,/, '');
+        const buf = Buffer.from(raw, 'base64');
+        if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
+          throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+        }
+        const mime = sniffImageMime(buf);
+        if (!mime) {
+          throw new AppError('VALIDATION', 400, 'garment must be a JPEG, PNG, or WebP image');
+        }
+        garmentFile = { buf, mime };
+      } else {
+        const parts = req.parts({ limits: { fileSize: MAX_FILE_BYTES, files: 1 } });
+        for await (const part of parts) {
+          if (part.type !== 'file') continue;
+          if (part.fieldname !== 'garment') {
+            throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
+          }
+          const buf = await part.toBuffer().catch(() => {
+            throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+          });
+          if (part.file.truncated) {
+            throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+          }
+          const mime = sniffImageMime(buf);
+          if (!mime) {
+            throw new AppError('VALIDATION', 400, 'garment must be a JPEG, PNG, or WebP image');
+          }
+          garmentFile = { buf, mime };
+        }
+      }
+
+      if (!garmentFile) throw new AppError('VALIDATION', 400, 'garment image is required');
+
+      const garmentKey = keys.devUpload(
+        merchantId,
+        randomUUID(),
+        EXT_BY_MIME[garmentFile.mime as keyof typeof EXT_BY_MIME],
+      );
+      await app.storage.putObject(garmentKey, garmentFile.buf, garmentFile.mime);
+
+      const { jobId } = await createDevSareeMannequinJob(app, {
+        merchantUserId,
+        apiKeyId,
         garmentKey,
       });
 

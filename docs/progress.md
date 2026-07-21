@@ -12,6 +12,77 @@
 ### Open Questions / Decisions
 - Pre-existing a11y and performance lint warnings in 	ryon/page.tsx remain. These were bypassed to merge the critical syntax fix.
 
+## 2026-07-20 - Merchant catalog: fix production ComfyUI crash (missing mannequin step)
+
+Production device walkthrough of the saree-catalogue Android app surfaced a real generation crash (`Bounded Image Crop with Mask: index is out of bounds for dimension with size 0`), root-caused via dispatcher logs to `saree_step2` receiving an all-white image because the merchant-catalog job flow never ran the mannequin-compositing step first — it fed the merchant's raw flat photo straight into a workflow that expects a mannequin-draped one. Designed via `superpowers:brainstorming`, planned via `superpowers:writing-plans` (`docs/superpowers/plans/2026-07-20-merchant-catalog-mannequin-step.md`), implemented by Codex following that plan, verified end-to-end in this session.
+
+### Done
+- **`apps/dispatcher/src/job/mannequin-phase.ts`** (new): extracted the mannequin-compositing ComfyUI submission logic out of `processSareeMannequinJob` into a reusable `runMannequinPhase()` with no job-lifecycle side effects (no status transitions, no `finalizeOutput`, no `xack`) — callers route failures through their own existing failure handling.
+- **`apps/dispatcher/src/job/processor.ts`**: the `requiresMannequinStep` branch now runs `runMannequinPhase()` inline before the existing `saree_step2` submission, but only when `job_inputs.params.needsMannequinStep === true` — an explicit opt-in, not automatic. This preserves the web studio flow's existing (correct) client-side pre-resolution behavior unchanged (verified via the existing `saree-step2-workflow-override.test.ts`, which has no such flag set and must keep using its pre-resolved key as-is).
+- **`apps/api/src/modules/merchant/create-job.ts`**: sets `needsMannequinStep: garmentType.requiresMannequinStep` on job creation — the only caller opted in so far.
+- **`packages/storage/src/keys.ts`**: added `mannequinIntermediate(jobId)` key builder for the phase's intermediate R2 output.
+- Also fixed the same session, deployed to production ahead of this: `apps/dispatcher/src/comfyui/progress.ts` was discarding ComfyUI's actual `execution_error` detail (node/exception) and only logging a generic `"execution error for prompt <id>"` — this is what made the root-cause diagnosis possible in the first place (`13f1612e`).
+- Also fixed: `apps/api/src/modules/merchant/catalog.routes.ts`'s `GET /v1/merchant/catalog/subcategories` now self-provisions a merchant's saree-pipeline subcategory row on first read (no admin UI ever created these, so a fresh merchant was permanently stuck with an empty picker) — scoped to `requiresMannequinStep` garment types specifically, after an earlier pass without that filter incorrectly seeded the entire unrelated customer-studio garment taxonomy.
+- Also fixed: the Android app (`apps/saree_catalogue_android`) now shows a "Logout Other Device" confirmation on `DEVICE_LIMIT_REACHED` instead of a dead-end generic error, mirroring the sibling kiosk app's existing pattern.
+- Full verification: monorepo typecheck, Biome lint, dispatcher unit suite (52/52), new integration test (2/2), both pre-existing saree regression tests (3/3) unmodified, API unit suite — all pass.
+- 5 commits: `85bdd268`, `ce5bc8cb`, `1567194b`, `a57c1bbb`, `876cc5a9`.
+
+### Failed / Not Done
+- Not yet deployed or re-verified against production — the actual crash was only reproduced and root-caused, the fix hasn't yet been through a real device walkthrough.
+
+### Open Questions / Decisions
+- **Widget and Shopify job creation** don't set `needsMannequinStep` and would hit the same original bug if ever pointed at a `requiresMannequinStep` garment type. Deliberately left unaddressed — no such job type exercises this path today; the dispatcher-side fix is available to them for free whenever it becomes relevant.
+- **No retry caching for the mannequin phase** — a job retry re-runs both phases from scratch, matching this codebase's existing full-restart retry model everywhere else. Explicitly chosen over adding a new caching mechanism.
+- **Full dispatcher integration suite has 3 pre-existing failures** (`happy-path.test.ts`, `recovery.test.ts`, `retry.test.ts`) — all seed `catalog_items` without the `type` column, which became `NOT NULL` back in commit `20877960` (~2 months before this branch). Confirmed unrelated to this work via git blame; not fixed here.
+
+## 2026-07-20 - Dev API: POST /v1/dev/saree-mannequin
+
+New saree-mannequin ComfyUI workflow (`sdrapewithpalluapi.json`) wired end-to-end: person/face node made optional across admin upload, `/admin/workflows` create route, and the dispatcher (`processSareeMannequinJob`), since this workflow bakes the face in via a fixed URL node instead of a patchable image node. Live `saree_step1` template on Flat Saree's `mannequinWorkflowTemplateId` swapped to the new JSON directly in the local DB during testing; a second row (`sdrapewithpalluapi`) was later created via the admin panel and Flat Saree repointed to it — the DB-swapped row is now an unused duplicate, not yet cleaned up.
+
+Then designed and implemented a new public dev-API endpoint exposing the mannequin step directly (separate from `/v1/dev/tryon`, whose `category: 'saree'` already maps to an unrelated template), executed via subagent-driven-development (7 tasks, each implemented + reviewed by a fresh subagent, plus one final whole-branch review).
+
+### Done
+- **Person/face node optional end-to-end** (commit 9dc3eb4): `apps/admin-web/src/components/WorkflowUploadModal.tsx`, `apps/api/src/modules/admin/workflows.routes.ts`, `apps/dispatcher/src/job/processor.ts` no longer hard-require a `tryonPersonNodeId`/`faceId` for `tryon`/`saree_step1` workflow templates.
+- **`createDevJobCore`**: extracted from `createDevTryonJob` (`apps/api/src/modules/dev/create-job.ts`) — shared insert/deduct/enqueue/refund-on-fail transaction helper, parameterized by cost/watermark/metric-kind/job-inputs-builder. `/v1/dev/tryon`'s route, contract, and behavior verified unchanged (confirmed by 3 separate reviews, including the final whole-branch pass).
+- **`POST /v1/dev/saree-mannequin`** (`apps/api/src/modules/dev/routes.ts`, `create-saree-mannequin-job.ts`): single `garment` image in (multipart or JSON/base64), no `category`/`person` params — resolves the workflow via the one `garment_subcategories` row with `requires_mannequin_step = true`. Charges credits via the existing `getTryonCreditCost`. Polled via the existing unmodified `GET /v1/dev/jobs/:id`.
+- **Dispatcher `faceId` guard fix**: `processSareeMannequinJob`'s early input guard now only requires `faceId` when the resolved template actually has a `tryonPersonNodeId` — previously hard-required it unconditionally, which would have rejected every dev-API job (always sends `faceId: null`).
+- Docs: `apps/api/dev-api-quickstart.md` §3c documents the new endpoint.
+- Tests: `apps/api/test/dev-saree-mannequin-create.test.ts` (10 cases, real Postgres/Redis/MinIO), `apps/dispatcher/test/integration/saree-mannequin.test.ts` gained a no-person-node/`faceId: null` case. Full `dev-*` suite (71 tests) and dispatcher integration suite re-verified with no regression.
+- Final whole-branch review (Opus): ready to merge, zero Critical/Important findings. One recommended one-line fix applied (stale routing comment on the saree-mannequin branch in `processor.ts` referencing `faceId` as required — commit d6ecdb9).
+
+### Failed / Not Done
+- Orphaned duplicate `workflow_templates` row (`saree_step1` slug, id `6c23fdfa-...`) from the earlier DB-swap testing step — not reverted or deactivated, flagged to the user, no decision made yet.
+- Minor findings deferred (not fixed, tracked for a future pass): `create-saree-mannequin-job.ts` does 2 sequential SELECTs instead of one join; the new test file's "unconfigured" case still leaks test containers if `startContainers()`/`buildTestApp()` itself throws (only the assertions are wrapped in try/finally); same file's insufficient-credits test restores `setCredits(100)` after its assertion rather than in `finally`; a `useOptionalChain` lint cosmetic nit; the admin person-node-optional relaxation applies to both `tryon` and `saree_step1` workflow types even though only `saree_step1` needs it (fails safe today — `processTryonDirectJob` still rejects a personNodeId-less `tryon` template — but is a latent inconsistency worth scoping down later).
+
+### Open Questions / Decisions
+- Whether to keep, revert, or deactivate the orphaned `saree_step1`/`6c23fdfa-...` workflow template row.
+- Whether to scope the admin person-node-optional relaxation to `saree_step1` only, or symmetrically relax `processTryonDirectJob` for `tryon` too.
+
+## 2026-07-20 - Saree Catalogue Android: backend cutover (Tasks 1-9)
+
+Executed `docs/superpowers/plans/2026-07-20-saree-catalogue-android-backend-cutover.md` on `feat/saree-catalogue-backend-integration` — cuts `apps/saree_catalogue_android` (a legacy merchant Android app, previously untracked in this repo) over from its standalone legacy backend (`api.aivastra.com`, static shared-secret + api_key auth) to `apps/api`'s existing device-login auth and `/v1/merchant/catalog/*` routes. Client-only rewrite; no backend/web code changed. Split between two workers: Codex (Tasks 1-6, 8 initial pass, 9) and Claude (Task 7 direct implementation, Task 8 commit-scope correction).
+
+### Done
+- **Task 1-2**: Gradle wiring (`API_BASE_URL` build config, `security-crypto` dep) + full network-core rewrite (`ApiException`, `APIConstant`, `APICaller` — coroutines-based, mirrored from the sibling app `virtual-tryon-mobile&kiosk_latest`).
+- **Task 3-4**: `EncryptedSharedPreferences` session/token storage (replacing plaintext), device-login auth flow (`/v1/auth/device-login`/`device-refresh`/`device-logout`) wired into Login/Profile/Splash screens.
+- **Task 5**: Deleted `ProductUploadDataRepository.kt`, `ApiUtils/APIInterface.kt`, and every remaining legacy-endpoint-calling function out of `ProductUploadViewModel.kt`, in one consolidated sweep before rebuilding screens — restructured mid-execution from the original per-screen approach after the first pass surfaced repeated "is this compile failure expected" ambiguity.
+- **Task 6**: Catalog browse against `/v1/merchant/catalog/subcategories`/`/v1/merchant/catalog`; collapsed the legacy's two-level category→subcategory nav to the new backend's single-level subcategory list.
+- **Task 7**: Presign→generate→poll→import→patch product-creation flow (`/v1/merchant/catalog/presign`/`generate`/`generate/:jobId`/`import`, then `PATCH /v1/merchant/catalog/:id` for SKU/pricing) replacing the legacy drape-preview + finalize flow. Found and fixed one real bug during implementation: a Kotlin smart-cast failure (`status` is a `var`, so `status.resultUrl` didn't smart-cast to non-null after the null-guard) — fixed by capturing into a local `val`.
+- **Task 8**: Verified and deleted 5 dead legacy response models + 2 orphaned `PrefsManager` helpers.
+- **Task 9**: `:app:compileDebugKotlin`, `:app:testDebugUnitTest`, `:app:assembleDebug` all pass; APK builds at `app/build/outputs/apk/debug/app-debug.apk`.
+- **Repo hygiene fixes surfaced along the way**: Task 8's plan-specified `git add -A apps/saree_catalogue_android/` would have committed a compiled release APK and baseline-profile artifacts (never gitignored — only `/build` was excluded, not `app/release/`). Fixed `app/.gitignore`, split into a narrowly-scoped Task 8 commit (`PrefsManager.kt` only) plus a separate deliberate commit bringing the rest of the previously-untracked Android app baseline into version control (108 files — manifest, resources, remaining screens, gradle wrapper), checked for secrets first (none found). Also excluded `apps/saree_catalogue_android` from `biome.json`'s scope after a Lottie animation JSON asset tripped the formatter pre-commit hook (it's a Kotlin/Gradle project, not JS/TS tooling).
+
+### Failed / Not Done
+- **Manual device/emulator walkthrough (Task 9 Step 4) — not run.** `adb` unavailable in the implementation environment, so no emulator/device could be exercised; Postgres/Redis/MinIO were running but `apps/api`/`apps/dispatcher` weren't, and no merchant test account or seeded `garment_subcategories`/`merchant_catalog_subcategories` data existed. This was anticipated by the plan from the start, not a surprise gap.
+- **Rollout prerequisite still outstanding**: before the walkthrough (or real usage) can succeed, an admin must create at least one `garment_subcategories` row (with `defaultPoseId` set) and a matching `merchant_catalog_subcategories` row (`category: 'women'`) in the existing admin panel — no code in this plan creates that data.
+
+### Open Questions / Decisions
+- **SKU search gap accepted, not fixed**: legacy searched by exact SKU; `/v1/merchant/catalog?search=` matches on `label` only (`sku` column exists but isn't in the search predicate). Documented as an accepted behavior change, out of scope for a client-only cutover.
+- **"Pallu type" (drape style) collapsed into subcategory selection**: previously two separate legacy pickers (pallu type before capture, product category after generating) are now a single subcategory choice made once, up front — admin must pre-configure one `garment_subcategories`/`merchant_catalog_subcategories` pair per drape style under `category='women'`.
+- Branch not yet merged — `feat/saree-catalogue-backend-integration` is ahead of `main`, PR not opened. Manual walkthrough (or a decision to skip it) is the remaining blocker before that's worth considering.
+
+---
+
 ## 2026-07-18 - Shopify Product Catalog Generation: final-review fixes
 
 Fixed 4 Important findings from a whole-branch final code review of `feat/shopify-product-catalog-generation` (`apps/api/src/modules/shopify/catalog.routes.ts` and `catalog-options.routes.ts`). Out of scope by explicit instruction: App Bridge / Admin UI Extension `Link`-navigation issue (Critical, separate human decision).
@@ -155,6 +226,20 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 
 ### Open Questions / Decisions
 - Webhooks and `sk_test_` (test-mode) keys were deliberately deferred to v2, per the design spec's Deferred section (`docs/superpowers/specs/2026-07-16-dev-tryon-api-design.md`): webhooks would be the only dispatcher-side change in an otherwise additive v1 and need retry/backoff to be worth shipping (polling alone is a complete product; `merchants.webhookUrl`/`webhookSecret` already exist for when it lands), and test-mode keys are deferred because the v1 audience is gated/admin-activated merchants for whom integrating against live keys is acceptable â€” revisit if onboarding friction shows up. Per-key configurable rate limits, a separate merchant credit balance, key scopes, SDKs, and image-URL input are also deferred, same rationale as the spec.
+
+---
+
+## 2026-07-15 - Fix: misleading "X/6 required nodes" workflow-upload message
+
+### Done
+- The admin workflow-upload modal's auto-detect summary counted 6 fixed fields (face, pose, background, upper, positive prompt, negative prompt) as if all were equally required, showing e.g. "⚠ 4/6 required nodes auto-detected — manually set the rest below" - stale messaging from before the flexible-workflow-roles feature. The real submit gate (`canSubmit`, same file) only requires pose + positive prompt + a garment role (upper OR lower, not specifically upper); face/background are fully optional, and negative prompt is only required if a face node is set. A fully valid, submittable regular workflow (e.g. lower-only, faceless) could show a scary partial-count warning.
+- Replaced the count with a `requiredMissing` list computed against the same real requirements `canSubmit` checks (evaluated against the raw auto-detect result, not the live hand-edited form state) - the message now either confirms everything required was found, or names exactly what's still missing (e.g. "⚠ Missing: a garment role (upper or lower) — set manually below") instead of an inaccurate count against the wrong denominator. The informational "Auto-detected" summary box below (which lists whatever *was* found, required or not) is untouched.
+
+### Failed / Not Done
+- None. Verified via typecheck/lint and manual trace through three scenarios, not a live browser session.
+
+### Open Questions / Decisions
+- None.
 
 ---
 
