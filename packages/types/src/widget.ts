@@ -174,6 +174,10 @@ export type MerchantCatalogSubcategoryListResponse = z.infer<
 export const MerchantCatalogGenerateBody = z.object({
   subcategoryId: z.string().uuid(),
   flatImageKey: z.string().min(1),
+  // When true, skip the normal pose/background/face compositing (step 2) and
+  // finalize the job with the mannequin-drape (step 1) output directly. Only
+  // valid for garment types with requires_mannequin_step = true.
+  mannequinOnly: z.boolean().optional(),
 });
 export type MerchantCatalogGenerateBody = z.infer<typeof MerchantCatalogGenerateBody>;
 
