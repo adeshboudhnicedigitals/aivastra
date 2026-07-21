@@ -123,6 +123,22 @@
 
             </LinearLayout>
 
+            <HorizontalScrollView
+                android:id="@+id/hsv_saree_styles"
+                android:layout_width="@dimen/_220sdp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="@dimen/_10sdp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/ll_saree_styles"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+
+            </HorizontalScrollView>
+
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/spinnerLayoutPalluType"
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
