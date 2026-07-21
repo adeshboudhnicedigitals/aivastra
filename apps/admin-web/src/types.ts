@@ -324,6 +324,17 @@ export interface ModelPoseAsset {
   createdAt: string;
 }
 
+export interface SareeMannequinStyle {
+  id: string;
+  label: string;
+  previewImageKey: string | null;
+  mannequinWorkflowTemplateId: string;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PoseGarmentConfig {
   id: string;
   isActive: boolean; // effective for this garment type: config.isActive ?? globalIsActive
