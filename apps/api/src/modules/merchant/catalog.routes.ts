@@ -149,10 +149,31 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           )
         : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
 
+      // Merchant catalogue only supports the saree (mannequin) pipeline — filter out any
+      // subcategory whose garment type doesn't require the mannequin step (e.g. stray
+      // "shirts"-style rows from before this was enforced on create/update below), the same
+      // way the self-provisioning branch already restricts what it seeds.
+      const merchantCatalogSubcategoryColumns = {
+        id: schema.merchantCatalogSubcategories.id,
+        merchantId: schema.merchantCatalogSubcategories.merchantId,
+        category: schema.merchantCatalogSubcategories.category,
+        name: schema.merchantCatalogSubcategories.name,
+        garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
+        sortOrder: schema.merchantCatalogSubcategories.sortOrder,
+        createdAt: schema.merchantCatalogSubcategories.createdAt,
+        updatedAt: schema.merchantCatalogSubcategories.updatedAt,
+      };
       let rows = await app.db
-        .select()
+        .select(merchantCatalogSubcategoryColumns)
         .from(schema.merchantCatalogSubcategories)
-        .where(where)
+        .innerJoin(
+          schema.garmentSubcategories,
+          eq(
+            schema.garmentSubcategories.id,
+            schema.merchantCatalogSubcategories.garmentSubcategoryId,
+          ),
+        )
+        .where(and(where, eq(schema.garmentSubcategories.requiresMannequinStep, true)))
         .orderBy(
           schema.merchantCatalogSubcategories.sortOrder,
           desc(schema.merchantCatalogSubcategories.createdAt),
@@ -190,9 +211,16 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           );
 
           rows = await app.db
-            .select()
+            .select(merchantCatalogSubcategoryColumns)
             .from(schema.merchantCatalogSubcategories)
-            .where(where)
+            .innerJoin(
+              schema.garmentSubcategories,
+              eq(
+                schema.garmentSubcategories.id,
+                schema.merchantCatalogSubcategories.garmentSubcategoryId,
+              ),
+            )
+            .where(and(where, eq(schema.garmentSubcategories.requiresMannequinStep, true)))
             .orderBy(
               schema.merchantCatalogSubcategories.sortOrder,
               desc(schema.merchantCatalogSubcategories.createdAt),
@@ -219,6 +247,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           and(
             eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
             eq(schema.garmentSubcategories.isActive, true),
+            // Merchant catalogue only supports the saree (mannequin) pipeline — see the
+            // matching filter on GET above.
+            eq(schema.garmentSubcategories.requiresMannequinStep, true),
           ),
         )
         .limit(1);
@@ -264,6 +295,9 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             and(
               eq(schema.garmentSubcategories.id, body.garmentSubcategoryId),
               eq(schema.garmentSubcategories.isActive, true),
+              // Merchant catalogue only supports the saree (mannequin) pipeline — see the
+              // matching filter on GET above.
+              eq(schema.garmentSubcategories.requiresMannequinStep, true),
             ),
           )
           .limit(1);
