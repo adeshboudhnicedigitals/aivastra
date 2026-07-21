@@ -178,10 +178,12 @@ export const MerchantCatalogGenerateBody = z.object({
   // finalize the job with the mannequin-drape (step 1) output directly. Only
   // valid for garment types with requires_mannequin_step = true.
   mannequinOnly: z.boolean().optional(),
-  // Selects which mannequin (step-1) workflow template generates this job.
-  // Omitted = falls back to the garment type's own mannequinWorkflowTemplateId
-  // (unchanged behavior). See saree_mannequin_styles.
-  sareeStyleId: z.string().uuid().optional(),
+  // Selects which mannequin (step-1) workflow template generates this job —
+  // matched against saree_mannequin_styles.label (case-insensitive), not the
+  // row's id, so callers can send the human-readable style name shown in
+  // admin/the app instead of looking up a UUID. Omitted = falls back to the
+  // garment type's own mannequinWorkflowTemplateId (unchanged behavior).
+  sareeStyleId: z.string().min(1).optional(),
 });
 export type MerchantCatalogGenerateBody = z.infer<typeof MerchantCatalogGenerateBody>;
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { ASPECT_DIMENSIONS, type Resolution, resolutionFromDims } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import {
@@ -217,13 +217,14 @@ export async function createMerchantSareeMannequinJob(
 
   let styleWorkflowTemplateId: string | undefined;
   if (params.sareeStyleId) {
+    // Matched by label (case-insensitive), not id — see MerchantCatalogGenerateBody.
     const [style] = await app.db
       .select({
         isActive: schema.sareeMannequinStyles.isActive,
         mannequinWorkflowTemplateId: schema.sareeMannequinStyles.mannequinWorkflowTemplateId,
       })
       .from(schema.sareeMannequinStyles)
-      .where(eq(schema.sareeMannequinStyles.id, params.sareeStyleId))
+      .where(ilike(schema.sareeMannequinStyles.label, params.sareeStyleId))
       .limit(1);
     if (!style?.isActive) {
       throw new AppError('BAD_STYLE', 400, 'saree style not found or inactive');
