@@ -18,7 +18,7 @@ import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
 import { hashApiKey } from './keys.js';
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const EXT_BY_MIME = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -94,10 +94,10 @@ export async function devRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
-      // Base64 inflates each 10MB image to ~13.4MB of JSON text; the two-image
+      // Base64 inflates each 20MB image to ~26.8MB of JSON text; the two-image
       // JSON path needs more than Fastify's 1MB default. Multipart is unaffected —
       // @fastify/multipart streams via its own `fileSize` limit above, not this.
-      bodyLimit: 30 * 1024 * 1024,
+      bodyLimit: 60 * 1024 * 1024,
       // attachValidation, not the default auto-reject: this route handles multipart
       // and JSON itself (see below) and does its own DevTryonJsonBody.safeParse for
       // the JSON path. `body` here exists so Scalar/the OpenAPI spec can generate a
@@ -142,7 +142,11 @@ export async function devRoutes(app: FastifyInstance) {
           const raw = parsed.data[fieldname].replace(/^data:[^;]+;base64,/, '');
           const buf = Buffer.from(raw, 'base64');
           if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
-            throw new AppError('VALIDATION', 400, `${fieldname} exceeds the 10MB limit`);
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${fieldname} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+            );
           }
           // Magic bytes only — decoding garbage base64 still yields *some* buffer.
           const mime = sniffImageMime(buf);
@@ -170,10 +174,18 @@ export async function devRoutes(app: FastifyInstance) {
             throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
           }
           const buf = await part.toBuffer().catch(() => {
-            throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${part.fieldname} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+            );
           });
           if (part.file.truncated) {
-            throw new AppError('VALIDATION', 400, `${part.fieldname} exceeds the 10MB limit`);
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `${part.fieldname} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+            );
           }
           // Magic bytes only — part.mimetype is client-declared and untrusted.
           const mime = sniffImageMime(buf);
@@ -227,8 +239,8 @@ export async function devRoutes(app: FastifyInstance) {
     {
       preHandler: app.requireApiKey,
       config: rateLimitConfig,
-      // One image, base64-inflated ~1.34x — 10MB source caps around 13.4MB of JSON text.
-      bodyLimit: 15 * 1024 * 1024,
+      // One image, base64-inflated ~1.34x — 20MB source caps around 26.8MB of JSON text.
+      bodyLimit: 30 * 1024 * 1024,
       attachValidation: true,
       schema: {
         tags: ['dev'],
@@ -264,7 +276,11 @@ export async function devRoutes(app: FastifyInstance) {
         const raw = parsed.data.garment.replace(/^data:[^;]+;base64,/, '');
         const buf = Buffer.from(raw, 'base64');
         if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
-          throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+          throw new AppError(
+            'VALIDATION',
+            400,
+            `garment exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+          );
         }
         const mime = sniffImageMime(buf);
         if (!mime) {
@@ -279,10 +295,18 @@ export async function devRoutes(app: FastifyInstance) {
             throw new AppError('VALIDATION', 400, `unexpected file field: ${part.fieldname}`);
           }
           const buf = await part.toBuffer().catch(() => {
-            throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `garment exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+            );
           });
           if (part.file.truncated) {
-            throw new AppError('VALIDATION', 400, 'garment exceeds the 10MB limit');
+            throw new AppError(
+              'VALIDATION',
+              400,
+              `garment exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+            );
           }
           const mime = sniffImageMime(buf);
           if (!mime) {

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { AppError } from './errors.js';
 
 /** Max accepted garment upload size - mirrors the presign zod cap. */
-export const MAX_GARMENT_BYTES = 10 * 1024 * 1024;
+export const MAX_GARMENT_BYTES = 20 * 1024 * 1024;
 
 /**
  * Verifies the object exists in storage and is within the accepted size limit.

@@ -169,8 +169,8 @@ export async function shopifyCustomerRoutes(app: FastifyInstance) {
       } catch {
         throw new AppError('BAD_UPLOAD', 400, 'uploaded photo not found');
       }
-      if (photoHead.contentLength > 5 * 1024 * 1024) {
-        throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 5MB limit');
+      if (photoHead.contentLength > 20 * 1024 * 1024) {
+        throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 20MB limit');
       }
 
       const [garment] = await app.db
