@@ -8,7 +8,7 @@ import { SpinnerIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
-import { postImageSelectedToParent } from '@/lib/shopify-plugin-embed-protocol';
+import { postImageSelectedToParent } from '@/lib/sellio-embed-protocol';
 
 const GENDERS = [
   { value: 'women', label: 'Women' },
