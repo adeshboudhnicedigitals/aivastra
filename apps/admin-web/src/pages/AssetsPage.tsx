@@ -6,6 +6,7 @@ import { CatalogueTemplatesTab } from './assets/CatalogueTemplatesTab';
 import { FacesTab } from './assets/FacesTab';
 import { GarmentTypesTab } from './assets/GarmentTypesTab';
 import { PoseAssetsTab } from './assets/PoseAssetsTab';
+import { SareeStylesTab } from './assets/SareeStylesTab';
 
 interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;
@@ -20,6 +21,7 @@ const TABS = [
   { k: 'lower' as const, l: 'Lower garments' },
   { k: 'shoe' as const, l: 'Shoes' },
   { k: 'catalogue-templates' as const, l: 'Templates' },
+  { k: 'saree-styles' as const, l: 'Saree Styles' },
 ];
 
 function AssetsShell() {
@@ -49,6 +51,7 @@ function AssetsShell() {
       {activeTab === 'pose-assets' && <PoseAssetsTab />}
       {(activeTab === 'lower' || activeTab === 'shoe') && <CatalogTab />}
       {activeTab === 'catalogue-templates' && <CatalogueTemplatesTab />}
+      {activeTab === 'saree-styles' && <SareeStylesTab />}
 
       {previewUrl && (
         <div
