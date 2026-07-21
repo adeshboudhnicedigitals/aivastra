@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { createMerchantTryonJob } from './create-tryon-job.js';
 
-const MAX_TRYON_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_TRYON_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 async function loadOwnedJob(app: FastifyInstance, merchantId: string, id: string) {
   const [job] = await app.db

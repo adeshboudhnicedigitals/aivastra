@@ -9,7 +9,7 @@ import { AppError } from '../../lib/errors.js';
 import { merchantRefund } from '../merchant/ledger.js';
 import { createKioskJob, KIOSK_JOB_COST } from './create-job.js';
 
-const MAX_KIOSK_UPLOAD_BYTES = 5 * 1024 * 1024;
+const MAX_KIOSK_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 async function checkRateLimit(
   redis: Redis,
@@ -218,7 +218,11 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
         throw new AppError('BAD_UPLOAD', 400, 'uploaded photo not found');
       }
       if (photoHead.contentLength > MAX_KIOSK_UPLOAD_BYTES) {
-        throw new AppError('BAD_UPLOAD', 413, 'uploaded photo exceeds 5MB limit');
+        throw new AppError(
+          'BAD_UPLOAD',
+          413,
+          `uploaded photo exceeds ${MAX_KIOSK_UPLOAD_BYTES / (1024 * 1024)}MB limit`,
+        );
       }
 
       const jobId = await createKioskJob(app, {

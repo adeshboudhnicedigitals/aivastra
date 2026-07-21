@@ -46,7 +46,7 @@ export const MerchantCatalogPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type MerchantCatalogPresignBody = z.infer<typeof MerchantCatalogPresignBody>;
 
@@ -266,7 +266,7 @@ export const KioskPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type KioskPresignBody = z.infer<typeof KioskPresignBody>;
 
@@ -297,7 +297,7 @@ export const MerchantTryonPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(10 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type MerchantTryonPresignBody = z.infer<typeof MerchantTryonPresignBody>;
 
@@ -343,7 +343,7 @@ export const PublicUploadSessionPresignBody = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type PublicUploadSessionPresignBody = z.infer<typeof PublicUploadSessionPresignBody>;
 
@@ -391,7 +391,7 @@ export const ShopifyCustomerPresignRequest = z.object({
     .number()
     .int()
     .positive()
-    .max(5 * 1024 * 1024),
+    .max(20 * 1024 * 1024),
 });
 export type ShopifyCustomerPresignRequest = z.infer<typeof ShopifyCustomerPresignRequest>;
 
