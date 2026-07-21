@@ -725,6 +725,34 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get('/v1/merchant/catalog/saree-styles', { preHandler: app.requireMerchant }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.sareeMannequinStyles.id,
+        label: schema.sareeMannequinStyles.label,
+        previewImageKey: schema.sareeMannequinStyles.previewImageKey,
+        sortOrder: schema.sareeMannequinStyles.sortOrder,
+      })
+      .from(schema.sareeMannequinStyles)
+      .where(eq(schema.sareeMannequinStyles.isActive, true))
+      .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
+
+    const items = await Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        label: row.label,
+        previewUrl: row.previewImageKey
+          ? await app.storage
+              .presignGet(row.previewImageKey, 3600)
+              .then((result) => result.url)
+              .catch(() => null)
+          : null,
+        sortOrder: row.sortOrder,
+      })),
+    );
+    return { items };
+  });
+
   app.post(
     '/v1/merchant/catalog/generate',
     { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBody } },
@@ -732,7 +760,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { subcategoryId, flatImageKey, mannequinOnly } = req.body as z.infer<
+      const { subcategoryId, flatImageKey, mannequinOnly, sareeStyleId } = req.body as z.infer<
         typeof MerchantCatalogGenerateBody
       >;
 
@@ -762,6 +790,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             garmentSubcategoryId: row.garmentSubcategoryId,
             flatImageKey,
             merchantId,
+            sareeStyleId,
           })
         : await createMerchantCatalogJob(app, {
             userId: row.userId,

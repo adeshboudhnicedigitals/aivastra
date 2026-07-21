@@ -178,6 +178,10 @@ export const MerchantCatalogGenerateBody = z.object({
   // finalize the job with the mannequin-drape (step 1) output directly. Only
   // valid for garment types with requires_mannequin_step = true.
   mannequinOnly: z.boolean().optional(),
+  // Selects which mannequin (step-1) workflow template generates this job.
+  // Omitted = falls back to the garment type's own mannequinWorkflowTemplateId
+  // (unchanged behavior). See saree_mannequin_styles.
+  sareeStyleId: z.string().uuid().optional(),
 });
 export type MerchantCatalogGenerateBody = z.infer<typeof MerchantCatalogGenerateBody>;
 
@@ -194,6 +198,19 @@ export const MerchantCatalogGenerateStatus = z.object({
   errorCode: z.string().nullable(),
 });
 export type MerchantCatalogGenerateStatus = z.infer<typeof MerchantCatalogGenerateStatus>;
+
+export const MerchantSareeStyle = z.object({
+  id: z.string().uuid(),
+  label: z.string(),
+  previewUrl: z.string().url().nullable(),
+  sortOrder: z.number().int(),
+});
+export type MerchantSareeStyle = z.infer<typeof MerchantSareeStyle>;
+
+export const MerchantSareeStyleListResponse = z.object({
+  items: z.array(MerchantSareeStyle),
+});
+export type MerchantSareeStyleListResponse = z.infer<typeof MerchantSareeStyleListResponse>;
 
 export const MerchantCatalogGenerateBulkStatusResponse = z.object({
   items: z.array(MerchantCatalogGenerateStatus),
