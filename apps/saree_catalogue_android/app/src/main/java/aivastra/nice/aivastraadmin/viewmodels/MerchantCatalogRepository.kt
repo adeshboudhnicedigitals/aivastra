@@ -10,7 +10,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 object MerchantCatalogRepository {
     private val mapper = ObjectMapper()
     suspend fun fetchSubcategories(category: String): List<MerchantCatalogSubcategory> {
-        val response = APICaller.getJsonAuthed("${APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SUBCATEGORIES}?category=$category", PrefsManager.getAccessToken())
+        val response = APICaller.getJsonAuthed("${APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SAREE_SUBCATEGORIES}?category=$category", PrefsManager.getAccessToken())
         return mapper.readValue(response, MerchantCatalogSubcategoryListResponse::class.java).items
     }
     suspend fun fetchItems(subcategoryId: String? = null, search: String? = null): List<MerchantCatalogItem> {
