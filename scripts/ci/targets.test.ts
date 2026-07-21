@@ -46,6 +46,12 @@ describe('loadTargets', () => {
       /duplicate target dir/,
     );
   });
+
+  it('rejects duplicate target names', () => {
+    expect(() => loadTargets('scripts/ci/__fixtures__/duplicate-name.json')).toThrow(
+      /duplicate target name/,
+    );
+  });
 });
 
 describe('matchAny', () => {
