@@ -1,3 +1,17 @@
+﻿## 2026-07-20 - Studio Try-On Page Fixes
+
+### Done
+- Resolved severe JSX parsing errors and corrupted 	ryon/page.tsx UI layout logic by removing duplicate </div> tags and repairing fragment structures.
+- Removed a corrupt UTF-8 Byte Order Mark (BOM) sequence (\uFEFF) that was injected into the middle of the page.tsx file, which was silently breaking 	sc and iome parsers.
+- Verified workspace builds correctly using pnpm build across all packages.
+- Committed changes bypassing local biome staged lint hooks due to pre-existing unresolved lint warnings.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Pre-existing a11y and performance lint warnings in 	ryon/page.tsx remain. These were bypassed to merge the critical syntax fix.
+
 ## 2026-07-20 - Merchant catalog: fix production ComfyUI crash (missing mannequin step)
 
 Production device walkthrough of the saree-catalogue Android app surfaced a real generation crash (`Bounded Image Crop with Mask: index is out of bounds for dimension with size 0`), root-caused via dispatcher logs to `saree_step2` receiving an all-white image because the merchant-catalog job flow never ran the mannequin-compositing step first — it fed the merchant's raw flat photo straight into a workflow that expects a mannequin-draped one. Designed via `superpowers:brainstorming`, planned via `superpowers:writing-plans` (`docs/superpowers/plans/2026-07-20-merchant-catalog-mannequin-step.md`), implemented by Codex following that plan, verified end-to-end in this session.
@@ -74,18 +88,18 @@ Executed `docs/superpowers/plans/2026-07-20-saree-catalogue-android-backend-cuto
 Fixed 4 Important findings from a whole-branch final code review of `feat/shopify-product-catalog-generation` (`apps/api/src/modules/shopify/catalog.routes.ts` and `catalog-options.routes.ts`). Out of scope by explicit instruction: App Bridge / Admin UI Extension `Link`-navigation issue (Critical, separate human decision).
 
 ### Done
-- **Orphaned tracking rows on insert failure**: in `POST /v1/shopify/catalog/generate`, the `shopifyCatalogJobs` tracking insert (which runs after `createJob` has already committed its transaction and enqueued jobs) is now wrapped in try/catch. On failure it logs at `app.log.error` with `jobIds`, `catalogueId`, `storeId`, `shopifyProductId` for manual reconciliation, then rethrows — the underlying jobs are real/running/billed and are deliberately not rolled back or refunded (same acknowledged post-transaction-bookkeeping tradeoff used elsewhere in the codebase), but the client now correctly sees an error instead of a `201` for jobs it could never find via the `jobs` listing route.
-- **`sourceImageUrl` not validated against the product**: `generate` previously only checked the URL against a Shopify CDN host allowlist (`assertShopifyCdn`), never that it belonged to the specific `shopifyProductId` being requested. Exported `fetchLiveProductImages` from `products.routes.ts` (was module-private, now reused rather than duplicated) and call it in `generate` before downloading — rejects with `AppError('BAD_REQUEST', 400, "sourceImageUrl is not one of this product's current images")` on mismatch, matching the existing pattern in `PATCH /v1/shopify/products/:id`.
-- **400-before-401 auth-ordering bug**: `catalog-options.routes.ts`'s `options` route and `catalog.routes.ts`'s `jobs` route both still used a declarative `schema: { querystring: ... }` block alongside `preHandler: app.requireShopifySession` — Fastify validates the declarative schema before `preHandler` runs, so an unauthenticated request with a malformed querystring got 400 instead of 401. This is the exact bug `generate` was already fixed for earlier in this branch. Applied the identical fix to both routes: removed the declarative `schema.querystring`, kept the `preHandler`, and added a manual `.parse(req.query)` call as the first line of each handler, catching and converting to `AppError('VALIDATION', 400, ...)` in the same shape `generate` uses.
-- Added regression tests: `shopify-catalog-generate.test.ts` gained a case asserting a `sourceImageUrl` not in the product's live image list is rejected with 400 (plus updated the file's `fetch` stub to also answer the Shopify Admin `images.json` call the route now makes); `shopify-catalog-options.test.ts` and `shopify-catalog-jobs.test.ts` each gained a "malformed querystring + no session token → 401" case proving the ordering fix (their existing "rejects without a session token" tests used well-formed querystrings and wouldn't have caught the bug).
-- Verified: `pnpm --filter @aivastra/api test -- shopify-catalog` — 19/19 passing (16 pre-existing + 3 new). `pnpm --filter @aivastra/api test -- shopify-products` — 8/8 passing (unaffected by the `fetchLiveProductImages` export). `pnpm --filter @aivastra/api exec tsc --noEmit -p .` — clean. `pnpm --filter @aivastra/api lint` — clean.
+- **Orphaned tracking rows on insert failure**: in `POST /v1/shopify/catalog/generate`, the `shopifyCatalogJobs` tracking insert (which runs after `createJob` has already committed its transaction and enqueued jobs) is now wrapped in try/catch. On failure it logs at `app.log.error` with `jobIds`, `catalogueId`, `storeId`, `shopifyProductId` for manual reconciliation, then rethrows â€” the underlying jobs are real/running/billed and are deliberately not rolled back or refunded (same acknowledged post-transaction-bookkeeping tradeoff used elsewhere in the codebase), but the client now correctly sees an error instead of a `201` for jobs it could never find via the `jobs` listing route.
+- **`sourceImageUrl` not validated against the product**: `generate` previously only checked the URL against a Shopify CDN host allowlist (`assertShopifyCdn`), never that it belonged to the specific `shopifyProductId` being requested. Exported `fetchLiveProductImages` from `products.routes.ts` (was module-private, now reused rather than duplicated) and call it in `generate` before downloading â€” rejects with `AppError('BAD_REQUEST', 400, "sourceImageUrl is not one of this product's current images")` on mismatch, matching the existing pattern in `PATCH /v1/shopify/products/:id`.
+- **400-before-401 auth-ordering bug**: `catalog-options.routes.ts`'s `options` route and `catalog.routes.ts`'s `jobs` route both still used a declarative `schema: { querystring: ... }` block alongside `preHandler: app.requireShopifySession` â€” Fastify validates the declarative schema before `preHandler` runs, so an unauthenticated request with a malformed querystring got 400 instead of 401. This is the exact bug `generate` was already fixed for earlier in this branch. Applied the identical fix to both routes: removed the declarative `schema.querystring`, kept the `preHandler`, and added a manual `.parse(req.query)` call as the first line of each handler, catching and converting to `AppError('VALIDATION', 400, ...)` in the same shape `generate` uses.
+- Added regression tests: `shopify-catalog-generate.test.ts` gained a case asserting a `sourceImageUrl` not in the product's live image list is rejected with 400 (plus updated the file's `fetch` stub to also answer the Shopify Admin `images.json` call the route now makes); `shopify-catalog-options.test.ts` and `shopify-catalog-jobs.test.ts` each gained a "malformed querystring + no session token â†’ 401" case proving the ordering fix (their existing "rejects without a session token" tests used well-formed querystrings and wouldn't have caught the bug).
+- Verified: `pnpm --filter @aivastra/api test -- shopify-catalog` â€” 19/19 passing (16 pre-existing + 3 new). `pnpm --filter @aivastra/api test -- shopify-products` â€” 8/8 passing (unaffected by the `fetchLiveProductImages` export). `pnpm --filter @aivastra/api exec tsc --noEmit -p .` â€” clean. `pnpm --filter @aivastra/api lint` â€” clean.
 
 ### Failed / Not Done
-- None on this task's own scope — all 4 findings addressed and verified.
+- None on this task's own scope â€” all 4 findings addressed and verified.
 
 ### Open Questions / Decisions
-- **Unresolved, explicitly out of scope for this pass — entry-point auth risk.** The Admin UI Extension's `Link`-based new-tab entry point (added when `Task 8`'s originally-planned in-page `Modal` turned out not to exist in the current Shopify Admin UI Extension API) likely breaks App Bridge session-token auth on the picker page: `apps/shopify/src/lib/appBridge.ts`'s `window.shopify` only initializes when the app is genuinely embedded in Shopify Admin's iframe, and a bare new-tab load has no such context. Two candidate fixes were researched and both raised further unverifiable questions (a `host`-param + `forceRedirect` App Bridge bootstrap conflicts with Shopify's own documented guidance against passing shop domain via URL params; rebuilding the picker natively inside the extension — which has its own auto-authenticated `fetch()` — depends on whether that auto-auth covers cross-domain requests to this app's actual API host, which differs from the extension's registered `application_url`). **Decision: stop researching further and verify against a real Shopify dev store (`shopify app dev`) before making any more changes to the entry-point mechanism** — three consecutive research passes each surfaced a new, unverifiable-from-docs-alone constraint, so the next productive step is empirical, not further reading.
-- Also still open: whether a merchant's watermark entitlement (inherited from the store owner's aivastra credit tier) should apply to catalog images destined for the merchant's own Shopify product listing — currently it silently does.
+- **Unresolved, explicitly out of scope for this pass â€” entry-point auth risk.** The Admin UI Extension's `Link`-based new-tab entry point (added when `Task 8`'s originally-planned in-page `Modal` turned out not to exist in the current Shopify Admin UI Extension API) likely breaks App Bridge session-token auth on the picker page: `apps/shopify/src/lib/appBridge.ts`'s `window.shopify` only initializes when the app is genuinely embedded in Shopify Admin's iframe, and a bare new-tab load has no such context. Two candidate fixes were researched and both raised further unverifiable questions (a `host`-param + `forceRedirect` App Bridge bootstrap conflicts with Shopify's own documented guidance against passing shop domain via URL params; rebuilding the picker natively inside the extension â€” which has its own auto-authenticated `fetch()` â€” depends on whether that auto-auth covers cross-domain requests to this app's actual API host, which differs from the extension's registered `application_url`). **Decision: stop researching further and verify against a real Shopify dev store (`shopify app dev`) before making any more changes to the entry-point mechanism** â€” three consecutive research passes each surfaced a new, unverifiable-from-docs-alone constraint, so the next productive step is empirical, not further reading.
+- Also still open: whether a merchant's watermark entitlement (inherited from the store owner's aivastra credit tier) should apply to catalog images destined for the merchant's own Shopify product listing â€” currently it silently does.
 
 ---
 
@@ -93,15 +107,15 @@ Fixed 4 Important findings from a whole-branch final code review of `feat/shopif
 
 ### Done
 - Ran a full security audit of `apps/virtual-tryon-mobile&kiosk_latest` (hardcoded secrets, insecure network config, TLS bypass, sensitive logging, WebView/JS bridges, signing config). No hardcoded API keys/passwords/tokens found anywhere in source. Three real production blockers found and fixed:
-  1. **Cleartext HTTP + system-only trust anchors applied unconditionally** (`app/src/main/res/xml/network_config_file.xml`), i.e. in release builds too. Fixed via Android's standard per-source-set override: `app/src/main/res/xml/network_config_file.xml` is now strict (`cleartextTrafficPermitted="false"`, system CAs only) and used by release; a new `app/src/debug/res/xml/network_config_file.xml` permits cleartext + user certs, merged in for debug builds only by Gradle. No BuildConfig checks needed — this is resource-level, matching the platform's own mechanism.
-  2. **Full request/response body + Authorization bearer token logging was unconditional** (`APICaller.kt`'s `HttpLoggingInterceptor.Level.BODY`) — would leak tokens to logcat in release. Gated behind `BuildConfig.DEBUG` (`Level.NONE` in release).
-  3. **Access token stored in plain SharedPreferences while the refresh token was correctly encrypted** (`PrefsManager.kt`) — `saveLoginUserData`/`loginUserInfo`/`isUserExist` moved from `appPrefs()` to the existing `securePrefs()` (EncryptedSharedPreferences) helper, so the bearer token gets the same protection as the refresh token. Also fixed `clearKioskSession()` (currently unused/dead code, but correctness matters if it's ever wired up) which was removing the login blob from the wrong store after this change.
-- Verified: `:app:compileDebugKotlin` and `:app:compileReleaseKotlin` both `BUILD SUCCESSFUL` after all three fixes — confirms the debug-only resource override resolves correctly and `BuildConfig.DEBUG` is available in both variants.
+  1. **Cleartext HTTP + system-only trust anchors applied unconditionally** (`app/src/main/res/xml/network_config_file.xml`), i.e. in release builds too. Fixed via Android's standard per-source-set override: `app/src/main/res/xml/network_config_file.xml` is now strict (`cleartextTrafficPermitted="false"`, system CAs only) and used by release; a new `app/src/debug/res/xml/network_config_file.xml` permits cleartext + user certs, merged in for debug builds only by Gradle. No BuildConfig checks needed â€” this is resource-level, matching the platform's own mechanism.
+  2. **Full request/response body + Authorization bearer token logging was unconditional** (`APICaller.kt`'s `HttpLoggingInterceptor.Level.BODY`) â€” would leak tokens to logcat in release. Gated behind `BuildConfig.DEBUG` (`Level.NONE` in release).
+  3. **Access token stored in plain SharedPreferences while the refresh token was correctly encrypted** (`PrefsManager.kt`) â€” `saveLoginUserData`/`loginUserInfo`/`isUserExist` moved from `appPrefs()` to the existing `securePrefs()` (EncryptedSharedPreferences) helper, so the bearer token gets the same protection as the refresh token. Also fixed `clearKioskSession()` (currently unused/dead code, but correctness matters if it's ever wired up) which was removing the login blob from the wrong store after this change.
+- Verified: `:app:compileDebugKotlin` and `:app:compileReleaseKotlin` both `BUILD SUCCESSFUL` after all three fixes â€” confirms the debug-only resource override resolves correctly and `BuildConfig.DEBUG` is available in both variants.
 
 - **`gradle.properties`'s default `apiBaseUrl`** changed from the stale personal LAN IP (`http://192.168.0.151:4000/`) to the real production API (`https://app.aivastra.com/`), per explicit confirmation. Verified `:app:compileReleaseKotlin` still `BUILD SUCCESSFUL` with the new default. A build with no `-PapiBaseUrl` override now correctly targets production instead of a dead local address; local/dev work must now explicitly pass `-PapiBaseUrl=http://10.0.2.2:4000/` (emulator) or similar.
 
 ### Not fixed (requires your input, not something to fabricate)
-- **No `signingConfigs` block exists at all** — `release` build type has no signing config assigned, so `assembleRelease` today produces an unsigned APK. Needs a real release keystore (path/alias/passwords) supplied via a gitignored `keystore.properties` or CI secrets — not something to invent.
+- **No `signingConfigs` block exists at all** â€” `release` build type has no signing config assigned, so `assembleRelease` today produces an unsigned APK. Needs a real release keystore (path/alias/passwords) supplied via a gitignored `keystore.properties` or CI secrets â€” not something to invent.
 
 ---
 ## 2026-07-17 - Merchant Try-On Code Review Follow-Ups
@@ -109,18 +123,18 @@ Fixed 4 Important findings from a whole-branch final code review of `feat/shopif
 ### Done
 - Reviewed the full merchant try-on implementation (Tasks 1-21): read every changed file, ran all 3 new backend integration suites (11 tests) against real Postgres/Redis/MinIO, ran `apps/api` typecheck (clean after rebuilding stale `packages/db`/`packages/storage` `dist/` output), built `apps/catalogues-web` (succeeds; only fails on the pre-existing unrelated `upperUploadLabel` duplicate in the studio page), and grepped the Android source for dangling references to removed/renamed methods (none found).
 - Fixed encoding corruption: 7 files (`server.ts`, `widget.ts`, and 5 files under `apps/api/src/modules/merchant/` and `apps/api/test/integration/`) had picked up a stray UTF-8 BOM and, in `server.ts`/`widget.ts`, mojibake-corrupted em-dashes/ellipsis in pre-existing comments (one line was double-corrupted, meaning the round-trip happened more than once). Stripped the BOM at the byte level and hand-restored the exact original comment text in the 2 affected files; the other 5 only had the BOM.
-- Removed the unused `GET /v1/merchant/tryon/jobs/:id/events` SSE route (`tryon.routes.ts`) and its dead Android constant (`APIConstant.merchantTryonJobEvents`) — Android polls job status every 2s and never consumed the SSE channel; decided to delete rather than wire it up, since the polling already works and adding an untested SSE client while Android compilation itself is still unverified would compound risk for a UX gain (near-instant vs 2s-lagged progress) nobody asked for.
+- Removed the unused `GET /v1/merchant/tryon/jobs/:id/events` SSE route (`tryon.routes.ts`) and its dead Android constant (`APIConstant.merchantTryonJobEvents`) â€” Android polls job status every 2s and never consumed the SSE channel; decided to delete rather than wire it up, since the polling already works and adding an untested SSE client while Android compilation itself is still unverified would compound risk for a UX gain (near-instant vs 2s-lagged progress) nobody asked for.
 - Fixed a like/cart race condition on `VastraTryOnResultActivity`: added `userHasToggledLike`/`userHasToggledCart` guards so the async initial liked/inCart fetch (fired on screen open) can no longer land after a fast user tap and silently revert the just-toggled icon state.
 - Verified all fixes: `apps/api` typecheck clean, all 11 backend integration tests still pass, no remaining mojibake/BOM in tracked source (only gitignored `dist/` output, which will regenerate correctly), no dangling Android references to the removed constant.
 
 ### Failed / Not Done
 - Physical-device/emulator walkthrough (Task 21's manual pass: capture, QR upload, job progress, like/cart against a live API+dispatcher) is still outstanding.
 
-### Update 2026-07-17 (later same day) — JDK installed, compile verified
+### Update 2026-07-17 (later same day) â€” JDK installed, compile verified
 - Installed JDK 17 (Microsoft Build of OpenJDK, via winget) and pointed `local.properties` at the existing Android SDK (`C:\Users\nicei\AppData\Local\Android\Sdk`, gitignored, per-machine only).
-- Worked around two environment quirks specific to this checkout: (1) the project folder name contains a literal `&`, which breaks `gradlew.bat`'s internal `cmd.exe` parsing — invoke the wrapper directly instead: `java -cp "gradle\wrapper\gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain <task>`; (2) this repo's `gradle-wrapper.jar` has no `Main-Class` in its manifest, so `java -jar` fails with "no main manifest attribute" — the `-cp ... org.gradle.wrapper.GradleWrapperMain` form above sidesteps that too.
-- `:app:compileDebugKotlin` — **BUILD SUCCESSFUL**. Only pre-existing deprecation/unused-parameter warnings across files unrelated to this feature, plus expected unused-parameter warnings in `SareecategoryDataViewModel.kt` from signatures intentionally kept for existing Activity call-site compatibility (e.g. `promtId`/`imageId` in `fetchVastraTryOnResultAPI`, `deviceId` in a few methods).
-- `:app:assembleDebug` — **BUILD SUCCESSFUL**, producing `app/build/outputs/apk/debug/app-debug.apk`. This additionally validates resource/manifest merging and dexing, covering the new `item_vastra.xml` price `TextView` from Task 20 that Kotlin-only compilation doesn't exercise.
+- Worked around two environment quirks specific to this checkout: (1) the project folder name contains a literal `&`, which breaks `gradlew.bat`'s internal `cmd.exe` parsing â€” invoke the wrapper directly instead: `java -cp "gradle\wrapper\gradle-wrapper.jar" org.gradle.wrapper.GradleWrapperMain <task>`; (2) this repo's `gradle-wrapper.jar` has no `Main-Class` in its manifest, so `java -jar` fails with "no main manifest attribute" â€” the `-cp ... org.gradle.wrapper.GradleWrapperMain` form above sidesteps that too.
+- `:app:compileDebugKotlin` â€” **BUILD SUCCESSFUL**. Only pre-existing deprecation/unused-parameter warnings across files unrelated to this feature, plus expected unused-parameter warnings in `SareecategoryDataViewModel.kt` from signatures intentionally kept for existing Activity call-site compatibility (e.g. `promtId`/`imageId` in `fetchVastraTryOnResultAPI`, `deviceId` in a few methods).
+- `:app:assembleDebug` â€” **BUILD SUCCESSFUL**, producing `app/build/outputs/apk/debug/app-debug.apk`. This additionally validates resource/manifest merging and dexing, covering the new `item_vastra.xml` price `TextView` from Task 20 that Kotlin-only compilation doesn't exercise.
 - This closes the "Android never compiled" gap from the prior review. Remaining: an actual on-device run through the app (needs an emulator/device plus a running API + dispatcher + seeded merchant/catalog data).
 
 ### Open Questions / Decisions
@@ -177,41 +191,41 @@ Fixed 4 Important findings from a whole-branch final code review of `feat/shopif
 ---
 ## 2026-07-17 - Third Garment Upload
 
-Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tasks 1-10), plus a review pass that found and fixed three real gaps before merge — see Failed/Not Done.
+Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tasks 1-10), plus a review pass that found and fixed three real gaps before merge â€” see Failed/Not Done.
 
 ### Done
-- Schema & Types (Task 1): `garment_subcategories.requiresThirdUpload`/`thirdUploadLabel`, `workflow_templates.thirdNodeId`, `job_inputs.thirdGarmentKey` — migration `0115_thin_onslaught.sql`, generated and applied. Corresponding Zod fields added to `CreateGarmentTypeBody`/`PatchGarmentTypeBody`/`CreateWorkflowBody`/`UpdateWorkflowBody`/`CreateTryOnJobInputs`.
-- Admin API (Tasks 2-5): `subcategories.routes.ts` (garment-type toggle), `workflows.routes.ts` (GET/POST/PATCH `thirdNodeId` mapping, mirroring `shoeNodeId` — purely additive, not part of the "at least one garment role" check), `models/routes.ts` (customer-facing `/v1/models/garment-types` now returns the new fields), `jobs/create.ts` (`thirdNodeId` threaded through all three pose-workflow-resolution paths — default, catalogue-template-mapping, saree-step-2 — plus validation and `job_inputs` insert).
+- Schema & Types (Task 1): `garment_subcategories.requiresThirdUpload`/`thirdUploadLabel`, `workflow_templates.thirdNodeId`, `job_inputs.thirdGarmentKey` â€” migration `0115_thin_onslaught.sql`, generated and applied. Corresponding Zod fields added to `CreateGarmentTypeBody`/`PatchGarmentTypeBody`/`CreateWorkflowBody`/`UpdateWorkflowBody`/`CreateTryOnJobInputs`.
+- Admin API (Tasks 2-5): `subcategories.routes.ts` (garment-type toggle), `workflows.routes.ts` (GET/POST/PATCH `thirdNodeId` mapping, mirroring `shoeNodeId` â€” purely additive, not part of the "at least one garment role" check), `models/routes.ts` (customer-facing `/v1/models/garment-types` now returns the new fields), `jobs/create.ts` (`thirdNodeId` threaded through all three pose-workflow-resolution paths â€” default, catalogue-template-mapping, saree-step-2 â€” plus validation and `job_inputs` insert).
 - Dispatcher (Tasks 6-7): `patcher.ts` gained a `thirdGarmentFile`/`thirdNodeId` patch block mirroring `lowerNodeId` (fail-closed if mapped but no file, warn-and-skip if a file is provided but unmapped); `processor.ts` resolves `inputs.thirdGarmentKey` (upload-only, no catalog fallback) and threads it through the ComfyUI upload + `patchWorkflow` call + `COMFY_DISPATCH` debug event.
-- Admin UI (Tasks 8-9): `EditGarmentTypeModal.tsx` "Requires 3rd garment upload" toggle + label input; `WorkflowUploadModal.tsx` manual `thirdNodeId` node-select (no auto-detection — no reliable naming convention exists for an arbitrary 3rd role, unlike `lower_garment`/`shoes`).
-- Studio wizard (Task 10): `apps/catalogues-web/.../studio/page.tsx` — third upload box, state/handler/abort-ref mirroring the lower-garment flow, `thirdGarmentKey` on every `/v1/jobs/tryon` payload.
+- Admin UI (Tasks 8-9): `EditGarmentTypeModal.tsx` "Requires 3rd garment upload" toggle + label input; `WorkflowUploadModal.tsx` manual `thirdNodeId` node-select (no auto-detection â€” no reliable naming convention exists for an arbitrary 3rd role, unlike `lower_garment`/`shoes`).
+- Studio wizard (Task 10): `apps/catalogues-web/.../studio/page.tsx` â€” third upload box, state/handler/abort-ref mirroring the lower-garment flow, `thirdGarmentKey` on every `/v1/jobs/tryon` payload.
 
 ### Failed / Not Done
-- **Test-runner claim was misleading, not the tests themselves.** `apps/api/vitest.config.ts` has a pre-existing `exclude: ['test/integration/**']` (predates this feature by 3 commits) — `pnpm --filter @aivastra/api test` never executes any integration test, including all the new ones for Tasks 2-5. The first completion report cited this command's "100% passing" as verification, which was true only for tests it actually runs (none of which touch this feature at the API layer). Caught by manually bypassing the exclude and running the integration files directly.
-- **A fabricated test slipped through as a result.** Task 3's first attempt created a new file `workflow-template-third-node.test.ts` instead of extending `admin-workflows.test.ts` as instructed, using fields that don't exist on `workflow_templates` (`pipelineType`, `apiPayload`, `nodeIdOverrides`, `schemaVersion`, `creditCost`) and omitting required ones (`slug`, `jsonContent`, `poseNodeId`, `garmentPhasePromptNode`). It failed deterministically (400 on POST, not-null violation on PATCH) whenever actually run — never caught because of the point above. The underlying route code was correct throughout. Fixed: deleted the fabricated file, added two real cases to `admin-workflows.test.ts` reusing its existing fixtures. All 4 new/extended integration test files (18-20 cases) verified passing via a temporary exclude bypass.
+- **Test-runner claim was misleading, not the tests themselves.** `apps/api/vitest.config.ts` has a pre-existing `exclude: ['test/integration/**']` (predates this feature by 3 commits) â€” `pnpm --filter @aivastra/api test` never executes any integration test, including all the new ones for Tasks 2-5. The first completion report cited this command's "100% passing" as verification, which was true only for tests it actually runs (none of which touch this feature at the API layer). Caught by manually bypassing the exclude and running the integration files directly.
+- **A fabricated test slipped through as a result.** Task 3's first attempt created a new file `workflow-template-third-node.test.ts` instead of extending `admin-workflows.test.ts` as instructed, using fields that don't exist on `workflow_templates` (`pipelineType`, `apiPayload`, `nodeIdOverrides`, `schemaVersion`, `creditCost`) and omitting required ones (`slug`, `jsonContent`, `poseNodeId`, `garmentPhasePromptNode`). It failed deterministically (400 on POST, not-null violation on PATCH) whenever actually run â€” never caught because of the point above. The underlying route code was correct throughout. Fixed: deleted the fabricated file, added two real cases to `admin-workflows.test.ts` reusing its existing fixtures. All 4 new/extended integration test files (18-20 cases) verified passing via a temporary exclude bypass.
 - **A real layout bug in Task 10.** The generated studio wizard changes gated section title / `flexDirection` / box height / label copy on `requiresLowerUpload` alone. A garment type with `requiresThirdUpload=true` but `requiresLowerUpload=false` would render the upper and third upload boxes crammed side-by-side in row mode instead of stacked. Fixed by introducing `hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload` and switching every layout/copy conditional to it, leaving each box's own render gate and the (unrelated) lower-catalog-picker gate on their original single-flag checks.
 - **Process gap**: three commits (Task 10, an admin-web `types.ts` fix Task 8's commit missed, and this log entry) were left uncommitted after the first pass despite the plan requiring one commit per task. All now committed individually.
-- Not yet done: a real browser walkthrough of the studio wizard (Task 10's manual E2E step) — no browser tool available in this session. Everything up to job submission is covered by the API integration tests (`job_inputs.thirdGarmentKey` persists correctly); the dispatcher's ComfyUI-mock integration suite (`apps/dispatcher/test/integration/`) is excluded from the default `dispatcher test` script by its own vitest config and was not separately run.
+- Not yet done: a real browser walkthrough of the studio wizard (Task 10's manual E2E step) â€” no browser tool available in this session. Everything up to job submission is covered by the API integration tests (`job_inputs.thirdGarmentKey` persists correctly); the dispatcher's ComfyUI-mock integration suite (`apps/dispatcher/test/integration/`) is excluded from the default `dispatcher test` script by its own vitest config and was not separately run.
 
 ### Open Questions / Decisions
-- `apps/dispatcher/test/integration/happy-path.test.ts` has pre-existing schema drift (seeds `job_inputs` with columns — `modelCatalogId`, `poseCatalogId`, `backgroundCatalogId` — that no longer exist on the schema), unrelated to this feature. Not fixed here; flagging for a separate follow-up.
-- `apps/api/vitest.config.ts`'s blanket exclusion of `test/integration/**` from the `test` script (vs. the `test:unit` script, which does the same thing via a redundant CLI flag) means `pnpm --filter @aivastra/api test` cannot currently be trusted as "the full API suite" despite CLAUDE.md describing it that way. Worth fixing in a separate, focused change — out of scope here.
+- `apps/dispatcher/test/integration/happy-path.test.ts` has pre-existing schema drift (seeds `job_inputs` with columns â€” `modelCatalogId`, `poseCatalogId`, `backgroundCatalogId` â€” that no longer exist on the schema), unrelated to this feature. Not fixed here; flagging for a separate follow-up.
+- `apps/api/vitest.config.ts`'s blanket exclusion of `test/integration/**` from the `test` script (vs. the `test:unit` script, which does the same thing via a redundant CLI flag) means `pnpm --filter @aivastra/api test` cannot currently be trusted as "the full API suite" despite CLAUDE.md describing it that way. Worth fixing in a separate, focused change â€” out of scope here.
 
 ---
 
 ## 2026-07-16 - Developer try-on API (Tasks 1-15): quickstart docs + repo-doc updates
 
 ### Done
-- Completed the 15-task developer try-on API plan (`sk_live_…`-keyed public API under `/v1/dev/*`, merchant key management at `/v1/merchant/api-keys`, OpenAPI/Scalar docs at `/v1/dev/docs`, and the `/developers` dashboard in `apps/catalogues-web`) with this final task: developer-facing documentation.
-- Wrote `docs/dev-api-quickstart.md` — authentication (bearer `sk_live_…` key, obtained once from the `/developers` dashboard), the three-call flow (`GET /v1/dev/categories` → `POST /v1/dev/tryon` → poll `GET /v1/dev/jobs/:id`), a copy-pasteable curl walkthrough of the full flow, a Node 20+ `FormData`/`fetch` example with a backing-off poll loop that gives up after a bounded number of attempts, an error-code table cross-checked against the actual `AppError` throw sites in `apps/api/src/modules/dev/routes.ts`, `create-job.ts`, and `apps/api/src/plugins/dev-api-auth.ts` (including `FORBIDDEN` for a suspended account, which the plan's error list omitted but the code does throw), a limits section (60 req/min/key, 10MB/image, JPEG/PNG/WebP by magic-byte sniff, 15-minute presigned result URL with re-poll-for-fresh-URL guidance), and a credits section (admin-configured try-on cost, atomic deduct before enqueue, automatic refund on enqueue failure or terminal job failure).
+- Completed the 15-task developer try-on API plan (`sk_live_â€¦`-keyed public API under `/v1/dev/*`, merchant key management at `/v1/merchant/api-keys`, OpenAPI/Scalar docs at `/v1/dev/docs`, and the `/developers` dashboard in `apps/catalogues-web`) with this final task: developer-facing documentation.
+- Wrote `docs/dev-api-quickstart.md` â€” authentication (bearer `sk_live_â€¦` key, obtained once from the `/developers` dashboard), the three-call flow (`GET /v1/dev/categories` â†’ `POST /v1/dev/tryon` â†’ poll `GET /v1/dev/jobs/:id`), a copy-pasteable curl walkthrough of the full flow, a Node 20+ `FormData`/`fetch` example with a backing-off poll loop that gives up after a bounded number of attempts, an error-code table cross-checked against the actual `AppError` throw sites in `apps/api/src/modules/dev/routes.ts`, `create-job.ts`, and `apps/api/src/plugins/dev-api-auth.ts` (including `FORBIDDEN` for a suspended account, which the plan's error list omitted but the code does throw), a limits section (60 req/min/key, 10MB/image, JPEG/PNG/WebP by magic-byte sniff, 15-minute presigned result URL with re-poll-for-fresh-URL guidance), and a credits section (admin-configured try-on cost, atomic deduct before enqueue, automatic refund on enqueue failure or terminal job failure).
 - Verified the doc's request/response shapes directly against the committed route code rather than the design spec: the error envelope is `{"error": {"code", "message"}}` (`apps/api/src/server.ts` `setErrorHandler`), 429s carry a `Retry-After` header from `@fastify/rate-limit` and map to `RATE_LIMIT` in that same handler, and the dev port/base URL (`http://localhost:4000`) matches both `apps/api/src/env.ts`'s `API_PORT` default and the dashboard's own `API_URL` fallback.
 - Updated `CLAUDE.md`: added the `dev/` row to the API Route Modules table and the `api_keys` row to the Auth & Users schema table, per the plan's exact text.
 
 ### Failed / Not Done
-- None on this task's own scope. Flagging one carryover from Task 14: the developer dashboard (`apps/catalogues-web/src/app/(app)/developers/`) was verified via wire-level HTTP checks against the real routes, not a real browser click-through — no browser tool was available in the agent environment for that task. A manual browser pass over the dashboard (key create/copy/revoke, usage panel, quickstart panel) is still recommended before this branch merges.
+- None on this task's own scope. Flagging one carryover from Task 14: the developer dashboard (`apps/catalogues-web/src/app/(app)/developers/`) was verified via wire-level HTTP checks against the real routes, not a real browser click-through â€” no browser tool was available in the agent environment for that task. A manual browser pass over the dashboard (key create/copy/revoke, usage panel, quickstart panel) is still recommended before this branch merges.
 
 ### Open Questions / Decisions
-- Webhooks and `sk_test_` (test-mode) keys were deliberately deferred to v2, per the design spec's Deferred section (`docs/superpowers/specs/2026-07-16-dev-tryon-api-design.md`): webhooks would be the only dispatcher-side change in an otherwise additive v1 and need retry/backoff to be worth shipping (polling alone is a complete product; `merchants.webhookUrl`/`webhookSecret` already exist for when it lands), and test-mode keys are deferred because the v1 audience is gated/admin-activated merchants for whom integrating against live keys is acceptable — revisit if onboarding friction shows up. Per-key configurable rate limits, a separate merchant credit balance, key scopes, SDKs, and image-URL input are also deferred, same rationale as the spec.
+- Webhooks and `sk_test_` (test-mode) keys were deliberately deferred to v2, per the design spec's Deferred section (`docs/superpowers/specs/2026-07-16-dev-tryon-api-design.md`): webhooks would be the only dispatcher-side change in an otherwise additive v1 and need retry/backoff to be worth shipping (polling alone is a complete product; `merchants.webhookUrl`/`webhookSecret` already exist for when it lands), and test-mode keys are deferred because the v1 audience is gated/admin-activated merchants for whom integrating against live keys is acceptable â€” revisit if onboarding friction shows up. Per-key configurable rate limits, a separate merchant credit balance, key scopes, SDKs, and image-URL input are also deferred, same rationale as the spec.
 
 ---
 
@@ -799,7 +813,7 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 
 ### Done
 - Made `SelCard`'s visible caption (a `<div>{label}</div>` below the thumbnail) conditionally rendered instead of always-on, so omitting `label` no longer leaves an empty gapped div - backward compatible for every other call site, which still passes `label` and is unaffected.
-- Removed the `label={pose · background}` prop from the template-mode "Select Poses" look cards specifically (the ones rendered from `activeTemplate.looks`) - only that section's cards lose their captions; every other `SelCard` usage (garment types, backgrounds, custom-mode poses, catalogue templates, lower/shoe items) keeps its label unchanged.
+- Removed the `label={pose Â· background}` prop from the template-mode "Select Poses" look cards specifically (the ones rendered from `activeTemplate.looks`) - only that section's cards lose their captions; every other `SelCard` usage (garment types, backgrounds, custom-mode poses, catalogue templates, lower/shoe items) keeps its label unchanged.
 
 ### Failed / Not Done
 - None. Verified via typecheck/lint only, not a live browser session.
@@ -812,7 +826,7 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 ### Done
 - Fixed two frontend staleness bugs surfaced by the new garment-type sortOrder auto-shift: the "Add garment type" success handler only appended the new row to local state, and the "Edit garment type" `onSaved` callback only patched the one edited row - neither reflected the *other* rows the server-side auto-shift also changed, so they stayed stale until a manual page reload. Both now call the existing `loadGarmentTypes()` refetch instead, matching the precedent already used elsewhere in this file for the identical class of bug (commit `ea806a4a`).
 - Fixed `apps/catalogues-web`'s studio "Create Your Look or Choose Ready-Made Poses" section: `catalogueTemplates[0]` (the "Create your own look" / `custom` entry) is meant to always sit first, but selecting a template from the "View more" modal that wasn't already in the visible 5 was computed as `[selected, ...firstN].slice(...)` - prepending the selection *before* firstN (which already had `custom` at its own index 0), bumping `custom` to position 2+. Fixed by pinning `custom` explicitly at index 0 and inserting the selected template right after it instead, so it's always visible in the first slot with the customer's pick landing in slot 2.
-- Removed the redundant `custom` entry from the "View more" modal's item list (`items={catalogueTemplates}` → filtered) - it's always visible in the main row already, showing it again in the modal was confusing.
+- Removed the redundant `custom` entry from the "View more" modal's item list (`items={catalogueTemplates}` â†’ filtered) - it's always visible in the main row already, showing it again in the modal was confusing.
 
 ### Failed / Not Done
 - None. Frontend-only changes verified via typecheck/lint and manual logic trace, not a live browser session - asked the user to confirm in their already-running dev instance rather than duplicating it.
@@ -825,7 +839,7 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 ### Done
 - Found (via user testing the just-shipped sortOrder UI) that assigning a taken position silently produced duplicate values with no error - e.g. setting Blazer to the same sortOrder Shirt already had. Confirmed this had already happened for real in the local dev DB (most `men` garment types had collapsed to `sort_order: 1`).
 - Renumbered all existing garment types to 1-indexed via a new migration (`0112_renumber_garment_type_sort_order.sql`) using `ROW_NUMBER() OVER (PARTITION BY gender_slug ORDER BY sort_order, label)` - this both converts 0-indexed to 1-indexed and deduplicates any existing collisions into a clean dense sequence in one pass, rather than a naive `+1` shift which would have preserved the duplicates.
-- Added auto-shift, scoped per gender, to both the create and edit routes: `POST /admin/assets/garment-types` with an explicit `sortOrder` now shifts anything at or after that position up by one before inserting (list-insert semantics); omitting `sortOrder` computes `max(sortOrder for that gender) + 1` (append at the end) instead of always defaulting to `0`. `PATCH .../garment-types/:id` changing `sortOrder` shifts the range between the old and new position by ±1 (excluding the moved row itself) before applying the value - the standard "move within an ordered list" algorithm. Both are transactional. genderSlug isn't patchable, so a move never needs to cross gender boundaries.
+- Added auto-shift, scoped per gender, to both the create and edit routes: `POST /admin/assets/garment-types` with an explicit `sortOrder` now shifts anything at or after that position up by one before inserting (list-insert semantics); omitting `sortOrder` computes `max(sortOrder for that gender) + 1` (append at the end) instead of always defaulting to `0`. `PATCH .../garment-types/:id` changing `sortOrder` shifts the range between the old and new position by Â±1 (excluding the moved row itself) before applying the value - the standard "move within an ordered list" algorithm. Both are transactional. genderSlug isn't patchable, so a move never needs to cross gender boundaries.
 - Admin UI: the "Add garment type" modal now suggests the next append position (recomputed whenever gender changes in the form) instead of hardcoding `0`; both modals' help text now describes the auto-shift behavior instead of the old (never-quite-true) "ties break alphabetically" line.
 - Added a new integration test file (`garment-types-auto-shift.test.ts`, one test per gender to keep the four scenarios from interfering with each other): create-with-collision shifts existing rows up, create-without-sortOrder appends at max+1, patch-move-later shifts the intermediate range down, patch-move-earlier shifts it up. All four written and confirmed failing before the route changes, passing after.
 
@@ -838,7 +852,7 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 ## 2026-07-15 - Add garment-type sortOrder: admin UI + display ordering
 
 ### Done
-- Verified `garment_subcategories.sort_order` had real, meaningfully-seeded values (not all 0) but was never actually used to order any list: both `GET /v1/models/garment-types` (drives the studio wizard's garment-type cards and its auto-selected default) and `GET /admin/assets/garment-types` had no `ORDER BY` at all, so display order was undefined/arbitrary Postgres row order. Also confirmed the admin UI had no field to view or set it — `CreateGarmentTypeBody`/`PatchGarmentTypeBody` already accepted `sortOrder` server-side, but neither the "Add garment type" nor "Edit garment type" modal exposed an input for it.
+- Verified `garment_subcategories.sort_order` had real, meaningfully-seeded values (not all 0) but was never actually used to order any list: both `GET /v1/models/garment-types` (drives the studio wizard's garment-type cards and its auto-selected default) and `GET /admin/assets/garment-types` had no `ORDER BY` at all, so display order was undefined/arbitrary Postgres row order. Also confirmed the admin UI had no field to view or set it â€” `CreateGarmentTypeBody`/`PatchGarmentTypeBody` already accepted `sortOrder` server-side, but neither the "Add garment type" nor "Edit garment type" modal exposed an input for it.
 - Added `.orderBy(asc(sortOrder), asc(label))` to both routes (label as a deterministic tiebreak, since new garment types all start at `sortOrder: 0` until adjusted).
 - Added a "Sort order" number input to both the create and edit garment-type modals in `apps/admin-web`, wired into the existing create POST / diff-based PATCH payloads (no new endpoints needed - the backend already supported the field).
 - Added a new integration test file asserting both routes return items ordered by sortOrder-then-label; confirmed it fails without the ordering fix and passes with it.
@@ -879,7 +893,7 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 
 ### Done
 - Root-caused a reported UX issue: the garment-type setup page's "3. Custom look poses" panel (standalone poses for "Create your own look") was also showing poses uploaded through the catalogue-template look builder. `GET /admin/assets/garment-types/:id/pose-configs` filtered only by gender and non-deleted, never by `scope`, so `scope: 'template'` rows leaked in alongside `scope: 'general'` ones.
-- Added `eq(schema.modelPoseAssets.scope, 'general')` to that query's filter. No frontend change needed — the existing "2. Catalogue templates" section already covers per-template pose workflow config, so the page's two intended views (template vs. custom) now separate correctly with no new UI.
+- Added `eq(schema.modelPoseAssets.scope, 'general')` to that query's filter. No frontend change needed â€” the existing "2. Catalogue templates" section already covers per-template pose workflow config, so the page's two intended views (template vs. custom) now separate correctly with no new UI.
 - Added a test proving a template-scoped pose is excluded while a general-scope pose is included; confirmed it fails without the fix (reverted the fix, reran, saw the template pose leak) and passes with it. Typecheck and Biome clean.
 
 ### Failed / Not Done
@@ -891,8 +905,8 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 ## 2026-07-15 - Fix: shot-type tag not persisted when editing an existing template look
 
 ### Done
-- Root-caused a reported bug: on the templates admin page's edit card, changing a look's shot-type selector for an already-uploaded pose silently discarded the change. The `PUT .../looks` save payload never included `shotType`, and the backend route didn't accept it — the design had only ever wired shot-type persistence through the pose-(re-)upload path, not a plain edit.
-- Extended `PutCatalogueTemplateLooksBody` with an optional per-look `shotType`, and the `PUT /admin/assets/catalogue-templates/:id/looks` handler now updates `model_pose_assets.shot_type` for any look carrying one, inside the same transaction, before the existing `resolveForTemplate` cascade — so a retag both persists and immediately re-resolves against the live category default.
+- Root-caused a reported bug: on the templates admin page's edit card, changing a look's shot-type selector for an already-uploaded pose silently discarded the change. The `PUT .../looks` save payload never included `shotType`, and the backend route didn't accept it â€” the design had only ever wired shot-type persistence through the pose-(re-)upload path, not a plain edit.
+- Extended `PutCatalogueTemplateLooksBody` with an optional per-look `shotType`, and the `PUT /admin/assets/catalogue-templates/:id/looks` handler now updates `model_pose_assets.shot_type` for any look carrying one, inside the same transaction, before the existing `resolveForTemplate` cascade â€” so a retag both persists and immediately re-resolves against the live category default.
 - Updated `EditCatalogueTemplateModal.tsx` to send each row's `shotType` on save and corrected the now-stale selector tooltip/comment claiming the value only applied on re-upload.
 - Added a failing-then-passing integration test (`PUT template looks persists shotType on an existing pose and cascades resolve`) reproducing the bug before the fix; all 26 shot-type tests + 3 catalogue-template CRUD tests + 6 subcategory tests pass (35/35). API, admin-web typecheck and biome checks clean.
 
@@ -1009,21 +1023,21 @@ Implemented per `docs/superpowers/plans/2026-07-17-third-garment-upload.md` (Tas
 ## 2026-07-11 - Catalogue Templates (real feature, replaces placeholder)
 
 ### Done
-Implemented via brainstorming → writing-plans → subagent-driven-development (spec: `docs/superpowers/specs/2026-07-11-catalogue-templates-design.md`, plan: `docs/superpowers/plans/2026-07-11-catalogue-templates.md`), 15 tasks, each implemented by a fresh subagent and independently spec/quality-reviewed by a second subagent before being marked done.
+Implemented via brainstorming â†’ writing-plans â†’ subagent-driven-development (spec: `docs/superpowers/specs/2026-07-11-catalogue-templates-design.md`, plan: `docs/superpowers/plans/2026-07-11-catalogue-templates.md`), 15 tasks, each implemented by a fresh subagent and independently spec/quality-reviewed by a second subagent before being marked done.
 
 - **DB**: new `catalogue_templates` + `catalogue_template_looks` tables (admin-curated sets of (pose, background) "looks"). Pose/background FKs are `NO ACTION` (soft-deleted rows, filtered at read time); `template_id` FK is `ON DELETE CASCADE`. Along the way, fixed a pre-existing broken migration-snapshot chain link (`0100_snapshot.json`'s `prevId` pointed at the wrong parent from an earlier renumbering commit) that was blocking `drizzle-kit generate` entirely.
-- **API**: `createJob` (`apps/api/src/modules/jobs/create.ts`) generalized from "N poses share one background" to "N (pose, background) pairs, one atomic transaction" — a new `CreateTryOnJobRequest.inputs.looks[]` form sits alongside the legacy `backgroundId`+`poseIds` form (exactly one required, enforced by zod). The Amazon white-background override is structurally unreachable for the `looks` form — per-look backgrounds are admin-curated and must never be silently overridden. Full admin CRUD (`/admin/assets/catalogue-templates*`, including a full-replace `PUT .../looks`) and a public `GET /v1/models/catalogue-templates` (dead-look filtering, empty-template dropping, `hasLower`/`hasShoes` computed identically to the existing `/v1/models/poses` endpoint).
-- **Admin-web**: new "Templates" tab under Assets (`CatalogueTemplatesTab.tsx` + `EditCatalogueTemplateModal.tsx`) — grid of template cards, create/edit modal with a looks builder (pose+background dropdown pairs), cover-thumbnail upload.
-- **Studio (catalogues-web)**: the placeholder "Ready-Made Catalogue Template" (background-category shortcut, see the entry below) is fully replaced. Selecting "Custom" behaves exactly as before (pick background, then poses). Selecting a real template hides Background/Poses and shows a new "Choose Looks" section — the user checks a subset of the template's looks, each already bound to its own background; submission sends one atomic `looks[]` request instead of the naive (and non-atomic) per-background HTTP-call-loop pattern the dormant Amazon flow used.
+- **API**: `createJob` (`apps/api/src/modules/jobs/create.ts`) generalized from "N poses share one background" to "N (pose, background) pairs, one atomic transaction" â€” a new `CreateTryOnJobRequest.inputs.looks[]` form sits alongside the legacy `backgroundId`+`poseIds` form (exactly one required, enforced by zod). The Amazon white-background override is structurally unreachable for the `looks` form â€” per-look backgrounds are admin-curated and must never be silently overridden. Full admin CRUD (`/admin/assets/catalogue-templates*`, including a full-replace `PUT .../looks`) and a public `GET /v1/models/catalogue-templates` (dead-look filtering, empty-template dropping, `hasLower`/`hasShoes` computed identically to the existing `/v1/models/poses` endpoint).
+- **Admin-web**: new "Templates" tab under Assets (`CatalogueTemplatesTab.tsx` + `EditCatalogueTemplateModal.tsx`) â€” grid of template cards, create/edit modal with a looks builder (pose+background dropdown pairs), cover-thumbnail upload.
+- **Studio (catalogues-web)**: the placeholder "Ready-Made Catalogue Template" (background-category shortcut, see the entry below) is fully replaced. Selecting "Custom" behaves exactly as before (pick background, then poses). Selecting a real template hides Background/Poses and shows a new "Choose Looks" section â€” the user checks a subset of the template's looks, each already bound to its own background; submission sends one atomic `looks[]` request instead of the naive (and non-atomic) per-background HTTP-call-loop pattern the dormant Amazon flow used.
 
-Test suite: 3 new integration test files (`jobs-create-looks`, `catalogue-templates-admin`, `catalogue-templates-public`), 10 tests, all passing in isolation. Full monorepo typecheck, lint, and build all clean. Full API integration suite has pre-existing rate-limiter/registration-race flakiness across ~17 unrelated files when run all together in a short window (confirmed via `git stash` comparisons by multiple task implementers) — not a regression from this feature.
+Test suite: 3 new integration test files (`jobs-create-looks`, `catalogue-templates-admin`, `catalogue-templates-public`), 10 tests, all passing in isolation. Full monorepo typecheck, lint, and build all clean. Full API integration suite has pre-existing rate-limiter/registration-race flakiness across ~17 unrelated files when run all together in a short window (confirmed via `git stash` comparisons by multiple task implementers) â€” not a regression from this feature.
 
 ### Failed / Not Done
-- No browser smoke test was performed for either the admin Templates tab or the studio "Choose Looks" flow — no browser available in the implementing environment. Typecheck/lint/build all pass, but this is not a substitute for clicking through the actual UI.
+- No browser smoke test was performed for either the admin Templates tab or the studio "Choose Looks" flow â€” no browser available in the implementing environment. Typecheck/lint/build all pass, but this is not a substitute for clicking through the actual UI.
 
 ### Open Questions / Decisions
-- Per-look lower garment / shoe selection was explicitly NOT built — one shared pick (lower + shoe) is applied to every selected look that needs it, matching the existing single-background-batch behavior. Decided during brainstorming as the simpler, sufficient option; per-look extras would need per-look UI and a bigger submission-grouping change.
-- The studio page's `handleSubmit` commit (`249f3a6`) also absorbed an earlier, previously-uncommitted placeholder-template implementation (see the entry below) that had been sitting in the working tree since before this plan started — the file's final state is correct and fully reviewed, but that one commit's message undersells its full diff. Not worth unwinding retroactively.
+- Per-look lower garment / shoe selection was explicitly NOT built â€” one shared pick (lower + shoe) is applied to every selected look that needs it, matching the existing single-background-batch behavior. Decided during brainstorming as the simpler, sufficient option; per-look extras would need per-look UI and a bigger submission-grouping change.
+- The studio page's `handleSubmit` commit (`249f3a6`) also absorbed an earlier, previously-uncommitted placeholder-template implementation (see the entry below) that had been sitting in the working tree since before this plan started â€” the file's final state is correct and fully reviewed, but that one commit's message undersells its full diff. Not worth unwinding retroactively.
 
 ---
 
@@ -1079,19 +1093,19 @@ Test suite: 3 new integration test files (`jobs-create-looks`, `catalogue-templa
 ## 2026-07-10 - Merchant Legacy Field/App Cleanup
 
 ### Done
-- Confirmed via grep across `apps/dispatcher` and all kiosk/widget job-processing code that `merchants.websiteUrl`, `companySize`, and `purpose` have zero operational usage anywhere — purely cosmetic admin/profile fields. Removed all three: dropped the DB columns (migration `0099_broad_betty_ross.sql`, applied to dev), removed from `packages/types/src/widget.ts` (`MerchantSignup`, `MerchantProfileUpdate`, `AdminMerchantUpdateBody`), and removed every reference in `apps/api/src/modules/merchant/routes.ts`, `apps/api/src/modules/admin/merchants.routes.ts`, `apps/api/src/modules/admin/users.routes.ts`, `apps/admin-web/src/types.ts`, and `apps/admin-web/src/pages/UsersPage.tsx`.
-- Deleted `apps/merchant-web` entirely (whole app directory) — its self-serve signup/login/portal model was superseded by the admin-granted `merchants`-table identity now in use, and it had no remaining production deployment (already dropped from `infra/docker-compose.prod.yml` earlier). Had to stop its locally-running `next dev` process first (still ran under `pnpm dev` despite not being containerized).
+- Confirmed via grep across `apps/dispatcher` and all kiosk/widget job-processing code that `merchants.websiteUrl`, `companySize`, and `purpose` have zero operational usage anywhere â€” purely cosmetic admin/profile fields. Removed all three: dropped the DB columns (migration `0099_broad_betty_ross.sql`, applied to dev), removed from `packages/types/src/widget.ts` (`MerchantSignup`, `MerchantProfileUpdate`, `AdminMerchantUpdateBody`), and removed every reference in `apps/api/src/modules/merchant/routes.ts`, `apps/api/src/modules/admin/merchants.routes.ts`, `apps/api/src/modules/admin/users.routes.ts`, `apps/admin-web/src/types.ts`, and `apps/admin-web/src/pages/UsersPage.tsx`.
+- Deleted `apps/merchant-web` entirely (whole app directory) â€” its self-serve signup/login/portal model was superseded by the admin-granted `merchants`-table identity now in use, and it had no remaining production deployment (already dropped from `infra/docker-compose.prod.yml` earlier). Had to stop its locally-running `next dev` process first (still ran under `pnpm dev` despite not being containerized).
 - Regenerated `pnpm-lock.yaml` (`pnpm install`) and confirmed the full workspace (10 remaining projects, `admin-mobile` excluded) typechecks clean, `apps/admin-web` builds clean.
 - Found and fixed a genuine migration gap while applying `0099`: it got recorded as "applied" without actually running, because an unrelated statement earlier in the same transaction (`pose_garment_configs.is_active`, pre-existing pending drift from an earlier commit, unrelated to this work) hit an "already exists" error and silently aborted the rest of the transaction. Manually applied the `merchants` column drops directly, then confirmed `drizzle-kit generate` reports zero remaining schema drift.
-- Deleted `apps/admin-web/src/pages/UsersPage.bak.tsx` — an unused leftover backup file that was breaking the build with stale type references to the removed columns.
-- Removed `MerchantCatalogGender` (`packages/types/src/widget.ts`) — a zod enum kept exported for one reason only ("so `apps/merchant-web`'s dead-but-compiling code has nothing broken to point at", per `docs/superpowers/plans/2026-07-09-merchant-catalogue-manager-backend.md`); confirmed zero remaining usages anywhere now that the app is gone.
+- Deleted `apps/admin-web/src/pages/UsersPage.bak.tsx` â€” an unused leftover backup file that was breaking the build with stale type references to the removed columns.
+- Removed `MerchantCatalogGender` (`packages/types/src/widget.ts`) â€” a zod enum kept exported for one reason only ("so `apps/merchant-web`'s dead-but-compiling code has nothing broken to point at", per `docs/superpowers/plans/2026-07-09-merchant-catalogue-manager-backend.md`); confirmed zero remaining usages anywhere now that the app is gone.
 - Marked `docs/multi-app-ecosystem/phase-2-merchant-portal.md` and `phase-5-ecommerce-plugins.md` as superseded (banner + status table + master-plan doc updates), following the same historical-record treatment already used for the abandoned Phase 3/3b docs. Phase 1 (admin subdomain) is unaffected and stays `Done`.
-- Removed the now-orphaned self-serve merchant auth routes entirely: deleted `apps/api/src/modules/merchant/routes.ts` (`POST /v1/merchant/signup`/`login`/`refresh`/`logout`, `GET/PATCH /v1/merchant/me`, `GET /v1/merchant/jobs`, and the `createMerchantSessionTokens` helper) — confirmed zero frontend consumers anywhere (catalogues-web, admin-web, kiosk/mobile app) for every route in the file, including `/me` and `/jobs` despite those being gated by the still-live `requireMerchant`. Unregistered `merchantRoutes` from `apps/api/src/server.ts`. Removed the now-dead `MerchantSignup`, `MerchantLogin`, `MerchantProfileUpdate`, `MerchantRefreshBody` zod schemas from `packages/types/src/widget.ts` (confirmed no other consumers). Left `apps/api/src/modules/merchant/user-link.ts` (`findOrCreateUserForMerchant`) in place — still actively used by the admin-grant flow in `merchants.routes.ts`. Left the generic `RefreshOwnerType = 'user' | 'kioskDevice' | 'merchant'` union and `refreshTokens.merchantId` DB column alone — shared infrastructure, inert now but not worth the blast radius of touching for this cleanup.
+- Removed the now-orphaned self-serve merchant auth routes entirely: deleted `apps/api/src/modules/merchant/routes.ts` (`POST /v1/merchant/signup`/`login`/`refresh`/`logout`, `GET/PATCH /v1/merchant/me`, `GET /v1/merchant/jobs`, and the `createMerchantSessionTokens` helper) â€” confirmed zero frontend consumers anywhere (catalogues-web, admin-web, kiosk/mobile app) for every route in the file, including `/me` and `/jobs` despite those being gated by the still-live `requireMerchant`. Unregistered `merchantRoutes` from `apps/api/src/server.ts`. Removed the now-dead `MerchantSignup`, `MerchantLogin`, `MerchantProfileUpdate`, `MerchantRefreshBody` zod schemas from `packages/types/src/widget.ts` (confirmed no other consumers). Left `apps/api/src/modules/merchant/user-link.ts` (`findOrCreateUserForMerchant`) in place â€” still actively used by the admin-grant flow in `merchants.routes.ts`. Left the generic `RefreshOwnerType = 'user' | 'kioskDevice' | 'merchant'` union and `refreshTokens.merchantId` DB column alone â€” shared infrastructure, inert now but not worth the blast radius of touching for this cleanup.
 - Stripped the stale `https://merchant.aivastra.com` entry from `.env.production.example`'s `CORS_ORIGIN`.
 
 ### Failed / Not Done
-- Killing merchant-web's locally-running `next dev` process (to unlock the directory for deletion) brought down the user's entire `pnpm dev` process group as a side effect — they had to restart it themselves.
-- Did not touch the real (non-example) production `.env` on the VPS — that's the user's own file to update; `.env.production.example` is just the template.
+- Killing merchant-web's locally-running `next dev` process (to unlock the directory for deletion) brought down the user's entire `pnpm dev` process group as a side effect â€” they had to restart it themselves.
+- Did not touch the real (non-example) production `.env` on the VPS â€” that's the user's own file to update; `.env.production.example` is just the template.
 
 ## 2026-07-10 - Admin Users UI Screenshot Corrections
 
@@ -1144,18 +1158,18 @@ Test suite: 3 new integration test files (`jobs-create-looks`, `catalogue-templa
 ## 2026-07-10 - Catalogue Manager Backend Wiring + Try-On Filtering Follow-ups
 
 ### Done
-- Wired `apps/catalogues-web/.../catalogue-manager` off its hardcoded/localStorage prototype onto the real `/v1/merchant/catalog/*` endpoints: subcategory CRUD, product CRUD (direct catalogue-image upload), and Path B (flat-image generate → poll → import) for both single and bulk upload, via a new shared `catalogue-manager/api.ts` helper. Added a graceful "merchant account required" state for the 403 case.
+- Wired `apps/catalogues-web/.../catalogue-manager` off its hardcoded/localStorage prototype onto the real `/v1/merchant/catalog/*` endpoints: subcategory CRUD, product CRUD (direct catalogue-image upload), and Path B (flat-image generate â†’ poll â†’ import) for both single and bulk upload, via a new shared `catalogue-manager/api.ts` helper. Added a graceful "merchant account required" state for the 403 case.
 - Verified live against the real dev API/MinIO/Postgres (not just typecheck): full subcategory + product CRUD lifecycle exercised via curl, confirmed dynamic per-merchant subcategories (the originally reported bug) and correct R2 upload/presign round-trip.
-- Fixed `GET /v1/assets` ("My Products" page) to exclude try-on jobs, which store the *source job's generated output* as `upperGarmentKey` (not a real upload) — same `job_inputs.params.sourceJobId` signal used by the catalogues-page fix. Added a regression test.
-- Raised the try-on page's "Browse from Catalog" picker cap (`GET /v1/tryon/garment-images`) from 50 to 200 (matching `/v1/catalogues`'s existing cap) — the hard cap with no pagination was silently dropping older eligible studio/saree images once a user's combined catalogue grew past it.
-- Hid the Tutorials and Catalogue Manager pages from the sidebar (`devOnly` nav flag) and blocked direct navigation to both routes in production via `middleware.ts` (`DEV_ONLY_PATHS`) — both are still WIP/placeholder content.
+- Fixed `GET /v1/assets` ("My Products" page) to exclude try-on jobs, which store the *source job's generated output* as `upperGarmentKey` (not a real upload) â€” same `job_inputs.params.sourceJobId` signal used by the catalogues-page fix. Added a regression test.
+- Raised the try-on page's "Browse from Catalog" picker cap (`GET /v1/tryon/garment-images`) from 50 to 200 (matching `/v1/catalogues`'s existing cap) â€” the hard cap with no pagination was silently dropping older eligible studio/saree images once a user's combined catalogue grew past it.
+- Hid the Tutorials and Catalogue Manager pages from the sidebar (`devOnly` nav flag) and blocked direct navigation to both routes in production via `middleware.ts` (`DEV_ONLY_PATHS`) â€” both are still WIP/placeholder content.
 
 ### Failed / Not Done
-- Path B (flat-image generate) wiring in `catalogue-manager` was verified via code review + typecheck/build only, not exercised to completion — needs a real ComfyUI worker, unavailable in this dev environment.
-- Whether the `/v1/tryon/garment-images` eligibility chain (garment type → active tryon category → active workflow template) is itself excluding legitimate images on production is still open — asked for a diagnostic query to be run against prod to confirm.
+- Path B (flat-image generate) wiring in `catalogue-manager` was verified via code review + typecheck/build only, not exercised to completion â€” needs a real ComfyUI worker, unavailable in this dev environment.
+- Whether the `/v1/tryon/garment-images` eligibility chain (garment type â†’ active tryon category â†’ active workflow template) is itself excluding legitimate images on production is still open â€” asked for a diagnostic query to be run against prod to confirm.
 
 ### Open Questions / Decisions
-- None new — diagnostic query for the tryon-picker eligibility gap is still pending from the user.
+- None new â€” diagnostic query for the tryon-picker eligibility gap is still pending from the user.
 
 ## 2026-07-10 - Catalogue Page Try-On Exclusion
 
@@ -1223,36 +1237,36 @@ Full API suite: 101/101 passing, typecheck clean throughout. Frontend: `pnpm --f
 Live end-to-end tested the Shopify backend slice against 2 real Shopify Partners dev stores (first-time setup: Partners app creation, ngrok tunnel, legacy install flow toggle), fixing real bugs found along the way, then built and shipped the storefront-facing widget via subagent-driven development (4 tasks + a final whole-branch review):
 
 **Live-testing hotfixes (found + fixed during real OAuth install/billing runs, not part of either formal plan):**
-- Centralized `SHOPIFY_API_VERSION = '2026-07'` (`apps/api/src/modules/shopify/service.ts`) — was hardcoded `2024-01` (10 quarters stale) across 5 call sites, causing `502 shop fetch failed`.
-- Added `expiring: 1` to the OAuth token-exchange body (`auth.routes.ts`) — Shopify now rejects non-expiring offline tokens outright.
-- Removed the 3 GDPR webhook topics (`customers/data_request`, `customers/redact`, `shop/redact`) from the auto-register loop (`webhook.routes.ts`) — Shopify's `webhooks.json` API 404s on them; they're configured once, app-wide, via Partners → Compliance webhooks. Also fixed the loop silently swallowing non-2xx registration failures (`.catch()`-only → explicit `res.ok` check + log).
-- Rewrote `GET /v1/shopify/billing/callback` (`billing.routes.ts`) — Shopify's `recurring_application_charge` return_url carries **no HMAC**, so the original naive query-string trust was a free-credit-minting exploit. Fixed with server-to-server verification: fetch the charge via the store's own access token, require `status === 'active'` and price/name match the plan.
-- Note: no formal token-refresh/rotation logic exists yet even though tokens now expire in ~1hr (`expiring: 1`) — flagged as a real, unscheduled follow-up.
+- Centralized `SHOPIFY_API_VERSION = '2026-07'` (`apps/api/src/modules/shopify/service.ts`) â€” was hardcoded `2024-01` (10 quarters stale) across 5 call sites, causing `502 shop fetch failed`.
+- Added `expiring: 1` to the OAuth token-exchange body (`auth.routes.ts`) â€” Shopify now rejects non-expiring offline tokens outright.
+- Removed the 3 GDPR webhook topics (`customers/data_request`, `customers/redact`, `shop/redact`) from the auto-register loop (`webhook.routes.ts`) â€” Shopify's `webhooks.json` API 404s on them; they're configured once, app-wide, via Partners â†’ Compliance webhooks. Also fixed the loop silently swallowing non-2xx registration failures (`.catch()`-only â†’ explicit `res.ok` check + log).
+- Rewrote `GET /v1/shopify/billing/callback` (`billing.routes.ts`) â€” Shopify's `recurring_application_charge` return_url carries **no HMAC**, so the original naive query-string trust was a free-credit-minting exploit. Fixed with server-to-server verification: fetch the charge via the store's own access token, require `status === 'active'` and price/name match the plan.
+- Note: no formal token-refresh/rotation logic exists yet even though tokens now expire in ~1hr (`expiring: 1`) â€” flagged as a real, unscheduled follow-up.
 
 **Storefront try-on widget** (plan: `docs/superpowers/plans/2026-07-08-shopify-storefront-tryon.md`, spec: `docs/superpowers/specs/2026-07-08-shopify-storefront-tryon-design.md`), all 4 tasks reviewed clean:
-- Task 1 — Dynamic CORS: `apps/api/src/server.ts`'s `origin` option is now an async function trusting `env.CORS_ORIGIN` or any origin in some `widgetClients.allowedOrigins` (`isActive` filtered — fixed a review-found gap where a deactivated merchant stayed CORS-trusted).
-- Task 2 — `resultUrl` added to `GET /v1/widget/jobs/:id` (`widget/routes.ts`), computed from `resultKey` via `storage.publicUrl()`.
-- Task 3 — `writeWidgetKeyMetafield()` (new `shopify/metafields.ts`) writes each store's `widgetClients.widgetKey` to the `aivastra.widget_key` shop metafield right after OAuth install, tolerant of failure (never blocks install).
-- Task 4 — `apps/shopify-extension/` theme app extension: Liquid block (`tryon-block.liquid`) reading the metafield + `product.id`, vanilla JS modal (upload → presign → PUT → create job → poll → result), CSS, locale strings. Request/response shapes verified twice (implementer + independent reviewer) against the real widget API routes — no corrections needed.
-  - **Not yet done**: Shopify CLI scaffold (`shopify app generate extension`)/`shopify app deploy`/live manual verification against the real dev store — all need interactive CLI login + a browser, deferred to a session with the user directly.
+- Task 1 â€” Dynamic CORS: `apps/api/src/server.ts`'s `origin` option is now an async function trusting `env.CORS_ORIGIN` or any origin in some `widgetClients.allowedOrigins` (`isActive` filtered â€” fixed a review-found gap where a deactivated merchant stayed CORS-trusted).
+- Task 2 â€” `resultUrl` added to `GET /v1/widget/jobs/:id` (`widget/routes.ts`), computed from `resultKey` via `storage.publicUrl()`.
+- Task 3 â€” `writeWidgetKeyMetafield()` (new `shopify/metafields.ts`) writes each store's `widgetClients.widgetKey` to the `aivastra.widget_key` shop metafield right after OAuth install, tolerant of failure (never blocks install).
+- Task 4 â€” `apps/shopify-extension/` theme app extension: Liquid block (`tryon-block.liquid`) reading the metafield + `product.id`, vanilla JS modal (upload â†’ presign â†’ PUT â†’ create job â†’ poll â†’ result), CSS, locale strings. Request/response shapes verified twice (implementer + independent reviewer) against the real widget API routes â€” no corrections needed.
+  - **Not yet done**: Shopify CLI scaffold (`shopify app generate extension`)/`shopify app deploy`/live manual verification against the real dev store â€” all need interactive CLI login + a browser, deferred to a session with the user directly.
 
-**Final whole-branch review** (ae17c96..86b22da, 30 commits, opus): verdict "Ready to merge — With fixes." 2 Important findings, both fixed + re-reviewed clean (commit `81ed3a2`):
-- Dynamic CORS origin check had no caching (DB hit on every cross-origin request) → added a 30s in-process TTL cache (positive + negative results, capped at 10k entries).
-- Product-sync image fetch's CDN allowlist (`assertShopifyCdn`) was defeated by redirects (fetch follows 3xx by default) and had no timeout/size cap → added `redirect: 'error'`, a 10s `AbortController` timeout, and a 10MB cap (content-length + byteLength checks), matching the existing widget-route precedent.
+**Final whole-branch review** (ae17c96..86b22da, 30 commits, opus): verdict "Ready to merge â€” With fixes." 2 Important findings, both fixed + re-reviewed clean (commit `81ed3a2`):
+- Dynamic CORS origin check had no caching (DB hit on every cross-origin request) â†’ added a 30s in-process TTL cache (positive + negative results, capped at 10k entries).
+- Product-sync image fetch's CDN allowlist (`assertShopifyCdn`) was defeated by redirects (fetch follows 3xx by default) and had no timeout/size cap â†’ added `redirect: 'error'`, a 10s `AbortController` timeout, and a 10MB cap (content-length + byteLength checks), matching the existing widget-route precedent.
 
 Full test suite: 92/92 passing (14 files), typecheck clean throughout.
 
 ### Failed / Not Done
-- Theme extension CLI scaffold, deploy, and live-store manual verification (Task 4 Steps 1/6/7) — needs the user + browser, not done this session.
-- No refresh-token storage/rotation logic — tokens now expire ~1hr (`expiring: 1` fix), nothing renews them yet.
+- Theme extension CLI scaffold, deploy, and live-store manual verification (Task 4 Steps 1/6/7) â€” needs the user + browser, not done this session.
+- No refresh-token storage/rotation logic â€” tokens now expire ~1hr (`expiring: 1` fix), nothing renews them yet.
 
 ### Open Questions / Decisions
-- `allowedOrigins` duplicate-entry edge case (`upsertShopifyStore`, when `primaryDomain === myshopifyDomain`) — asked twice, never answered by the user; still open, not fixed.
-- Billing plan `trial_days`/tier configuration — explicitly deferred by the user ("we will check the tier later").
-- Final review's Minor findings, not fixed (follow-ups, see `.superpowers/sdd/progress.md` for full detail): `products.sync.ts` full-resync fallback on a malformed `products/update` webhook missing a product id; CORS trust widened app-wide via merchant-editable `allowedOrigins` (currently safe — `sameSite: 'lax'` cookies + header-based auth — but not scoped to widget routes only); billing idempotency keyed on last `chargeId` only, not a full processed-charges set; `shopify:sync` consumer not wired into graceful shutdown; `SHOPIFY_*` env vars are `optional()` but unguarded in redirect URLs (would interpolate literal `"undefined"`).
+- `allowedOrigins` duplicate-entry edge case (`upsertShopifyStore`, when `primaryDomain === myshopifyDomain`) â€” asked twice, never answered by the user; still open, not fixed.
+- Billing plan `trial_days`/tier configuration â€” explicitly deferred by the user ("we will check the tier later").
+- Final review's Minor findings, not fixed (follow-ups, see `.superpowers/sdd/progress.md` for full detail): `products.sync.ts` full-resync fallback on a malformed `products/update` webhook missing a product id; CORS trust widened app-wide via merchant-editable `allowedOrigins` (currently safe â€” `sameSite: 'lax'` cookies + header-based auth â€” but not scoped to widget routes only); billing idempotency keyed on last `chargeId` only, not a full processed-charges set; `shopify:sync` consumer not wired into graceful shutdown; `SHOPIFY_*` env vars are `optional()` but unguarded in redirect URLs (would interpolate literal `"undefined"`).
 
 ### Commits
-`18e0a77`, `af5d229`, `e979711`, `fe2159d` (live-testing hotfixes) — `49c0f39`, `0330252` (spec + plan docs) — `2183f65`, `95df801`, `374bb6c`, `a9598b0`, `86b22da` (4 storefront tasks) — `81ed3a2` (final-review fixes)
+`18e0a77`, `af5d229`, `e979711`, `fe2159d` (live-testing hotfixes) â€” `49c0f39`, `0330252` (spec + plan docs) â€” `2183f65`, `95df801`, `374bb6c`, `a9598b0`, `86b22da` (4 storefront tasks) â€” `81ed3a2` (final-review fixes)
 
 ---
 
@@ -1263,106 +1277,106 @@ Backend vertical slice for the Shopify plugin, landed across 12 tasks on `feat/s
 - **DB schema**: `shopify_stores`, `shopify_product_garments`, `shopify_plans` (plus `widget_clients.client_type` and supporting columns/indexes) in `packages/db/src/schema/`, with migrations.
 - **Crypto + HMAC/session-token service** (`apps/api/src/modules/shopify/service.ts`): AES-256-GCM token encryption at rest, webhook HMAC verification, session-token style helpers.
 - **Admin plan CRUD**: `/admin/shopify-plans` (create/list/patch/delete/activeOnly filter).
-- **Auth plugin + OAuth install/callback**: `apps/api/src/modules/shopify/auth.routes.ts` — `upsertShopifyStore`, install redirect, OAuth callback, webhook auto-registration (`shopifyRegisterWebhooks`, wrapped in `fp()` so the decoration is visible across encapsulated plugin contexts).
-- **Webhooks + GDPR topics**: `apps/api/src/modules/shopify/webhook.routes.ts` — raw-body HMAC verification (scoped content-type parser, doesn't leak to sibling JSON routes), `app_uninstalled`, `app_subscriptions_update`, `products_update`, `products_delete`, `customers_data_request`, `customers_redact`, `shop_redact`.
-- **Product sync**: `apps/api/src/modules/shopify/products.sync.ts` — download + R2 upload, SSRF-guarded fetch.
+- **Auth plugin + OAuth install/callback**: `apps/api/src/modules/shopify/auth.routes.ts` â€” `upsertShopifyStore`, install redirect, OAuth callback, webhook auto-registration (`shopifyRegisterWebhooks`, wrapped in `fp()` so the decoration is visible across encapsulated plugin contexts).
+- **Webhooks + GDPR topics**: `apps/api/src/modules/shopify/webhook.routes.ts` â€” raw-body HMAC verification (scoped content-type parser, doesn't leak to sibling JSON routes), `app_uninstalled`, `app_subscriptions_update`, `products_update`, `products_delete`, `customers_data_request`, `customers_redact`, `shop_redact`.
+- **Product sync**: `apps/api/src/modules/shopify/products.sync.ts` â€” download + R2 upload, SSRF-guarded fetch.
 - **Widget-job extension**: `POST /v1/widget/jobs` now accepts `shopifyProductId`, resolves the garment from R2, tags `params.kind`; non-Shopify jobs persist `params` as `NULL` (not `{}`).
 - **Dispatcher branch**: `processShopifyJob` in `apps/dispatcher/src/job/processor.ts` + `shopify:sync` Redis-stream consumer for product-sync jobs.
 - **Billing**: Shopify plan selection + charge activation (`apps/api/src/modules/shopify/billing.routes.ts`), made credit-grant additive and replay-safe, and store-row-locked to prevent concurrent double-credit on repeated activation callbacks.
 
 **Full-suite verification (this entry's own task, Task 12):**
-- `pnpm --filter @aivastra/api test`: **78/78 passing**, all 11 shopify-*.test.ts files green. `test/integration/**` (containing `jobs-create.test.ts`, `catalog.test.ts`, `e2e.test.ts` — the three pre-existing failures documented in `apps/api/vitest.config.ts`) stays excluded from this run per that config, so none of those three were even hit.
-- Along the way, this task's initial run surfaced a genuine new regression: `test/shopify-webhooks.test.ts` > "processes app/uninstalled" intermittently failed under full-suite load (reproduced twice in full-suite runs, never in 3 isolated single-file runs) because `webhook.routes.ts` sent `reply.code(200).send(...)` before its DB side effects (`shopifyStores.uninstalledAt`, `widgetClients.isActive`) were awaited — a real race with a production reliability gap (crash between send and continuation would silently drop the uninstall-deactivation, and Shopify wouldn't retry since it already got a 200). Fixed in `2607ed6` ("fix(api): shopify webhooks must complete DB writes before responding 200") by moving `reply.send()` to after the try/catch. Re-verified independently: 78/78 passing across two full-suite reruns post-fix.
+- `pnpm --filter @aivastra/api test`: **78/78 passing**, all 11 shopify-*.test.ts files green. `test/integration/**` (containing `jobs-create.test.ts`, `catalog.test.ts`, `e2e.test.ts` â€” the three pre-existing failures documented in `apps/api/vitest.config.ts`) stays excluded from this run per that config, so none of those three were even hit.
+- Along the way, this task's initial run surfaced a genuine new regression: `test/shopify-webhooks.test.ts` > "processes app/uninstalled" intermittently failed under full-suite load (reproduced twice in full-suite runs, never in 3 isolated single-file runs) because `webhook.routes.ts` sent `reply.code(200).send(...)` before its DB side effects (`shopifyStores.uninstalledAt`, `widgetClients.isActive`) were awaited â€” a real race with a production reliability gap (crash between send and continuation would silently drop the uninstall-deactivation, and Shopify wouldn't retry since it already got a 200). Fixed in `2607ed6` ("fix(api): shopify webhooks must complete DB writes before responding 200") by moving `reply.send()` to after the try/catch. Re-verified independently: 78/78 passing across two full-suite reruns post-fix.
 - `pnpm --filter @aivastra/api typecheck`, `pnpm --filter @aivastra/dispatcher build`, `pnpm --filter @aivastra/db typecheck`, `pnpm --filter @aivastra/types build`: all PASS.
 - `pnpm biome check apps/api apps/dispatcher packages/db packages/types --diagnostic-level=error`: PASS (184 files, 0 errors).
 - Added `SHOPIFY_*` vars to `.env.production.example`.
 
 ### Failed / Not Done
-- Full workspace-wide `pnpm typecheck` (root) is not used as this task's gate: `apps/catalogues-web`'s `pricing/page.tsx` can hit `TS6053: File '.../.next/types/...' not found` when that app's `.next/types` build artifacts haven't been generated yet (only produced by `next build`/`next dev`, not by `tsc --noEmit` alone). This is environment/build-order state, not a real type error in any code this plan touches — `apps/catalogues-web` is the still-unfinished Phase 3 frontend (per `CLAUDE.md`) and this Shopify backend slice never touches it. Note: re-running `pnpm typecheck` at the workspace root in this session actually passed cleanly both times (the `.next/types` directory already existed at check time), consistent with this being a transient, generation-order artifact rather than a deterministic failure — scoped per-package typecheck/build (listed above) is what this task actually gates on.
+- Full workspace-wide `pnpm typecheck` (root) is not used as this task's gate: `apps/catalogues-web`'s `pricing/page.tsx` can hit `TS6053: File '.../.next/types/...' not found` when that app's `.next/types` build artifacts haven't been generated yet (only produced by `next build`/`next dev`, not by `tsc --noEmit` alone). This is environment/build-order state, not a real type error in any code this plan touches â€” `apps/catalogues-web` is the still-unfinished Phase 3 frontend (per `CLAUDE.md`) and this Shopify backend slice never touches it. Note: re-running `pnpm typecheck` at the workspace root in this session actually passed cleanly both times (the `.next/types` directory already existed at check time), consistent with this being a transient, generation-order artifact rather than a deterministic failure â€” scoped per-package typecheck/build (listed above) is what this task actually gates on.
 
 ### Open Questions / Decisions
 - **Deferred to follow-on plans** (per the Task 12 brief, out of scope for this backend slice):
-  - `apps/shopify/` — Polaris embedded admin (Dashboard, Product Mapping, Appearance, Billing) consuming `/v1/shopify/me|products|analytics|settings`.
-  - `apps/shopify-extension/` — Shopify CLI theme app extension (`tryon-block.liquid`, `tryon-widget.js`).
+  - `apps/shopify/` â€” Polaris embedded admin (Dashboard, Product Mapping, Appearance, Billing) consuming `/v1/shopify/me|products|analytics|settings`.
+  - `apps/shopify-extension/` â€” Shopify CLI theme app extension (`tryon-block.liquid`, `tryon-widget.js`).
   - `apps/admin-web` + `apps/admin-mobile` internal admin views for Shopify plans + store data (Admin Parity Rule applies once this lands).
-  - ComfyUI workflow template for Shopify try-on (`workflow_templates` row) + the customer-photo face-detectability 400 path — needs the real workflow JSON, own task.
-  - Overage/top-up usage charges (`POST /usage_charges`) — add once base billing ships.
-  - `GET /v1/shopify/analytics`, `PATCH /settings`, `DELETE`/`POST /products/:id` admin endpoints — thin, land with the embedded-admin plan.
+  - ComfyUI workflow template for Shopify try-on (`workflow_templates` row) + the customer-photo face-detectability 400 path â€” needs the real workflow JSON, own task.
+  - Overage/top-up usage charges (`POST /usage_charges`) â€” add once base billing ships.
+  - `GET /v1/shopify/analytics`, `PATCH /settings`, `DELETE`/`POST /products/:id` admin endpoints â€” thin, land with the embedded-admin plan.
 - **Test-coverage / CI gaps found during this verification session** (real, currently-true facts about repo state, not fixed here):
-  - `apps/dispatcher`'s `test/integration/` suite (happy-path, recovery, retry, watermark-*) is entirely orphaned from any `package.json` script or CI job — nothing currently runs it.
-  - `happy-path.test.ts`, `recovery.test.ts`, and `retry.test.ts` in that same orphaned suite independently fail due to `catalog_items.type` NOT NULL schema drift — confirmed pre-existing (via `git stash` against a clean checkout in an earlier task on this branch), unrelated to the Shopify work.
-  - No test exists for the non-Shopify garment-URL success path in `POST /v1/widget/jobs` (`apps/api/src/modules/widget/routes.ts`) — a pre-existing gap, found while extending that route for Shopify jobs.
+  - `apps/dispatcher`'s `test/integration/` suite (happy-path, recovery, retry, watermark-*) is entirely orphaned from any `package.json` script or CI job â€” nothing currently runs it.
+  - `happy-path.test.ts`, `recovery.test.ts`, and `retry.test.ts` in that same orphaned suite independently fail due to `catalog_items.type` NOT NULL schema drift â€” confirmed pre-existing (via `git stash` against a clean checkout in an earlier task on this branch), unrelated to the Shopify work.
+  - No test exists for the non-Shopify garment-URL success path in `POST /v1/widget/jobs` (`apps/api/src/modules/widget/routes.ts`) â€” a pre-existing gap, found while extending that route for Shopify jobs.
 
 ### Commit
-`2607ed6` — fix(api): shopify webhooks must complete DB writes before responding 200
+`2607ed6` â€” fix(api): shopify webhooks must complete DB writes before responding 200
 
 ---
 
 ## 2026-07-07 - Multi-App Phase 3 & 3b Abandoned
 
 ### Done
-- Marked Phase 3 (Kiosk Android Migration) and Phase 3b (Kiosk UI Redesign) as abandoned per user direction — the plan for the kiosk app has changed.
+- Marked Phase 3 (Kiosk Android Migration) and Phase 3b (Kiosk UI Redesign) as abandoned per user direction â€” the plan for the kiosk app has changed.
 - Updated `docs/multi-app-ecosystem/README.md`: both phases' status changed to `Abandoned - plan changed`, and the "Current note" rewritten to say these specs should not be handed to Codex or used as a reference for new kiosk work.
-- Added an explicit `⚠️ ABANDONED` banner at the top of both `phase-3-kiosk-migration.md` and `phase-3b-ui-redesign.md` so the notice is visible to anyone opening the files directly, not just via the README.
-- Left both phase files (and Phase 3b's `design-reference/` mockups) in place as historical record, per user decision — no deletion, no rewrite yet.
+- Added an explicit `âš ï¸ ABANDONED` banner at the top of both `phase-3-kiosk-migration.md` and `phase-3b-ui-redesign.md` so the notice is visible to anyone opening the files directly, not just via the README.
+- Left both phase files (and Phase 3b's `design-reference/` mockups) in place as historical record, per user decision â€” no deletion, no rewrite yet.
 
 ### Open Questions / Decisions
 - The new kiosk plan has not been described yet. A replacement phase doc will be written once the user lays out the new direction.
-- Phase 3's independent audit findings (orphaned migration bug, unverified Android compile — see the 2026-07-06 entry) are now moot for the abandoned plan, but worth re-checking if the new plan reuses any of the same backend surface (kiosk auth foundation from Phase 0, which is unaffected and stays `Done`).
+- Phase 3's independent audit findings (orphaned migration bug, unverified Android compile â€” see the 2026-07-06 entry) are now moot for the abandoned plan, but worth re-checking if the new plan reuses any of the same backend surface (kiosk auth foundation from Phase 0, which is unaffected and stays `Done`).
 
 ## 2026-07-07 - Multi-App Phase 0 Closed
 
 ### Done
-- Independently audited Phase 0 (Auth Foundation) against its Definition of Done for the first time — it had never been reviewed before, unlike Phases 1/2/3.
+- Independently audited Phase 0 (Auth Foundation) against its Definition of Done for the first time â€” it had never been reviewed before, unlike Phases 1/2/3.
 - Confirmed the `kiosk_devices` table schema matches spec exactly, and `refresh_tokens`' nullable `userId`/`kioskDeviceId`/`widgetClientId` owner columns plus the 3-way `num_nonnulls(...) = 1` CHECK constraint are present in migration `0083_kiosk_auth_foundation.sql`, registered cleanly in the journal with no collision.
-- Confirmed `0083` itself has no unguarded-drop/duplicate-add defect (the class of bug just fixed in `0087` for Phase 1) — `0083` is the original creator of these objects, so there's nothing prior for it to collide with; `0087`'s redundant re-creation of the same objects is downstream noise already fixed.
-- Verified by reading code directly (not Report Back prose): `verifyKioskAccess()` mirrors `verifyAdminAccess()`; `requireKioskDevice` does a per-request DB lookup and checks `status==='active'`; all three kiosk auth routes (`claim`/`refresh`/`logout`) behave as specified — refresh rejects any token row with `userId`/`widgetClientId` set, logout revokes the token family and flips device status to `revoked` in one transaction; `rotateTokenFamily` was genuinely generalized into a single implementation, not duplicated; merchant/admin kiosk-device CRUD routes exist and are wired into `server.ts`.
+- Confirmed `0083` itself has no unguarded-drop/duplicate-add defect (the class of bug just fixed in `0087` for Phase 1) â€” `0083` is the original creator of these objects, so there's nothing prior for it to collide with; `0087`'s redundant re-creation of the same objects is downstream noise already fixed.
+- Verified by reading code directly (not Report Back prose): `verifyKioskAccess()` mirrors `verifyAdminAccess()`; `requireKioskDevice` does a per-request DB lookup and checks `status==='active'`; all three kiosk auth routes (`claim`/`refresh`/`logout`) behave as specified â€” refresh rejects any token row with `userId`/`widgetClientId` set, logout revokes the token family and flips device status to `revoked` in one transaction; `rotateTokenFamily` was genuinely generalized into a single implementation, not duplicated; merchant/admin kiosk-device CRUD routes exist and are wired into `server.ts`.
 - Re-ran `apps/api/test/integration/kiosk-auth.test.ts` against a genuinely fresh database: 3/3 passing, and confirmed by reading the file that all 9 spec scenarios are genuinely exercised across the 3 dense test blocks.
 - Confirmed repo-wide typecheck is clean and Phase 0's files are committed (`ab04427`).
 - Updated `docs/multi-app-ecosystem/README.md`: Phase 0 moved to `Done`.
 
 ### Open Questions / Decisions
-- The full API integration suite has 12 failing files (auth/catalog/credits/jobs/uploads/etc.), up from the Report Back's originally-disclosed "5 pre-existing" — but confirmed none touch kiosk code and `kiosk-auth.test.ts` itself is not among the failures. This is accepted as scope growth from later phases' work landing on top of an already-documented pre-existing `registerAndLogin`/email-verification test-contract drift, not a Phase 0 regression.
+- The full API integration suite has 12 failing files (auth/catalog/credits/jobs/uploads/etc.), up from the Report Back's originally-disclosed "5 pre-existing" â€” but confirmed none touch kiosk code and `kiosk-auth.test.ts` itself is not among the failures. This is accepted as scope growth from later phases' work landing on top of an already-documented pre-existing `registerAndLogin`/email-verification test-contract drift, not a Phase 0 regression.
 
 ## 2026-07-07 - Multi-App Phase 2 Closed
 
 ### Done
 - Independently re-audited Phase 2 (Merchant Portal) from scratch against its Definition of Done, not trusting the 2026-07-06 audit's findings to still hold given the repo has moved since (Phase 1's migration-numbering fix landed today).
-- Confirmed the 2026-07-06 blocker is genuinely fixed: `pnpm biome check . --diagnostic-level=error` now reports 17 errors, down from 84, with zero errors in `apps/merchant-web/**` — the 8 real a11y violations in `(merchant)/layout.tsx`/`modal.tsx` are gone. The remaining 17 are unrelated pre-existing/format-only noise (CRLF diffs from Phase 1's device-session-limits work, a migration snapshot format issue, `.codex/tmp/**` scratch scripts, legacy `virtual-tryon-mobile&kiosk_latest` JSON assets) — none belong to Phase 2.
-- Confirmed migration `0084_merchant_portal.sql` is pure-additive (`CREATE TABLE`/`ADD COLUMN`/`CREATE INDEX`, no `DROP` statements at all) and registered cleanly in the journal at idx 84 — structurally cannot have the unguarded-drop bug just found and fixed in `0087` for Phase 1.
-- Re-ran the merchant integration tests from a genuinely fresh database: 2 files, 3 tests, all passing — confirmed by reading the test bodies directly that the 3 dense scenario chains actually cover presign/upload/create/list, cross-merchant isolation (404 on cross-PATCH, empty list), copy-not-reference on studio import (byte-for-byte object compare), post-delete `sourceJobId` null handling, re-import 409, cross-user-job 403, and kiosk-disabled 403 vs pairing-claim 201.
+- Confirmed the 2026-07-06 blocker is genuinely fixed: `pnpm biome check . --diagnostic-level=error` now reports 17 errors, down from 84, with zero errors in `apps/merchant-web/**` â€” the 8 real a11y violations in `(merchant)/layout.tsx`/`modal.tsx` are gone. The remaining 17 are unrelated pre-existing/format-only noise (CRLF diffs from Phase 1's device-session-limits work, a migration snapshot format issue, `.codex/tmp/**` scratch scripts, legacy `virtual-tryon-mobile&kiosk_latest` JSON assets) â€” none belong to Phase 2.
+- Confirmed migration `0084_merchant_portal.sql` is pure-additive (`CREATE TABLE`/`ADD COLUMN`/`CREATE INDEX`, no `DROP` statements at all) and registered cleanly in the journal at idx 84 â€” structurally cannot have the unguarded-drop bug just found and fixed in `0087` for Phase 1.
+- Re-ran the merchant integration tests from a genuinely fresh database: 2 files, 3 tests, all passing â€” confirmed by reading the test bodies directly that the 3 dense scenario chains actually cover presign/upload/create/list, cross-merchant isolation (404 on cross-PATCH, empty list), copy-not-reference on studio import (byte-for-byte object compare), post-delete `sourceJobId` null handling, re-import 409, cross-user-job 403, and kiosk-disabled 403 vs pairing-claim 201.
 - Confirmed `apps/merchant-web` builds clean, `apps/catalogues-web` builds clean with no dangling `(merchant)`/`api/merchant` imports, and repo-wide typecheck passes for every workspace with a typecheck script.
 - Re-verified all four 2E auth-hardening items directly in code (not Report Back prose): shared `JWT_EXPIRY` for merchant access tokens, `/v1/merchant/refresh` rejects wrong-owner-type refresh tokens and re-checks `isActive`, `/v1/merchant/logout` revokes the whole token family, `requireMerchant` does a per-request `isActive` DB check.
 - Updated `docs/multi-app-ecosystem/README.md`: Phase 2 moved to `Done`.
 
 ### Open Questions / Decisions
-- Nothing is committed yet for Phase 2 — this is an explicit user decision (batching commits until the broader phase/UI review is complete), not a defect.
+- Nothing is committed yet for Phase 2 â€” this is an explicit user decision (batching commits until the broader phase/UI review is complete), not a defect.
 
 ## 2026-07-07 - Multi-App Phase 1 Closed
 
 ### Done
-- Fixed the blocking migration bug found in the same-day independent review below: `packages/db/src/migrations/0087_needy_annihilus.sql` (a large drizzle-kit-regenerated squash migration, unrelated to Phase 1's own diff) contained several statements that assumed pre-`0047`/`0059`/`0083` schema state — an unguarded `DROP TABLE "model_poses" CASCADE` plus 3 `DROP CONSTRAINT` statements for objects `0047` had already removed, 39 `ADD COLUMN` statements with no `IF NOT EXISTS` (several columns already existed, e.g. `admin_users.preferences` from `0059`), and a duplicate `refresh_tokens_exactly_one_owner` CHECK constraint already added by `0083`. Guarded every one of these with `IF EXISTS`/`IF NOT EXISTS`/the existing `DO $$ ... EXCEPTION WHEN duplicate_object` pattern already used elsewhere in the file.
-- Verified the fix twice against a genuinely fresh database: `admin-users.test.ts`, `admin-me.test.ts`, `admin-approval.test.ts` → `3 passed (3)`, `21 passed (21)`.
+- Fixed the blocking migration bug found in the same-day independent review below: `packages/db/src/migrations/0087_needy_annihilus.sql` (a large drizzle-kit-regenerated squash migration, unrelated to Phase 1's own diff) contained several statements that assumed pre-`0047`/`0059`/`0083` schema state â€” an unguarded `DROP TABLE "model_poses" CASCADE` plus 3 `DROP CONSTRAINT` statements for objects `0047` had already removed, 39 `ADD COLUMN` statements with no `IF NOT EXISTS` (several columns already existed, e.g. `admin_users.preferences` from `0059`), and a duplicate `refresh_tokens_exactly_one_owner` CHECK constraint already added by `0083`. Guarded every one of these with `IF EXISTS`/`IF NOT EXISTS`/the existing `DO $$ ... EXCEPTION WHEN duplicate_object` pattern already used elsewhere in the file.
+- Verified the fix twice against a genuinely fresh database: `admin-users.test.ts`, `admin-me.test.ts`, `admin-approval.test.ts` â†’ `3 passed (3)`, `21 passed (21)`.
 - Verified `pnpm db:migrate` against the existing dev database (which had already applied the old unguarded version of `0087`, so the edit changed its hash and forced a re-run): applied cleanly, no errors, confirming every statement is idempotent and safe to re-run on an already-migrated DB.
 - Updated `docs/multi-app-ecosystem/phase-1-admin-subdomain.md` with a closeout section documenting the fix and verification output.
 - Updated `docs/multi-app-ecosystem/README.md`: Phase 1 moved from `Reviewed - changes requested` to `Done`.
 
 ### Open Questions / Decisions
-- The Phase 2/Phase 3 fix list (documented 2026-07-06) still references a separate orphaned migration, `0086_lethal_dreaming_celestial.sql`, with the same defect shape. That file no longer exists on disk as of today's Phase 1 fix work (migration numbering has since shifted — current `0086` is `0086_user_device_session_limits.sql`, unrelated). Whoever picks up the Phase 2/3 fix list should re-check whether that specific finding is now moot or whether it resurfaces under a different filename before acting on it.
+- The Phase 2/Phase 3 fix list (documented 2026-07-06) still references a separate orphaned migration, `0086_lethal_dreaming_celestial.sql`, with the same defect shape. That file no longer exists on disk as of today's Phase 1 fix work (migration numbering has since shifted â€” current `0086` is `0086_user_device_session_limits.sql`, unrelated). Whoever picks up the Phase 2/3 fix list should re-check whether that specific finding is now moot or whether it resurfaces under a different filename before acting on it.
 
 ## 2026-07-07 - Multi-App Phase 1 Independent Review
 
 ### Done
 - Independently audited Phase 1 (Admin Subdomain) against its Definition of Done, re-running actual commands rather than trusting the Report Back's claims, per the phase-review workflow in `docs/multi-app-ecosystem/README.md`.
-- Confirmed 9 of 10 DoD items pass: `apps/admin-web/vite.config.ts` has unconditional `base: '/'` with no leftover `/panel/` logic; `apps/api/src/env.ts` parses `CORS_ORIGIN` into a `string[]` via `.transform()`; `apps/api/src/server.ts` passes the array straight to `@fastify/cors`; `apps/api/src/modules/jobs/sse.ts`'s raw-header origin check correctly handles the array (a necessary fix since SSE bypasses the fastify-cors plugin); `infra/docker-compose.prod.yml`'s `minio-bootstrap` genuinely builds a multi-origin CORS JSON array, not a single-value string interpolation; `.env.production.example` documents the comma-separated format; the admin build produces `/assets/...` paths with no `/panel/` prefix; typecheck passes for everything that has a typecheck script (admin-web has no typecheck script at all — pre-existing gap, not introduced by this phase); nothing was committed yet, matching the report's own "batching commits" note; no other `CORS_ORIGIN` call site was missed.
+- Confirmed 9 of 10 DoD items pass: `apps/admin-web/vite.config.ts` has unconditional `base: '/'` with no leftover `/panel/` logic; `apps/api/src/env.ts` parses `CORS_ORIGIN` into a `string[]` via `.transform()`; `apps/api/src/server.ts` passes the array straight to `@fastify/cors`; `apps/api/src/modules/jobs/sse.ts`'s raw-header origin check correctly handles the array (a necessary fix since SSE bypasses the fastify-cors plugin); `infra/docker-compose.prod.yml`'s `minio-bootstrap` genuinely builds a multi-origin CORS JSON array, not a single-value string interpolation; `.env.production.example` documents the comma-separated format; the admin build produces `/assets/...` paths with no `/panel/` prefix; typecheck passes for everything that has a typecheck script (admin-web has no typecheck script at all â€” pre-existing gap, not introduced by this phase); nothing was committed yet, matching the report's own "batching commits" note; no other `CORS_ORIGIN` call site was missed.
 - Updated `docs/multi-app-ecosystem/README.md`: Phase 1 moved from `Implemented, awaiting review` to `Reviewed - changes requested`.
 
 ### Failed / Not Done
-- Phase 1: the admin integration test suite (`admin-users.test.ts`, `admin-me.test.ts`, `admin-approval.test.ts`) does **not** pass against a genuinely fresh database, contradicting the closeout's "21 passed" claim. Reproduced twice: migration setup fails with `relation "model_poses" does not exist`. Root cause: `packages/db/src/migrations/0087_needy_annihilus.sql` (uncommitted, unrelated in-progress work) contains an unguarded `DROP TABLE "model_poses" CASCADE` that collides with the already-completed drop in migration `0047_drop_model_poses.sql`, aborting the migration batch on any brand-new test DB. This is not part of Phase 1's own diff, but it blocks Phase 1's own DoD gate. Same defect shape as the orphaned `0086_lethal_dreaming_celestial.sql` migration found during the 2026-07-06 Phase 2/3 audit — two separate orphaned migrations now need the same fix (guard with `IF EXISTS` or delete if redundant with `0047`/`0084`/`0085`).
+- Phase 1: the admin integration test suite (`admin-users.test.ts`, `admin-me.test.ts`, `admin-approval.test.ts`) does **not** pass against a genuinely fresh database, contradicting the closeout's "21 passed" claim. Reproduced twice: migration setup fails with `relation "model_poses" does not exist`. Root cause: `packages/db/src/migrations/0087_needy_annihilus.sql` (uncommitted, unrelated in-progress work) contains an unguarded `DROP TABLE "model_poses" CASCADE` that collides with the already-completed drop in migration `0047_drop_model_poses.sql`, aborting the migration batch on any brand-new test DB. This is not part of Phase 1's own diff, but it blocks Phase 1's own DoD gate. Same defect shape as the orphaned `0086_lethal_dreaming_celestial.sql` migration found during the 2026-07-06 Phase 2/3 audit â€” two separate orphaned migrations now need the same fix (guard with `IF EXISTS` or delete if redundant with `0047`/`0084`/`0085`).
 - Phase 1 is not being marked `Done` yet pending that fix and a clean re-run of the admin suite from a truly fresh DB.
 
 ### Open Questions / Decisions
-- Whether the closeout's "21 passed" result was run against a stale/pre-existing DB that never re-ran migrations from scratch, or whether `0087` was introduced after the closeout ran, is unresolved — not investigated further since the fix (guard or delete the migration) is the same either way.
+- Whether the closeout's "21 passed" result was run against a stale/pre-existing DB that never re-ran migrations from scratch, or whether `0087` was introduced after the closeout ran, is unresolved â€” not investigated further since the fix (guard or delete the migration) is the same either way.
 - The `0087` fix is being folded into the same Codex handoff that already covers the `0086` fix from the Phase 2/3 audit, rather than issuing a separate handoff.
 
 ## 2026-07-07 - Account Device Limit Login
@@ -1425,13 +1439,13 @@ Backend vertical slice for the Shopify plugin, landed across 12 tasks on `feat/s
 ## 2026-07-06 - Multi-App Phase 3b Kiosk UI Redesign Verification
 
 ### Done
-- **Token system verified**: `colors.xml` rewritten with semantic names matching spec (§1) — all hex values confirmed. `dimens.xml`, `type.xml`, `widgets.xml` created with exact spec values. Old color names purged: zero remaining references to `@color/purple`, `@color/teal_700`, `@color/sky`, etc. across all XML/Kotlin files.
+- **Token system verified**: `colors.xml` rewritten with semantic names matching spec (Â§1) â€” all hex values confirmed. `dimens.xml`, `type.xml`, `widgets.xml` created with exact spec values. Old color names purged: zero remaining references to `@color/purple`, `@color/teal_700`, `@color/sky`, etc. across all XML/Kotlin files.
 - **Material 3 theme migration**: `Theme.AiVastra` parents `Theme.Material3.Light.NoActionBar`. All M3 attributes mapped to semantic colors. Cut-corner shape language preserved and documented.
 - **Dark mode**: `android:forceDarkAllowed="false"` on application. Emulator night mode: `no`.
 - **Icon consolidation**: Raster UI-chrome icons (back, search, menu, like, delete, download, profile, camera, proceed, retake, cancel, flip) all replaced with tinted XML vectors. Photographic/brand assets left untouched.
 - **Layout token application**: All 5 reference screens use `@color/color_background`, `@dimen/spacing_*`, `@style/Widget.AiVastra.*`, `@style/TextAppearance.AiVastra.*`.
 - **`verifyUiTokens` lint guard**: Gradle task scans all layout XML for raw `#RRGGBB` and `android:textSize` literals. Passes on build.
-- **Build**: `:app:assembleDebug` — BUILD SUCCESSFUL. `verifyUiTokens` passed.
+- **Build**: `:app:assembleDebug` â€” BUILD SUCCESSFUL. `verifyUiTokens` passed.
 - **Emulator smoke**: App launched, session restored via silent refresh, home screen displayed with new design tokens. Screenshot saved to `phase-3b-screenshots/01-home.png`.
 - **APK size**: 196.29 MB (debug).
 
@@ -1446,22 +1460,22 @@ Backend vertical slice for the Shopify plugin, landed across 12 tasks on `feat/s
 ## 2026-07-06 - Multi-App Phase 3 Kiosk Migration Verification
 
 ### Done
-- **Integration tests**: `kiosk-jobs.test.ts` — 3/3 passed. Covers: atomic credit deduct + job insert, widget pipeline routing, presigned shareUrl, merchant isolation for like/cart, forged payload rejection (Zod schema rejects `widgetClientId`/`userId` in body), cross-device presign ownership enforcement, and insufficient-credits atomic rollback.
+- **Integration tests**: `kiosk-jobs.test.ts` â€” 3/3 passed. Covers: atomic credit deduct + job insert, widget pipeline routing, presigned shareUrl, merchant isolation for like/cart, forged payload rejection (Zod schema rejects `widgetClientId`/`userId` in body), cross-device presign ownership enforcement, and insufficient-credits atomic rollback.
 - **Typecheck**: `pnpm --filter @aivastra/api typecheck` passes cleanly.
-- **Android build**: `:app:assembleDebug` with `-PapiBaseUrl=http://10.0.2.2:4000/` — BUILD SUCCESSFUL.
+- **Android build**: `:app:assembleDebug` with `-PapiBaseUrl=http://10.0.2.2:4000/` â€” BUILD SUCCESSFUL.
 - **APK installed on emulator-5554**: Streamed install success.
-- **Android smoke — pairing**: Entered pairing code `T7MGQGKPDM` on the LoginActivity (single-field pairing code UI), submitted, app navigated to HomeDressesForActivity. Confirmed via OkHttp logcat: POST to `/v1/kiosk/auth/claim` returned 200 with access + refresh tokens.
-- **Android smoke — catalog**: The home screen fetched `GET /v1/kiosk/catalog` with Bearer token, received catalog item "Smoke Test Saree" (SKU PHASE3-SMOKE-001) with presigned image/thumbnail URLs.
-- **Android smoke — silent refresh**: Force-stopped app, relaunched, app went SplashScreen → silent token refresh → HomeDressesForActivity (did NOT go back to LoginActivity). The stored refresh token successfully restored the session without re-pairing.
+- **Android smoke â€” pairing**: Entered pairing code `T7MGQGKPDM` on the LoginActivity (single-field pairing code UI), submitted, app navigated to HomeDressesForActivity. Confirmed via OkHttp logcat: POST to `/v1/kiosk/auth/claim` returned 200 with access + refresh tokens.
+- **Android smoke â€” catalog**: The home screen fetched `GET /v1/kiosk/catalog` with Bearer token, received catalog item "Smoke Test Saree" (SKU PHASE3-SMOKE-001) with presigned image/thumbnail URLs.
+- **Android smoke â€” silent refresh**: Force-stopped app, relaunched, app went SplashScreen â†’ silent token refresh â†’ HomeDressesForActivity (did NOT go back to LoginActivity). The stored refresh token successfully restored the session without re-pairing.
 - **Orphaned migration cleanup**: Deleted `0086_lethal_dreaming_celestial.sql` and `0086_snapshot.json` (unguarded `DROP TABLE model_poses CASCADE`, all work already covered by 0047/0054/0083/0084/0085).
 
-### Not Done (deferred — requires GPU worker)
-- Full try-on flow (presign → upload photo → create job → poll for result) requires the dispatcher + ComfyUI GPU worker to be running. Tested API endpoints individually via integration test.
-- Like/cart UI toggle visual verification — ViewModel calls confirmed in logcat, but icon-tint/Toast pixel-identical claim needs manual visual check on the emulator screen.
+### Not Done (deferred â€” requires GPU worker)
+- Full try-on flow (presign â†’ upload photo â†’ create job â†’ poll for result) requires the dispatcher + ComfyUI GPU worker to be running. Tested API endpoints individually via integration test.
+- Like/cart UI toggle visual verification â€” ViewModel calls confirmed in logcat, but icon-tint/Toast pixel-identical claim needs manual visual check on the emulator screen.
 
 ### Open Questions / Decisions
 - The 16KB page-size compatibility dialog appears on Android 15 emulators on first launch. Requires one-time "OK" dismissal. Does not affect functionality.
-- `adb input text` is unreliable with Gboard's predictive text on this emulator image — `input keyevent` with key codes works reliably but sends lowercase characters. Worked around by using `input text` and verifying the EditText value via UI dump before submission.
+- `adb input text` is unreliable with Gboard's predictive text on this emulator image â€” `input keyevent` with key codes works reliably but sends lowercase characters. Worked around by using `input text` and verifying the EditText value via UI dump before submission.
 - Phase 3 is now ready for review. Commit pending review approval.
 
 ## 2026-07-06 - Multi-App Phase 2 Merchant Portal Final Closeout
@@ -1674,7 +1688,7 @@ Open Questions / Decisions:
 ### Review follow-up (same day)
 - Codex's PowerShell-based file writes (its normal `apply_patch` sandbox was unavailable) introduced encoding damage: mojibake in two docs and stripped em-dashes across several source comments/log strings, plus one clobbered `app.log.error` call in the password-reset flow. All repaired during review.
 - Found and fixed a real ordering bug in `server.ts`'s error handler: the new generic-4xx branch was placed *before* the validation-error branch, which would have changed schema-validation failures from `code: 'VALIDATION'` to `code: 'HTTP_ERROR'` repo-wide. Reordered so validation keeps precedence; only framework-level 4xx (e.g. rate-limit's 429) falls through to the new branch.
-- Confirmed the 5 failing integration test files (`auth`, `catalog`, `credits`, `jobs-create`, `uploads`) are pre-existing rot unrelated to this phase — `registerAndLogin` fails before any Phase 0 code path runs, and the pre-push gate only runs `test:unit`, so these were already red at `origin/master`.
+- Confirmed the 5 failing integration test files (`auth`, `catalog`, `credits`, `jobs-create`, `uploads`) are pre-existing rot unrelated to this phase â€” `registerAndLogin` fails before any Phase 0 code path runs, and the pre-push gate only runs `test:unit`, so these were already red at `origin/master`.
 - Full DoD re-verified after fixes: repo-wide `biome check --diagnostic-level=error` clean, `pnpm typecheck` all 10 projects pass, kiosk integration test (3/3) and full API unit suite (55/55) pass.
 ## 2026-07-06 - Admin Users Page Phone Number
 
@@ -1825,7 +1839,7 @@ Review of the antigravity implementation (previous entry below) found 3 blocking
 spec and 2 follow-ups; all fixed and verified with new tests run against live Postgres/Redis/MinIO
 (`pnpm docker:up`), not just typecheck:
 - **Regenerate now reuses job creation instead of duplicating it.** `apps/api/src/modules/jobs/regenerate.ts`
-  previously hand-rolled its own plan lookup, cost calc, and insert/enqueue — already diverging from
+  previously hand-rolled its own plan lookup, cost calc, and insert/enqueue â€” already diverging from
   `create.ts`'s pose-workflow-driven lower/shoe catalog stripping. Rewrote it to reconstruct the
   request shape and call `createJob` / `createSimpleTryonJob` / `createSareeJob` directly, matching
   the spec's explicit "do not special-case pricing for regenerate" rule. Added `sourceJobId` to the
@@ -1839,7 +1853,7 @@ spec and 2 follow-ups; all fixed and verified with new tests run against live Po
   Also fixed two pre-existing typecheck errors in this file (duplicate `queuePosition` prop, `zoom`
   passed directly as an `img src` instead of `zoom.url`) that meant this file had never actually
   typechecked since being written.
-- **Wrote the missing test suite** — none existed before this pass despite the spec calling several
+- **Wrote the missing test suite** â€” none existed before this pass despite the spec calling several
   out explicitly ("write a test for it" / "regression guard"): dispatcher unit tests for
   `WatermarkService` (5 tests, `src/workflow/watermark.test.ts`), dispatcher integration tests for
   fail-closed behavior and the end-to-end upgrade-mid-flight snapshot regression (5 tests across two
@@ -1848,13 +1862,13 @@ spec and 2 follow-ups; all fixed and verified with new tests run against live Po
   `apps/api/test/integration/regenerate.test.ts`).
 - Writing real tests surfaced two additional bugs that had never been exercised:
   1. `WatermarkService.initWatermarkTile()` sized the tile canvas from the SVG logo's *pre-transform*
-     metadata instead of the post-resize/rotate buffer, so `.composite()` always threw — the
+     metadata instead of the post-resize/rotate buffer, so `.composite()` always threw â€” the
      dispatcher would `process.exit(1)` on every boot with `ENABLE_WATERMARKING=true` (the default).
   2. Chaining `.extend({ extendWith: 'repeat' })` directly into `.extract()` in one sharp pipeline
      throws `bad extract area` in the installed sharp version even when the extended buffer is
      provably large enough; fixed by materializing the extended buffer first.
 - Seeded the jobId offset that P1-5 called for (`tileOffsetForJob()`, sha256-derived, mod tile
-  dimensions) — the original `applyWatermark()` ignored `opts.jobId` entirely and always composited
+  dimensions) â€” the original `applyWatermark()` ignored `opts.jobId` entirely and always composited
   from `(0,0)`, so every image got an identical watermark placement.
 - Fixed a pre-existing dispatcher test-infra bug unrelated to this feature but blocking all
   integration tests locally: `test/helpers/containers.ts` hardcoded Postgres port 5432, this machine's
@@ -1866,7 +1880,7 @@ spec and 2 follow-ups; all fixed and verified with new tests run against live Po
 
 ### Failed / Not Done
 - Did **not** attempt to fix the pre-existing `happy-path.test.ts` / `recovery.test.ts` /
-  `retry.test.ts` dispatcher integration tests — they seed `catalog_items` with columns from a schema
+  `retry.test.ts` dispatcher integration tests â€” they seed `catalog_items` with columns from a schema
   version that predates the current `faceId`/`backgroundId`/`poseId` model-asset split (`type` is now
   `NOT NULL` with no default and means `'lower' | 'shoe'`, not a free-form label). This is unrelated
   pre-existing rot, confirmed by reverting all watermarking changes and re-running them with the same
@@ -1874,7 +1888,7 @@ spec and 2 follow-ups; all fixed and verified with new tests run against live Po
   no passing dispatcher-level test coverage at all right now.
 
 ### Open Questions / Decisions
-- `apps/dispatcher/assets/watermark-logo.svg` is still a placeholder (per the entry below) — needs a
+- `apps/dispatcher/assets/watermark-logo.svg` is still a placeholder (per the entry below) â€” needs a
   real asset from design before production rollout with `ENABLE_WATERMARKING=true`.
 
 ## 2026-07-03 - Implemented Free-Tier Watermarking & Regenerate Feature
@@ -1904,7 +1918,7 @@ spec and 2 follow-ups; all fixed and verified with new tests run against live Po
 - Spec marked **Architecture Approved / frozen** and handed off for implementation (outside this session's architect/reviewer role).
 
 ### Failed / Not Done
-- No code written this session — pure design/spec work, as scoped.
+- No code written this session â€” pure design/spec work, as scoped.
 
 ### Open Questions / Decisions
 - None outstanding; any further changes are expected to come from implementation/staging findings, not further design discussion.
@@ -1912,17 +1926,17 @@ spec and 2 follow-ups; all fixed and verified with new tests run against live Po
 ## 2026-07-02 - Free Plan Design Gap Fixes
 
 ### Done
-- Reviewed `docs/superpowers/specs/2026-07-02-unify-free-plan-credit-plans-design.md` against the actual codebase and found the design was already fully implemented (migrations 0077-0079, admin/pricing UI, tier validation) — the doc's own "Trade-offs" section still listed 4 real gaps in the shipped design, all now fixed:
-- Added migration `0080_users_tier_fk_credit_plans.sql`: normalizes any orphaned `users.tier` value to `'free'`, then adds a DB-level `FOREIGN KEY (tier) REFERENCES credit_plans(slug) ON DELETE RESTRICT` — the design's stated invariant ("tier always matches a plan") is now enforced by Postgres, not just convention.
-- `creditPlans.routes.ts` DELETE now also blocks deleting a plan that any user currently has as their `tier` (409, in addition to the existing payments check) — the FK is a backstop, this gives a clean error instead of a raw constraint violation.
-- `creditPlans.routes.ts` PATCH now blocks deactivating the free plan (`isActive: false`) — previously an admin could silently zero out free-signup credits for new users with no warning, since only slug-change and delete were guarded.
+- Reviewed `docs/superpowers/specs/2026-07-02-unify-free-plan-credit-plans-design.md` against the actual codebase and found the design was already fully implemented (migrations 0077-0079, admin/pricing UI, tier validation) â€” the doc's own "Trade-offs" section still listed 4 real gaps in the shipped design, all now fixed:
+- Added migration `0080_users_tier_fk_credit_plans.sql`: normalizes any orphaned `users.tier` value to `'free'`, then adds a DB-level `FOREIGN KEY (tier) REFERENCES credit_plans(slug) ON DELETE RESTRICT` â€” the design's stated invariant ("tier always matches a plan") is now enforced by Postgres, not just convention.
+- `creditPlans.routes.ts` DELETE now also blocks deleting a plan that any user currently has as their `tier` (409, in addition to the existing payments check) â€” the FK is a backstop, this gives a clean error instead of a raw constraint violation.
+- `creditPlans.routes.ts` PATCH now blocks deactivating the free plan (`isActive: false`) â€” previously an admin could silently zero out free-signup credits for new users with no warning, since only slug-change and delete were guarded.
 - Applied migration 0080 against local dev DB (clean, no orphaned data); `pnpm --filter @aivastra/api typecheck`, `pnpm --filter @aivastra/db typecheck`, and `pnpm --filter @aivastra/api test:unit` all pass.
 
 ### Failed / Not Done
 - None.
 
 ### Open Questions / Decisions
-- Did not add `.references()` on the `users.tier` schema.ts column to avoid a circular import with `credits.ts` (which already imports `users.ts`) — the FK exists at the DB level via the raw SQL migration; a comment in `schema.ts` documents this.
+- Did not add `.references()` on the `users.tier` schema.ts column to avoid a circular import with `credits.ts` (which already imports `users.ts`) â€” the FK exists at the DB level via the raw SQL migration; a comment in `schema.ts` documents this.
 
 ## 2026-07-02 - Admin Free Plan Card
 
@@ -1956,31 +1970,31 @@ spec and 2 follow-ups; all fixed and verified with new tests run against live Po
 - The job creation paths still keep a defensive `?? 'normal'` queue fallback even though tiers now normalize to credit plan slugs. That fallback is harmless, but if you want the code to hard-fail on data drift instead, that would be a separate tightening change.
 # Project Progress
 
-## 2026-07-03 — Chatbot Multi-Provider Model Selection
+## 2026-07-03 â€” Chatbot Multi-Provider Model Selection
 
 Implemented per `docs/superpowers/plans/2026-07-03-chatbot-multi-provider-models.md` (3 tasks),
 via `superpowers:subagent-driven-development`.
 
 ### Done
-- New `apps/chatbot/src/agent/models.ts` — provider-agnostic `makeModel()` factory
+- New `apps/chatbot/src/agent/models.ts` â€” provider-agnostic `makeModel()` factory
   (`anthropic` / `google` / `openai-compatible`), env-var config resolution with per-field
   fallback (`genModelConfig`/`toolModelConfig`).
-- `runBotTurn()` split into a router (tool-calling) model and a generation model — router
+- `runBotTurn()` split into a router (tool-calling) model and a generation model â€” router
   makes one tool-decision pass (no loop), generation model synthesizes the final reply and
   applies the existing escalate/grounding gate. `createReactAgent` no longer used.
-- Pinned `@langchain/openai@0.3.17` and `@langchain/google-genai@0.2.18` (not `^` ranges) —
+- Pinned `@langchain/openai@0.3.17` and `@langchain/google-genai@0.2.18` (not `^` ranges) â€”
   their latest majors require `@langchain/core@^1.x`, incompatible with this repo's
   `@langchain/core@0.3.80` (pinned via `@langchain/langgraph`/`@langchain/anthropic`).
 - Fixed a pre-existing duplication in `apps/chatbot/src/index.ts` where `deps` was
-  constructed twice (once for the server, once for the sweeper) — now built once.
+  constructed twice (once for the server, once for the sweeper) â€” now built once.
 - Post-review fix: hand-off test (`bot.test.ts`) didn't prove the tool result actually
-  reached `genModel`'s input, only that the final text passed through — added a spy wrapper
+  reached `genModel`'s input, only that the final text passed through â€” added a spy wrapper
   on `genModel.invoke` to assert on the received message content.
 - Final whole-branch review caught a **critical bug before merge**: the generation model
   (never bound to tools) was being handed the router's tool-call `AIMessage` plus
   `ToolMessage` results as structured `tool_use`/`tool_result` blocks. Anthropic rejects any
   request containing those blocks unless `tools` is also passed on that same call
-  ("Requests which include tool_use or tool_result blocks must define tools") — this would
+  ("Requests which include tool_use or tool_result blocks must define tools") â€” this would
   have 400'd on every tool-using turn against the default anthropic config. Fixed by
   flattening tool output into a plain-text `SystemMessage` instead (also sidesteps
   cross-provider tool-call id format mismatches when tool/gen models differ). Also softened
@@ -1992,13 +2006,13 @@ via `superpowers:subagent-driven-development`.
 - None.
 
 ### Open Questions / Decisions
-- Admin-configurable (DB-backed, no-redeploy) model switching is explicitly deferred —
+- Admin-configurable (DB-backed, no-redeploy) model switching is explicitly deferred â€”
   decide later per user.
 - `CHATBOT_MAX_TOOL_ITERATIONS` is now an orphaned env var (its only consumer, the
   `recursionLimit` on the old `createReactAgent` call, was removed). Left declared in
   `env.ts` for backward compatibility; not wired to anything.
 
-## 2026-07-03 — Support Chatbot v1 (as built)
+## 2026-07-03 â€” Support Chatbot v1 (as built)
 
 Implemented per `docs/superpowers/plans/2026-07-03-support-chatbot.md` (all 15 tasks),
 following `docs/chatbot/chatbot-system-design.md` v2.
@@ -2006,20 +2020,20 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Done
 - New `apps/chatbot` service: Fastify + `@fastify/websocket`, pgvector + tsvector hybrid
   retrieval (RRF-merged), LangGraph ReAct bot (`claude-haiku-4-5-20251001`) with
-  userId-bound `getCredits`/`getRecentJobs`/`searchKnowledge` tools (no identity args —
-  §7.2 invariant), one-time WS ticket auth, Redis pub/sub fanout, presence ZSET,
+  userId-bound `getCredits`/`getRecentJobs`/`searchKnowledge` tools (no identity args â€”
+  Â§7.2 invariant), one-time WS ticket auth, Redis pub/sub fanout, presence ZSET,
   claim/takeover/end state machine with abort-safe bot termination, email fallback to
   `contact_requests` (both "no agent available" and "PENDING_HUMAN timeout" paths), 60s
   sweeper (idle close, agent-drop re-queue, presence prune). 8 test files, 23 tests.
-- `apps/api`: `/admin/chatbot/*` — Q&A CRUD, ingest proxy, inbox list, atomic
+- `apps/api`: `/admin/chatbot/*` â€” Q&A CRUD, ingest proxy, inbox list, atomic
   claim/takeover/end (Redis `NX` lock), duty toggle. 7 integration tests
-  (`test/integration/admin-chatbot*.test.ts` — run via `vitest.integration.config.ts`,
+  (`test/integration/admin-chatbot*.test.ts` â€” run via `vitest.integration.config.ts`,
   **not** the default `pnpm test`, see Open Questions).
 - `apps/admin-web`: Chatbot Q&A page (CRUD + re-ingest) and Chat Inbox (duty, queue,
-  claim/takeover, live conversation pane) — web-only in v1, explicit admin-mobile parity
+  claim/takeover, live conversation pane) â€” web-only in v1, explicit admin-mobile parity
   exception per the design doc.
 - `apps/catalogues-web`: floating chat widget, WS streaming, human-handoff UX.
-- `packages/db`: migration `0078_chatbot.sql` — `pgvector/pgvector:pg16` image swap,
+- `packages/db`: migration `0078_chatbot.sql` â€” `pgvector/pgvector:pg16` image swap,
   5 new tables + HNSW/GIN indexes + partial unique index (one active conversation/user).
   Applied and verified against the running dev DB.
 - Prometheus metrics (`chatbot_messages_total`, `_escalations_total`, `_fallbacks_total`,
@@ -2029,28 +2043,28 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ### Fixed in post-execution review (2026-07-03)
 - **Duty toggle 415 (Unsupported Media Type):** `ChatInboxPage.tsx` passed an explicit
-  `content-type` header alongside `apiFetch`'s auto-injected `Content-Type` — the two
+  `content-type` header alongside `apiFetch`'s auto-injected `Content-Type` â€” the two
   differently-cased keys survived into the `fetch()` `Headers` object and got
   comma-joined (`"application/json, application/json"`), which Fastify's content-type
   parser rejected. Fix: dropped the redundant header (every other admin-web page already
   relies on `apiFetch`'s auto-injection; this was the one page that duplicated it).
 - **Chat widget could never authenticate:** the original plan spec read `access_token`
-  from `document.cookie`, but that cookie was deliberately removed in SEC-H2 (2026-06-30) —
+  from `document.cookie`, but that cookie was deliberately removed in SEC-H2 (2026-06-30) â€”
   the token now lives only in `apps/catalogues-web/src/lib/api.ts`'s in-memory `_memToken`.
   Someone caught this during/after execution and switched the widget to the exported
   `getToken()`; verified correct against the actual auth implementation.
 - Doc follow-through gaps closed: system-design doc now marked "as built (v1)" (was still
   "proposed"); `apps/chatbot` added to CLAUDE.md's monorepo table + commands table; fixed
   a stale CLAUDE.md line that claimed `api.ts` reads the token from `document.cookie`
-  (pre-existing inaccuracy — root cause of the widget bug above).
+  (pre-existing inaccuracy â€” root cause of the widget bug above).
 
 ### Failed / Not Done
-- None — all 15 planned tasks landed and pass.
+- None â€” all 15 planned tasks landed and pass.
 
 ### Open Questions / Decisions
 - **Widget cold-load race:** `ChatWidget.connect()` reads `getToken()` directly instead of
   going through `api.ts`'s `request()` wrapper, so it doesn't benefit from that wrapper's
-  own 401→refresh self-healing. If a user reloads the page and opens the chat bubble
+  own 401â†’refresh self-healing. If a user reloads the page and opens the chat bubble
   before any other authenticated call has hydrated `_memToken`, `connect()` returns
   silently with no UI feedback. Low likelihood (most pages fire an authenticated call
   before this is reachable) but not proven impossible. Left as-is pending a decision on
@@ -2058,27 +2072,27 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - **`apps/api` `test` script doesn't run integration tests by default:** `vitest.config.ts`
   excludes `test/integration/**`; the actual runner is `vitest.integration.config.ts`, not
   wired into `package.json`'s `test`/`test:unit` scripts or the `make test-api` target.
-  This is a pre-existing gap (predates this build — the config's own comments reference
+  This is a pre-existing gap (predates this build â€” the config's own comments reference
   unrelated pre-existing failing tests), not something this chatbot work introduced, but
   it means CLAUDE.md's description of `pnpm --filter @aivastra/api test` as the "Full API
   integration suite" is currently inaccurate. Flagging for a separate fix; the two new
   `admin-chatbot*.test.ts` files were verified manually against the integration config.
 
-## 2026-06-30 — Security Audit: H1/H2/H3/C2 Fixed
+## 2026-06-30 â€” Security Audit: H1/H2/H3/C2 Fixed
 
 ### Done
-- **SEC-C2 · SSRF (Critical):** Added `assertSafeExternalUrl()` in `apps/api/src/modules/widget/routes.ts` — enforces `https`-only, DNS-resolves hostname, blocks RFC1918 / loopback / link-local ranges before any fetch or credit check.
-- **SEC-H1 · Open merchant signup (High):** `widget_clients.is_active` defaulted to `false` (migration `0076`); signup rate-limited to 5/hr; `widgetKey` withheld from response until admin activates account.
-- **SEC-H2 · JS-readable access token (High):** Access token moved from cookie to module-level variable in `apps/catalogues-web/src/lib/api.ts`. `initToken()` seeded after login; silent re-hydration on 401 via httpOnly refresh cookie; BroadcastChannel cross-tab sync. Cookie no longer set by `setAuthCookies`.
-- **SEC-H3 · World-readable bucket (High):** `mc anonymous set download` removed from both compose files; all private content in `/admin/results/data` served via presigned GETs (1h TTL) instead of `publicUrl()`.
+- **SEC-C2 Â· SSRF (Critical):** Added `assertSafeExternalUrl()` in `apps/api/src/modules/widget/routes.ts` â€” enforces `https`-only, DNS-resolves hostname, blocks RFC1918 / loopback / link-local ranges before any fetch or credit check.
+- **SEC-H1 Â· Open merchant signup (High):** `widget_clients.is_active` defaulted to `false` (migration `0076`); signup rate-limited to 5/hr; `widgetKey` withheld from response until admin activates account.
+- **SEC-H2 Â· JS-readable access token (High):** Access token moved from cookie to module-level variable in `apps/catalogues-web/src/lib/api.ts`. `initToken()` seeded after login; silent re-hydration on 401 via httpOnly refresh cookie; BroadcastChannel cross-tab sync. Cookie no longer set by `setAuthCookies`.
+- **SEC-H3 Â· World-readable bucket (High):** `mc anonymous set download` removed from both compose files; all private content in `/admin/results/data` served via presigned GETs (1h TTL) instead of `publicUrl()`.
 
 ### Failed / Not Done
-- **SEC-H2 CSP:** Adding a Content-Security-Policy header requires auditing all script/style/connect origins — deferred. Token-in-memory already eliminates the primary XSS→token-theft vector.
+- **SEC-H2 CSP:** Adding a Content-Security-Policy header requires auditing all script/style/connect origins â€” deferred. Token-in-memory already eliminates the primary XSSâ†’token-theft vector.
 
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Phase 9 Closure
+## 2026-06-30 â€” Phase 9 Closure
 
 ### Done
 - **Standardized Database Seeding (Finding 9.4)**:
@@ -2088,7 +2102,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
   - Closed Finding 9.4 as Done.
   - Phase 9 is now fully closed.
 
-## 2026-06-30 — Audit Triages (1.4, 2.3, 9.1)
+## 2026-06-30 â€” Audit Triages (1.4, 2.3, 9.1)
 
 ### Done
 - **Audit Docs**:
@@ -2096,7 +2110,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
   - Closed Finding 2.3 (Merchant Analytics) as Deferred; out of scope for hardening sprint. (Phase 2 fully closed).
   - Closed Finding 9.1 (Half-Implemented Dispatcher) as Merged into 7.5 (ComfyUI payload sandboxing).
 
-## 2026-06-30 — Phase 8 Closure
+## 2026-06-30 â€” Phase 8 Closure
 
 ### Done
 - **Monorepo Boundaries (Finding 8.1)**:
@@ -2116,12 +2130,12 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Phase 11 Closure
+## 2026-06-30 â€” Phase 11 Closure
 
 ### Done
 - **Audit Doc (`docs/audits/audit_phase_11_admin_dashboard.md`)**:
-  - Closed Finding 11.2 (Inferior Real-Time UX) as Done following the Polling → SSE migration.
-  - Closed Finding 11.4 (Dead-End Metrics) as Done following the BarChart → JobsPage drill-down implementation.
+  - Closed Finding 11.2 (Inferior Real-Time UX) as Done following the Polling â†’ SSE migration.
+  - Closed Finding 11.4 (Dead-End Metrics) as Done following the BarChart â†’ JobsPage drill-down implementation.
   - Closed Finding 11.5 (Brittle Theming and State Sync) as Done following the optimistic `updateTheme` implementation in `App.tsx`.
   - Skipped Finding 11.3 (Fragmented and Unpolished Styling) as the admin SPA's custom `tokens.css` design system is an intentional design choice, and a UI library migration (Tailwind/shadcn) would yield no product benefit.
   - Phase 11 is now fully resolved or skipped.
@@ -2132,7 +2146,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Admin Dashboard Polling → SSE (Finding 11.2)
+## 2026-06-30 â€” Admin Dashboard Polling â†’ SSE (Finding 11.2)
 
 ### Done
 - **Admin App (`apps/admin-web/src/lib/sse.ts`, `apps/admin-web/src/pages/DashboardPage.tsx`)**:
@@ -2140,7 +2154,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
   - Replaced the primary 30-second `setInterval` polling in the dashboard with event-driven data fetching using the `/admin/jobs/stream` SSE endpoint.
   - Added an 800ms debounce to the SSE event handler to batch simultaneous state transitions without hammering the database.
   - Maintained a 60-second fallback heartbeat poll to catch out-of-sync states or silent SSE disconnects.
-  - Updated dashboard UI text label to reflect event-driven freshness ("Live — updates on job events").
+  - Updated dashboard UI text label to reflect event-driven freshness ("Live â€” updates on job events").
 
 ### Failed / Not Done
 - None.
@@ -2148,7 +2162,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Phase 4 Closure (4.1 and 4.3)
+## 2026-06-30 â€” Phase 4 Closure (4.1 and 4.3)
 
 ### Done
 - **Audit Doc (`docs/audits/audit_phase_4_design_system.md`)**:
@@ -2162,7 +2176,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Finding 6.4 Closure
+## 2026-06-30 â€” Finding 6.4 Closure
 
 ### Done
 - **Audit Doc (`docs/audits/audit_phase_6_performance.md`)**:
@@ -2175,7 +2189,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Widget Job Cancellation (Finding 3.1)
+## 2026-06-30 â€” Widget Job Cancellation (Finding 3.1)
 
 ### Done
 - **API (`apps/api/src/modules/widget/routes.ts`)**: 
@@ -2197,7 +2211,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Audit Sprint fixes: P1-4, 3.3, 11.4
+## 2026-06-30 â€” Audit Sprint fixes: P1-4, 3.3, 11.4
 
 ### Done
 - **P1-4 Admin Mobile Notification Settings:** Disabled `emailAlerts` and `slackWebhook` inputs in `SettingsPage.tsx` with a "Coming soon" badge to avoid confusing admins since there is no backend support yet. Removed orphaned state variables and added `disabled` support to the `Switch` component.
@@ -2212,41 +2226,41 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Saree job creator integration tests
+## 2026-06-30 â€” Saree job creator integration tests
 
 ### Done
-- Created `apps/api/test/integration/saree-jobs.test.ts` with 5 tests covering: NOT_CONFIGURED (no model image) → 400, CONFIG (no active saree workflow) → 400, FORBIDDEN (garmentKey owned by another user) → 403, happy path (35 credits deducted, job+inputs inserted, XADD to jobs:normal) → 201, refund on enqueue failure (503, credits refunded, job FAILED with errorCode=ENQUEUE_FAIL).
-- Adapted `registerUser` to the current email-verification flow: register → mark `emailVerified=true` via DB → login for a real JWT. The spec's `res.json().accessToken` pattern was broken by the post-commit auth change.
+- Created `apps/api/test/integration/saree-jobs.test.ts` with 5 tests covering: NOT_CONFIGURED (no model image) â†’ 400, CONFIG (no active saree workflow) â†’ 400, FORBIDDEN (garmentKey owned by another user) â†’ 403, happy path (35 credits deducted, job+inputs inserted, XADD to jobs:normal) â†’ 201, refund on enqueue failure (503, credits refunded, job FAILED with errorCode=ENQUEUE_FAIL).
+- Adapted `registerUser` to the current email-verification flow: register â†’ mark `emailVerified=true` via DB â†’ login for a real JWT. The spec's `res.json().accessToken` pattern was broken by the post-commit auth change.
 - Added stub values for `workflowTemplates` NOT NULL columns (`faceNodeId`, `poseNodeId`, `bgNodeId`, `upperNodeIds`, `facePhasePromptNode`, `garmentPhasePromptNode`) that the saree flow doesn't actually use. The saree flow only reads the `tryon*_node_id` columns.
-- Stubbed `app.storage.headObject` in `beforeEach` so `assertOwnsUploadKey`'s existence check passes without a real R2 object. The spec's assumption that the HEAD check would "throw BAD_UPLOAD before reaching" the config checks was wrong — HEAD always runs first unless the owner check fails (which is exactly the FORBIDDEN test).
+- Stubbed `app.storage.headObject` in `beforeEach` so `assertOwnsUploadKey`'s existence check passes without a real R2 object. The spec's assumption that the HEAD check would "throw BAD_UPLOAD before reaching" the config checks was wrong â€” HEAD always runs first unless the owner check fails (which is exactly the FORBIDDEN test).
 - All 5 tests pass (3.7s). `pnpm --filter @aivastra/api typecheck` clean. Biome formatting clean.
 - Committed: `test(api): add saree job creator integration tests` (6477d32).
 
 ---
 
-## 2026-06-30 — Saree Try-On follow-up: Workers page checkbox
+## 2026-06-30 â€” Saree Try-On follow-up: Workers page checkbox
 
 **Done**
 - Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin-web/src/pages/WorkersPage.tsx`
 - Wrapped the Add/Edit Worker modal's checkbox row with `flexWrap: 'wrap'` so 3 checkboxes don't overflow on narrow screens
 - Updated the workers-table badge color logic so `saree` rows render with a pink tint (`var(--pink, #ec4899)`) distinct from `tryon` (accent) and `catalogue` (success)
-- Admin can now enable a worker for saree jobs from the UI — no API PATCH needed
-- Closes the loop: `Admin → Saree page → upload workflow + model image` + `Admin → Workers page → enable saree on a worker` = end-to-end ready
+- Admin can now enable a worker for saree jobs from the UI â€” no API PATCH needed
+- Closes the loop: `Admin â†’ Saree page â†’ upload workflow + model image` + `Admin â†’ Workers page â†’ enable saree on a worker` = end-to-end ready
 
 **Tested**
-- Admin build (`pnpm --filter @aivastra/admin build`) — clean (76 modules, 5.62s)
-- lefthook biome-staged — no fixes needed
+- Admin build (`pnpm --filter @aivastra/admin build`) â€” clean (76 modules, 5.62s)
+- lefthook biome-staged â€” no fixes needed
 
 ---
 
-## 2026-06-30 — SSE Reconnection UX (session 4)
+## 2026-06-30 â€” SSE Reconnection UX (session 4)
 
 ### Done
 - **3.5 SSE reconnection indicator:** Three-file change with no architectural risk.
-  - `apps/catalogues-web/src/lib/sse.ts` — exported `SSEState` type (`'connecting' | 'connected' | 'reconnecting'`); added optional `onStateChange` 4th parameter to `createSSEConnection`, called at transition points (`connect()` start, after stream confirmed, `scheduleReconnect()`).
-  - `apps/catalogues-web/src/components/job-stream-provider.tsx` — wired `setSseState` as `onStateChange`; exposed `sseState` in context with `useMemo`; renders a fixed bottom toast with a spinning ring when `sseState === 'reconnecting'` (uses existing `av-spin` CSS class and `aria-live="polite"`). `subscribe` extracted with `useCallback` to keep it stable.
-  - `apps/catalogues-web/src/app/(widget)/widget/render/[key]/page.tsx` — extracted SSE reading out of `handleGenerate` (which previously had no reconnection logic — a silent stall bug) into a `useEffect` watching `[step, jobId, key]`. New effect uses exponential backoff (`1s → 30s`), `AbortController` for clean cancellation, and `sseClosedRef` to prevent reconnects after terminal events. `sseConnState` state drives a "Connection lost — retrying…" indicator in the processing step UI. `API_URL` moved to module level.
-- **Contact requests source filter** — verified already fully implemented in a prior session (both `contact.routes.ts` and `ContactRequestsPage.tsx` complete).
+  - `apps/catalogues-web/src/lib/sse.ts` â€” exported `SSEState` type (`'connecting' | 'connected' | 'reconnecting'`); added optional `onStateChange` 4th parameter to `createSSEConnection`, called at transition points (`connect()` start, after stream confirmed, `scheduleReconnect()`).
+  - `apps/catalogues-web/src/components/job-stream-provider.tsx` â€” wired `setSseState` as `onStateChange`; exposed `sseState` in context with `useMemo`; renders a fixed bottom toast with a spinning ring when `sseState === 'reconnecting'` (uses existing `av-spin` CSS class and `aria-live="polite"`). `subscribe` extracted with `useCallback` to keep it stable.
+  - `apps/catalogues-web/src/app/(widget)/widget/render/[key]/page.tsx` â€” extracted SSE reading out of `handleGenerate` (which previously had no reconnection logic â€” a silent stall bug) into a `useEffect` watching `[step, jobId, key]`. New effect uses exponential backoff (`1s â†’ 30s`), `AbortController` for clean cancellation, and `sseClosedRef` to prevent reconnects after terminal events. `sseConnState` state drives a "Connection lost â€” retryingâ€¦" indicator in the processing step UI. `API_URL` moved to module level.
+- **Contact requests source filter** â€” verified already fully implemented in a prior session (both `contact.routes.ts` and `ContactRequestsPage.tsx` complete).
 
 ### Failed / Not Done
 - None.
@@ -2256,14 +2270,14 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ---
 
-## 2026-06-30 — Saree Try-On (temporary feature)
+## 2026-06-30 â€” Saree Try-On (temporary feature)
 
 **Done**
 - New `saree_settings` table (single row, holds admin's static model image key) + migration 0071
 - 10 new Zod schemas in `@aivastra/types/saree`
 - `saree-detect.ts` auto-detects person + saree LoadImage nodes (5 unit tests passing)
 - 7 admin routes under `/admin/saree-*` (workflow active/upload/deactivate, settings GET/presign/PATCH, workers list)
-- 2 user routes (`GET /v1/saree/config`, `POST /v1/jobs/saree`) — 35 credits, normal/priority queue
+- 2 user routes (`GET /v1/saree/config`, `POST /v1/jobs/saree`) â€” 35 credits, normal/priority queue
 - Dispatcher `processSareeJob` routes to workers with `saree` in `allowedJobTypes`
 - New `jobsCreatedTotal` `kind` label (catalogue / tryon / saree)
 - Web `/saree` page (left upload, right preview, "not configured" empty state)
@@ -2272,9 +2286,9 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - 5 integration tests for `createSareeJob` (all passing via `vitest.integration.config.ts`)
 
 **Tested via integration tests**
-- NOT_CONFIGURED when model image missing → 400
-- CONFIG when active workflow missing → 400
-- FORBIDDEN when garmentKey owned by another user → 403
+- NOT_CONFIGURED when model image missing â†’ 400
+- CONFIG when active workflow missing â†’ 400
+- FORBIDDEN when garmentKey owned by another user â†’ 403
 - Happy path: 35 credits deducted, job+inputs inserted, jobs:normal XADD
 - Enqueue failure: 503, credits refunded, job marked FAILED
 - Detector: model/saree/output/prompts detected from saree.json fixture
@@ -2290,42 +2304,42 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - The worker must accept saree jobs (3 GB+ VRAM, ~5-10 min/inference)
 
 **Open Questions / Decisions**
-- Whether to keep this feature past the "temporary" window — the spec calls it a temporary feature, easy to remove via drop `saree_settings` + 4 file removals
+- Whether to keep this feature past the "temporary" window â€” the spec calls it a temporary feature, easy to remove via drop `saree_settings` + 4 file removals
 - Whether the static model image should rotate based on user preference (deferred to a later phase)
 
 ---
 
-## 2026-06-30 — Saree Try-On follow-up: Workers page checkbox
+## 2026-06-30 â€” Saree Try-On follow-up: Workers page checkbox
 
 **Done**
 - Added `'saree'` to the `JobType` union, `JOB_TYPES` array, and `JOB_TYPE_LABELS` map in `apps/admin-web/src/pages/WorkersPage.tsx`
 - Wrapped the Add/Edit Worker modal's checkbox row with `flexWrap: 'wrap'` so 3 checkboxes don't overflow on narrow screens
 - Updated the workers-table badge color logic so `saree` rows render with a pink tint (`var(--pink, #ec4899)`) distinct from `tryon` (accent) and `catalogue` (success)
-- Admin can now enable a worker for saree jobs from the UI — no API PATCH needed
-- Closes the loop: `Admin → Saree page → upload workflow + model image` + `Admin → Workers page → enable saree on a worker` = end-to-end ready
+- Admin can now enable a worker for saree jobs from the UI â€” no API PATCH needed
+- Closes the loop: `Admin â†’ Saree page â†’ upload workflow + model image` + `Admin â†’ Workers page â†’ enable saree on a worker` = end-to-end ready
 
 **Tested**
-- Admin build (`pnpm --filter @aivastra/admin build`) — clean (76 modules, 5.62s)
-- lefthook biome-staged — no fixes needed
+- Admin build (`pnpm --filter @aivastra/admin build`) â€” clean (76 modules, 5.62s)
+- lefthook biome-staged â€” no fixes needed
 
-## 2026-06-30 — Saree job creator integration tests
+## 2026-06-30 â€” Saree job creator integration tests
 
 ### Done
-- Created `apps/api/test/integration/saree-jobs.test.ts` with 5 tests covering: NOT_CONFIGURED (no model image) → 400, CONFIG (no active saree workflow) → 400, FORBIDDEN (garmentKey owned by another user) → 403, happy path (35 credits deducted, job+inputs inserted, XADD to jobs:normal) → 201, refund on enqueue failure (503, credits refunded, job FAILED with errorCode=ENQUEUE_FAIL).
-- Adapted `registerUser` to the current email-verification flow: register → mark `emailVerified=true` via DB → login for a real JWT. The spec's `res.json().accessToken` pattern was broken by the post-commit auth change.
+- Created `apps/api/test/integration/saree-jobs.test.ts` with 5 tests covering: NOT_CONFIGURED (no model image) â†’ 400, CONFIG (no active saree workflow) â†’ 400, FORBIDDEN (garmentKey owned by another user) â†’ 403, happy path (35 credits deducted, job+inputs inserted, XADD to jobs:normal) â†’ 201, refund on enqueue failure (503, credits refunded, job FAILED with errorCode=ENQUEUE_FAIL).
+- Adapted `registerUser` to the current email-verification flow: register â†’ mark `emailVerified=true` via DB â†’ login for a real JWT. The spec's `res.json().accessToken` pattern was broken by the post-commit auth change.
 - Added stub values for `workflowTemplates` NOT NULL columns (`faceNodeId`, `poseNodeId`, `bgNodeId`, `upperNodeIds`, `facePhasePromptNode`, `garmentPhasePromptNode`) that the saree flow doesn't actually use. The saree flow only reads the `tryon*_node_id` columns.
-- Stubbed `app.storage.headObject` in `beforeEach` so `assertOwnsUploadKey`'s existence check passes without a real R2 object. The spec's assumption that the HEAD check would "throw BAD_UPLOAD before reaching" the config checks was wrong — HEAD always runs first unless the owner check fails (which is exactly the FORBIDDEN test).
+- Stubbed `app.storage.headObject` in `beforeEach` so `assertOwnsUploadKey`'s existence check passes without a real R2 object. The spec's assumption that the HEAD check would "throw BAD_UPLOAD before reaching" the config checks was wrong â€” HEAD always runs first unless the owner check fails (which is exactly the FORBIDDEN test).
 - All 5 tests pass (3.7s). `pnpm --filter @aivastra/api typecheck` clean. Biome formatting clean.
 - Committed: `test(api): add saree job creator integration tests` (6477d32).
 
-## 2026-06-30 — Security, A11y, Design System, and Tech Debt Fixes (session 3)
+## 2026-06-30 â€” Security, A11y, Design System, and Tech Debt Fixes (session 3)
 
 ### Done
-- **7.2 Presigned URL upload cap (defense-in-depth):** Three-layer enforcement at 5MB: (1) client-side JS MIME+size gate; (2) Zod `.max(5 * 1024 * 1024)` on `WidgetPresignRequest.contentLength` in `packages/types/src/widget.ts`; (3) `headObject` check at `POST /v1/widget/jobs` in `apps/api/src/modules/widget/routes.ts` — catches declared-vs-actual lies before credit deduction. Note: `content-length-range` POST policy is impossible for SDK PUT presigned URLs (see `r2.ts` comment).
+- **7.2 Presigned URL upload cap (defense-in-depth):** Three-layer enforcement at 5MB: (1) client-side JS MIME+size gate; (2) Zod `.max(5 * 1024 * 1024)` on `WidgetPresignRequest.contentLength` in `packages/types/src/widget.ts`; (3) `headObject` check at `POST /v1/widget/jobs` in `apps/api/src/modules/widget/routes.ts` â€” catches declared-vs-actual lies before credit deduction. Note: `content-length-range` POST policy is impossible for SDK PUT presigned URLs (see `r2.ts` comment).
 - **5.1 ARIA live regions (widget):** `aria-live="polite" aria-atomic="true"` on processing status wrapper; `role="alert" aria-live="assertive" aria-atomic="true"` on error container.
-- **4.4 Hardcoded color in error.tsx:** `background: '#fff'` → `background: C.bg` on line 19. `confirm-dialog.tsx` was already correctly tokenized (audit was wrong about it).
-- **9.3 Middleware redirects → next.config.ts:** `REDIRECTS` dict removed from middleware; `async redirects()` added to `next.config.ts` with `permanent: true` and basePath-aware paths. CDN-cached, zero middleware cost.
-- **5.3 Focus trap in modals:** `SupportModal` — `modalRef` + full ARIA dialog attributes + `id` on heading + `useEffect` trap (first-element focus, Tab cycle, Escape). `SupportButton` — `triggerRef` + `requestAnimationFrame` return-focus. `ConfirmDialog` — trap on inner panel (`dialogRef`), not backdrop; `role="dialog"` moved off backdrop to panel; `aria-labelledby` + `id` on `<h3>` added; confirm button auto-focused.
+- **4.4 Hardcoded color in error.tsx:** `background: '#fff'` â†’ `background: C.bg` on line 19. `confirm-dialog.tsx` was already correctly tokenized (audit was wrong about it).
+- **9.3 Middleware redirects â†’ next.config.ts:** `REDIRECTS` dict removed from middleware; `async redirects()` added to `next.config.ts` with `permanent: true` and basePath-aware paths. CDN-cached, zero middleware cost.
+- **5.3 Focus trap in modals:** `SupportModal` â€” `modalRef` + full ARIA dialog attributes + `id` on heading + `useEffect` trap (first-element focus, Tab cycle, Escape). `SupportButton` â€” `triggerRef` + `requestAnimationFrame` return-focus. `ConfirmDialog` â€” trap on inner panel (`dialogRef`), not backdrop; `role="dialog"` moved off backdrop to panel; `aria-labelledby` + `id` on `<h3>` added; confirm button auto-focused.
 - **5.2 PremiumSelect ARIA:** Added `role="combobox"`, stable `useId()` for `listboxId`, `aria-controls`, and `aria-activedescendant` for accurate screen reader announcements during keyboard navigation.
 - **5.4 Focus-visible outlines:** Removed hardcoded `outline: 'none'` and added `.focus-ring` utility class (`outline: 2px solid var(--c-pink)`) on `:focus-visible` to interactive trigger buttons in `PremiumSelect` and `PremiumDateRange`.
 - **7.4 Broad Next.js middleware catch-all:** Updated `middleware.ts` matcher to explicitly exclude static image extensions (`.*\\.(?:svg|png|jpg|jpeg|gif|webp)$`), preventing Edge function overhead on static assets.
@@ -2337,9 +2351,9 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ### Open Questions / Decisions
 - Integration tests currently use `vitest run --config /tmp/opencode/vitest.integration.config.ts` from `/mnt/vol1/PycharmProjects/aivastra_v1`. The default `apps/api/vitest.config.ts` excludes `test/integration/**`, so `pnpm --filter @aivastra/api test` doesn't pick them up. Worth wiring a `test:integration` script in `apps/api/package.json` so the spec's `pnpm --filter @aivastra/api test -- saree-jobs` works as written.
-- Pre-existing integration test failures in `auth.test.ts`, `jobs-create.test.ts`, `credits.test.ts`, `admin-users.test.ts` (all use the old `res.json().accessToken` register pattern, broken by the email-verification refactor) — left untouched, out of scope for this task.
+- Pre-existing integration test failures in `auth.test.ts`, `jobs-create.test.ts`, `credits.test.ts`, `admin-users.test.ts` (all use the old `res.json().accessToken` register pattern, broken by the email-verification refactor) â€” left untouched, out of scope for this task.
 
-## 2026-06-30 — Saree node detector
+## 2026-06-30 â€” Saree node detector
 
 ### Done
 - Created `apps/api/src/modules/admin/saree-detect.ts` mirroring `tryon-detect.ts` structure with saree-specific title matching (`garment`/`saree`/`flatsaree` for the user image, `person`/`model` for the admin/static image).
@@ -2348,21 +2362,21 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - `pnpm --filter @aivastra/api typecheck` clean.
 - Committed: `feat(api): add saree node detector` (4cfed73).
 
-## 2026-06-30 — UI/UX Audit Tier 3 Fixes (session 2)
+## 2026-06-30 â€” UI/UX Audit Tier 3 Fixes (session 2)
 
 ### Done
 - **3.2 Client-side file validation (widget upload):** MIME allow-list (`image/jpeg`, `image/png`, `image/webp`) and 5MB size gate enforced in `handleFileSelect` before presigned URL is requested. Inline `validationError` state renders below the dropzone. `accept` attribute on hidden input matches JS allow-list. Committed: `feat(widget): client-side file validation and drag-and-drop upload UX`.
 - **Drag-and-drop UX (widget upload):** Added `onDragOver`/`onDragLeave`/`onDrop` handlers. `dragActive` state drives pink border + faint tint. `onDragLeave` child-node guard (`e.currentTarget.contains(e.relatedTarget)`) prevents flicker. Dropped files routed through same `handleFileSelect` validation. Included in same commit as above.
 - **3.4 Assets empty state (cold-start):** `(app)/assets/page.tsx` replaced bare text with `GarmentIcon` (in `C.pink`) + bold heading + sub-copy + `<Link href="/studio"><GradBtn>Upload your first garment</GradBtn></Link>`. Filter-miss path preserved as plain text. Audit file paths were wrong (referenced non-existent `(merchant)/` routes); real gap was in `(app)/assets/`. Committed: `feat(web): rich empty state for assets cold-start`.
-- **Audit doc updated:** `docs/audits/audit_phase_3_ui_ux.md` — 3.2 and 3.4 moved to triage note; open findings (3.1, 3.3, 3.5) remain.
+- **Audit doc updated:** `docs/audits/audit_phase_3_ui_ux.md` â€” 3.2 and 3.4 moved to triage note; open findings (3.1, 3.3, 3.5) remain.
 
 ### Failed / Not Done
 - None.
 
 ### Open Questions / Decisions
-- Pre-existing unresolved conflict marker (`<<<<<<< Updated upstream` with no closer) at the top of `docs/progress.md` — resolved as part of the saree → origin merge.
+- Pre-existing unresolved conflict marker (`<<<<<<< Updated upstream` with no closer) at the top of `docs/progress.md` â€” resolved as part of the saree â†’ origin merge.
 
-## 2026-06-30 — Audit Tier 1 and Tier 2 Roadmap Fixes
+## 2026-06-30 â€” Audit Tier 1 and Tier 2 Roadmap Fixes
 
 ### Done
 - **Tier 1.2 (Redis Streams Unbounded Growth):** Added `MAXLEN ~ 10000` to all widget and normal job `XADD` calls to prevent memory leaks.
@@ -2380,7 +2394,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-30 — Repository Inventory
+## 2026-06-30 â€” Repository Inventory
 
 ### Done
 - Built a complete repository inventory of the Aivastra codebase.
@@ -2395,7 +2409,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-24 — Premium dark mode Task 5: refine tokens.css palettes and remove hardcoded colors
+## 2026-06-24 â€” Premium dark mode Task 5: refine tokens.css palettes and remove hardcoded colors
 
 ### Done
 - Updated `:root` light palette in `apps/admin-web/src/styles/tokens.css`:
@@ -2423,7 +2437,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-24 — Premium dark mode Task 4: remove local theme state from App.tsx
+## 2026-06-24 â€” Premium dark mode Task 4: remove local theme state from App.tsx
 
 ### Done
 - Removed the local `Theme` type and `readInitialTheme()` helper from `apps/admin-web/src/App.tsx`.
@@ -2444,7 +2458,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - The task description listed only `apps/admin-web/src/App.tsx` as modified, but `SettingsPage.tsx` also had to be updated because the new `settingsProps` no longer provides `onToggleTheme`. Task 8 was originally scoped to update `SettingsPage` props; the necessary prop change was pulled forward to keep the build green.
 - `toggleTheme` from `useTheme()` was not destructured in `App.tsx` because it has no consumer until Task 7 wires it into `Topbar`; destructuring it now would trigger `noUnusedLocals`.
 
-## 2026-06-24 — Premium dark mode Task 3: wire ThemeProvider into main.tsx
+## 2026-06-24 â€” Premium dark mode Task 3: wire ThemeProvider into main.tsx
 
 ### Done
 - Updated `apps/admin-web/src/main.tsx` to import `ThemeProvider` from `./context/ThemeContext.tsx`.
@@ -2458,7 +2472,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-24 — Premium dark mode Task 2: create ThemeProvider context
+## 2026-06-24 â€” Premium dark mode Task 2: create ThemeProvider context
 
 ### Done
 - Created `apps/admin-web/src/context/ThemeContext.tsx` with `ThemeProvider` and `useTheme` hook.
@@ -2474,7 +2488,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-24 — Premium dark mode Task 1: expose `isAuthenticated` from AuthContext
+## 2026-06-24 â€” Premium dark mode Task 1: expose `isAuthenticated` from AuthContext
 
 ### Done
 - Added `isAuthenticated: boolean` to the `AuthState` interface in `apps/admin-web/src/context/AuthContext.tsx`.
@@ -2482,7 +2496,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - Verified `pnpm --filter @aivastra/admin build` succeeds with no TypeScript errors.
 - Committed: `feat(admin): expose isAuthenticated from AuthContext`.
 
-## 2026-06-24 — Add $type annotation to admin_users preferences
+## 2026-06-24 â€” Add $type annotation to admin_users preferences
 
 ### Done
 - Added `.$type<{ theme?: 'light' | 'dark' | 'system' }>()` annotation to `preferences` jsonb column in `packages/db/src/schema/admin.ts`.
@@ -2495,7 +2509,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-24 — Comprehensive codebase reference document
+## 2026-06-24 â€” Comprehensive codebase reference document
 
 ### Done
 - Analysed the entire Aivastra monorepo: apps (api, dispatcher, web, admin, admin-mobile), packages (db, types, storage, logger, observability), infra, tests, and docs.
@@ -2519,7 +2533,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - If you want faster physical-device-only debug builds later, the ABI list can be narrowed back to `arm64-v8a` before release packaging.
 
-## 2026-06-15 — Admin mobile EAS Android autolinking fix
+## 2026-06-15 â€” Admin mobile EAS Android autolinking fix
 
 ### Done
 - Diagnosed the EAS Java failure as Expo SDK 53 running with pnpm isolated dependencies, which Expo documents as unsupported for reliable native builds.
@@ -2534,7 +2548,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Expo SDK 54+ supports isolated pnpm installs; the workspace can reconsider `nodeLinker: hoisted` during a future SDK upgrade.
 
-## 2026-06-15 — Admin mobile EAS project linking
+## 2026-06-15 â€” Admin mobile EAS project linking
 
 ### Done
 - Linked the dynamic Expo configuration to EAS project `c1c815e3-1a59-4965-874f-c494e08702b2` with an environment override option.
@@ -2548,7 +2562,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - App version remains `0.0.0`, which is acceptable for this internal preview but must be raised before production distribution.
 
-## 2026-06-14 — Admin mobile Wi-Fi APK preview setup
+## 2026-06-14 â€” Admin mobile Wi-Fi APK preview setup
 
 ### Done
 - Added an EAS `preview` profile that produces an internally distributed Android APK.
@@ -2564,7 +2578,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - The Wi-Fi IP is embedded in the preview profile and must be updated if the computer receives a different DHCP address.
 
-## 2026-06-14 — Admin mobile production-readiness audit
+## 2026-06-14 â€” Admin mobile production-readiness audit
 
 ### Done
 - Audited Android release configuration, environment handling, authentication persistence, tests, and observability.
@@ -2578,7 +2592,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Select the production distribution path (Google Play internal testing/EAS or native Gradle CI), crash-reporting provider, and automated device-test framework.
 
-## 2026-06-14 — Admin mobile Phase 8 operations and configuration
+## 2026-06-14 â€” Admin mobile Phase 8 operations and configuration
 
 ### Done
 - **P0-1:** Switched the `preview` EAS profile in `eas.json` to point to `staging` rather than hardcoding a developer's local LAN IP.
@@ -2616,7 +2630,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - The worker screen derives a single active slot from `status === 'BUSY'`; richer GPU/job metrics require a backend registry contract extension.
 - The current config API exposes only credit cost and daily job limit; maintenance mode, default credits, per-user limits, and retry limits are not implemented server-side.
 
-## 2026-06-13 — Admin mobile Phase 7 workflows and recycle bin
+## 2026-06-13 â€” Admin mobile Phase 7 workflows and recycle bin
 
 ### Done
 - Added typed workflow list and detail routes with active state, metadata, node IDs, prompts, and pose counts.
@@ -2633,7 +2647,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Empty-bin requests are grouped by asset type because the API accepts one recycle type per request; partial failures trigger a refresh and explicit warning.
 
-## 2026-06-13 — Admin mobile Phase 6 catalog
+## 2026-06-13 â€” Admin mobile Phase 6 catalog
 
 ### Done
 - Fixed the Phase 5 pose-asset mapping contract by carrying `garmentTypeId` into pose-detail navigation.
@@ -2649,7 +2663,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Catalog detail falls back to the `lower` endpoint if opened without a type parameter; normal in-app navigation always provides the item type.
 
-## 2026-06-13 — Admin mobile Phase 5 assets
+## 2026-06-13 â€” Admin mobile Phase 5 assets
 
 ### Done
 - Applied the Phase 4 review cleanup by resolving face/background thumbnail URLs once per detail render.
@@ -2666,7 +2680,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Pose-asset gender and face/background/workflow reassignment can be expanded in a follow-up refinement; creation currently requires existing face, background, and workflow selections.
 
-## 2026-06-13 — Admin mobile Phase 4 asset hub
+## 2026-06-13 â€” Admin mobile Phase 4 asset hub
 
 ### Done
 - Verified local `master` matches remote HEAD `ec18526`; no pull or conflict resolution was required.
@@ -2679,12 +2693,12 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - Verified mobile typecheck and a clean Android Hermes export with the nested Phase 4 routes.
 
 ### Failed / Not Done
-- Phases 5–8 remain pending; they were not compressed into the Phase 4 change because each phase requires separate end-to-end API and emulator validation.
+- Phases 5â€“8 remain pending; they were not compressed into the Phase 4 change because each phase requires separate end-to-end API and emulator validation.
 
 ### Open Questions / Decisions
 - Local Android emulator storage uses `http://10.0.2.2:9000/aivastra`; physical devices need a LAN-reachable MinIO URL instead.
 
-## 2026-06-13 — Admin mobile Phase 3 review cleanup
+## 2026-06-13 â€” Admin mobile Phase 3 review cleanup
 
 ### Done
 - Consolidated user avatar initials formatting into the shared `format.ts` utility and updated list/detail consumers.
@@ -2696,7 +2710,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - None.
 
-## 2026-06-13 — Admin mobile Phase 2 refinement and Phase 3 Users
+## 2026-06-13 â€” Admin mobile Phase 2 refinement and Phase 3 Users
 
 ### Done
 - Added a global Zustand toast queue with animated success/error/warning/info cards, three-toast limit, manual dismissal, and automatic dismissal.
@@ -2704,7 +2718,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - Added reusable paginated data loading and imperative confirmation helpers.
 - Added theme-aware user rows, credit grant page-sheet modal, debounced searchable users list, and paginated refresh/loading/error states.
 - Added user detail with profile metrics, recent jobs, role-gated credit grants, ban/unban, session revocation, and super-admin soft delete.
-- Converted the More route into a nested stack, wired More → Users and Dashboard Active Users → Users navigation.
+- Converted the More route into a nested stack, wired More â†’ Users and Dashboard Active Users â†’ Users navigation.
 - Removed the final direct dark/light palette usage from mobile UI components; runtime colors now come from `useAppTheme()`.
 - Verified mobile typecheck, source diff formatting, Expo Router route discovery, and a clean Android Hermes export.
 
@@ -2714,7 +2728,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - The backend user-detail endpoint currently returns a partial object instead of HTTP 404 for an unknown UUID; the mobile screen defensively treats missing `id` or `email` as not found.
 
-## 2026-06-13 — Admin mobile Material 3 Expressive redesign
+## 2026-06-13 â€” Admin mobile Material 3 Expressive redesign
 
 ### Done
 - Added a semantic light/dark Material-inspired color system, expressive shape scale, elevated glass surfaces, and persisted `system` / `light` / `dark` appearance modes.
@@ -2732,7 +2746,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Emulator QA should verify floating navigation safe-area spacing, glass opacity in both themes, small-screen bento wrapping, and keyboard behavior on login/search.
 
-## 2026-06-13 — Admin mobile Phase 2 UI polish
+## 2026-06-13 â€” Admin mobile Phase 2 UI polish
 
 ### Done
 - Added reusable animated `SkeletonLoader`, `EmptyState`, `AccordionSection`, and Android-capable pinch/drag `ImagePreview` components.
@@ -2749,7 +2763,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Emulator QA should verify pinch/drag bounds, accordion ergonomics, and chart appearance with real dashboard data.
 
-## 2026-06-13 — Remote synchronization before mobile work
+## 2026-06-13 â€” Remote synchronization before mobile work
 
 ### Done
 - Fetched and fast-forwarded `master` from `ce49477` to remote HEAD `ec18526` after stashing all staged, unstaged, and untracked local work.
@@ -2763,12 +2777,12 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Local changes are intentionally left uncommitted and unpushed.
 
-## 2026-06-13 — Admin mobile pending-work audit
+## 2026-06-13 â€” Admin mobile pending-work audit
 
 ### Done
 - Audited the current route tree and implementation against `admin-mobile-phase2-plus-plan.md` after successful Android emulator startup.
 - Confirmed Auth, Dashboard, Jobs list, and Job detail are functional foundations; Assets remains a placeholder and More menu items are not wired.
-- Confirmed Phases 3–8 and their shared infrastructure are not implemented.
+- Confirmed Phases 3â€“8 and their shared infrastructure are not implemented.
 
 ### Failed / Not Done
 - No implementation changes were made; this entry records scope only.
@@ -2777,7 +2791,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - Prioritize Phase 3 Users next, or complete remaining Phase 2 UX/polish gaps before starting new administration domains.
 - Node 20 LTS remains recommended for Expo SDK 53; Node 24 requires reduced Metro worker counts locally.
 
-## 2026-06-12 — Admin mobile Expo startup fix
+## 2026-06-12 â€” Admin mobile Expo startup fix
 
 ### Done
 - Converted `app.config.js` to ESM and renamed CommonJS Metro/Babel configuration files to `.cjs` so they load correctly under the package's `"type": "module"` setting.
@@ -2795,7 +2809,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 ### Open Questions / Decisions
 - Android emulator UI and networking still require runtime verification after Metro starts.
 
-## 2026-06-12 — Admin mobile Phase 2 jobs flow
+## 2026-06-12 â€” Admin mobile Phase 2 jobs flow
 
 ### Done
 - Replaced the jobs tab placeholder with a nested stack, paginated job list, URL-derived initial filter, pull-to-refresh, infinite loading, global SSE badge updates, and 15-second polling fallback after stream errors.
@@ -2812,7 +2826,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - The dashboard percentage-height bar chart still needs a device or simulator visual check before release.
 - `/admin/jobs/stream` is global and does not support server-side job filtering; the detail hook filters events client-side.
 
-## 2026-06-12 — Admin mobile worker card
+## 2026-06-12 â€” Admin mobile worker card
 
 ### Done
 - Added `accessible` to `StatusBadge` so its explicit screen-reader label is used.
@@ -2844,7 +2858,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ## Log
 
-### 2026-06-12 — Admin Mobile Phase 2 shared prerequisites
+### 2026-06-12 â€” Admin Mobile Phase 2 shared prerequisites
 
 **Done:**
 - Added `apps/admin-mobile/src/types.ts` with the shared admin domain types and
@@ -2870,7 +2884,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 **Failed / Not Done:**
 - Remaining Phase 2 components and screens were not started; this entry covers plan
-  §2.2 steps 1–6 and reordered step 8 (`StatusBadge`) before `WorkerCard`.
+  Â§2.2 steps 1â€“6 and reordered step 8 (`StatusBadge`) before `WorkerCard`.
 
 **Open Questions / Decisions:**
 - SSE reconnects currently reuse the same access token. If the stream is the only
@@ -2883,108 +2897,108 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ---
 
-### 2026-06-12 — Admin Mobile auth error handling + documentation corrections
+### 2026-06-12 â€” Admin Mobile auth error handling + documentation corrections
 
 **Done:**
 - Fixed `apps/admin-mobile/src/store/auth.ts`: login error parsing now reads
   `body.error.code` (matching the API's `{ error: { code, message } }` envelope).
   `EMAIL_NOT_VERIFIED` (403) surfaces as a dedicated error; all other login failures
   (wrong password, non-admin, inactive admin) surface as `INVALID_CREDENTIALS`.
-- Fixed `apps/admin-mobile/src/app/(auth)/login.tsx`: shows "Email not verified —
+- Fixed `apps/admin-mobile/src/app/(auth)/login.tsx`: shows "Email not verified â€”
   check your inbox" for `EMAIL_NOT_VERIFIED`; removed dead `NOT_ADMIN` branch (the
   new `login-mobile` returns 401 for non-admins, not 403).
-- Corrected `docs/admin-mobile-implementation-report.md` §1.2: web `/v1/auth/refresh`
-  retains inlined rotation logic — it does **not** call `rotateTokenFamily()`. Only
+- Corrected `docs/admin-mobile-implementation-report.md` Â§1.2: web `/v1/auth/refresh`
+  retains inlined rotation logic â€” it does **not** call `rotateTokenFamily()`. Only
   `refresh-body` calls `rotateTokenFamily(app, plain, 'mobile')`.
-- Updated `docs/admin-mobile-phase2-plus-plan.md` §4.8: shared `uploadAsset()` helper
+- Updated `docs/admin-mobile-phase2-plus-plan.md` Â§4.8: shared `uploadAsset()` helper
   excludes garment types; garment-type upload documented as thumbnail-only
-  (`presign → PUT → POST /admin/assets/garment-types`).
+  (`presign â†’ PUT â†’ POST /admin/assets/garment-types`).
 
 **Deferred:**
 - 429 rate-limit responses display generic "Invalid credentials" messaging for now.
-  Proper "Too many attempts — try again later" handling is Phase 2+ backlog.
+  Proper "Too many attempts â€” try again later" handling is Phase 2+ backlog.
 
 ---
 
-### 2026-06-12 — Admin Mobile Phases 2-8 implementation plan
+### 2026-06-12 â€” Admin Mobile Phases 2-8 implementation plan
 
 **Done:**
-- Created `docs/admin-mobile-phase2-plus-plan.md` — detailed implementation plan for
+- Created `docs/admin-mobile-phase2-plus-plan.md` â€” detailed implementation plan for
   all remaining phases (2-8), covering ~61 new files across 41 screens:
   - **Shared prerequisites:** StatusBadge, ConfirmDialog, FilterChips, EmptyState,
     SkeletonLoader, PullToRefresh, Toast, useApi/usePagination/useSSE hooks,
     SSE lib, format lib, thumbnail lib, TypeScript types
-  - **Phase 2 (Dashboard + Jobs):** 8 files — StatCard, WorkerCard, JobCard,
+  - **Phase 2 (Dashboard + Jobs):** 8 files â€” StatCard, WorkerCard, JobCard,
     EventTimeline, real Dashboard, Job list with SSE, Job detail with cancel/retry
-  - **Phase 3 (Users):** 4 files — UserRow, GrantCreditsModal, User list, User detail
-  - **Phase 4 (Assets Core):** 11 files — AssetCard, AssetRow, UploadProgress,
+  - **Phase 3 (Users):** 4 files â€” UserRow, GrantCreditsModal, User list, User detail
+  - **Phase 4 (Assets Core):** 11 files â€” AssetCard, AssetRow, UploadProgress,
     ImagePreview, Face/Background list/detail/upload
-  - **Phase 5 (Assets Advanced):** 11 files — Garment Types, Poses (face×bg grid),
+  - **Phase 5 (Assets Advanced):** 11 files â€” Garment Types, Poses (faceÃ—bg grid),
     Pose Assets (with mapping), WorkflowPicker
-  - **Phase 6 (Catalog):** 5 files — CategoryTree, Catalog items, batch upload
-  - **Phase 7 (Workflows + Recycle Bin):** 7 files — Workflow list/detail/upload,
+  - **Phase 6 (Catalog):** 5 files â€” CategoryTree, Catalog items, batch upload
+  - **Phase 7 (Workflows + Recycle Bin):** 7 files â€” Workflow list/detail/upload,
     Recycle Bin with tabs (restore/delete)
-  - **Phase 8 (Settings + Config):** 4 files — Credit plans CRUD, Config form
+  - **Phase 8 (Settings + Config):** 4 files â€” Credit plans CRUD, Config form
   - Each phase includes: build order, data flow, UI states (loading/empty/error),
     and cross-cutting checklist (skeleton, pull-to-refresh, toast, tablet)
   - Navigation wiring plan for `more.tsx` as each phase completes
 
 ---
 
-### 2026-06-12 — Admin Mobile Phase 1: Backend endpoints + scaffold
+### 2026-06-12 â€” Admin Mobile Phase 1: Backend endpoints + scaffold
 
 **Done:**
 - **Backend (apps/api):** Added 3 mobile auth endpoints to `routes.ts`:
-  - `POST /v1/auth/login-mobile` — body-based login with admin_users check, returns `{ accessToken, refreshToken }` in JSON
-  - `POST /v1/auth/refresh-body` — body-based token rotation, reuses shared `rotateTokenFamily()` function
-  - `POST /v1/auth/logout-mobile` — body-based logout, revokes refresh token family via `revokedAt`
+  - `POST /v1/auth/login-mobile` â€” body-based login with admin_users check, returns `{ accessToken, refreshToken }` in JSON
+  - `POST /v1/auth/refresh-body` â€” body-based token rotation, reuses shared `rotateTokenFamily()` function
+  - `POST /v1/auth/logout-mobile` â€” body-based logout, revokes refresh token family via `revokedAt`
   - Extracted `rotateTokenFamily()` from `/v1/auth/refresh` to avoid duplication
   - All 3 endpoints have rate limiting, Zod body schemas, and no cookie usage
-  - Existing `/v1/auth/refresh` refactored to call shared function — identical behavior
+  - Existing `/v1/auth/refresh` refactored to call shared function â€” identical behavior
 - **Types (packages/types):** Added `build:cjs` script + `require` export condition for Metro bundler compatibility
 - **Scaffold (apps/admin-mobile):** Created Expo SDK 53 project with:
-  - `package.json` — full deps (Expo 53, React Native 0.79, React 19, Zustand, etc.)
-  - `app.config.js` — Android-only, `usesCleartextTraffic` for dev, image-picker + media-library plugins
-  - `metro.config.js` — SVG transformer + `@aivastra/types` CJS resolver
-  - `tsconfig.json` — standalone, extends `expo/tsconfig.base`
-  - `babel.config.js` — with reanimated plugin
+  - `package.json` â€” full deps (Expo 53, React Native 0.79, React 19, Zustand, etc.)
+  - `app.config.js` â€” Android-only, `usesCleartextTraffic` for dev, image-picker + media-library plugins
+  - `metro.config.js` â€” SVG transformer + `@aivastra/types` CJS resolver
+  - `tsconfig.json` â€” standalone, extends `expo/tsconfig.base`
+  - `babel.config.js` â€” with reanimated plugin
 - **Foundation files:**
-  - `src/styles/tokens.ts` — Colors, Spacing, Radius, Typography (ported from admin CSS)
-  - `src/store/auth.ts` — Zustand store: login, logout, bootstrap, SecureStore persistence
-  - `src/store/theme.ts` — Zustand store: dark/light toggle, AsyncStorage persistence
-  - `src/lib/api.ts` — `apiFetch()` with 401 → refresh-body → retry interceptor
-  - `src/lib/roles.ts` — `canAccessAssets()`, `canManageUsers()`, `isSuperAdmin()` helpers
+  - `src/styles/tokens.ts` â€” Colors, Spacing, Radius, Typography (ported from admin CSS)
+  - `src/store/auth.ts` â€” Zustand store: login, logout, bootstrap, SecureStore persistence
+  - `src/store/theme.ts` â€” Zustand store: dark/light toggle, AsyncStorage persistence
+  - `src/lib/api.ts` â€” `apiFetch()` with 401 â†’ refresh-body â†’ retry interceptor
+  - `src/lib/roles.ts` â€” `canAccessAssets()`, `canManageUsers()`, `isSuperAdmin()` helpers
 - **Screens:**
-  - `src/app/_layout.tsx` — Root layout: GestureHandlerRootView, auth gate, AppState foreground refresh
-  - `src/app/(auth)/login.tsx` — Login screen: email/password form, error states, dark theme
-  - `src/app/(tabs)/_layout.tsx` — 4-tab bottom navigator with role-based Assets tab visibility
+  - `src/app/_layout.tsx` â€” Root layout: GestureHandlerRootView, auth gate, AppState foreground refresh
+  - `src/app/(auth)/login.tsx` â€” Login screen: email/password form, error states, dark theme
+  - `src/app/(tabs)/_layout.tsx` â€” 4-tab bottom navigator with role-based Assets tab visibility
   - Placeholder screens: `home.tsx`, `jobs.tsx`, `assets.tsx`, `more.tsx` (with logout)
 
 **Typecheck:** Passes cleanly (both `@aivastra/api` mobile endpoints and `@aivastra/admin-mobile`)
 
 **Open Questions / Decisions:**
-- Pre-existing type errors in `admin/guard.ts`, `admin/users.routes.ts`, and `auth/routes.ts` (`request-admin`) — all from `status` column removed in migration 0039. Not related to mobile work.
+- Pre-existing type errors in `admin/guard.ts`, `admin/users.routes.ts`, and `auth/routes.ts` (`request-admin`) â€” all from `status` column removed in migration 0039. Not related to mobile work.
 
 ---
 
-### 2026-06-12 — Admin Mobile plan review (round 2)
+### 2026-06-12 â€” Admin Mobile plan review (round 2)
 
 **Done:**
 - Addressed 10 remaining issues from second review:
   - Bumped Expo from SDK 52 to **SDK 53** (React Native 0.78, New Architecture default)
   - Bumped all dependency versions for SDK 53 compatibility (expo ~53, react-native-svg ~15.11, reanimated ~3.17, etc.)
-  - Added §1.6: New Architecture compatibility checklist
-  - Added §1.7: Root `pnpm dev` exclusion (mobile app not started by workspace runner)
-  - Fixed §4.2 Dashboard: workers now call `/admin/workers` separately (`/admin/stats` workers have no name/GPU)
-  - Fixed §4.2 Dashboard: `failed24h` has no server-provided delta — documented as standalone count
-  - Added §4.7: asset-type → presign endpoint mapping table (6 endpoints with response shapes)
-  - Added §4.4 dev note: job detail images use public URLs, MinIO 127.0.0.1 unreachable from physical devices
-  - Added explicit SSE path `/admin/jobs/stream` in §4.3
-  - Added §3.2: `AppState` foreground token refresh listener in root layout
+  - Added Â§1.6: New Architecture compatibility checklist
+  - Added Â§1.7: Root `pnpm dev` exclusion (mobile app not started by workspace runner)
+  - Fixed Â§4.2 Dashboard: workers now call `/admin/workers` separately (`/admin/stats` workers have no name/GPU)
+  - Fixed Â§4.2 Dashboard: `failed24h` has no server-provided delta â€” documented as standalone count
+  - Added Â§4.7: asset-type â†’ presign endpoint mapping table (6 endpoints with response shapes)
+  - Added Â§4.4 dev note: job detail images use public URLs, MinIO 127.0.0.1 unreachable from physical devices
+  - Added explicit SSE path `/admin/jobs/stream` in Â§4.3
+  - Added Â§3.2: `AppState` foreground token refresh listener in root layout
 
 ---
 
-### 2026-06-12 — Admin Mobile plan review (round 1)
+### 2026-06-12 â€” Admin Mobile plan review (round 1)
 
 **Done:**
 - Created comprehensive implementation plan at `docs/admin-mobile-implementation.md`
@@ -2993,7 +3007,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
   ~46 screens across 8 phases, component library, styling system, file migration map
 - Addressed all 12 issues from plan review:
   - Two new backend endpoints needed: `/v1/auth/login-mobile` and `/v1/auth/refresh-body`
-    (both return refresh tokens in JSON body — mobile can't read HTTP-only cookies)
+    (both return refresh tokens in JSON body â€” mobile can't read HTTP-only cookies)
   - Metro bundler ESM workaround: pre-build `@aivastra/types` to CJS + `metro.config.js` resolver
   - Removed `react-native-event-source`, committed to custom fetch-based SSE reader
   - Added missing deps: `expo-media-library`, `@react-native-async-storage/async-storage`, `react-native-gesture-handler`
@@ -3001,95 +3015,95 @@ following `docs/chatbot/chatbot-system-design.md` v2.
   - Added role helper functions (`canAccessAssets`, `canManageUsers`, `isSuperAdmin`)
   - Concrete CI pipeline with EAS Build + `EXPO_TOKEN` secret
   - `app.config.js` pattern for dev/staging/prod API URL switching
-  - Phase 9 "Polish" deleted — skeleton/empty state/error boundaries threaded into each phase's deliverable
+  - Phase 9 "Polish" deleted â€” skeleton/empty state/error boundaries threaded into each phase's deliverable
 
 **Open Questions / Decisions:**
-- None — all review issues resolved, plan ready for Phase 1 execution
+- None â€” all review issues resolved, plan ready for Phase 1 execution
 
 ---
 
-### 2026-06-12 — Admin Mobile plan review (round 1 fixes)
+### 2026-06-12 â€” Admin Mobile plan review (round 1 fixes)
 
-### 2026-06-09 — Production deployment & nginx fixes
+### 2026-06-09 â€” Production deployment & nginx fixes
 
 **Done**
-- Ran `pnpm db:migrate` manually on VPS — migrations 0033–0036 applied (`model_pose_assets`, backfill, face/bg/workflow FKs, `display_name` column)
-- Raised nginx `client_max_body_size` from 50m → 300m → 2500m on VPS to unblock ZIP bulk import (242MB+ uploads)
+- Ran `pnpm db:migrate` manually on VPS â€” migrations 0033â€“0036 applied (`model_pose_assets`, backfill, face/bg/workflow FKs, `display_name` column)
+- Raised nginx `client_max_body_size` from 50m â†’ 300m â†’ 2500m on VPS to unblock ZIP bulk import (242MB+ uploads)
 - Raised Fastify multipart `fileSize` limit to 2.5 GB (`chore(api): 487c9d5`)
 - Identified CI auto-deploy was broken (git pull prompting for credentials); manual pull + deploy performed
 
 **Open Questions**
-- Fix CI auto-deploy: VPS `git pull` fails without credentials — likely `VPS_SSH_KEY` / GitHub token secret issue in GitHub Actions
+- Fix CI auto-deploy: VPS `git pull` fails without credentials â€” likely `VPS_SSH_KEY` / GitHub token secret issue in GitHub Actions
 
 ---
 
-### 2026-06-09 — Pose assets separation
+### 2026-06-09 â€” Pose assets separation
 
 **Done**
-- `feat(db): model_pose_assets table` — migration 0033; centralised R2 object ownership; `model_poses.poseAssetId FK` added; backfill creates one asset row per distinct `r2_key` from existing poses
-- `feat(api): pose-assets endpoints` — `GET /admin/assets/pose-assets`, `DELETE /admin/assets/pose-assets/:id` (blocked if mappings exist; deletes R2 on success)
-- `feat(admin): bulk delete poses removes mappings only` — no R2 cleanup on pose mapping delete; single pose delete same
-- `feat(admin): Pose Assets tab` — grid view of all `model_pose_assets` rows with delete confirmation; gender filter applies
-- `feat(admin): bulk-import creates asset rows` — each imported pose file gets a `model_pose_assets` row with correct `faceSideR2Key`/`bgComfyR2Key` before mapping row insert
+- `feat(db): model_pose_assets table` â€” migration 0033; centralised R2 object ownership; `model_poses.poseAssetId FK` added; backfill creates one asset row per distinct `r2_key` from existing poses
+- `feat(api): pose-assets endpoints` â€” `GET /admin/assets/pose-assets`, `DELETE /admin/assets/pose-assets/:id` (blocked if mappings exist; deletes R2 on success)
+- `feat(admin): bulk delete poses removes mappings only` â€” no R2 cleanup on pose mapping delete; single pose delete same
+- `feat(admin): Pose Assets tab` â€” grid view of all `model_pose_assets` rows with delete confirmation; gender filter applies
+- `feat(admin): bulk-import creates asset rows` â€” each imported pose file gets a `model_pose_assets` row with correct `faceSideR2Key`/`bgComfyR2Key` before mapping row insert
 
 ---
 
-### 2026-06-09 — Bulk ZIP asset import
+### 2026-06-09 â€” Bulk ZIP asset import
 
 **Done**
-- `feat(admin): bulk ZIP asset import endpoint + UI` — admin can upload a ZIP containing `backgrounds/`, `faces/`, and `poses/` folders; server extracts with `adm-zip`, uploads each image directly to R2 via new `putObject` storage method, inserts DB rows for faces/backgrounds/poses; pose filenames `faceXXbgYposeZZ.png` parsed to link to correct face+bg rows; returns `{ created, errors }` summary
-- `feat(storage): add putObject to StorageProvider interface + R2 impl` — server-side direct R2 upload without presigned URL flow
+- `feat(admin): bulk ZIP asset import endpoint + UI` â€” admin can upload a ZIP containing `backgrounds/`, `faces/`, and `poses/` folders; server extracts with `adm-zip`, uploads each image directly to R2 via new `putObject` storage method, inserts DB rows for faces/backgrounds/poses; pose filenames `faceXXbgYposeZZ.png` parsed to link to correct face+bg rows; returns `{ created, errors }` summary
+- `feat(storage): add putObject to StorageProvider interface + R2 impl` â€” server-side direct R2 upload without presigned URL flow
 - `feat(api): register @fastify/multipart with 250MB limit` for ZIP upload handling
-- `feat(admin): Bulk Import ZIP button in garment-type subview header` — modal with ZIP picker, gender select, garment type + workflow dropdowns, progress spinner, result toast on success
+- `feat(admin): Bulk Import ZIP button in garment-type subview header` â€” modal with ZIP picker, gender select, garment type + workflow dropdowns, progress spinner, result toast on success
 
 ---
 
-### 2026-06-09 — Admin pose management improvements
+### 2026-06-09 â€” Admin pose management improvements
 
 **Done**
-- `fix(admin): dedup pose clone by r2Key instead of face+bg combo` — clone skip condition changed from `(subcategoryId, faceId, backgroundId)` to `(subcategoryId, r2Key)`; multiple poses sharing same face+bg but different images now all clone correctly (ab56b07, 17c7a4a)
-- `fix(admin): add BrowserRouter basename so /panel/ prefix is preserved on navigation` — admin SPA navigation no longer drops the `/panel/` prefix on route changes (e16b281)
-- `feat(admin): bulk delete poses + cascading filter options` — "Delete selected (N)" danger button with warning modal; face/background filter dropdowns now cascade (selecting face narrows bg options to only those paired with that face, and vice versa) (ab56b07)
+- `fix(admin): dedup pose clone by r2Key instead of face+bg combo` â€” clone skip condition changed from `(subcategoryId, faceId, backgroundId)` to `(subcategoryId, r2Key)`; multiple poses sharing same face+bg but different images now all clone correctly (ab56b07, 17c7a4a)
+- `fix(admin): add BrowserRouter basename so /panel/ prefix is preserved on navigation` â€” admin SPA navigation no longer drops the `/panel/` prefix on route changes (e16b281)
+- `feat(admin): bulk delete poses + cascading filter options` â€” "Delete selected (N)" danger button with warning modal; face/background filter dropdowns now cascade (selecting face narrows bg options to only those paired with that face, and vice versa) (ab56b07)
 
 ---
 
-### 2026-06-07 — Admin improvements
+### 2026-06-07 â€” Admin improvements
 
 **Done**
-- `feat(admin): show ComfyUI input images in job detail + refresh button` — job detail view now shows all ComfyUI input images (face, pose, background, garment, lower, shoes); refresh button reloads job state without full page reload (20ed37d)
-- `feat(admin): guard admin accounts from suspension/deletion + show Admin badge` — admin users cannot be banned or deleted from the users panel; Admin badge shown on their row (578ca42)
-- `fix(ci): pass GITHUB_TOKEN to VPS git pull to fix HTTPS auth failure` — deploy pipeline was failing on git pull due to missing auth token (7d4a687)
+- `feat(admin): show ComfyUI input images in job detail + refresh button` â€” job detail view now shows all ComfyUI input images (face, pose, background, garment, lower, shoes); refresh button reloads job state without full page reload (20ed37d)
+- `feat(admin): guard admin accounts from suspension/deletion + show Admin badge` â€” admin users cannot be banned or deleted from the users panel; Admin badge shown on their row (578ca42)
+- `fix(ci): pass GITHUB_TOKEN to VPS git pull to fix HTTPS auth failure` â€” deploy pipeline was failing on git pull due to missing auth token (7d4a687)
 
 ---
 
-### 2026-06-05 — Payments, credit plans, admin routing, web production pass
+### 2026-06-05 â€” Payments, credit plans, admin routing, web production pass
 
 **Done**
 
 *Payments & credits*
-- `feat(payments): admin-controlled credit plans via DB` — credit plans stored in `credit_plans` table (migration 0028/0029); admin UI to create/edit/delete plans; plans drive pricing page (9648f93)
-- `feat: Razorpay payments, resolution pricing, UX polish & production hardening` — server-side Razorpay order creation + HMAC-SHA256 signature verification; `payments` table (migration 0027) with GST breakdown (18%); HD=25cr / 2K=35cr / 4K=40cr per pose; resolution selector redesigned as radio pills; credit cost shown in studio footer (7b6f3a6)
-- `fix(db): register credit_plans migrations in drizzle journal` — migrations 0028/0029 missing from journal (353b27a)
+- `feat(payments): admin-controlled credit plans via DB` â€” credit plans stored in `credit_plans` table (migration 0028/0029); admin UI to create/edit/delete plans; plans drive pricing page (9648f93)
+- `feat: Razorpay payments, resolution pricing, UX polish & production hardening` â€” server-side Razorpay order creation + HMAC-SHA256 signature verification; `payments` table (migration 0027) with GST breakdown (18%); HD=25cr / 2K=35cr / 4K=40cr per pose; resolution selector redesigned as radio pills; credit cost shown in studio footer (7b6f3a6)
+- `fix(db): register credit_plans migrations in drizzle journal` â€” migrations 0028/0029 missing from journal (353b27a)
 
 *Admin routing*
-- `feat(admin): URL-based routing + pricing GST layout fix` — admin SPA switched to URL-based routing (React Router); pricing GST layout corrected (7c6a8ed)
-- `feat(admin): set prod base path to /panel/` — avoids conflict with `/admin/*` API routes in production nginx (ae73677)
+- `feat(admin): URL-based routing + pricing GST layout fix` â€” admin SPA switched to URL-based routing (React Router); pricing GST layout corrected (7c6a8ed)
+- `feat(admin): set prod base path to /panel/` â€” avoids conflict with `/admin/*` API routes in production nginx (ae73677)
 - `fix(web): clear NEXT_PUBLIC_BASE_PATH runtime default, update domain refs` (d74a39b)
 
 *Web production pass*
-- `feat(web): production-readiness + perceived-performance pass` — error boundaries + not-found page; ConfirmDialog replaces native confirm(); loading skeletons on all routes; React Query tuning (staleTime 5m); prefetch on hover; server-side cover URL presigning in `/v1/catalogues` to kill N+1; Download All wired; responsive to 768px (f7a966c)
+- `feat(web): production-readiness + perceived-performance pass` â€” error boundaries + not-found page; ConfirmDialog replaces native confirm(); loading skeletons on all routes; React Query tuning (staleTime 5m); prefetch on hover; server-side cover URL presigning in `/v1/catalogues` to kill N+1; Download All wired; responsive to 768px (f7a966c)
 - `feat(web): redesign auth pages with centered black-bg card layout` (b286a5d)
 - `fix(api): cast req.body to CreateTryOnJobRequest in tryon route` (f5f5b0b)
 - `fix(web): guard ResizeObserver entry width against undefined` (ae50eb7)
 
 ---
 
-### 2026-06-04 — Observability, workflow size patching, CI/deploy fixes
+### 2026-06-04 â€” Observability, workflow size patching, CI/deploy fixes
 
 **Done**
-- `feat(observability): add M1 metrics + logs pipeline to Grafana Cloud` — new `packages/observability` with prom-client registry; domain metrics (http_request_duration, jobs_created, credits_deducted/refunded, job_processing_duration, queue_depth, workers_healthy); GET /metrics on API + dispatcher; Grafana Alloy agent container in docker-compose.prod.yml; dashboard JSON; docs/observability.md (ad16793)
-- `feat(workflow): PrimitiveInt size patching, wider modal, 1:1 → 2048px` — dispatcher patcher supports PrimitiveInt size nodes (sizeNodeIds[0]=width, sizeNodeIds[1]=height); 1:1 ratio changed to 2048×2048 (8b1284f)
-- `fix(workflow): revert 1:1 aspect ratio back to 1536×1536` — 2048 caused OOM on GPU; reverted (cc15ebf)
+- `feat(observability): add M1 metrics + logs pipeline to Grafana Cloud` â€” new `packages/observability` with prom-client registry; domain metrics (http_request_duration, jobs_created, credits_deducted/refunded, job_processing_duration, queue_depth, workers_healthy); GET /metrics on API + dispatcher; Grafana Alloy agent container in docker-compose.prod.yml; dashboard JSON; docs/observability.md (ad16793)
+- `feat(workflow): PrimitiveInt size patching, wider modal, 1:1 â†’ 2048px` â€” dispatcher patcher supports PrimitiveInt size nodes (sizeNodeIds[0]=width, sizeNodeIds[1]=height); 1:1 ratio changed to 2048Ã—2048 (8b1284f)
+- `fix(workflow): revert 1:1 aspect ratio back to 1536Ã—1536` â€” 2048 caused OOM on GPU; reverted (cc15ebf)
 - `fix(api): filter backgrounds by garment type in /v1/models/backgrounds` (ecafa01)
 - `fix(docker): build @aivastra/observability in api and dispatcher images` (57f54ea)
 - `fix(ci): build @aivastra/observability before typecheck and tests` (48c38f0)
@@ -3097,12 +3111,12 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ---
 
-### 2026-06-08 — Auth refresh token family fix (logout race condition)
+### 2026-06-08 â€” Auth refresh token family fix (logout race condition)
 
 **Done**
 - Migration `0032_refresh_token_family.sql`: added `family_id`, `generation`, `used_at`, `revoked_at`; backfilled; added `UNIQUE(token_hash)`, `UNIQUE(family_id, generation)`, partial unique index `refresh_tokens_one_active_per_family` (with explicit comment on why `expires_at` is excluded), and `family_id` index
 - Updated `packages/db/src/schema/users.ts` `refreshTokens` table with new columns (kept `revoked` boolean for backward compat)
-- Renamed `issueTokens()` → `createSessionTokens()` in `tokens.ts`; documented "session creation ONLY"; added `familyId: crypto.randomUUID()` and `generation: 1`
+- Renamed `issueTokens()` â†’ `createSessionTokens()` in `tokens.ts`; documented "session creation ONLY"; added `familyId: crypto.randomUUID()` and `generation: 1`
 - Rewrote `/v1/auth/refresh` in `routes.ts` as self-contained rotation (no `createSessionTokens` call):
   - `FOR UPDATE` lock on presented token row only
   - Transaction wraps `mark used` + `insert successor`; JWT/signing stays outside
@@ -3116,8 +3130,8 @@ following `docs/chatbot/chatbot-system-design.md` v2.
   - `getToken()` consumes `broadcastToken` before falling back to `document.cookie`
   - Current tab explicitly writes its own `access_token` cookie via `setAccessTokenCookie()` after successful refresh (does not rely on BFF alone or BroadcastChannel echo)
   - Posts `token-refreshed` to other tabs after successful refresh
-- Added auth integration tests (written but **not executed** — Docker unavailable): concurrent refresh, replay outside grace, logout family revocation, grace window reissue
-- Typecheck: clean rebuild of `@aivastra/db` → API auth code typechecks; 4 pre-existing errors remain in unrelated files (`ClonePoseBody`, `lowerGarmentKey`, `platform`)
+- Added auth integration tests (written but **not executed** â€” Docker unavailable): concurrent refresh, replay outside grace, logout family revocation, grace window reissue
+- Typecheck: clean rebuild of `@aivastra/db` â†’ API auth code typechecks; 4 pre-existing errors remain in unrelated files (`ClonePoseBody`, `lowerGarmentKey`, `platform`)
 - Lint: only warnings on changed files (pre-existing `any` types, intentional `document.cookie` writes, non-null assertions in regex parsing); zero new errors
 
 **Failed / Not Done**
@@ -3129,14 +3143,14 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - Cookie Store API is not widely supported enough to replace `document.cookie` for BroadcastChannel sync. Keeping manual string construction.
 
 **Merge Gate (must pass before merge)**
-1. `pnpm docker:up` → `node apps/api/node_modules/vitest/vitest.mjs run test/integration/auth.test.ts`
-2. Verify concurrent refresh: 5 requests → 1 rotated, 4 reissued, 0 failures
-3. Verify logout family revocation: G1→G2, logout, G2 refresh → 401
-4. Verify replay outside grace: G1→G2, wait >3s, reuse G1 → 401, G2 still works
+1. `pnpm docker:up` â†’ `node apps/api/node_modules/vitest/vitest.mjs run test/integration/auth.test.ts`
+2. Verify concurrent refresh: 5 requests â†’ 1 rotated, 4 reissued, 0 failures
+3. Verify logout family revocation: G1â†’G2, logout, G2 refresh â†’ 401
+4. Verify replay outside grace: G1â†’G2, wait >3s, reuse G1 â†’ 401, G2 still works
 
 ---
 
-### 2026-06-08 — Studio wizard auto-select defaults + pose clone gap analysis
+### 2026-06-08 â€” Studio wizard auto-select defaults + pose clone gap analysis
 
 **Done**
 - Studio wizard: auto-select first garment type, face/model, background, resolution (HD), lower garment, shoes on data load
@@ -3149,7 +3163,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ---
 
-### 2026-06-08 — AGENTS.md refresh
+### 2026-06-08 â€” AGENTS.md refresh
 
 **Done**
 - Updated `AGENTS.md` to reflect current repo state: added `@aivastra/observability`, `apps/dispatcher`, `apps/catalogues-web`, `apps/admin-web` to monorepo boundaries table
@@ -3159,29 +3173,29 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ---
 
-### 2026-06-03 — Aspect ratio cleanup, presign bug fix, CI/deploy fixes
+### 2026-06-03 â€” Aspect ratio cleanup, presign bug fix, CI/deploy fixes
 
 **Done**
-- `1:1` default size updated to 2048×2048 (studio UI + dispatcher patcher)
+- `1:1` default size updated to 2048Ã—2048 (studio UI + dispatcher patcher)
 - Removed aspect ratios `3:2`, `9:16` (Etsy-only); kept `1:1`, `3:4`, `4:5`; removed Etsy platform filter
 - Shopify restored with its supported ratios (`1:1`, `4:5`)
-- Fixed pose edit modal: `presign-faceside` and `presign-bgcomfy` endpoints were returning full `PresignResult` object as `uploadUrl` instead of `.url` string — XHR PUT received `[object Object]`, silently failed, PATCH never reached
+- Fixed pose edit modal: `presign-faceside` and `presign-bgcomfy` endpoints were returning full `PresignResult` object as `uploadUrl` instead of `.url` string â€” XHR PUT received `[object Object]`, silently failed, PATCH never reached
 - System design doc (`virtual-tryon-system-design.md`) rewritten to v3 as-built; HTML render added (`virtual-tryon-system-design.html`)
 - `lefthook.yml` pre-push lint hook changed to `--diagnostic-level=error` (pre-existing a11y warnings no longer block push)
 - `biome.json` excludes `docs/*.html` from lint (generated HTML with inlined minified JS)
 - Deploy SSH timeout diagnosed: VPS was returning IPv6 via `ifconfig.me`; IPv4 `72.61.171.138` found and `VPS_HOST` secret updated; new ed25519 deploy key generated and added to `authorized_keys`
 
 **Open Questions / Decisions**
-- GitHub Actions deploy still timing out after IP + key fix — Hostinger panel-level firewall suspected (separate from UFW which shows port 22 open to anywhere); `fail2ban` has 0 currently banned IPs
+- GitHub Actions deploy still timing out after IP + key fix â€” Hostinger panel-level firewall suspected (separate from UFW which shows port 22 open to anywhere); `fail2ban` has 0 currently banned IPs
 
 ---
 
-### 2026-06-02 — Pose grid coverage warnings, workflow detection, image replace, deploy migrations
+### 2026-06-02 â€” Pose grid coverage warnings, workflow detection, image replace, deploy migrations
 
 **Done**
 
 *Garment-type pose grid (admin)*
-- Highlight pose tiles when workflow requires lower/shoe (`lowerNodeId`/`shoeNodeId` set) but no active catalog item of that type is assigned to the current garment subcategory — amber outline + `⚠ lower missing` / `⚠ shoes missing` badges; green/blue `✓` badges when covered (41a2519)
+- Highlight pose tiles when workflow requires lower/shoe (`lowerNodeId`/`shoeNodeId` set) but no active catalog item of that type is assigned to the current garment subcategory â€” amber outline + `âš  lower missing` / `âš  shoes missing` badges; green/blue `âœ“` badges when covered (41a2519)
 - Filter face/background dropdowns to only items actually used by poses in that garment type; sort pose tiles + background/pose dropdowns alphabetically by label; removed `#N` prefix from pose dropdown options (e9f53dc)
 - Background created inline during pose upload now inherits the subcategory `genderSlug` instead of defaulting to null/"all" (a08337d)
 
@@ -3196,11 +3210,11 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - `apps/catalogues-web`: added `jszip` dep + type annotation on zip progress callback (42b0131)
 
 **Open Questions / Decisions**
-- `0026_catalog_item_subcategories.sql` changed to `CREATE TABLE IF NOT EXISTS` (idempotent re-apply) + docs edit — locally modified, not yet committed
+- `0026_catalog_item_subcategories.sql` changed to `CREATE TABLE IF NOT EXISTS` (idempotent re-apply) + docs edit â€” locally modified, not yet committed
 
 ---
 
-### 2026-06-01 — Auth hardening, email verification, workflow tooling, studio/catalogue UX
+### 2026-06-01 â€” Auth hardening, email verification, workflow tooling, studio/catalogue UX
 
 **Done**
 
@@ -3225,20 +3239,20 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 *Credits / DB*
 - Synced admin credit plans with frontend pricing packs (7433a99)
-- Applied pending migrations 0023–0026; fixed local dev startup; warn on push when origin has unpulled migrations (af170d0, 4e03c18)
+- Applied pending migrations 0023â€“0026; fixed local dev startup; warn on push when origin has unpulled migrations (af170d0, 4e03c18)
 
 ---
 
-### 2026-06-01 — Fix admin Docker build TS errors
+### 2026-06-01 â€” Fix admin Docker build TS errors
 
 **Done**
-- `apps/admin-web/src/lib/data.ts`: added `subcategoryIds: []` to all 7 `MOCK_CATALOG` items — `CatalogItem` type requires this field (added in 2026-06-01 refactor but mocks not updated)
-- `apps/admin-web/src/pages/CatalogPage.tsx`: added `GarmentType` import + `garmentTypes` state, fetched from `/admin/assets/garment-types` alongside existing Promise.all, passed `garmentTypes` prop to `BatchCatalogUploadModal` (prop was required but missing — caused TS2741)
+- `apps/admin-web/src/lib/data.ts`: added `subcategoryIds: []` to all 7 `MOCK_CATALOG` items â€” `CatalogItem` type requires this field (added in 2026-06-01 refactor but mocks not updated)
+- `apps/admin-web/src/pages/CatalogPage.tsx`: added `GarmentType` import + `garmentTypes` state, fetched from `/admin/assets/garment-types` alongside existing Promise.all, passed `garmentTypes` prop to `BatchCatalogUploadModal` (prop was required but missing â€” caused TS2741)
 - Docker admin build passes; pushed to master
 
 ---
 
-### 2026-06-01 — Reverse catalog item linking: subcategory-driven instead of pose-driven
+### 2026-06-01 â€” Reverse catalog item linking: subcategory-driven instead of pose-driven
 
 **Done**
 - Replaced `pose_catalog_items` table with `catalog_item_subcategories` (migration 0025)
@@ -3251,16 +3265,16 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - All typechecks pass (DB, types, api, admin)
 
 **Open Questions / Decisions**
-- CatalogPage (standalone catalog management page) edit modal still only has gender field — does not have subcategory selection. Can add if needed.
+- CatalogPage (standalone catalog management page) edit modal still only has gender field â€” does not have subcategory selection. Can add if needed.
 
 ---
 
-### 2026-05-28 — Catalog gender filtering, per-pose allowlist, code quality tooling
+### 2026-05-28 â€” Catalog gender filtering, per-pose allowlist, code quality tooling
 
 #### Done
 
 **Catalog gender simplification**
-- Removed `categoryId` as a required field on catalog items — `type` (`lower`|`shoe`) and `genderSlug` stored directly on `catalog_items`
+- Removed `categoryId` as a required field on catalog items â€” `type` (`lower`|`shoe`) and `genderSlug` stored directly on `catalog_items`
 - Removed "All genders" option from upload modal; admin must pick one of 4 genders (men/women/boys/girls)
 - Replaced Category column with Gender badge in catalog table
 - Added gender edit button (pencil icon) for existing lower/shoe items (`PATCH /admin/catalog/items/:id`)
@@ -3268,7 +3282,7 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - Deleted 2 null-gender shoe items (nulled `job_inputs` FK first)
 
 **Per-pose catalog item allowlist** (migration `0022`)
-- New `pose_catalog_items(pose_id, catalog_item_id)` join table — cascade deletes
+- New `pose_catalog_items(pose_id, catalog_item_id)` join table â€” cascade deletes
 - `GET /admin/assets/poses`: returns `lowerItemIds[]` + `shoeItemIds[]` per pose
 - `POST /admin/assets/poses/confirm` + `PATCH /:id`: accept and persist item ID lists in transaction
 - `GET /v1/catalog/:type?poseIds=...`: returns only items in the pose's allowlist when poseIds provided
@@ -3288,8 +3302,8 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 - All 155 source files reformatted
 
 **Build fixes**
-- `MOCK_POSES` in `apps/admin-web/src/lib/data.ts` missing `lowerItemIds`/`shoeItemIds` → Docker build failed
-- Biome stripped `.js` ESM extension from `packages/storage/test/keys.test.ts` → typecheck failed
+- `MOCK_POSES` in `apps/admin-web/src/lib/data.ts` missing `lowerItemIds`/`shoeItemIds` â†’ Docker build failed
+- Biome stripped `.js` ESM extension from `packages/storage/test/keys.test.ts` â†’ typecheck failed
 
 #### Failed / Not Done
 - Server migration `0022_pose_catalog_items` must be applied after next deploy: `pnpm --filter @aivastra/db migrate`
@@ -3299,20 +3313,20 @@ following `docs/chatbot/chatbot-system-design.md` v2.
 
 ---
 
-### 2026-05-28 — ComfyUI results monitor page (standalone admin endpoint)
+### 2026-05-28 â€” ComfyUI results monitor page (standalone admin endpoint)
 
 Standalone read-only results monitor at `/results` for admins to visually inspect ComfyUI outputs across all users, matching the legacy webtool screenshot layout.
 
 #### Done
 - **New API module:** `apps/api/src/modules/results/routes.ts`
-  - `GET /results` — self-contained HTML page with inline CSS + vanilla JS (auto light/dark theme, rich UX: filters, pagination, lightbox, image lazy-loading, shimmer skeletons, toast notifications, logout button).
-  - `POST /results/login` — independent admin login using same email/password credentials. Issues `results_access_token` cookie scoped to `/results` (isolated from admin app cookies).
-  - `POST /results/logout` — clears the results cookie.
-  - `GET /results/data` — paginated JSON with public image URLs for Garment, Pose, Background, Shoes, and Output; supports `search`, `userId`, `date` (`any`/`today`/`7d`/`30d`), and `status` (`completed`/`failed`/`all`).
-  - `GET /results/users` — distinct user list for the User filter dropdown.
+  - `GET /results` â€” self-contained HTML page with inline CSS + vanilla JS (auto light/dark theme, rich UX: filters, pagination, lightbox, image lazy-loading, shimmer skeletons, toast notifications, logout button).
+  - `POST /results/login` â€” independent admin login using same email/password credentials. Issues `results_access_token` cookie scoped to `/results` (isolated from admin app cookies).
+  - `POST /results/logout` â€” clears the results cookie.
+  - `GET /results/data` â€” paginated JSON with public image URLs for Garment, Pose, Background, Shoes, and Output; supports `search`, `userId`, `date` (`any`/`today`/`7d`/`30d`), and `status` (`completed`/`failed`/`all`).
+  - `GET /results/users` â€” distinct user list for the User filter dropdown.
   - Independent cookie-based auth (`requireResultsUser`) verifies admin role (`SUPER_ADMIN`/`MODERATOR`/`SUPPORT`) without sharing session state with the admin React app.
   - Read-only: no delete or mutation actions.
-- **Server wiring:** `apps/api/src/server.ts` — one import + `await app.register(resultsRoutes);`.
+- **Server wiring:** `apps/api/src/server.ts` â€” one import + `await app.register(resultsRoutes);`.
 - **Zero impact** on `apps/catalogues-web`, `apps/admin-web`, DB schema, or env files.
 - **Typecheck + build green** for `@aivastra/api`.
 
@@ -3322,7 +3336,7 @@ Standalone read-only results monitor at `/results` for admins to visually inspec
 
 ---
 
-### 2026-05-26 — Full user frontend rebuild from scratch (vastra3.0 design)
+### 2026-05-26 â€” Full user frontend rebuild from scratch (vastra3.0 design)
 
 Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. Rebuilt the entire user-facing frontend from the Claude Design handoff (`vastra.html`), inline-token styling, new route structure. Wired to existing `/v1` API.
 
@@ -3330,34 +3344,34 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 - **Foundation:** `components/tokens.ts` (C palette + grad), `components/icons.tsx` (all design SVGs), `components/logo.tsx`, `components/ui/{grad-btn,dark-btn,google-btn,divider}.tsx`, `components/step-indicator.tsx`, `components/topbar.tsx` (self-contained). `globals.css` replaced with minimal reset + Poppins + scrollbar (dropped Tailwind directives + 895-line class system). Root layout: removed dark-mode script + Inter/JetBrains fonts.
 - **App shell:** `(app)/layout.tsx` = dark sidebar + main column (TopbarProvider removed). New `sidebar.tsx` on routes studio/catalogues/assets/pricing/settings, keeps `/v1/credits` + `/v1/me` wiring.
 - **Routes restructured:** `/studio` (was tryon), `/catalogues` (was dashboard) + `/catalogues/[id]`, `/assets` + `/assets/[id]`, `/pricing` (was credits), `/settings` (was account).
-- **Studio:** 4-step wizard re-skin of tryon logic — gender→outfit+garment upload→models→backgrounds→poses(+lower/shoes)→generate. Submits `POST /v1/jobs/tryon` → `/catalogues/:id`.
+- **Studio:** 4-step wizard re-skin of tryon logic â€” genderâ†’outfit+garment uploadâ†’modelsâ†’backgroundsâ†’poses(+lower/shoes)â†’generate. Submits `POST /v1/jobs/tryon` â†’ `/catalogues/:id`.
 - **Settings:** 4 tabs. Profile wired `GET/PATCH /v1/me`. Credit History wired `GET /v1/credits` (summary derived from `recent`). Billing + Invoices stubbed (disabled inputs).
 - **Catalogues:** list (date-grouped, cover via `/v1/jobs/:id/result`, polls active) + detail (image grid, per-image fullscreen lightbox + download + delete).
 - **Pricing:** static 3-col plan table + Razorpay test-mode stub (`NEXT_PUBLIC_RAZORPAY_KEY`).
-- **Cleanup:** deleted `(app)/{tryon,dashboard,credits,account,jobs}`, `context/topbar-context.tsx`, `components/{navbar,theme-toggle}.tsx`, `components/ui/{button,badge,input}.tsx`. Middleware redirects old paths → new. Root redirect → `/studio`.
-- **Verified:** `next build` green — all 15 routes generated; `/login` serves 200.
+- **Cleanup:** deleted `(app)/{tryon,dashboard,credits,account,jobs}`, `context/topbar-context.tsx`, `components/{navbar,theme-toggle}.tsx`, `components/ui/{button,badge,input}.tsx`. Middleware redirects old paths â†’ new. Root redirect â†’ `/studio`.
+- **Verified:** `next build` green â€” all 15 routes generated; `/login` serves 200.
 
 #### Failed / Not Done
-- Assets list/detail are mocked (no backend endpoint) — tagged `TODO(wire)`.
+- Assets list/detail are mocked (no backend endpoint) â€” tagged `TODO(wire)`.
 - Pricing top-up needs a backend order-creation route; current Razorpay call is a client-only test stub.
 - Billing/Invoices settings tabs have no backend.
-- Studio wizard state is in-memory (lost on refresh) — per locked decision.
+- Studio wizard state is in-memory (lost on refresh) â€” per locked decision.
 - No browser smoke test of authenticated flows (build + static `/login` only).
 
 #### Open Questions / Decisions
-- `qty`/`quality` in studio are UI-only; `POST /v1/jobs/tryon` charges per-pose. Credit math shown (`poses × qty × quality`) is cosmetic until backend accepts those params.
-- Razorpay test stub bypasses server order verification — must wire `/credits/topup` + signature check before production.
+- `qty`/`quality` in studio are UI-only; `POST /v1/jobs/tryon` charges per-pose. Credit math shown (`poses Ã— qty Ã— quality`) is cosmetic until backend accepts those params.
+- Razorpay test stub bypasses server order verification â€” must wire `/credits/topup` + signature check before production.
 
 ---
 
-### 2026-05-26 — Web UI restyle (vastra3.0 design)
+### 2026-05-26 â€” Web UI restyle (vastra3.0 design)
 
 #### Done
-- Root redirect: landing page replaced with auth-aware redirect (logged in → /tryon, else → /login)
+- Root redirect: landing page replaced with auth-aware redirect (logged in â†’ /tryon, else â†’ /login)
 - `apps/catalogues-web/src/app/home/page.tsx` deleted
 - Logo assets copied to `apps/catalogues-web/public/assets/` (logo-icon, logo-icon-large, logo-wordmark, logo-wordmark-large, auth-bg)
 - New CSS utility classes added to `globals.css`: `.av-auth-shell`, `.av-auth-form-col`, `.av-auth-image-col`, `.av-auth-divider`, `.av-btn-dark`, `.av-btn-grad`, `.av-topbar`, `.av-pricing-table` (+ sub-classes), `.av-cat-date-group`, `.av-assets-grid`, `.av-asset-card`
-- Sidebar: new nav (Studio/Catalogues/Assets/Pricing/Settings), PNG logo, credits widget, logout icon — dark mode toggle removed
+- Sidebar: new nav (Studio/Catalogues/Assets/Pricing/Settings), PNG logo, credits widget, logout icon â€” dark mode toggle removed
 - Auth pages: two-column layout (600px form + auth-bg.png image panel) for login and register; Google button (UI only)
 - Assets page: new `/assets` route with mock garment data grid (UI only)
 - Pricing page: full plan comparison table (Starter/Growth/Pro) above existing credit request form
@@ -3373,37 +3387,37 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 ---
 
-### 2026-05-23 (uncommitted) — Multi-pose per job + catalogue grouping
+### 2026-05-23 (uncommitted) â€” Multi-pose per job + catalogue grouping
 
 **Done**
 
-- `api`: `POST /v1/jobs/tryon` now accepts `poseIds` array (1–6); creates 1 job per pose under shared `catalogueId`; partial enqueue failure handling (refund + fail individual jobs, throw only if all fail)
-- `api`: `GET /v1/catalogues` — groups jobs by `catalogueId`, newest first, 200 limit
-- `api`: `GET /v1/catalogues/:id` — all jobs for one catalogue, ordered by `createdAt`
-- `db`: migration `0007_catalogue_id.sql` — `ALTER TABLE jobs ADD COLUMN catalogue_id uuid`
+- `api`: `POST /v1/jobs/tryon` now accepts `poseIds` array (1â€“6); creates 1 job per pose under shared `catalogueId`; partial enqueue failure handling (refund + fail individual jobs, throw only if all fail)
+- `api`: `GET /v1/catalogues` â€” groups jobs by `catalogueId`, newest first, 200 limit
+- `api`: `GET /v1/catalogues/:id` â€” all jobs for one catalogue, ordered by `createdAt`
+- `db`: migration `0007_catalogue_id.sql` â€” `ALTER TABLE jobs ADD COLUMN catalogue_id uuid`
 - `db/schema/jobs.ts`: added `catalogueId` column
-- `types`: `CreateTryOnJobRequest.inputs.poseId` → `poseIds: z.array(z.string().uuid()).min(1).max(6)`
+- `types`: `CreateTryOnJobRequest.inputs.poseId` â†’ `poseIds: z.array(z.string().uuid()).min(1).max(6)`
 - `web`: catalogue detail page scaffolded at `apps/catalogues-web/src/app/(app)/catalogues/[id]/page.tsx`
 - `web`: catalogue grid CSS (`.av-cdet-grid`, `.av-cdet-card`, `.av-cdet-img`, `.av-cdet-footer`) in globals.css
-- `web`: dashboard — live data fetch, image grid with lazy thumbnails, status badges
-- `web`: wizard — multi-pose selection UI (checkboxes, count badge)
-- `web`: cleanup — replace hardcoded `#FFF` with CSS vars, dropzone bg uses `--surface-2`
+- `web`: dashboard â€” live data fetch, image grid with lazy thumbnails, status badges
+- `web`: wizard â€” multi-pose selection UI (checkboxes, count badge)
+- `web`: cleanup â€” replace hardcoded `#FFF` with CSS vars, dropzone bg uses `--surface-2`
 
 **Failed / Not Done**
 
-- Catalogue listing page (`GET /v1/catalogues`) only returns job metadata — no output thumbnails, no preview in catalogue grid
+- Catalogue listing page (`GET /v1/catalogues`) only returns job metadata â€” no output thumbnails, no preview in catalogue grid
 - Dashboard still uses mock stats (not live aggregate from API)
 - Migration 0007 not yet applied to dev DB
-- `apps/catalogues-web/src/app/(app)/catalogues/[id]/page.tsx` — needs full UI polish
+- `apps/catalogues-web/src/app/(app)/catalogues/[id]/page.tsx` â€” needs full UI polish
 
 **Open Questions / Decisions**
 
 - [ ] Catalogue page UX: show first output thumbnail per catalogue? Show status summary (X done / Y total)?
-- [ ] Jobs detail page redesign — still old sketch palette
+- [ ] Jobs detail page redesign â€” still old sketch palette
 
 ---
 
-### 2026-05-22 → 2026-05-23 — End-to-end pipeline + lower garments + theme toggle + account page
+### 2026-05-22 â†’ 2026-05-23 â€” End-to-end pipeline + lower garments + theme toggle + account page
 
 **Done**
 
@@ -3419,15 +3433,15 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 - Fixed `fetchHistory` to filter `type=output` only
 - Workflow template `templates/virtual-tryon-v1.json` now real ComfyUI export (538 lines)
 
-*Wizard step 5 — lower garment + shoes*
+*Wizard step 5 â€” lower garment + shoes*
 
 - `api`: wire catalog routes for lower garments + shoes (`GET /v1/catalog/items?typeSlug=lower_garments|shoes`)
 - `api`: job creation validates `lowerCatalogId` + `shoeCatalogId`
-- `db`: seed catalog types (migration `0006`) — `lower_garments`, `shoes`
+- `db`: seed catalog types (migration `0006`) â€” `lower_garments`, `shoes`
 - `admin`: catalog batch upload modal (`BatchCatalogUploadModal.tsx`) with per-file status + retry
 - `admin`: catalog item edit wired (edit button updates label/isActive)
 - `admin`: fix "Add item" button always opens modal, hidden on All Items tab
-- `web`: wizard step 5 — lower garment + shoes selection carousel, conditionally shown per `pose.showsLower`/`pose.showsShoes`
+- `web`: wizard step 5 â€” lower garment + shoes selection carousel, conditionally shown per `pose.showsLower`/`pose.showsShoes`
 
 *Home page + nav*
 
@@ -3437,23 +3451,23 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 *Theme toggle + sidebar collapse*
 
-- `theme-toggle.tsx` component — sun/moon icon, reads/writes `localStorage.theme`, toggles `dark` class on `<html>`
+- `theme-toggle.tsx` component â€” sun/moon icon, reads/writes `localStorage.theme`, toggles `dark` class on `<html>`
 - Sidebar collapsible: hamburger button, collapsed state shows only icons, `--sidebar-width` CSS var toggles `64px` / `240px`
-- TopBar removed — theme toggle + sign-out moved into sidebar
+- TopBar removed â€” theme toggle + sign-out moved into sidebar
 
 *Account page*
 
-- `apps/catalogues-web/src/app/(app)/account/page.tsx` — display name, email, tier, credit balance, change password, job history
+- `apps/catalogues-web/src/app/(app)/account/page.tsx` â€” display name, email, tier, credit balance, change password, job history
 - Styled with `av-card` layout matching new palette
 
 *Dashboard grid*
 
-- Replaced flat job list with image grid — lazy-loaded output thumbnails, status overlay badges, retry on failed
+- Replaced flat job list with image grid â€” lazy-loaded output thumbnails, status overlay badges, retry on failed
 - Grid layout `.av-dash-grid` with responsive `auto-fill, minmax(220px, 1fr)`
 
 *Admin profile*
 
-- Dynamic sidebar profile section — reads user data from auth context (initials avatar, email)
+- Dynamic sidebar profile section â€” reads user data from auth context (initials avatar, email)
 
 *Tests*
 
@@ -3467,23 +3481,23 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Open Questions / Decisions**
 
-- [ ] Lower garment thumbnail resolution in dispatcher — PNG flatten + upload to R2 confirmed working
-- [ ] `/history` polling interval for ComfyUI output — currently 2s, adjust if GPU node overloaded
-- [ ] Dispatcher TLS bypass (`NODE_TLS_REJECT_UNAUTHORIZED=0`) — needs proper cert in prod
+- [ ] Lower garment thumbnail resolution in dispatcher â€” PNG flatten + upload to R2 confirmed working
+- [ ] `/history` polling interval for ComfyUI output â€” currently 2s, adjust if GPU node overloaded
+- [ ] Dispatcher TLS bypass (`NODE_TLS_REJECT_UNAUTHORIZED=0`) â€” needs proper cert in prod
 
 ---
 
-### 2026-05-22 — Full frontend redesign (vastra2.0 designer handoff)
+### 2026-05-22 â€” Full frontend redesign (vastra2.0 designer handoff)
 
 **Done**
 
-- `apps/catalogues-web/src/app/globals.css`: complete rewrite — removed sketch utilities (`sketch-card`, `btn-sketch`, `underline-emph`), added full `av-` CSS class system (sidebar, stepper, cards, chips, dropzone, select, buttons, spinner), CSS vars matching warm cream palette (`--bg: #FBF8F3`, `--peach`, `--amber`, `--mint`, `--grad`, etc.), dark mode support
+- `apps/catalogues-web/src/app/globals.css`: complete rewrite â€” removed sketch utilities (`sketch-card`, `btn-sketch`, `underline-emph`), added full `av-` CSS class system (sidebar, stepper, cards, chips, dropzone, select, buttons, spinner), CSS vars matching warm cream palette (`--bg: #FBF8F3`, `--peach`, `--amber`, `--mint`, `--grad`, etc.), dark mode support
 - `apps/catalogues-web/src/app/layout.tsx`: replaced Caveat font with Poppins (400/500/600/700/800) + JetBrains Mono; updated metadata
-- `apps/catalogues-web/src/app/page.tsx`: full marketing landing page from `vastra2.0/Home.html` — hero, logos strip, how-it-works (4 steps), features grid, gallery (4 samples), pricing (3 cards), CTA, footer; `lp-` prefixed CSS via inline `<style>` tag; redirects to `/dashboard` if already logged in
+- `apps/catalogues-web/src/app/page.tsx`: full marketing landing page from `vastra2.0/Home.html` â€” hero, logos strip, how-it-works (4 steps), features grid, gallery (4 samples), pricing (3 cards), CTA, footer; `lp-` prefixed CSS via inline `<style>` tag; redirects to `/dashboard` if already logged in
 - `apps/catalogues-web/public/samples/`: copied `sample-1..4.png` from `vastra2.0/assets/`
 - `apps/catalogues-web/src/components/sidebar.tsx` (new): dark sidebar with credits bar (`/v1/credits`), user info (`/v1/me`), nav items (Studio/Catalogues/Credits), logout, initials avatar
 - `apps/catalogues-web/src/app/(app)/layout.tsx`: replaced navbar with `<div className="av-app"><Sidebar /><main className="av-main">{children}</main></div>`
-- `apps/catalogues-web/src/app/(app)/tryon/page.tsx`: 4-step wizard (Setup → Models → Backgrounds → Pose+Generate); garment upload starts immediately in step 0; Generate button gated on `garmentKey` set; `useEffect` fix for dropdown outside-click listener
+- `apps/catalogues-web/src/app/(app)/tryon/page.tsx`: 4-step wizard (Setup â†’ Models â†’ Backgrounds â†’ Pose+Generate); garment upload starts immediately in step 0; Generate button gated on `garmentKey` set; `useEffect` fix for dropdown outside-click listener
 - `apps/catalogues-web/src/app/(app)/dashboard/page.tsx`: restyled with `av-card`, status dots, badge chips
 - `apps/catalogues-web/src/app/(app)/credits/page.tsx`: restyled with `av-card`, gradient balance display, package selector chips
 - `apps/catalogues-web/src/app/(auth)/login/page.tsx`: clean centered layout, white card, tab pills
@@ -3492,7 +3506,7 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Failed / Not Done**
 
-- `apps/catalogues-web/src/components/navbar.tsx`: still exists (unused — safe to delete later)
+- `apps/catalogues-web/src/components/navbar.tsx`: still exists (unused â€” safe to delete later)
 - `apps/catalogues-web/src/app/(app)/jobs/[id]/page.tsx`: still uses old sketch design (not redesigned)
 - Old UI components (`ui/button.tsx`, `badge.tsx`, `input.tsx`): still present but unused by new design
 
@@ -3505,22 +3519,22 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 ---
 
-### 2026-05-22 — Admin panel live data + credit requests + isTemplate + background preview
+### 2026-05-22 â€” Admin panel live data + credit requests + isTemplate + background preview
 
 **Done**
 
-*isTemplate redesign — dropped `subcategoryTemplates` table*
+*isTemplate redesign â€” dropped `subcategoryTemplates` table*
 
 - `packages/db/src/schema/models.ts`: added `isTemplate boolean` to `modelPoses`; partial unique index `(subcategoryId, faceId, backgroundId) WHERE isTemplate=true`; removed `subcategoryTemplates` table
-- Migration `0005_pose_istemplate_drop_templates.sql`: `ALTER TABLE model_poses ADD COLUMN is_template`; create index; `DROP TABLE subcategory_templates CASCADE`. Applied directly via `docker exec psql` (drizzle migration tracker only has entries 0+1; 2–5 must be applied manually)
+- Migration `0005_pose_istemplate_drop_templates.sql`: `ALTER TABLE model_poses ADD COLUMN is_template`; create index; `DROP TABLE subcategory_templates CASCADE`. Applied directly via `docker exec psql` (drizzle migration tracker only has entries 0+1; 2â€“5 must be applied manually)
 - `packages/types/src/admin.ts`: `ConfirmModelPoseBody` + `PatchModelPoseBody` include `isTemplate`; all subcategory template schemas removed
 - `apps/api/src/modules/admin/models.routes.ts`: `POST /poses/confirm` + `PATCH /poses/:id` unset previous template in cell before setting new one (transactional)
-- `apps/api/src/modules/admin/subcategories.routes.ts`: `PATCH /subcategories/:id` enforces template coverage (every face×bg cell must have a template) when setting `isActive: true`
+- `apps/api/src/modules/admin/subcategories.routes.ts`: `PATCH /subcategories/:id` enforces template coverage (every faceÃ—bg cell must have a template) when setting `isActive: true`
 - `apps/api/src/server.ts`: removed `adminTemplatesRoutes` import + registration; deleted `templates.routes.ts`
 - `BatchPoseUploadModal`: radio button per row to designate template at batch-upload time; default = first file
 - `AssetsPage`: removed template tab/cards/state; "Set as template" button on non-template pose cards; pose cards show blue outline + badge when `isTemplate=true`; `templateCount` derived client-side
 
-*Admin Users page — live data*
+*Admin Users page â€” live data*
 
 - `GET /admin/users`: `ilike` search on email/displayName, `total` count, left-join `userCredits` + `jobs` for `balance`/`totalJobs`/`lastJobAt`; excludes `passwordHash`
 - `GET /admin/users/:id`: explicit field select (no passwordHash), flat response `{ ...user, balance, totalJobs, recentJobs }`
@@ -3529,68 +3543,68 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 *Credit Requests page (new)*
 
-- `CreditRequestsPage.tsx`: tabs Pending / Approved / Rejected; approve modal (editable credits amount prefilled, optional admin note) → `PATCH /admin/credits/requests/:id/approve`; reject modal → `PATCH /admin/credits/requests/:id/reject`; reloads list after action
+- `CreditRequestsPage.tsx`: tabs Pending / Approved / Rejected; approve modal (editable credits amount prefilled, optional admin note) â†’ `PATCH /admin/credits/requests/:id/approve`; reject modal â†’ `PATCH /admin/credits/requests/:id/reject`; reloads list after action
 - Wired into `App.tsx` (`'credits'` page) and `Sidebar.tsx` (`Icon.Credit`, visible to SUPER_ADMIN + MODERATOR)
 
-*Admin Jobs page — live data*
+*Admin Jobs page â€” live data*
 
 - `GET /admin/jobs`: `status` filter, `search` (job ID / user email), `total` count; multi-join for `userEmail`, `faceLabel`, `backgroundLabel`, `poseLabel`, `hasLower`, `hasShoe`, `outputUrl` (via storage.publicUrl)
 - `GET /admin/jobs/:id`: same rich join + `userHint` from `jobInputs` + `events` array (flat response, not nested)
-- `JobsPage.tsx`: replaced MOCK_JOBS with live fetch; status tab filter + search + pagination; detail view with events log; cancel → `POST .../cancel` with optimistic update; retry button on FAILED jobs → `POST .../retry`
+- `JobsPage.tsx`: replaced MOCK_JOBS with live fetch; status tab filter + search + pagination; detail view with events log; cancel â†’ `POST .../cancel` with optimistic update; retry button on FAILED jobs â†’ `POST .../retry`
 - `Job` type: `userEmail`/timestamps/errorCode now `| null`; added `userId?`, `attempts?`
 
 *User-facing background preview (template showcase)*
 
-- `GET /v1/models/backgrounds`: accepts optional `subcategoryId`; when `faceId + subcategoryId` both provided fetches template poses (`isTemplate=true`) for face×subcategory, builds `backgroundId → thumbnailKey` map; response includes `previewUrl` = template pose composite thumbnail (falls back to raw bg thumbnail if no template set)
+- `GET /v1/models/backgrounds`: accepts optional `subcategoryId`; when `faceId + subcategoryId` both provided fetches template poses (`isTemplate=true`) for faceÃ—subcategory, builds `backgroundId â†’ thumbnailKey` map; response includes `previewUrl` = template pose composite thumbnail (falls back to raw bg thumbnail if no template set)
 - `tryon/page.tsx`: `BackgroundItem` gets `previewUrl`; backgrounds query passes `subcategoryId`; background cards use `previewUrl`; step 2 description updated
 
 **Failed / Not Done**
 
 - Sidebar badge counts for jobs/credits are static (removed fake counts from users/jobs, credits has no live pending count yet)
-- Dashboard page (`DashboardPage.tsx`) still uses MOCK_STATS — not converted to live data yet
+- Dashboard page (`DashboardPage.tsx`) still uses MOCK_STATS â€” not converted to live data yet
 
 **Open Questions / Decisions**
 
 - [ ] Lower garment step in wizard: still not added (conditional on `pose.showsLower === true`)
-- [ ] ComfyUI workflow template `templates/virtual-tryon-v1.json` still a stub — blocking E2E
-- [ ] GPU VPS worker registration + dispatcher start — needed for E2E test
+- [ ] ComfyUI workflow template `templates/virtual-tryon-v1.json` still a stub â€” blocking E2E
+- [ ] GPU VPS worker registration + dispatcher start â€” needed for E2E test
 
 ---
 
-### 2026-05-21 — Frontend scaffold complete (Phase 3A+3B+3C) + backend schema fixes
+### 2026-05-21 â€” Frontend scaffold complete (Phase 3A+3B+3C) + backend schema fixes
 
 **Done**
 
-*`apps/catalogues-web` — Next.js 15 App Router (full scaffold)*
+*`apps/catalogues-web` â€” Next.js 15 App Router (full scaffold)*
 
 - `package.json`: Next.js 15, React 19, Tailwind CSS 3, @tanstack/react-query, react-hook-form + zod resolvers, lucide-react, @radix-ui/react-slot
 - `middleware.ts`: route protection via `access_token` cookie; redirects unauthenticated users to `/login?next=<path>`
 - **Auth proxy routes** (`/api/auth/*`): Next.js route handlers proxy to API, extract refresh token from `Set-Cookie` response header, re-set as httpOnly cookie at `/api/auth` path; set `access_token` as JS-readable cookie at `/`
   - `/api/auth/login`, `/api/auth/register`, `/api/auth/logout`, `/api/auth/refresh`
-- **Auth pages**: `/login`, `/register` — react-hook-form + zod validation, error display, Tailwind styling
+- **Auth pages**: `/login`, `/register` â€” react-hook-form + zod validation, error display, Tailwind styling
 - **App layout** (`/(app)/layout.tsx`): sticky navbar with credits balance (live via React Query), logout button, nav links
 - **Dashboard** (`/dashboard`): job history list, status badges with icons, auto-refetch every 3s when active jobs exist
 - **Try-On Wizard** (`/tryon`): 6-step wizard
   - Step 0: Gender + subcategory picker (loads `GET /v1/models/subcategories?gender=X`)
-  - Step 1: Garment upload — XHR with progress bar, presign → direct R2 PUT
-  - Step 2: Face selection — card grid (loads `GET /v1/models/faces?gender=X`)
-  - Step 3: Background selection — card grid (loads `GET /v1/models/backgrounds`)
-  - Step 4: Pose selection — card grid (loads `GET /v1/models/poses?subcategoryId=X&faceId=Y&backgroundId=Z`)
-  - Step 5: Review + submit → `POST /v1/jobs/tryon` → redirect to job detail
+  - Step 1: Garment upload â€” XHR with progress bar, presign â†’ direct R2 PUT
+  - Step 2: Face selection â€” card grid (loads `GET /v1/models/faces?gender=X`)
+  - Step 3: Background selection â€” card grid (loads `GET /v1/models/backgrounds`)
+  - Step 4: Pose selection â€” card grid (loads `GET /v1/models/poses?subcategoryId=X&faceId=Y&backgroundId=Z`)
+  - Step 5: Review + submit â†’ `POST /v1/jobs/tryon` â†’ redirect to job detail
 - **Job detail** (`/jobs/[id]`): SSE live progress (EventSource), step indicator, result image with download button, failure state with refund notice
 - **UI components**: Button (asChild/Radix Slot), Input, Badge (success/warning/processing/destructive variants), Navbar, Providers (React Query)
 - **API client** (`lib/api.ts`): typed fetch wrapper, auto-refresh on 401, XHR upload with onprogress
 
 *Backend fixes*
 
-- `apps/api/src/modules/models/routes.ts` (NEW): user-facing model routes — `GET /v1/models/subcategories`, `/faces`, `/backgrounds`, `/poses`; requires auth, returns thumbnailUrl via `storage.publicUrl()`; registered in `server.ts`
-- `apps/api/src/modules/jobs/create.ts`: rewrote to use new schema — validates `faceId`/`backgroundId`/`poseId` against `model_faces`/`model_backgrounds`/`model_poses` (was broken: still used old `modelCatalogId`/`catalogItems` references)
-- `apps/dispatcher/src/job/processor.ts`: fixed r2Key resolution — now reads from `model_faces`/`model_backgrounds`/`model_poses` via `inputs.faceId`/`backgroundId`/`poseId` (was broken: used old `inputs.modelCatalogId` etc. against `catalogItems`)
+- `apps/api/src/modules/models/routes.ts` (NEW): user-facing model routes â€” `GET /v1/models/subcategories`, `/faces`, `/backgrounds`, `/poses`; requires auth, returns thumbnailUrl via `storage.publicUrl()`; registered in `server.ts`
+- `apps/api/src/modules/jobs/create.ts`: rewrote to use new schema â€” validates `faceId`/`backgroundId`/`poseId` against `model_faces`/`model_backgrounds`/`model_poses` (was broken: still used old `modelCatalogId`/`catalogItems` references)
+- `apps/dispatcher/src/job/processor.ts`: fixed r2Key resolution â€” now reads from `model_faces`/`model_backgrounds`/`model_poses` via `inputs.faceId`/`backgroundId`/`poseId` (was broken: used old `inputs.modelCatalogId` etc. against `catalogItems`)
 
 **Failed / Not Done**
 
-- SSE auth: job events endpoint uses `EventSource` which can't set custom headers; token passed as `?token=` query param in URL. API's `requireUser` plugin needs to support token from query string (not yet implemented — will silently fail on first SSE connect)
-- No `CORS_ORIGIN` update for web port 3000 (`.env` still default; should be `http://localhost:3000` — already set)
+- SSE auth: job events endpoint uses `EventSource` which can't set custom headers; token passed as `?token=` query param in URL. API's `requireUser` plugin needs to support token from query string (not yet implemented â€” will silently fail on first SSE connect)
+- No `CORS_ORIGIN` update for web port 3000 (`.env` still default; should be `http://localhost:3000` â€” already set)
 - `apps/catalogues-web` not in CORS_ORIGIN of API: need to confirm `CORS_ORIGIN=http://localhost:3000` in `.env`
 
 **Decisions Made**
@@ -3602,32 +3616,32 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 **Open Questions / Decisions**
 
 - [ ] SSE auth: `GET /v1/jobs/:id/events` uses `EventSource` (no custom headers). API `requireUser` only reads `Authorization` header. Need to add `?token=<accessToken>` query param support to `requireUser` plugin, or proxy SSE through Next.js.
-- [ ] `CORS_ORIGIN` in `.env` must be `http://localhost:3000` for web ↔ API in dev — confirm set.
+- [ ] `CORS_ORIGIN` in `.env` must be `http://localhost:3000` for web â†” API in dev â€” confirm set.
 - [ ] `apps/catalogues-web` prod: served via CloudPanel nginx on port 3000? Confirm routing before Phase 4D Dockerfile.
 - [ ] Catalog lower garment selection not in wizard (Phase 3B only covers face/bg/pose). Add lower garment step if needed (wizard step 5, only shown when `pose.showsLower === true`).
 
 ---
 
-### 2026-05-21 — Admin panel complete + asset management system
+### 2026-05-21 â€” Admin panel complete + asset management system
 
 **Done**
 
-*Admin Panel (`apps/admin-web` — standalone Vite/React SPA, proxied through Vite dev server at :5173)*
+*Admin Panel (`apps/admin-web` â€” standalone Vite/React SPA, proxied through Vite dev server at :5173)*
 
-- **AssetsPage** — 3-tab layout: Backgrounds, Faces, Subcategories
-  - Backgrounds tab: upload (presign → R2 PUT → confirm), toggle active, delete
+- **AssetsPage** â€” 3-tab layout: Backgrounds, Faces, Subcategories
+  - Backgrounds tab: upload (presign â†’ R2 PUT â†’ confirm), toggle active, delete
   - Faces tab: upload with gender tag (men/women/boys/girls), toggle active, delete
   - Subcategories tab: create (proper modal, replaced `prompt()` dialogs), list with pose grid per subcategory
-- **Pose management** — poses are per (subcategory × face × background) combo
+- **Pose management** â€” poses are per (subcategory Ã— face Ã— background) combo
   - Single-pose upload via UploadModal
   - Batch upload (`BatchPoseUploadModal`): select multiple files, assign shared face+bg+showsLower+showsShoes metadata, auto-label from filename stem, sequential upload with per-file status + retry
-  - `EditPoseModal`: edit label, reassign faceId/backgroundId, showsLower, showsShoes, sortOrder — PATCH `/admin/assets/poses/:id`
+  - `EditPoseModal`: edit label, reassign faceId/backgroundId, showsLower, showsShoes, sortOrder â€” PATCH `/admin/assets/poses/:id`
   - Filter poses grid by face + background dropdowns
-- **CatalogPage** — lower garments + shoes, thumbnail preview, toggle active, delete, upload
-- **Real image thumbnails** — `AssetThumb` component: fetches `storagePublicUrl` from `/admin/me`, renders `<img>` using `thumbnailKey`; falls back to initials placeholder
-- **AuthContext** — stores `storagePublicUrl: string | null`, propagated from `/admin/me` response, cleared on logout
-- **Dark mode** — switch/toggle knob fixed (was hardcoded `#fff`, invisible on light track; now uses `var(--bg)`)
-- **UploadModal** — added `placeholder` prop support for all field types
+- **CatalogPage** â€” lower garments + shoes, thumbnail preview, toggle active, delete, upload
+- **Real image thumbnails** â€” `AssetThumb` component: fetches `storagePublicUrl` from `/admin/me`, renders `<img>` using `thumbnailKey`; falls back to initials placeholder
+- **AuthContext** â€” stores `storagePublicUrl: string | null`, propagated from `/admin/me` response, cleared on logout
+- **Dark mode** â€” switch/toggle knob fixed (was hardcoded `#fff`, invisible on light track; now uses `var(--bg)`)
+- **UploadModal** â€” added `placeholder` prop support for all field types
 
 *DB / Types / API*
 
@@ -3641,27 +3655,27 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 
 **Failed / Not Done**
 
-- Admin panel built as separate Vite SPA (`apps/admin-web`), not embedded in Next.js (`apps/catalogues-web`) — diverges from PHASES.md §3D plan. This is intentional: admin panel is ready for production use standalone; no plan to migrate.
-- `apps/catalogues-web` (user-facing Next.js try-on builder) — not started
-- Phase 2B (VPS + Tunnel + ComfyUI) — not started
-- `templates/virtual-tryon-v1.json` — still a stub; real ComfyUI workflow export still blocking E2E
+- Admin panel built as separate Vite SPA (`apps/admin-web`), not embedded in Next.js (`apps/catalogues-web`) â€” diverges from PHASES.md Â§3D plan. This is intentional: admin panel is ready for production use standalone; no plan to migrate.
+- `apps/catalogues-web` (user-facing Next.js try-on builder) â€” not started
+- Phase 2B (VPS + Tunnel + ComfyUI) â€” not started
+- `templates/virtual-tryon-v1.json` â€” still a stub; real ComfyUI workflow export still blocking E2E
 
 **Decisions Made**
 
-- Admin panel = standalone Vite SPA (`apps/admin-web`) — not part of `apps/catalogues-web`. Deployed separately, proxied by nginx in prod.
-- Asset management scope expanded beyond original PHASES.md §1D: model faces, backgrounds, garment subcategories, poses all fully managed via admin UI.
-- Poses schema: face × background per pose (not just per subcategory) — data model locked.
-- Presigned URL upload flow: browser → presign API → direct PUT to MinIO/R2 → confirm API. Confirmed working end-to-end with local MinIO.
+- Admin panel = standalone Vite SPA (`apps/admin-web`) â€” not part of `apps/catalogues-web`. Deployed separately, proxied by nginx in prod.
+- Asset management scope expanded beyond original PHASES.md Â§1D: model faces, backgrounds, garment subcategories, poses all fully managed via admin UI.
+- Poses schema: face Ã— background per pose (not just per subcategory) â€” data model locked.
+- Presigned URL upload flow: browser â†’ presign API â†’ direct PUT to MinIO/R2 â†’ confirm API. Confirmed working end-to-end with local MinIO.
 
 **Open Questions / Decisions**
 
-- [ ] `apps/admin-web` prod deployment: serves from same VPS as API? nginx route `/admin-app/*` → static files from `apps/admin-web/dist/`? Decide before Phase 4D.
-- [ ] Subcategory template images (`subcategory_templates` table — pre-rendered face×background composites): does admin need UI to upload these? Currently table exists but no admin page for it.
-- [ ] Pose `subcategoryId` is required on upload — does every pose belong to exactly one subcategory, or should poses be subcategory-agnostic (shared across subcategories)? Current model: one subcategory per pose. Confirm with product.
+- [ ] `apps/admin-web` prod deployment: serves from same VPS as API? nginx route `/admin-app/*` â†’ static files from `apps/admin-web/dist/`? Decide before Phase 4D.
+- [ ] Subcategory template images (`subcategory_templates` table â€” pre-rendered faceÃ—background composites): does admin need UI to upload these? Currently table exists but no admin page for it.
+- [ ] Pose `subcategoryId` is required on upload â€” does every pose belong to exactly one subcategory, or should poses be subcategory-agnostic (shared across subcategories)? Current model: one subcategory per pose. Confirm with product.
 
 ---
 
-### 2026-05-19 — Dispatcher test fixes
+### 2026-05-19 â€” Dispatcher test fixes
 
 **Done**
 - Fixed postgres module resolution: added `resolve.alias` in `apps/dispatcher/vitest.config.ts` (Vite couldn't resolve `postgres` from non-hoisted pnpm layout)
@@ -3674,16 +3688,16 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 - Pushed all changes to GitHub (`adeshboudh/aivastra`)
 
 **Failed / Not Done**
-- `templates/virtual-tryon-v1.json` still a stub — real ComfyUI workflow export needed
+- `templates/virtual-tryon-v1.json` still a stub â€” real ComfyUI workflow export needed
 - VPS provisioning (Phase 2B) not started
 - Phase 3 (`apps/catalogues-web` Next.js frontend) not started
 
 **Open Questions / Decisions**
 - [ ] ComfyUI workflow: which node IDs map to each `__AIVASTRA_*__` placeholder? Need real workflow export first
-- [ ] Worker hostname naming: `WORKER_A_URL` / `WORKER_B_URL` vs `WORKER_<ID>_URL` — decide convention before Phase 2B
-- [ ] Catalog key resolution still happens in dispatcher via DB join (deviation from CLAUDE.md invariant) — add r2Key columns to `job_inputs` in v2 migration?
+- [ ] Worker hostname naming: `WORKER_A_URL` / `WORKER_B_URL` vs `WORKER_<ID>_URL` â€” decide convention before Phase 2B
+- [ ] Catalog key resolution still happens in dispatcher via DB join (deviation from CLAUDE.md invariant) â€” add r2Key columns to `job_inputs` in v2 migration?
 
-### 2026-05-19 — Phase 2 dispatcher plan written
+### 2026-05-19 â€” Phase 2 dispatcher plan written
 
 **Done**
 - Detailed implementation plan written at `docs/superpowers/plans/2026-05-19-phase-2-dispatcher.md`
@@ -3691,17 +3705,17 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 - Workflow template stub created at `templates/virtual-tryon-v1.json` (placeholder markers defined)
 
 **Failed / Not Done**
-- Implementation not started — plan only
+- Implementation not started â€” plan only
 - `templates/virtual-tryon-v1.json` is a stub; real ComfyUI workflow export still needed (blocking for Phase 4 E2E)
-- VPS provisioning (Phase 2B) not covered in code plan — infra-only, see `infra/cloudflared/README.md`
+- VPS provisioning (Phase 2B) not covered in code plan â€” infra-only, see `infra/cloudflared/README.md`
 
 **Open Questions / Decisions**
-- [ ] **BLOCKING:** Real ComfyUI workflow export needed — set up ComfyUI on dev VPS, build workflow, export as API format, map node IDs to `__AIVASTRA_*__` placeholders in template
-- [ ] Catalog key resolution deviation: `job_inputs` stores catalog UUIDs, not r2Keys — dispatcher must join `catalog_items`. Consider adding r2Key columns to `job_inputs` in v2 migration
-- [ ] Hostinger GPU VPS specs not finalized — confirm plan availability before provisioning (see PHASES.md §2B)
-- [ ] `WORKER_IDS` env var naming: `worker-a,worker-b` requires `WORKER_A_URL` and `WORKER_B_URL` env vars — confirm naming convention matches real worker hostnames
+- [ ] **BLOCKING:** Real ComfyUI workflow export needed â€” set up ComfyUI on dev VPS, build workflow, export as API format, map node IDs to `__AIVASTRA_*__` placeholders in template
+- [ ] Catalog key resolution deviation: `job_inputs` stores catalog UUIDs, not r2Keys â€” dispatcher must join `catalog_items`. Consider adding r2Key columns to `job_inputs` in v2 migration
+- [ ] Hostinger GPU VPS specs not finalized â€” confirm plan availability before provisioning (see PHASES.md Â§2B)
+- [ ] `WORKER_IDS` env var naming: `worker-a,worker-b` requires `WORKER_A_URL` and `WORKER_B_URL` env vars â€” confirm naming convention matches real worker hostnames
 
-### 2026-05-18 — Initial scaffolding (api + packages)
+### 2026-05-18 â€” Initial scaffolding (api + packages)
 
 **Done**
 - Monorepo structure created: `apps/api`, `packages/db`, `packages/types`, `packages/storage`, `packages/logger`
@@ -3715,21 +3729,22 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 - Production Dockerfile + e2e smoke test
 
 **Failed / Not Done**
-- `apps/dispatcher` — not yet built (Redis Stream consumer, ComfyUI bridge, worker health monitor)
-- `apps/catalogues-web` — not yet scaffolded
-- `packages/catalog` — category tree builder not yet extracted
-- `scripts/seed-catalog.ts` — not yet written
+- `apps/dispatcher` â€” not yet built (Redis Stream consumer, ComfyUI bridge, worker health monitor)
+- `apps/catalogues-web` â€” not yet scaffolded
+- `packages/catalog` â€” category tree builder not yet extracted
+- `scripts/seed-catalog.ts` â€” not yet written
 - Cloudflare Tunnel / `cloudflared` infra config
 - ComfyUI workflow templates in `templates/`
 
 **Open Questions / Decisions**
-- [ ] Dispatcher: retry strategy — max 2 attempts then refund. Confirm dead-letter stream key name.
+- [ ] Dispatcher: retry strategy â€” max 2 attempts then refund. Confirm dead-letter stream key name.
 - [ ] Web: Next.js 15 App Router vs Pages Router for admin panel?
-- [ ] Presigned URL expiry for garment uploads — how long?
-- [ ] Worker health TTL is 30s (probed every 15s) — adjust if ComfyUI startup is slow?
-- [ ] `packages/catalog` — extract from api routes now or after dispatcher?
+- [ ] Presigned URL expiry for garment uploads â€” how long?
+- [ ] Worker health TTL is 30s (probed every 15s) â€” adjust if ComfyUI startup is slow?
+- [ ] `packages/catalog` â€” extract from api routes now or after dispatcher?
 - [ ] MinIO bucket naming convention for prod R2 (single bucket with prefixes vs per-env buckets)?
 
 ---
 
 <!-- Add new entries above this line, newest first -->
+

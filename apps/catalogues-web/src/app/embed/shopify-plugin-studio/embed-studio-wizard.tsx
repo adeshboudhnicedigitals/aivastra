@@ -510,8 +510,8 @@ export function EmbedStudioWizard() {
                   cursor: 'pointer',
                   height: 40,
                   borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: 12,
+                  fontWeight: 500,
                   border: `1.5px solid ${selected ? C.pink : C.border2}`,
                   background: selected ? 'rgba(189,37,135,0.08)' : C.white,
                   color: selected ? C.pink : C.text,
@@ -527,7 +527,7 @@ export function EmbedStudioWizard() {
       <div style={sectionCardStyle}>
         <SectionHead title="Garment type" stepNumber={2} />
         {garmentTypes.length === 0 ? (
-          <span style={{ fontSize: 13, color: C.mid }}>Loading garment types…</span>
+          <span style={{ fontSize: 12, color: C.mid }}>Loading garment types…</span>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {garmentTypes.map((g) => (
@@ -539,8 +539,8 @@ export function EmbedStudioWizard() {
                   cursor: 'pointer',
                   padding: '8px 14px',
                   borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: 12,
+                  fontWeight: 500,
                   border: `1.5px solid ${g.id === garmentTypeId ? C.pink : C.border2}`,
                   background: g.id === garmentTypeId ? 'rgba(189,37,135,0.08)' : C.white,
                   color: g.id === garmentTypeId ? C.pink : C.text,
@@ -599,8 +599,8 @@ export function EmbedStudioWizard() {
               <>
                 <span
                   style={{
-                    fontSize: 13,
-                    fontWeight: 600,
+                    fontSize: 12,
+                    fontWeight: 500,
                     color: C.text,
                     textAlign: 'center',
                     padding: '0 8px',
@@ -674,7 +674,7 @@ export function EmbedStudioWizard() {
                 <>
                   <span
                     style={{
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: 600,
                       color: C.text,
                       textAlign: 'center',
@@ -748,7 +748,7 @@ export function EmbedStudioWizard() {
                 <>
                   <span
                     style={{
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: 600,
                       color: C.text,
                       textAlign: 'center',
@@ -796,7 +796,7 @@ export function EmbedStudioWizard() {
               background: 'none',
               border: 'none',
               color: C.pink,
-              fontSize: 13,
+              fontSize: 12,
               fontWeight: 600,
               cursor: 'pointer',
               padding: 0,
@@ -956,7 +956,7 @@ export function EmbedStudioWizard() {
                   <SpinnerIcon />
                 </div>
               ) : lowerItems.length === 0 ? (
-                <span style={{ fontSize: 13, color: C.mid }}>
+                <span style={{ fontSize: 12, color: C.mid }}>
                   No lower garment options available yet.
                 </span>
               ) : (
@@ -1005,7 +1005,7 @@ export function EmbedStudioWizard() {
                   <SpinnerIcon />
                 </div>
               ) : shoeItems.length === 0 ? (
-                <span style={{ fontSize: 13, color: C.mid }}>
+                <span style={{ fontSize: 12, color: C.mid }}>
                   No footwear options available yet.
                 </span>
               ) : (
