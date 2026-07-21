@@ -154,7 +154,7 @@ function ImageCard({
 }) {
   const isCompleted = job.status === 'COMPLETED';
   const isFailed = job.status === 'FAILED';
-  const isQueued = job.status === 'QUEUED' || job.status === 'PENDING_MANNEQUIN';
+  const isQueued = job.status === 'QUEUED';
   const isActive = !TERMINAL.includes(job.status) && !isQueued;
 
   const [deleting, setDeleting] = useState(false);
@@ -455,7 +455,15 @@ function ImageCard({
                 borderRadius: 20,
               }}
             >
-              {isCompleted ? 'Ready' : isFailed ? 'Failed' : isQueued ? 'Queued' : 'Generating'}
+              {isCompleted
+                ? 'Ready'
+                : isFailed
+                  ? 'Failed'
+                  : isQueued
+                    ? 'Queued'
+                    : job.status === 'PENDING_MANNEQUIN'
+                      ? 'Preparing'
+                      : 'Generating'}
             </span>
             <span style={{ fontSize: 11, color: C.light }}>
               {new Date(job.createdAt).toLocaleDateString('en-IN', {
