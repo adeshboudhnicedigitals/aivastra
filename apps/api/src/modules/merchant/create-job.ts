@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { ASPECT_DIMENSIONS, type Resolution, resolutionFromDims } from '@aivastra/types';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import {
@@ -217,101 +217,19 @@ export async function createMerchantSareeMannequinJob(
 
   let styleWorkflowTemplateId: string | undefined;
   if (params.sareeStyleId) {
+    // Matched by label (case-insensitive), not id — see MerchantCatalogGenerateBody.
     const [style] = await app.db
       .select({
         isActive: schema.sareeMannequinStyles.isActive,
         mannequinWorkflowTemplateId: schema.sareeMannequinStyles.mannequinWorkflowTemplateId,
       })
       .from(schema.sareeMannequinStyles)
-      .where(eq(schema.sareeMannequinStyles.id, params.sareeStyleId))
+      .where(ilike(schema.sareeMannequinStyles.label, params.sareeStyleId))
       .limit(1);
     if (!style?.isActive) {
       throw new AppError('BAD_STYLE', 400, 'saree style not found or inactive');
     }
     styleWorkflowTemplateId = style.mannequinWorkflowTemplateId;
-  }
-
-  await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
-
-  const cost = await getTryonCreditCost(app);
-
-  const jobId = randomUUID();
-  await app.db.transaction(async (tx) => {
-    await tx.insert(schema.jobs).values({
-      id: jobId,
-      userId: params.userId,
-      status: 'QUEUED',
-      watermark: false,
-      queueStream: 'normal',
-      creditsCharged: cost,
-    });
-    await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
-    await tx.insert(schema.jobInputs).values({
-      jobId,
-      upperGarmentKey: params.flatImageKey,
-      faceId: null,
-      garmentTypeId: params.garmentSubcategoryId,
-      params: {
-        kind: 'saree_mannequin',
-        ...(styleWorkflowTemplateId ? { workflowTemplateId: styleWorkflowTemplateId } : {}),
-      },
-    });
-  });
-
-  await app.redis.xadd(
-    'jobs:normal',
-    'MAXLEN',
-    '~',
-    10000,
-    '*',
-    'jobId',
-    jobId,
-    'userId',
-    params.userId,
-  );
-
-  return { jobId };
-}
-export async function createMerchantSareeMannequinJob1(
-  app: FastifyInstance,
-  params: {
-    userId: string;
-    garmentSubcategoryId: string;
-    flatImageKey: string;
-    merchantId: string;
-    sareeStyleId?: string;
-  },
-): Promise<{ jobId: string }> {
-  const [garmentType] = await app.db
-    .select({
-      requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
-      mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
-      isActive: schema.garmentSubcategories.isActive,
-    })
-    .from(schema.garmentSubcategories)
-    .where(eq(schema.garmentSubcategories.id, params.garmentSubcategoryId))
-    .limit(1);
-  if (!garmentType?.isActive) {
-    throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
-  }
-  if (!garmentType.requiresMannequinStep || !garmentType.mannequinWorkflowTemplateId) {
-    throw new AppError('VALIDATION', 400, 'this garment type does not use the mannequin step');
-  }
-
-  let styleWorkflowTemplateId: string | undefined;
-  if (params.sareeStyleId) {
-    const [style] = await app.db
-      .select({
-        isActive: schema.sareeMannequinStyles.isActive,
-        mannequinWorkflowTemplateId: schema.sareeMannequinStyles.mannequinWorkflowTemplateId,
-      })
-      .from(schema.sareeMannequinStyles)
-      .where(eq(schema.sareeMannequinStyles.id, params.sareeStyleId))
-      .limit(1);
-    if (!style?.isActive) {
-      throw new AppError('BAD_STYLE', 400, 'saree style not found or inactive');
-    }
-    styleWorkflowTemplateId = '500cd876-9f96-4daf-a266-3091af282cda';
   }
 
   await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
