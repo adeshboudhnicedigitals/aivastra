@@ -196,6 +196,7 @@ export async function createMerchantSareeMannequinJob(
     garmentSubcategoryId: string;
     flatImageKey: string;
     merchantId: string;
+    sareeStyleId?: string;
   },
 ): Promise<{ jobId: string }> {
   const [garmentType] = await app.db
@@ -212,6 +213,22 @@ export async function createMerchantSareeMannequinJob(
   }
   if (!garmentType.requiresMannequinStep || !garmentType.mannequinWorkflowTemplateId) {
     throw new AppError('VALIDATION', 400, 'this garment type does not use the mannequin step');
+  }
+
+  let styleWorkflowTemplateId: string | undefined;
+  if (params.sareeStyleId) {
+    const [style] = await app.db
+      .select({
+        isActive: schema.sareeMannequinStyles.isActive,
+        mannequinWorkflowTemplateId: schema.sareeMannequinStyles.mannequinWorkflowTemplateId,
+      })
+      .from(schema.sareeMannequinStyles)
+      .where(eq(schema.sareeMannequinStyles.id, params.sareeStyleId))
+      .limit(1);
+    if (!style?.isActive) {
+      throw new AppError('BAD_STYLE', 400, 'saree style not found or inactive');
+    }
+    styleWorkflowTemplateId = style.mannequinWorkflowTemplateId;
   }
 
   await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
@@ -234,7 +251,10 @@ export async function createMerchantSareeMannequinJob(
       upperGarmentKey: params.flatImageKey,
       faceId: null,
       garmentTypeId: params.garmentSubcategoryId,
-      params: { kind: 'saree_mannequin' },
+      params: {
+        kind: 'saree_mannequin',
+        ...(styleWorkflowTemplateId ? { workflowTemplateId: styleWorkflowTemplateId } : {}),
+      },
     });
   });
 
