@@ -61,7 +61,7 @@ const NAV: {
   {
     id: 'shopify-plugin',
     href: '/shopify-plugin',
-    label: 'Shopify Plugin',
+    label: 'Sellio',
     icon: 'store',
     merchantOnly: true,
   },

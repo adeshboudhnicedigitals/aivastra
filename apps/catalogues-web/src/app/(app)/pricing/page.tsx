@@ -521,7 +521,7 @@ export default function PricingPage(): React.ReactElement {
                   style={{
                     fontSize: 26,
                     fontWeight: 800,
-                    color: C.white,
+                    color: '#ffffff',
                     lineHeight: 1.2,
                     marginBottom: 8,
                   }}
@@ -557,8 +557,8 @@ export default function PricingPage(): React.ReactElement {
                   padding: '10px 20px',
                   borderRadius: 10,
                   border: 'none',
-                  background: C.white,
-                  color: C.text,
+                  background: '#ffffff',
+                  color: '#141414',
                   fontFamily: 'inherit',
                   fontWeight: 700,
                   fontSize: 14,
@@ -594,7 +594,7 @@ export default function PricingPage(): React.ReactElement {
                 Credits Remaining
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-                <span style={{ fontSize: 40, fontWeight: 800, color: C.white, lineHeight: 1 }}>
+                <span style={{ fontSize: 40, fontWeight: 800, color: '#ffffff', lineHeight: 1 }}>
                   {balance.toLocaleString('en-IN')}
                 </span>
                 {planCredits !== null && (

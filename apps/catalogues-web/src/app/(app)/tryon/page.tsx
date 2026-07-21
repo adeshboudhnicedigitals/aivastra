@@ -497,21 +497,35 @@ function GarmentCatalogModal({
               background: 'none',
               border: 'none',
               cursor: 'pointer',
-              padding: 4,
+              padding: 8,
               color: C.mid,
-              fontSize: 18,
-              lineHeight: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 8,
             }}
           >
-            âœ•
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
           </button>
         </div>
         <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
           {isLoading ? (
-            <div style={{ textAlign: 'center', color: C.mid, padding: '2rem' }}>Loadingâ€¦</div>
+            <div style={{ textAlign: 'center', color: C.mid, padding: '2rem' }}>Loading…</div>
           ) : images.length === 0 ? (
             <div style={{ textAlign: 'center', color: C.mid, padding: '2rem', fontSize: 13 }}>
-              No eligible catalog images yet â€” generate one in Studio first.
+              No eligible catalog images yet — generate one in Studio first.
             </div>
           ) : (
             <div
@@ -723,8 +737,8 @@ export default function TryOnPage() {
     <>
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <TopBar
-          title="AI Virtual Try-On"
-          subtitle="Create Stunning try-on images in seconds with AI"
+          title="AI Virtual Try On"
+          subtitle="Create Stunning try on images in seconds with AI"
         />
 
         <div
@@ -737,16 +751,16 @@ export default function TryOnPage() {
             display: 'flex',
             flexDirection: 'column',
             gap: 24,
-            backgroundColor: '#FCFCFC',
+            backgroundColor: C.bg,
           }}
         >
           {/* Steps Indicator */}
           <div
             style={{
-              background: '#FFFFFF',
+              background: C.white,
               padding: '16px',
               borderRadius: 20,
-              border: '1px solid #F3F4F6',
+              border: `1px solid ${C.border}`,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -759,28 +773,28 @@ export default function TryOnPage() {
                 title: 'Select Garment',
                 desc: 'Choose your outfit',
                 color: '#7C3AED',
-                lightColor: '#EDE9FE',
+                lightColor: 'var(--tryon-step-bg-1)',
               },
               {
                 num: '02',
                 title: 'Upload Person',
                 desc: 'Front-facing photo',
                 color: '#EC4899',
-                lightColor: '#FCE7F3',
+                lightColor: 'var(--tryon-step-bg-2)',
               },
               {
                 num: '03',
                 title: 'AI Generate',
                 desc: '10-15 seconds',
                 color: '#F97316',
-                lightColor: '#FFEDD5',
+                lightColor: 'var(--tryon-step-bg-3)',
               },
               {
                 num: '04',
                 title: 'Download',
                 desc: 'Save & share',
                 color: '#10B981',
-                lightColor: '#D1FAE5',
+                lightColor: 'var(--tryon-step-bg-4)',
               },
             ].map((step, idx, arr) => (
               <div
@@ -793,10 +807,10 @@ export default function TryOnPage() {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 16,
-                    background: '#FFFFFF',
+                    background: C.white,
                     padding: '12px 20px',
                     borderRadius: 14,
-                    border: '1px solid #F3F4F6',
+                    border: `1px solid ${C.border}`,
                     boxShadow: '0 1px 3px rgba(0,0,0,0.02)',
                   }}
                 >
@@ -830,12 +844,8 @@ export default function TryOnPage() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>
-                      {step.title}
-                    </div>
-                    <div style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>
-                      {step.desc}
-                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{step.title}</div>
+                    <div style={{ fontSize: 12, color: C.mid, fontWeight: 500 }}>{step.desc}</div>
                   </div>
                 </div>
                 {idx < arr.length - 1 && (
@@ -895,7 +905,7 @@ export default function TryOnPage() {
                       flex: 1,
                       minHeight: 260,
                       borderRadius: 12,
-                      border: `2px dashed ${selectedGarmentJob ? 'transparent' : '#C4B5FD'}`,
+                      border: `2px dashed ${selectedGarmentJob ? 'transparent' : 'var(--tryon-garment-dashed)'}`,
                       outlineOffset: -2,
                       display: 'flex',
                       flexDirection: 'column',
@@ -932,7 +942,7 @@ export default function TryOnPage() {
                             width: 56,
                             height: 56,
                             borderRadius: '50%',
-                            background: '#F5F3FF',
+                            background: 'var(--tryon-garment-icon-bg)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -963,8 +973,8 @@ export default function TryOnPage() {
                             display: 'flex',
                             alignItems: 'center',
                             gap: 8,
-                            background: '#FFFFFF',
-                            border: '1px solid #E5E7EB',
+                            background: C.white,
+                            border: `1px solid ${C.border}`,
                             padding: '8px 18px',
                             borderRadius: 10,
                             boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
@@ -982,7 +992,7 @@ export default function TryOnPage() {
                           >
                             <path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2" />
                           </svg>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: '#1F2937' }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
                             Browse from Catalogues
                           </span>
                         </div>
@@ -1023,7 +1033,7 @@ export default function TryOnPage() {
                       flex: 1,
                       display: 'flex',
                       flexDirection: 'column',
-                      border: '2px dashed #FBCFE8',
+                      border: '2px dashed var(--tryon-person-dashed)',
                       borderRadius: 12,
                       background: 'transparent',
                       padding: '0 0 12px 0',
@@ -1063,8 +1073,8 @@ export default function TryOnPage() {
                       >
                         <div
                           style={{
-                            background: '#F3F4F6',
-                            color: '#374151',
+                            background: C.bg,
+                            color: C.text,
                             fontSize: 11,
                             fontWeight: 600,
                             padding: '5px 12px',
@@ -1090,8 +1100,8 @@ export default function TryOnPage() {
                         </div>
                         <div
                           style={{
-                            background: '#F3F4F6',
-                            color: '#374151',
+                            background: C.bg,
+                            color: C.text,
                             fontSize: 11,
                             fontWeight: 600,
                             padding: '5px 12px',
@@ -1117,8 +1127,8 @@ export default function TryOnPage() {
                         </div>
                         <div
                           style={{
-                            background: '#F3F4F6',
-                            color: '#374151',
+                            background: C.bg,
+                            color: C.text,
                             fontSize: 11,
                             fontWeight: 600,
                             padding: '5px 12px',
@@ -1163,7 +1173,7 @@ export default function TryOnPage() {
               >
                 {/* Settings header + dropdowns */}
                 <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 16 }}>
-                  Try-On Settings
+                  Try On Settings
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
                   <CustomSelect
@@ -1195,14 +1205,21 @@ export default function TryOnPage() {
                     gap: 6,
                     marginTop: 16,
                     alignItems: 'center',
-                    background: 'linear-gradient(90deg, #FDF4FF 0%, #F5F3FF 100%)',
+                    background: C.bg,
+                    border: `1px solid ${C.border}`,
                     padding: '10px 16px',
                     borderRadius: 8,
                   }}
                 >
-                  <img src="/assets/bulb.svg" width={12} height={14} alt="" />
+                  <img
+                    src="/assets/bulb.svg"
+                    width={12}
+                    height={14}
+                    alt=""
+                    style={{ filter: 'var(--icon-invert)', opacity: 0.8 }}
+                  />
                   <span style={{ fontSize: 11, color: '#818CF8', fontWeight: 600 }}>Tips:</span>
-                  <span style={{ fontSize: 11, color: '#6B7280' }}>
+                  <span style={{ fontSize: 11, color: C.mid }}>
                     For best results, use front-facing images with good lighting and clear outfit
                     details.
                   </span>
@@ -1228,7 +1245,7 @@ export default function TryOnPage() {
                 <div
                   style={{
                     height: 1,
-                    background: '#E5E7EB',
+                    background: C.border,
                     marginTop: 16,
                     marginBottom: 16,
                     marginInline: -20,
@@ -1308,7 +1325,7 @@ export default function TryOnPage() {
                           color: canGenerate ? '#fff' : C.light,
                         }}
                       >
-                        {generating ? 'Generatingâ€¦' : 'Generate Try-On'}
+                        {generating ? 'Generating…' : 'Generate Try On'}
                       </span>
                     </button>
                     {!generating && (
@@ -1343,7 +1360,7 @@ export default function TryOnPage() {
                   }}
                 >
                   <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>
-                    Your Try-On Preview
+                    Your Try On Preview
                   </span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <button
@@ -1371,8 +1388,9 @@ export default function TryOnPage() {
                         strokeLinecap="round"
                         strokeLinejoin="round"
                       >
-                        <path d="M12 2v20" />
-                        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                        <path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" />
+                        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                        <line x1="12" y1="3" x2="12" y2="21" />
                       </svg>
                       Compare
                     </button>
@@ -1420,7 +1438,7 @@ export default function TryOnPage() {
                           position: 'relative',
                           borderRadius: 8,
                           overflow: 'hidden',
-                          background: '#e5e7eb',
+                          background: C.border,
                         }}
                       >
                         <div
@@ -1453,7 +1471,7 @@ export default function TryOnPage() {
                           position: 'relative',
                           borderRadius: 8,
                           overflow: 'hidden',
-                          background: '#e5e7eb',
+                          background: C.border,
                         }}
                       >
                         <div
@@ -1484,7 +1502,7 @@ export default function TryOnPage() {
                       style={{
                         flex: 1,
                         borderRadius: 8,
-                        background: '#F9FAFB',
+                        background: C.bg,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -1639,7 +1657,7 @@ export default function TryOnPage() {
                     gridTemplateColumns: 'repeat(4, 1fr)',
                     gap: 16,
                     marginTop: 16,
-                    border: '1px solid #E5E7EB',
+                    border: `1px solid ${C.border}`,
                     padding: '16px',
                     borderRadius: 12,
                   }}
@@ -1650,7 +1668,7 @@ export default function TryOnPage() {
                         width: 36,
                         height: 36,
                         borderRadius: '50%',
-                        background: '#F5F3FF',
+                        background: 'var(--tryon-badge-icon-bg)',
                         color: '#6366F1',
                         display: 'flex',
                         alignItems: 'center',
@@ -1680,7 +1698,7 @@ export default function TryOnPage() {
                         width: 36,
                         height: 36,
                         borderRadius: '50%',
-                        background: '#F5F3FF',
+                        background: 'var(--tryon-badge-icon-bg)',
                         color: '#6366F1',
                         display: 'flex',
                         alignItems: 'center',
@@ -1713,7 +1731,7 @@ export default function TryOnPage() {
                         width: 36,
                         height: 36,
                         borderRadius: '50%',
-                        background: '#F5F3FF',
+                        background: 'var(--tryon-badge-icon-bg)',
                         color: '#6366F1',
                         display: 'flex',
                         alignItems: 'center',
@@ -1745,7 +1763,7 @@ export default function TryOnPage() {
                         width: 36,
                         height: 36,
                         borderRadius: '50%',
-                        background: '#F5F3FF',
+                        background: 'var(--tryon-badge-icon-bg)',
                         color: '#6366F1',
                         display: 'flex',
                         alignItems: 'center',

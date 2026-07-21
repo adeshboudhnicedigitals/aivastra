@@ -192,7 +192,7 @@ export function UserMenu() {
               justifyContent: 'center',
               fontSize: 13,
               fontWeight: 600,
-              color: C.white,
+              color: '#ffffff',
               flexShrink: 0,
             }}
           >
