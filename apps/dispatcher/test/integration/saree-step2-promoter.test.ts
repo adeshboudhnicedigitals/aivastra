@@ -6,6 +6,7 @@ import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ProcessorConfig } from '../../src/job/processor.js';
 import { promoteSareeStep2Jobs } from '../../src/job/saree-step2-promoter.js';
+import { runSweeper } from '../../src/stream/sweeper.js';
 import { setupTestEnv, type TestEnv } from '../helpers/containers.js';
 
 describe('promoteSareeStep2Jobs', () => {
@@ -307,6 +308,67 @@ describe('promoteSareeStep2Jobs', () => {
       .from(schema.jobs)
       .where(eq(schema.jobs.id, step2Job.id));
     expect(updatedJob?.status).toBe('QUEUED');
+  });
+
+  it('resets createdAt on promotion so the sweeper does not immediately reap a long-pending step-2 job', async () => {
+    // Regression test: a PENDING_MANNEQUIN job is stamped with createdAt at
+    // *submit* time, and can sit in that status for however long step 1
+    // (the mannequin job) takes. If the claim UPDATE in the COMPLETED branch
+    // didn't reset createdAt, a step-2 job promoted after a long step-1 wait
+    // would already be past the sweeper's QUEUED_SLA_MS (10 min) the instant
+    // it flips to QUEUED, and would be reaped as STUCK_IN_QUEUE on the very
+    // next sweep tick.
+    const userId = await seedUser();
+    const [mannequinJob] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'COMPLETED',
+        source: 'saree_mannequin',
+        creditsCharged: 0,
+        queueStream: 'normal',
+      })
+      .returning();
+    const twentyMinAgo = new Date(Date.now() - 20 * 60 * 1000);
+    const [step2Job] = await cfg.db
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'PENDING_MANNEQUIN',
+        source: 'catalog',
+        creditsCharged: 25,
+        queueStream: 'normal',
+        createdAt: twentyMinAgo,
+      })
+      .returning();
+    await cfg.db.insert(schema.jobInputs).values({
+      jobId: step2Job.id,
+      upperGarmentKey: null,
+      params: { mannequinJobId: mannequinJob.id },
+    });
+
+    const beforePromote = Date.now();
+    await promoteSareeStep2Jobs(cfg);
+
+    const [updatedJob] = await cfg.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, step2Job.id));
+    expect(updatedJob?.status).toBe('QUEUED');
+    expect(updatedJob?.createdAt.getTime()).toBeGreaterThanOrEqual(beforePromote - 1000);
+    expect(updatedJob?.createdAt.getTime()).not.toBe(twentyMinAgo.getTime());
+
+    // Prove the actual cross-file interaction is fixed: run the real
+    // sweeper immediately after promotion and confirm it does NOT reap the
+    // job it just promoted (it would, under the old code, because the row's
+    // createdAt would still read 20 minutes ago).
+    await runSweeper(cfg.db, cfg.pub, cfg.log);
+
+    const [afterSweep] = await cfg.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, step2Job.id));
+    expect(afterSweep?.status).toBe('QUEUED');
   });
 
   it('refunds exactly once across two invocations for a FAILED mannequin parent', async () => {
