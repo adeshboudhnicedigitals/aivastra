@@ -15,11 +15,7 @@ import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import {
-  createMerchantCatalogJob,
-  createMerchantSareeMannequinJob,
-  createMerchantSareeMannequinJob1,
-} from './create-job.js';
+import { createMerchantCatalogJob, createMerchantSareeMannequinJob } from './create-job.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
@@ -790,58 +786,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
 
       const { jobId } = mannequinOnly
         ? await createMerchantSareeMannequinJob(app, {
-            userId: row.userId,
-            garmentSubcategoryId: row.garmentSubcategoryId,
-            flatImageKey,
-            merchantId,
-            sareeStyleId,
-          })
-        : await createMerchantCatalogJob(app, {
-            userId: row.userId,
-            garmentSubcategoryId: row.garmentSubcategoryId,
-            category: row.category,
-            flatImageKey,
-            subcategoryId,
-            merchantId,
-          });
-
-      reply.code(201);
-      return { jobId };
-    },
-  );
-  app.post(
-    '/v1/merchant/catalog/generate2',
-    { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBody } },
-    async (req, reply) => {
-      const merchantId = req.merchantClientId;
-      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
-
-      const { subcategoryId, flatImageKey, mannequinOnly, sareeStyleId } = req.body as z.infer<
-        typeof MerchantCatalogGenerateBody
-      >;
-
-      const [row] = await app.db
-        .select({
-          userId: schema.merchants.userId,
-          category: schema.merchantCatalogSubcategories.category,
-          garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
-        })
-        .from(schema.merchantCatalogSubcategories)
-        .innerJoin(
-          schema.merchants,
-          eq(schema.merchants.id, schema.merchantCatalogSubcategories.merchantId),
-        )
-        .where(
-          and(
-            eq(schema.merchantCatalogSubcategories.id, subcategoryId),
-            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
-          ),
-        )
-        .limit(1);
-      if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
-
-      const { jobId } = mannequinOnly
-        ? await createMerchantSareeMannequinJob1(app, {
             userId: row.userId,
             garmentSubcategoryId: row.garmentSubcategoryId,
             flatImageKey,
