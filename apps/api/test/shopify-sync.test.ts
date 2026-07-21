@@ -157,7 +157,7 @@ describe('syncProduct', () => {
     expect(row.failedReason).toContain('redirect');
   });
 
-  it('marks failed when the content-length header exceeds the 10MB cap, without downloading the body', async () => {
+  it('marks failed when the content-length header exceeds the 20MB cap, without downloading the body', async () => {
     let arrayBufferCalled = false;
     const fakeFetch = (async () =>
       ({
@@ -168,7 +168,7 @@ describe('syncProduct', () => {
         },
         headers: new Map([
           ['content-type', 'image/jpeg'],
-          ['content-length', String(11 * 1024 * 1024)],
+          ['content-length', String(21 * 1024 * 1024)],
         ]),
       }) as unknown as Response) as typeof fetch;
     await syncProduct(
@@ -187,12 +187,12 @@ describe('syncProduct', () => {
         ),
       );
     expect(row.status).toBe('failed');
-    expect(row.failedReason).toContain('10MB');
+    expect(row.failedReason).toContain('20MB');
     expect(arrayBufferCalled).toBe(false);
   });
 
-  it('marks failed when the actual downloaded body exceeds the 10MB cap (no content-length header)', async () => {
-    const oversized = new Uint8Array(11 * 1024 * 1024);
+  it('marks failed when the actual downloaded body exceeds the 20MB cap (no content-length header)', async () => {
+    const oversized = new Uint8Array(21 * 1024 * 1024);
     const fakeFetch = (async () =>
       ({
         ok: true,
@@ -219,7 +219,7 @@ describe('syncProduct', () => {
         ),
       );
     expect(row.status).toBe('failed');
-    expect(row.failedReason).toContain('10MB');
+    expect(row.failedReason).toContain('20MB');
   });
 
   it('persists product_type/tags/vendor and leaves funnel unassigned with no matching rule', async () => {

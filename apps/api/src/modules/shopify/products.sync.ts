@@ -27,7 +27,7 @@ interface FetchLikeResponse {
 type FetchLike = (url: string, init?: RequestInit) => Promise<FetchLikeResponse>;
 
 const ALLOWED_HOSTS = /(^|\.)(myshopify\.com|shopify\.com|cdn\.shopify\.com)$/;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 10_000;
 
 // Shopify product-level garment rows (no specific variant) are stored with this
@@ -175,11 +175,11 @@ export async function syncProduct(
     if (!res.ok) throw new Error(`download HTTP ${res.status}`);
     const contentLength = res.headers.get('content-length');
     if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_BYTES) {
-      throw new Error('product image exceeds 10MB');
+      throw new Error(`product image exceeds ${MAX_IMAGE_BYTES / (1024 * 1024)}MB`);
     }
     const arrayBuffer = await res.arrayBuffer();
     if (arrayBuffer.byteLength > MAX_IMAGE_BYTES) {
-      throw new Error('product image exceeds 10MB');
+      throw new Error(`product image exceeds ${MAX_IMAGE_BYTES / (1024 * 1024)}MB`);
     }
     const buf = Buffer.from(arrayBuffer);
     const ct = res.headers.get('content-type') ?? 'image/jpeg';
