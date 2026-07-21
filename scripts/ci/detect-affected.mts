@@ -1,7 +1,7 @@
 import { appendFileSync, writeFileSync } from 'node:fs';
 import { classify, type DetectResult } from './lib/classify.mts';
 import { changedFilesBetween, resolveRange } from './lib/git.mts';
-import { loadTargets } from './lib/targets.mts';
+import { loadTargets, type TargetsConfig } from './lib/targets.mts';
 import {
   assertTargetsMatchWorkspace,
   buildDependentsGraph,
@@ -64,6 +64,72 @@ export function renderSummary(result: DetectResult): string {
   return lines.join('\n');
 }
 
+export function applyManualOverride(
+  result: DetectResult,
+  env: NodeJS.ProcessEnv,
+  config: TargetsConfig,
+): DetectResult {
+  const forceAll = env.FORCE_ALL === 'true';
+  const rawServices = (env.SERVICES_OVERRIDE ?? '').trim();
+
+  if (forceAll && rawServices.length > 0) {
+    throw new Error(
+      'both FORCE_ALL and SERVICES_OVERRIDE were supplied; pick one so the intent is unambiguous',
+    );
+  }
+
+  const allTestable = [...config.testablePackages].sort();
+
+  if (rawServices.length > 0) {
+    const known = new Set(config.targets.map((t) => t.name));
+    const requested = rawServices
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0);
+
+    if (requested.length === 0) {
+      throw new Error(`SERVICES_OVERRIDE "${rawServices}" contains no valid service names`);
+    }
+    for (const name of requested) {
+      if (!known.has(name)) {
+        throw new Error(
+          `SERVICES_OVERRIDE: unknown service "${name}"; valid names are ${[...known].sort().join(', ')}`,
+        );
+      }
+    }
+
+    return {
+      ...result,
+      services: [...new Set(requested)].sort(),
+      testTargets: allTestable,
+      docsOnly: false,
+      reasons: {
+        ...result.reasons,
+        MANUAL: [`manual override: services=${requested.join(',')}`],
+      },
+    };
+  }
+
+  if (forceAll) {
+    return {
+      ...result,
+      services: config.targets.map((t) => t.name).sort(),
+      affectedPackages: [...new Set([...result.affectedPackages, ...allTestable])].sort(),
+      testTargets: allTestable,
+      // A forced run cannot know whether schema is in sync, so it always verifies.
+      migrationChanged: true,
+      docsOnly: false,
+      fallbackToAll: true,
+      reasons: {
+        ...result.reasons,
+        ALL: [...(result.reasons.ALL ?? []), 'manual override: force_all'],
+      },
+    };
+  }
+
+  return result;
+}
+
 function outPathFromArgv(argv: string[]): string {
   const index = argv.indexOf('--out');
   return index >= 0 && argv[index + 1] ? argv[index + 1] : 'affected.json';
@@ -79,7 +145,7 @@ function main(): void {
   const range = resolveRange(process.env);
   const changedFiles = changedFilesBetween(range);
 
-  const result = classify({
+  const classified = classify({
     baseSha: range.baseSha,
     headSha: range.headSha,
     changedFiles,
@@ -88,6 +154,8 @@ function main(): void {
     graph,
     fallbackReason: range.fallbackReason,
   });
+
+  const result = applyManualOverride(classified, process.env, config);
 
   writeFileSync(outPath, `${JSON.stringify(result, null, 2)}\n`);
 
