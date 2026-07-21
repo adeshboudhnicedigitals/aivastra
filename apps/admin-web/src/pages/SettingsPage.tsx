@@ -386,6 +386,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     Array<{ id: string; label: string }>
   >([]);
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
+  const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
 
@@ -405,6 +406,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       merchantCatalogDefaults?: Record<string, { faceId: string; backgroundId: string }>;
       merchantCatalogAspectRatio?: string;
       tryon?: { creditCost: number };
+      sareeMannequinDev?: { creditCost: number };
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
@@ -413,6 +415,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
         if (cfg.merchantCatalogAspectRatio)
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
         if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
+        if (cfg.sareeMannequinDev) setSareeMannequinDevCreditCost(cfg.sareeMannequinDev.creditCost);
       })
       .catch((e) =>
         toast({
@@ -444,6 +447,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           merchantCatalogDefaults,
           merchantCatalogAspectRatio,
           tryon: { creditCost: tryonCreditCost },
+          sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
         }),
       });
       toast({ title: 'System config saved' });
@@ -1119,6 +1123,47 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       />
                       <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                         credits / try-on
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Dev API — Saree Mannequin
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Credit cost per saree-mannequin (step-1) job created via the developer API (
+                    <code>/v1/dev/saree-mannequin</code>). Independent of the Virtual Try-On cost
+                    above.
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                    }}
+                  >
+                    <span className="setting-lbl">Saree Mannequin (Dev API)</span>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                    >
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        style={{ width: 80, textAlign: 'right' }}
+                        value={sareeMannequinDevCreditCost}
+                        disabled={sysSaving}
+                        onChange={(e) => setSareeMannequinDevCreditCost(Number(e.target.value))}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        credits / job
                       </span>
                     </div>
                   </div>
