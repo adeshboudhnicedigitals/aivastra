@@ -151,14 +151,22 @@ service requires.
 
 ### 4.1 Deployable services
 
-| Deployment target | Workspace package | Current public role | Internal port | Shared workspace dependencies |
-|---|---|---|---:|---|
-| `web` | `@aivastra/web` | Main Next.js application | 3000 | `types` |
-| `admin` | `@aivastra/admin` | Admin Vite SPA | 80 | None |
-| `shopify-admin` | `@aivastra/shopify-admin` | Embedded Shopify Vite SPA | 80 | None |
-| `api` | `@aivastra/api` | Fastify API | 4000 | `db`, `logger`, `observability`, `storage`, `types` |
-| `chatbot` | `@aivastra/chatbot` | Chatbot HTTP/WebSocket service | 4200 | `db`, `logger`, `observability`, `types` |
-| `dispatcher` | `@aivastra/dispatcher` | Redis Stream/GPU job dispatcher | health port from env | `db`, `logger`, `observability`, `storage`, `types` |
+| Deployment target | Source directory | Workspace package | Current public role | Internal port | Shared workspace dependencies |
+|---|---|---|---|---:|---|
+| `web` | `apps/catalogues-web` | `@aivastra/web` | Main Next.js application | 3000 | `types` |
+| `admin` | `apps/admin-web` | `@aivastra/admin` | Admin Vite SPA | 80 | None |
+| `shopify-admin` | `apps/shopify` | `@aivastra/shopify-admin` | Embedded Shopify Vite SPA | 80 | None |
+| `api` | `apps/api` | `@aivastra/api` | Fastify API | 4000 | `db`, `logger`, `observability`, `storage`, `types` |
+| `chatbot` | `apps/chatbot` | `@aivastra/chatbot` | Chatbot HTTP/WebSocket service | 4200 | `db`, `logger`, `observability`, `types` |
+| `dispatcher` | `apps/dispatcher` | `@aivastra/dispatcher` | Redis Stream/GPU job dispatcher | health port from env | `db`, `logger`, `observability`, `storage`, `types` |
+
+**The source directory name is not the deployment target name and is not the workspace
+package name.** Three of the six differ (`catalogues-web` → `web`, `admin-web` →
+`admin`, `shopify` → `shopify-admin`). The detector must never derive a target from a
+directory path segment. `config/ci-targets.json` carries an explicit `dir` field per
+target, and the detector resolves `dir` → `package.json` `name` → target. A directory
+under `apps/` with no target entry is an unmapped production path and falls back to all
+services per §5.2.
 
 PostgreSQL, Redis, MinIO, MinIO bootstrap, Alloy, and the new deployment gateway are
 stable infrastructure, not ordinary application release targets.
@@ -185,10 +193,31 @@ the only source of truth.
 - `apps/shopify-extension` is not the `shopify-admin` image. Changes there require its
   own validation and later Shopify CLI publication workflow; they must not silently
   trigger or masquerade as a container deployment.
+- `apps/virtual-tryon-mobile&kiosk_latest` is tracked in Git and is a separate release
+  surface. Its directory name contains an `&`; every shell path expansion in CI and in
+  the deployment scripts must be quoted, and ShellCheck validation must cover this case.
+- `apps/saree_catalogue_android` is a native Gradle/Kotlin Android project with no
+  `package.json`. It is not a pnpm workspace member, has no Dockerfile, and is a separate
+  release surface published through its own Android build, not this pipeline.
+- `apps/admin-mobile` is Git-ignored (`.gitignore`), is not present in CI checkouts, and
+  is not in `pnpm-lock.yaml`. Repository policy also places it out of active scope. It is
+  never a target, never a test surface, and never an image. See §22 for the
+  `.dockerignore` consequence.
 - Android/mobile projects are separate release surfaces and do not enter the Docker
   image matrix.
 - Scripts and database tooling that run only operationally must be classified through
   the target manifest rather than assumed to affect every HTTP service.
+
+### 4.4 Untracked working-tree directories
+
+Several developer machines carry stale, untracked `apps/` directories that contain only
+build residue (`node_modules`, `dist`, `*.tsbuildinfo`) and no `package.json`: currently
+`apps/web`, `apps/admin`, and `apps/merchant-web`. They are not in Git and are not
+pnpm workspace members.
+
+The detector must derive its file universe from Git (`git diff`, `git ls-files`), never
+from a filesystem walk. Otherwise a local detector run disagrees with the CI run and the
+fixture tests become unreproducible. §17.1 asserts this explicitly.
 
 ## 5. Affected-Target Detection
 
@@ -230,10 +259,20 @@ Failure must be safe: uncertainty causes more validation/building, never less.
 
 ### 5.3 Path classification
 
+Rules are keyed on the `dir` values declared in `config/ci-targets.json`, not on a
+`apps/<name>` pattern where `<name>` is assumed to be the target. See §4.1.
+
 | Change | Result |
 |---|---|
 | `docs/**`, Markdown-only root docs | Documentation validation only; no image and no deploy |
-| `apps/<service>/**` | That deployable service, unless explicitly classified as a separate release surface |
+| `apps/catalogues-web/**` | `web` |
+| `apps/admin-web/**` | `admin` |
+| `apps/shopify/**` | `shopify-admin` |
+| `apps/api/**` | `api` |
+| `apps/chatbot/**` | `chatbot` |
+| `apps/dispatcher/**` | `dispatcher` |
+| `apps/shopify-extension/**`, `apps/virtual-tryon-mobile&kiosk_latest/**`, `apps/saree_catalogue_android/**` | Separate release surface; no image and no deploy |
+| Any other tracked `apps/*` path | Unmapped production path; fall back to all services |
 | `packages/<pkg>/**` | The package plus recursive workspace consumers |
 | Service Dockerfile or service NGINX config | That service image |
 | `packages/db/src/migrations/**` or migration journal | `migration_changed=true` plus all `db` consumers |
@@ -302,7 +341,13 @@ Instead:
 | Push to `main` | Affected checks | Yes, affected images only | Yes, unless no deployable target changed |
 | `workflow_dispatch` rollback | Release-state validation | No | Roll back selected services to a recorded release |
 | `workflow_dispatch` infrastructure | Infrastructure validation | As needed | Manual approval required |
+| `workflow_dispatch` override | All checks; detector forced to all services or an operator-named subset | Yes, for the forced set | Yes — the escape hatch when detection is wrong |
+| `schedule` nightly | Full monorepo validation regardless of diff | No | **No** — the nightly validates, it never deploys |
 | Documentation-only push | Detector, whitespace/docs checks, `ci-gate` | No | No |
+
+The override accepts either a `force_all` boolean or a comma-separated service subset,
+never both; supplying both is an error rather than a guess. An unknown service name is
+rejected rather than silently deploying nothing.
 
 ### 6.2 Job graph
 
@@ -359,11 +404,21 @@ detect
 
 ### 6.6 Test matrix
 
-- Dispatcher tests run only when dispatcher or one of its workspace dependencies is
-  affected.
-- API tests run only when API or one of its workspace dependencies is affected.
-- Start Compose PostgreSQL/Redis/MinIO only for test jobs that need the repository's
-  integration harness.
+Scope note on which suites exist today. CI currently runs exactly two commands:
+`pnpm --filter @aivastra/dispatcher test:unit` and `pnpm --filter @aivastra/api
+test:unit`. The API `test:unit` script is `vitest run --exclude 'test/integration/**'`,
+and despite the name it still provisions real PostgreSQL, Redis, and MinIO through
+`apps/api/test/helpers/containers.ts`. `test:integration` is not wired into CI at all.
+
+Affected-target scoping in this document applies to those two existing `test:unit`
+commands. Introducing an `test:integration` CI stage is separate work and is not a
+prerequisite for this pipeline.
+
+- Dispatcher `test:unit` runs only when dispatcher or one of its workspace dependencies
+  is affected.
+- API `test:unit` runs only when API or one of its workspace dependencies is affected.
+- Start Compose PostgreSQL/Redis/MinIO for any test job using
+  `apps/api/test/helpers/containers.ts`, which includes the API `test:unit` suite.
 - Continue using random database and bucket names as required by the existing test
   architecture.
 - Package-level tests run for affected packages that define a test script.
@@ -443,6 +498,29 @@ Each Dockerfile must follow this order:
 
 Do not use `--no-frozen-lockfile` in production image builds.
 
+**Prerequisite before switching to `--frozen-lockfile`.** All six Dockerfiles currently
+begin with `COPY . .`, and `.dockerignore` does not read `.gitignore`. `apps/admin-mobile`
+is Git-ignored and absent from `pnpm-lock.yaml`, so it is invisible to CI checkouts but
+present in any developer's build context. A frozen install would therefore succeed in
+Actions and fail locally with a specifier mismatch. Before §7.2 lands, add to
+`.dockerignore`:
+
+```text
+apps/admin-mobile
+apps/web
+apps/admin
+apps/merchant-web
+```
+
+The last three are stale untracked build residue described in §4.4.
+
+**The API runtime image must ship database migrations.** §11.4 runs migrations and
+`db:verify:prod` from the candidate API image. The current runtime stage copies the whole
+build tree (`COPY --from=build /app /app`), so `packages/db/src/migrations/**` and the
+migration journal are present incidentally. Runtime pruning must preserve them
+deliberately. An image test in §17.3 asserts the migration directory and journal exist in
+the final `api` image and that their hash matches the release manifest's `journalHash`.
+
 The first implementation may retain the existing working runtime layout while layer
 ordering is corrected. Runtime pruning is complete only after every service has a
 start-up smoke test proving workspace package resolution still works.
@@ -478,6 +556,11 @@ The build job fails before compilation if a required value is missing. These pub
 values are included in the release manifest as a hash, not as a substitute for secret
 management.
 
+Because these values are compiled in, a `web`, `admin`, or `shopify-admin` digest is
+bound to the environment it was built for and cannot be promoted across environments.
+That is acceptable under the current single-production model, but the constraint must be
+recorded so a future staging environment is not assumed to reuse production digests.
+
 Database credentials, Redis credentials, object-storage credentials, JWT secrets,
 provider API keys, and other runtime secrets are never passed as Docker build args.
 They stay in a root-owned VPS environment file.
@@ -492,6 +575,44 @@ They stay in a root-owned VPS environment file.
   report high findings with an explicit remediation record.
 - Pin third-party GitHub Actions to reviewed commit SHAs, with automated update PRs.
 - Deploy by digest and verify the digest exists in the release manifest before pull.
+
+### 7.6 Runtime environment contract change
+
+This is a breaking change that the image work cannot avoid, so it is specified here
+rather than discovered during rollout.
+
+All three Node services currently start with an explicit dotenv path:
+
+```json
+"start": "node --env-file=../../.env dist/main.js"
+```
+
+`infra/docker-compose.prod.yml` satisfies that by bind-mounting `.env.production` to
+`/app/.env` inside each container. Two parts of this plan break that arrangement:
+
+- §7.2 runtime pruning changes the image layout, so `../../.env` relative to the service
+  directory is no longer a stable path;
+- §9.5 moves the authoritative secret file to `/etc/aivastra/production.env`, outside any
+  release bundle or worktree.
+
+**Decision:** drop `--env-file` from the `start` script of `@aivastra/api`,
+`@aivastra/chatbot`, and `@aivastra/dispatcher`, and supply configuration through the
+Compose `env_file:` directive pointing at `/etc/aivastra/production.env`. Environment
+variables then arrive in the process environment directly, which is also what the
+blue/green slot rendering in §11.3 already assumes.
+
+Consequences to handle in the same change:
+
+- `apps/api/src/env.ts` validation must still pass with no dotenv file present;
+- local development keeps working through the existing root `.env` plus whatever loader
+  `pnpm dev` uses; do not couple local development to the production path;
+- the one-shot migration container in §11.4 receives the same `env_file:`, so
+  `db:migrate:prod` and `db:verify:prod` need no `--env-file` either;
+- the release-slot Compose file must not bind-mount any `.env` into application
+  containers.
+
+Land this in Phase 2 alongside the image work. Shipping pruned images without it produces
+containers that start and then fail environment validation.
 
 ## 8. Release Manifest
 
@@ -785,6 +906,8 @@ Abort before changing traffic if any check fails:
 - GHCR authentication can read required image manifests;
 - system clock is synchronized sufficiently for TLS and signed metadata;
 - no unresolved previous deployment operation exists;
+- no detached drain unit from a previous release still owns a slot this release needs
+  (§11.8); wait a bounded time, then abort rather than reusing a draining slot;
 - free disk is at least the greater of 10 GB or twice the total candidate image size;
 - available RAM is at least 125% of current memory used by affected containers plus a
   1 GB host reserve;
@@ -828,6 +951,36 @@ be backward compatible, application rollback remains possible without schema rol
 4. Run service smoke tests.
 5. For a multi-service release, start and validate every candidate before switching
    any public HTTP route.
+
+#### Candidate concurrency modes
+
+Step 5 is the memory worst case: production is a single VPS, and a change to
+`@aivastra/types` selects `web`, `api`, `chatbot`, and `dispatcher`, so four additional
+containers — including Next.js and the LangGraph chatbot — must be resident alongside
+the four they replace. If the §11.2 headroom check cannot be satisfied, that release
+aborts, and it aborts every time, which turns the capacity gate into a permanent block
+on exactly the shared-package changes that matter most.
+
+The deployment script therefore supports two modes, selected by a deployment
+configuration value and recorded in the release report:
+
+- `parallel` (default): as written above. One gateway reload, one release boundary,
+  strongest atomicity.
+- `sequential`: process affected services one at a time in the §16 Phase 5 risk order —
+  start candidate, verify, switch that service's upstream, drain and stop the old slot,
+  then move to the next. Peak additional memory is one service rather than all affected
+  services.
+
+`sequential` gives up cross-service atomicity: for a bounded window, `web` may be on the
+new release while `api` is still on the old one. That is only acceptable because §12
+already requires backward-compatible schema, and it must additionally require that the
+same release's frontend and API be compatible in both orderings. Releases that cannot
+satisfy that must declare `parallel` and fail closed on capacity rather than switch
+partially.
+
+Phase 0 measures per-container peak memory against actual VPS free RAM and that
+measurement selects the default mode. Do not assume `parallel` fits before it is
+measured.
 
 Default smoke tests:
 
@@ -883,10 +1036,42 @@ After the observation window:
 2. mark the release successful in release history;
 3. update `/opt/aivastra/current`;
 4. remove the previous slot as gateway backup through another validated NGINX reload;
-5. mark old HTTP slots unready and allow up to ten minutes for connections to drain;
-6. stop old affected containers without deleting their image;
-7. gracefully drain the old dispatcher according to its configured job timeout;
-8. upload the complete deployment report to GitHub Actions.
+5. hand the old slots to the detached drain unit described below;
+6. upload the deployment report to GitHub Actions and release the deployment lock.
+
+#### Drain runs detached from the Actions job
+
+The naive reading of this phase holds one serialized workflow job open for the five-minute
+observation plus a ten-minute HTTP drain plus the dispatcher's GPU-job drain. With
+`cancel-in-progress: false`, that caps production throughput at roughly one merge per
+fifteen to twenty minutes, which is worse than the pipeline being replaced.
+
+Split the two:
+
+- the **five-minute observation stays in the job**. It is the rollback gate; §13.1
+  automatic rollback is only possible while the job still holds the lock and the previous
+  gateway configuration.
+- the **drain does not**. Once state is committed and the release is marked successful,
+  rollback is no longer automatic, so nothing about the drain needs to block CI. Step 5
+  invokes a detached VPS-side unit — a systemd transient unit via `systemd-run`, or an
+  equivalent supervised background command — which:
+  1. marks old HTTP slots unready;
+  2. waits up to the configured HTTP drain window (default ten minutes) for connections
+     to close;
+  3. gracefully drains the old dispatcher according to its configured job timeout;
+  4. stops old affected containers without deleting their images;
+  5. writes its outcome into the release record under
+     `/var/lib/aivastra-deploy/releases/`.
+
+The deployment lock is released after step 6, not after the drain. The drain unit takes a
+separate, narrower lock so a subsequent release cannot start a slot that the drain unit is
+still stopping.
+
+The next release must tolerate finding a previous drain still in progress: §11.2 preflight
+checks for an unresolved drain and either waits a bounded time or aborts, and it never
+reuses a slot whose drain has not completed. Drain outcome, including timeout, is reported
+asynchronously through the §15 alerting path rather than by failing an already-successful
+release.
 
 ### 11.9 Retention and cleanup
 
@@ -1084,10 +1269,104 @@ verified, and VPS capacity data available.
 - Scope legacy VPS builds/restarts to affected application services.
 - Remove stateful services from `--force-recreate` and remove unconditional base-image
   pulls from ordinary releases.
+- Add a nightly full-monorepo validation run and a `workflow_dispatch` override
+  (`force_all`, service subset). Affected-target detection introduces a silent failure
+  mode — a misclassified change simply does not deploy, with no error. These two guards
+  are what make that recoverable, so they belong in the phase that creates the risk, not
+  a later one.
 - Keep the existing deployment mechanism as rollback while later phases are built.
 
 **Exit criteria:** docs-only push touches no containers; web-only push leaves backend
 and stateful container IDs unchanged.
+
+**Implementation plan:** `docs/superpowers/plans/2026-07-21-phase1-ci-affected-detection.md`.
+
+### Phase 1.1: post-Phase-1 gate before Phase 2 planning
+
+Phase 1 changes what production deploys and when. Phase 2 then changes where images come
+from. Doing the second before the first has been observed under load produces a pipeline
+where a failure cannot be attributed to either change.
+
+This gate is a soak and a measurement window, not a build phase. Nothing here writes
+application code. Work it in four tracks; they are independent and can run concurrently.
+
+#### 1.1.1 Soak the new pipeline
+
+Run Phase 1 through normal team activity for at least ten merged pull requests or two
+calendar weeks, whichever comes later. Over that window collect, per release:
+
+- detector-selected services and reasons, from the `affected-targets` artifact;
+- CI wall-clock duration, split docs-only / single-service / shared-package / fallback;
+- deploy duration and the Compose services actually recreated;
+- every nightly full-run result.
+
+Compare against the Phase 0 baseline. The claim being tested is that scoped releases are
+both faster and no less correct — not merely faster.
+
+#### 1.1.2 Confirm the detector is telling the truth
+
+The nightly run is the oracle. Any nightly failure on a commit whose per-push CI passed
+is a classification defect, and it must be treated as one:
+
+1. reproduce it as a fixture case in `scripts/ci/classify.test.ts`;
+2. fix `config/ci-targets.json` or the classifier;
+3. only then re-run the nightly.
+
+Separately, audit by hand at least three releases where the detector selected a strict
+subset. For each, confirm no unselected service actually depended on the change. A
+detector that is quietly wrong in the safe direction is tolerable; one that is wrong in
+the unsafe direction ends this gate immediately.
+
+Track how often `fallbackToAll` fires. Frequent fallback means the manifest is missing
+path rules and Phase 2's image matrix will inherit the same over-building.
+
+#### 1.1.3 Finish the Phase 0 measurements that Phase 1 did not need
+
+Phase 1 only required the CI-duration baseline. The remaining Phase 0 items gate Phases
+4 and 5, and they take calendar time to gather, so start them here rather than
+discovering them missing later:
+
+- per-container peak RSS and disk under real production load, for all six application
+  services — this selects the §11.5 default candidate concurrency mode, and it is the
+  single measurement most likely to invalidate the blue/green design;
+- VPS free RAM and free disk at peak;
+- current CloudPanel upstream configuration, exported and stored restorably;
+- an off-host PostgreSQL backup **restored into a scratch database and verified**, not
+  merely observed to exist.
+
+Record all of it in `docs/progress.md`. If peak memory shows that `parallel` candidate
+startup cannot fit, say so explicitly at this point; that decision changes Phase 5 and it
+is cheaper to know now.
+
+#### 1.1.4 De-risk the two known Phase 2 landmines
+
+Both are cheap to test in isolation and expensive to discover mid-phase. Do them on a
+throwaway branch, not on `main`:
+
+1. **Frozen lockfile builds.** Add the `.dockerignore` entries from §7.2, then build one
+   image with `pnpm install --frozen-lockfile` substituted for `--no-frozen-lockfile`.
+   Confirm it succeeds both in CI and on a developer machine that has `apps/admin-mobile`
+   present. This is the difference between Phase 2 starting cleanly and Phase 2 starting
+   with a lockfile investigation.
+2. **Environment without a dotenv file.** Per §7.6, run `@aivastra/api` with `--env-file`
+   removed and all configuration supplied through the process environment. Confirm
+   `apps/api/src/env.ts` validation passes and the service reaches its listener. Repeat
+   for chatbot and dispatcher.
+
+Also resolve the §22 external prerequisites that Phase 2 cannot proceed without: the GHCR
+owner namespace, a read-only GHCR credential for the VPS, and a pinned VPS SSH host key
+replacing `StrictHostKeyChecking=no`.
+
+**Exit criteria:** the soak window is complete with no unsafe misclassification; every
+nightly in the final week is green or has a fixture-backed fix; per-container peak memory
+is recorded and the §11.5 default mode is chosen; a PostgreSQL backup has been restored
+and verified; a frozen-lockfile image build and a dotenv-free service start have both
+succeeded; and the GHCR namespace, VPS read-only credential, and pinned SSH host key
+exist.
+
+Write the Phase 2 implementation plan only after this gate passes. Planning Phase 2
+earlier means planning against a detector output contract and a set of capacity facts
+that are still assumptions.
 
 ### Phase 2: CI-built immutable images
 
@@ -1110,6 +1389,37 @@ internal smoke tests; a digest can be redeployed without rebuilding.
 
 **Exit criteria:** forced SIGTERM tests do not create failed HTTP requests outside the
 drain contract, and an in-flight dispatcher job completes exactly once.
+
+### Phase 3.5: interim availability without slot machinery
+
+Phases 4 and 5 are the largest and riskiest part of this plan. Phase 3.5 banks most of
+the availability benefit before they land, using only what Phase 3 already delivered, and
+it doubles as the fallback if VPS capacity (§11.5) or schedule prevents blue/green from
+being adopted.
+
+Against the existing CloudPanel upstreams and the existing Compose file:
+
+- add Compose `healthcheck` blocks for all six application services using the §10.6
+  defaults;
+- set `stop_grace_period` per §10.6 so SIGTERM handlers from Phase 3 actually get their
+  drain window;
+- add `proxy_next_upstream` for connection error, timeout, `502`, `503`, and `504` on
+  the CloudPanel-managed upstreams where retrying is safe;
+- replace the deployment's unscoped `up -d --force-recreate` with per-service
+  `up -d --no-deps --wait <service>` limited to affected services.
+
+This does not achieve zero downtime. One instance still stops before its replacement
+serves, so the outage window per service shrinks from roughly the full container start
+time to roughly the health-check confirmation time. It removes the multi-service
+simultaneous restart, removes stateful services from the restart path, and makes every
+later phase easier to reason about because health is already authoritative.
+
+**Exit criteria:** a single-service release restarts only that service, the container is
+not routed until its health check passes, and measured `502`/`503` volume during a
+release is materially below the Phase 0 baseline.
+
+If Phases 4 and 5 are deferred, this phase is the supported production state and the
+zero-downtime acceptance criteria in §19 are explicitly not yet claimed.
 
 ### Phase 4: stable gateway bootstrap
 
@@ -1145,7 +1455,8 @@ before enabling the next target.
 - Remove the VPS source build and `git reset --hard` deployment path.
 - Remove unscoped Compose rebuild/recreate commands.
 - Remove obsolete fixed application host ports and container names.
-- Enable retention cleanup and scheduled full-monorepo CI.
+- Enable retention cleanup. (The scheduled full-monorepo run already exists from Phase 1;
+  here it is extended to cover the image matrix.)
 - Update operational documentation and `docs/progress.md`.
 
 **Exit criteria:** two complete successful production release cycles plus one manual
@@ -1168,7 +1479,16 @@ rollback drill use only the new pipeline.
 - deleted service path;
 - missing base SHA and force-push fallback to all;
 - unmapped production path fails safe;
-- reason output is stable and deterministic.
+- reason output is stable and deterministic;
+- directory names that differ from their target name resolve correctly
+  (`apps/catalogues-web` → `web`, `apps/admin-web` → `admin`, `apps/shopify` →
+  `shopify-admin`), and no target is ever inferred from a path segment;
+- a path under `apps/` with no `ci-targets.json` entry falls back to all services;
+- results are identical whether or not untracked directories such as `apps/web`,
+  `apps/admin`, `apps/merchant-web`, or `apps/admin-mobile` exist in the working tree
+  (§4.4);
+- paths containing `&`, spaces, and other shell metacharacters survive the detector and
+  every script that consumes its output.
 
 ### 17.2 CI integration scenarios
 
@@ -1177,7 +1497,9 @@ rollback drill use only the new pipeline.
 | `docs/readme.md` only | detect, docs/whitespace check, `ci-gate` |
 | `apps/admin-web/**` | admin quality/build, admin image only |
 | `apps/catalogues-web/**` | web checks/image only |
-| `apps/api/**` | API checks/tests/image only |
+| `apps/shopify/**` | shopify-admin checks/image only |
+| `apps/shopify-extension/**` | separate release surface; no image, no deploy |
+| `apps/api/**` | API checks/`test:unit`/image only |
 | `packages/types/**` | types plus web/API/chatbot/dispatcher dependents |
 | `packages/db/src/migrations/**` | DB/API/chatbot/dispatcher validation, migration policy, affected images |
 | `pnpm-lock.yaml` | full check and full image matrix |
@@ -1197,6 +1519,12 @@ packages, or connect to the VPS.
 - Health commands exist and transition unhealthy on process/dependency failure.
 - Release metadata matches the image's source SHA.
 - Frontend build-time configuration hash matches the release manifest.
+- The `api` image contains `packages/db/src/migrations/**` and the migration journal, and
+  the journal hash matches the release manifest `journalHash` (§7.2).
+- Node service images start with configuration supplied only through the process
+  environment, with no `.env` file mounted and no `--env-file` argument (§7.6).
+- A build from a working tree containing `apps/admin-mobile` succeeds with
+  `--frozen-lockfile`, proving `.dockerignore` excludes it (§7.2).
 
 ### 17.4 Deployment integration tests
 
@@ -1392,8 +1720,15 @@ The following decisions are locked for implementation:
 - Health plus functional smoke tests gate traffic.
 - Failed candidates roll back automatically.
 - Migrations use expand-contract; destructive cleanup is manual and separate.
-- Default post-switch observation is five minutes.
-- Default old HTTP connection drain is ten minutes.
+- Default post-switch observation is five minutes and stays inside the deployment job.
+- Default old HTTP connection drain is ten minutes and runs detached from the deployment
+  job (§11.8).
+- Deployment targets are resolved through explicit `dir` entries in
+  `config/ci-targets.json`; target names are never inferred from directory paths (§4.1).
+- Node services receive configuration through the process environment, not a mounted
+  dotenv file (§7.6).
+- Candidate startup supports `parallel` and `sequential` modes; the default is chosen
+  from measured VPS memory headroom in Phase 0 (§11.5).
 - The five latest successful releases are retained.
 - Capacity failure aborts; it never silently degrades to an in-place outage.
 - Unknown change classification falls back to all affected services.
@@ -1403,7 +1738,8 @@ The following decisions are locked for implementation:
 
 These are operational facts to measure, not unresolved architecture choices:
 
-- actual VPS free RAM/disk and per-container peak usage;
+- actual VPS free RAM/disk and per-container peak usage, sufficient to choose the §11.5
+  default candidate concurrency mode;
 - permission to add the stable gateway and update CloudPanel local upstream ports;
 - a pinned VPS SSH host key and dedicated deployment user;
 - read-only GHCR authentication from the VPS;

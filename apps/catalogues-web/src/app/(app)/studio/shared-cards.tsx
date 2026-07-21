@@ -341,7 +341,7 @@ export function SectionHead({
           <h3
             style={{
               fontWeight: 600,
-              fontSize: 15,
+              fontSize: 14,
               color: C.text,
               margin: 0,
               display: 'flex',
