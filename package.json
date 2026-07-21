@@ -16,6 +16,7 @@
     "format": "biome format --write .",
     "test": "pnpm -r run test",
     "test:ci-scripts": "vitest run --config vitest.config.ts",
+    "ci:detect": "tsx scripts/ci/detect-affected.mts",
     "db:generate": "pnpm --filter @aivastra/db run generate",
     "db:migrate": "pnpm --filter @aivastra/db run migrate",
     "db:migrate:prod": "pnpm --filter @aivastra/db run migrate:prod",
