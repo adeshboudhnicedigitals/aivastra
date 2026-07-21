@@ -4,7 +4,11 @@ import { ASPECT_DIMENSIONS, type Resolution, resolutionFromDims } from '@aivastr
 import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { getMaxOutputPx, getResolutionCreditCost } from '../../lib/resolution-config.js';
+import {
+  getMaxOutputPx,
+  getResolutionCreditCost,
+  getTryonCreditCost,
+} from '../../lib/resolution-config.js';
 import { atomicDeduct } from '../credits/ledger.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
@@ -156,6 +160,81 @@ export async function createMerchantCatalogJob(
         // requiresMannequinStep branch.
         needsMannequinStep: garmentType.requiresMannequinStep,
       },
+    });
+  });
+
+  await app.redis.xadd(
+    'jobs:normal',
+    'MAXLEN',
+    '~',
+    10000,
+    '*',
+    'jobId',
+    jobId,
+    'userId',
+    params.userId,
+  );
+
+  return { jobId };
+}
+
+/**
+ * Mobile-only variant of createMerchantCatalogJob: finalizes the job with the
+ * mannequin-drape (step 1) output directly, skipping step 2's pose/background/
+ * face compositing entirely — so none of that admin config is required here.
+ * Dispatches to the same `saree_mannequin` job kind the dev-API and Studio's
+ * pre-resolution flow already use (see processSareeMannequinJob in
+ * apps/dispatcher/src/job/processor.ts) — no dispatcher changes needed.
+ *
+ * faceId is always null: the mannequin workflow used for this garment type
+ * bakes the face in via a fixed URL node, not a caller-supplied image.
+ */
+export async function createMerchantSareeMannequinJob(
+  app: FastifyInstance,
+  params: {
+    userId: string;
+    garmentSubcategoryId: string;
+    flatImageKey: string;
+    merchantId: string;
+  },
+): Promise<{ jobId: string }> {
+  const [garmentType] = await app.db
+    .select({
+      requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep,
+      mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
+      isActive: schema.garmentSubcategories.isActive,
+    })
+    .from(schema.garmentSubcategories)
+    .where(eq(schema.garmentSubcategories.id, params.garmentSubcategoryId))
+    .limit(1);
+  if (!garmentType?.isActive) {
+    throw new AppError('BAD_CATALOG', 400, 'garment type not found or inactive');
+  }
+  if (!garmentType.requiresMannequinStep || !garmentType.mannequinWorkflowTemplateId) {
+    throw new AppError('VALIDATION', 400, 'this garment type does not use the mannequin step');
+  }
+
+  await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
+
+  const cost = await getTryonCreditCost(app);
+
+  const jobId = randomUUID();
+  await app.db.transaction(async (tx) => {
+    await tx.insert(schema.jobs).values({
+      id: jobId,
+      userId: params.userId,
+      status: 'QUEUED',
+      watermark: false,
+      queueStream: 'normal',
+      creditsCharged: cost,
+    });
+    await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
+    await tx.insert(schema.jobInputs).values({
+      jobId,
+      upperGarmentKey: params.flatImageKey,
+      faceId: null,
+      garmentTypeId: params.garmentSubcategoryId,
+      params: { kind: 'saree_mannequin' },
     });
   });
 

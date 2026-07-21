@@ -15,7 +15,7 @@ import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createMerchantCatalogJob } from './create-job.js';
+import { createMerchantCatalogJob, createMerchantSareeMannequinJob } from './create-job.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
@@ -698,7 +698,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { subcategoryId, flatImageKey } = req.body as z.infer<
+      const { subcategoryId, flatImageKey, mannequinOnly } = req.body as z.infer<
         typeof MerchantCatalogGenerateBody
       >;
 
@@ -722,14 +722,21 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .limit(1);
       if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
 
-      const { jobId } = await createMerchantCatalogJob(app, {
-        userId: row.userId,
-        garmentSubcategoryId: row.garmentSubcategoryId,
-        category: row.category,
-        flatImageKey,
-        subcategoryId,
-        merchantId,
-      });
+      const { jobId } = mannequinOnly
+        ? await createMerchantSareeMannequinJob(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            flatImageKey,
+            merchantId,
+          })
+        : await createMerchantCatalogJob(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            category: row.category,
+            flatImageKey,
+            subcategoryId,
+            merchantId,
+          });
 
       reply.code(201);
       return { jobId };
