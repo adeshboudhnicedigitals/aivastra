@@ -1,7 +1,7 @@
 import { schema } from '@aivastra/db';
 import { createLogger } from '@aivastra/logger';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { processJob } from '../../src/job/processor.js';
@@ -216,5 +216,126 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
     const prompt = comfy.lastPrompt();
     // Garment node was patched with the uploaded file; no person node exists to patch.
     expect(prompt?.prompt['2']?.inputs?.image).toBeTruthy();
+  });
+
+  it('uses the snapshotted style workflow template instead of the garment type default', async () => {
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({ email: `mannequin-style-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
+      .returning();
+
+    const [defaultTemplate] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step1-default-${Date.now()}`,
+        label: 'Step1 Default',
+        jsonContent: {
+          '1': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+          '2': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        },
+        workflowType: 'saree_step1',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: [],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+        tryonPersonNodeId: '1',
+        tryonGarmentNodeId: '2',
+        tryonOutputNodeId: '10',
+      })
+      .returning();
+
+    const [styleTemplate] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step1-style-${Date.now()}`,
+        label: 'Step1 Style',
+        jsonContent: {
+          '1': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+          '2': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        },
+        workflowType: 'saree_step1',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: [],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+        tryonPersonNodeId: '1',
+        tryonGarmentNodeId: '2',
+        tryonOutputNodeId: '10',
+      })
+      .returning();
+
+    const [garmentType] = await env.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `flat-saree-style-${Date.now()}`,
+        label: 'Flat Saree Style',
+        requiresMannequinStep: true,
+        mannequinWorkflowTemplateId: defaultTemplate.id,
+      })
+      .returning();
+
+    const [face] = await env.db
+      .insert(schema.modelFaces)
+      .values({
+        gender: 'women',
+        label: 'F',
+        r2Key: 'face/fstyle.jpg',
+        thumbnailKey: 'face/fstyle.jpg',
+      })
+      .returning();
+
+    const [job] = await env.db
+      .insert(schema.jobs)
+      .values({ userId: user.id, status: 'QUEUED', priority: false, creditsCharged: 0 })
+      .returning();
+
+    await env.db.insert(schema.jobInputs).values({
+      jobId: job.id,
+      upperGarmentKey: `inputs/${job.id}/garment.jpg`,
+      faceId: face.id,
+      garmentTypeId: garmentType.id,
+      params: { kind: 'saree_mannequin', workflowTemplateId: styleTemplate.id },
+    });
+
+    for (const key of [`inputs/${job.id}/garment.jpg`, 'face/fstyle.jpg']) {
+      await env.s3.send(
+        new PutObjectCommand({
+          Bucket: env.r2Bucket,
+          Key: key,
+          Body: Buffer.from('stub'),
+          ContentType: 'image/jpeg',
+        }),
+      );
+    }
+
+    const log = createLogger('test');
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      job.id,
+      user.id,
+      'jobs:normal',
+      '1-3',
+    );
+
+    const [completedJob] = await env.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, job.id));
+    expect(completedJob?.status).toBe('COMPLETED');
+
+    const [dispatchEvent] = await env.db
+      .select()
+      .from(schema.jobEvents)
+      .where(
+        and(eq(schema.jobEvents.jobId, job.id), eq(schema.jobEvents.eventType, 'COMFY_DISPATCH')),
+      );
+    expect((dispatchEvent?.payload as { workflowTemplateId?: string })?.workflowTemplateId).toBe(
+      styleTemplate.id,
+    );
   });
 });
