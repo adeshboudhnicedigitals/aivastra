@@ -16,6 +16,7 @@ import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { requireAdmin } from './guard.js';
 
 export async function adminAssetsRoutes(app: FastifyInstance) {
@@ -846,8 +847,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   // ── Bulk import from ZIP ──────────────────────────────────────────────────
   app.post('/admin/assets/bulk-import', { preHandler: RW }, async (req, reply) => {
-    const data = await req.file();
+    const maxBulkImportBytes = await getUploadLimitBytes(app, 'bulkImportMaxBytes');
+    const data = await req.file({ limits: { fileSize: maxBulkImportBytes } });
     if (!data) throw new AppError('VALIDATION', 400, 'no file uploaded');
+
+    // Buffering below can either throw or mark the stream truncated when it hits the
+    // limit, depending on multipart parser behavior. Normalize both cases below.
 
     // Read metadata fields from form
     const fields = data.fields as Record<string, { value?: string }>;
@@ -863,7 +868,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     }
 
     // Buffer the ZIP
-    const zipBuffer = await data.toBuffer();
+    const zipBuffer = await data.toBuffer().catch(() => {
+      throw new AppError(
+        'VALIDATION',
+        413,
+        `uploaded ZIP exceeds ${maxBulkImportBytes / (1024 * 1024)}MB limit`,
+      );
+    });
+    if (data.file.truncated) {
+      throw new AppError(
+        'VALIDATION',
+        413,
+        `uploaded ZIP exceeds ${maxBulkImportBytes / (1024 * 1024)}MB limit`,
+      );
+    }
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries().filter((e) => !e.isDirectory);
 
