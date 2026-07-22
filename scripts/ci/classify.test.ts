@@ -102,10 +102,14 @@ describe('global and infrastructure paths', () => {
     expect(run(['.dockerignore']).services).toEqual(ALL_SERVICES);
   });
 
-  it('flags infrastructure without selecting services', () => {
+  // Infra governs how every running container is wired, so it has to reach
+  // production through a full recreate. Flagging it without selecting any
+  // service made infra-only merges go green while deploying nothing.
+  it('deploys every service on an infrastructure change', () => {
     const result = run(['infra/docker-compose.prod.yml']);
     expect(result.infrastructureChanged).toBe(true);
-    expect(result.services).toEqual([]);
+    expect(result.fallbackToAll).toBe(true);
+    expect(result.services).toEqual(ALL_SERVICES);
     expect(result.docsOnly).toBe(false);
   });
 
