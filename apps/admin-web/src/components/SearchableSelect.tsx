@@ -31,7 +31,22 @@ export function SearchableSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [openUpward, setOpenUpward] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const DROPDOWN_MAX_HEIGHT = 220;
+
+  function openDropdown() {
+    const rect = inputRef.current?.getBoundingClientRect();
+    if (rect) {
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setOpenUpward(spaceBelow < DROPDOWN_MAX_HEIGHT + 12 && spaceAbove > spaceBelow);
+    }
+    setOpen(true);
+    setQuery('');
+  }
 
   const allOptions = emptyLabel ? [{ id: '', label: emptyLabel }, ...options] : options;
   const selectedLabel = allOptions.find((o) => o.id === value)?.label ?? '';
@@ -54,6 +69,7 @@ export function SearchableSelect({
   return (
     <div ref={rootRef} style={{ position: 'relative' }}>
       <input
+        ref={inputRef}
         id={id}
         className="select"
         style={style}
@@ -61,10 +77,7 @@ export function SearchableSelect({
         disabled={disabled}
         placeholder={placeholder}
         value={open ? query : selectedLabel}
-        onFocus={() => {
-          setOpen(true);
-          setQuery('');
-        }}
+        onFocus={openDropdown}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
@@ -77,7 +90,7 @@ export function SearchableSelect({
         <div
           style={{
             position: 'absolute',
-            top: 'calc(100% + 4px)',
+            ...(openUpward ? { bottom: 'calc(100% + 4px)' } : { top: 'calc(100% + 4px)' }),
             left: 0,
             right: 0,
             zIndex: 20,
@@ -85,7 +98,7 @@ export function SearchableSelect({
             border: '1px solid var(--border)',
             borderRadius: 'var(--r)',
             boxShadow: 'var(--shadow-lg)',
-            maxHeight: 220,
+            maxHeight: DROPDOWN_MAX_HEIGHT,
             overflowY: 'auto',
           }}
         >
