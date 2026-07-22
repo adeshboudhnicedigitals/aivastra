@@ -1,8 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { AppError } from './errors.js';
-
-/** Max accepted garment upload size - mirrors the presign zod cap. */
-export const MAX_GARMENT_BYTES = 20 * 1024 * 1024;
+import { getUploadLimitBytes } from './upload-limits-config.js';
 
 /**
  * Verifies the object exists in storage and is within the accepted size limit.
@@ -17,7 +15,8 @@ export async function assertGarmentObjectValid(app: FastifyInstance, key: string
   } catch {
     throw new AppError('BAD_UPLOAD', 400, 'uploaded garment not found');
   }
-  if (head.contentLength > MAX_GARMENT_BYTES) {
+  const maxBytes = await getUploadLimitBytes(app, 'webGarmentMaxBytes');
+  if (head.contentLength > maxBytes) {
     throw new AppError('BAD_UPLOAD', 413, 'uploaded garment exceeds size limit');
   }
 }
