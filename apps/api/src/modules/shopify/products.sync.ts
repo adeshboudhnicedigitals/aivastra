@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { assignFunnelFromRules } from './funnel-rules.js';
 import { shopifyAdminFetch } from './service.js';
 
@@ -27,7 +28,6 @@ interface FetchLikeResponse {
 type FetchLike = (url: string, init?: RequestInit) => Promise<FetchLikeResponse>;
 
 const ALLOWED_HOSTS = /(^|\.)(myshopify\.com|shopify\.com|cdn\.shopify\.com)$/;
-const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 10_000;
 
 // Shopify product-level garment rows (no specific variant) are stored with this
@@ -173,13 +173,14 @@ export async function syncProduct(
       clearTimeout(timeout);
     }
     if (!res.ok) throw new Error(`download HTTP ${res.status}`);
+    const maxSyncBytes = await getUploadLimitBytes(app, 'shopifyProductSyncMaxBytes');
     const contentLength = res.headers.get('content-length');
-    if (contentLength && parseInt(contentLength, 10) > MAX_IMAGE_BYTES) {
-      throw new Error(`product image exceeds ${MAX_IMAGE_BYTES / (1024 * 1024)}MB`);
+    if (contentLength && parseInt(contentLength, 10) > maxSyncBytes) {
+      throw new Error(`product image exceeds ${maxSyncBytes / (1024 * 1024)}MB`);
     }
     const arrayBuffer = await res.arrayBuffer();
-    if (arrayBuffer.byteLength > MAX_IMAGE_BYTES) {
-      throw new Error(`product image exceeds ${MAX_IMAGE_BYTES / (1024 * 1024)}MB`);
+    if (arrayBuffer.byteLength > maxSyncBytes) {
+      throw new Error(`product image exceeds ${maxSyncBytes / (1024 * 1024)}MB`);
     }
     const buf = Buffer.from(arrayBuffer);
     const ct = res.headers.get('content-type') ?? 'image/jpeg';
