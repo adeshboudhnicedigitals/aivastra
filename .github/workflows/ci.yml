@@ -234,18 +234,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [detect, ci-gate]
+    # `!cancelled()` is load-bearing, not decoration. GitHub propagates a
+    # `skipped` result transitively down the whole needs graph: when nothing
+    # testable changed, `test` skips (empty matrix), and that skip reaches
+    # `deploy` through `ci-gate` even though ci-gate itself has `always()`
+    # and succeeds — `always()` rescues only the job it is written on, not
+    # its descendants. A job escapes the propagation only if its own `if:`
+    # contains a status-check function, so without this the deploy silently
+    # skipped on every admin/web-only merge. Because adding a status
+    # function also drops the implicit `success()` on `needs`, the two
+    # result checks below restore that gate explicitly.
     if: >-
+      !cancelled() &&
+      needs.detect.result == 'success' &&
+      needs['ci-gate'].result == 'success' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.detect.outputs.has_deployable == 'true'
-    # No job-level concurrency here: it's redundant with the workflow-level
-    # group above (both push and workflow_dispatch against main resolve to
-    # the same "ci-CI-refs/heads/main" group, so deploys already serialize)
-    # — and pairing a job-level `concurrency:` with a `needs.*.outputs`-based
-    # `if:` caused this job to silently skip even when the condition was
-    # true (confirmed: an identical always-run sibling job with no
-    # concurrency block evaluated the exact same expression to true in the
-    # same run). See PR #43/#44 CI logs.
+    concurrency:
+      group: aivastra-production
+      cancel-in-progress: false
 
     steps:
       - name: Deploy via SSH
