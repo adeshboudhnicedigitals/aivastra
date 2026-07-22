@@ -5,8 +5,8 @@ import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import {
   createTestApiKey,
+  createTestDevTryonCategory,
   createTestMerchant,
-  createTestTryonCategory,
 } from './helpers/merchant.js';
 
 let c: Containers;
@@ -69,9 +69,9 @@ beforeAll(async () => {
   setCredits = m.credits;
   ({ key } = await createTestApiKey(app, merchantId));
 
-  await createTestTryonCategory(app, { slug: 'upper', name: 'Upper' });
-  await createTestTryonCategory(app, { slug: 'inactive-cat', name: 'Off', isActive: false });
-  await createTestTryonCategory(app, {
+  await createTestDevTryonCategory(app, { slug: 'upper', name: 'Upper' });
+  await createTestDevTryonCategory(app, { slug: 'inactive-cat', name: 'Off', isActive: false });
+  await createTestDevTryonCategory(app, {
     slug: 'dead-workflow',
     name: 'Dead WF',
     templateIsActive: false,
