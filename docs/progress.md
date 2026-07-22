@@ -1,3 +1,22 @@
+## 2026-07-22 - Admin-configurable upload limits
+
+Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-22-admin-configurable-upload-limits.md`: all API upload surfaces now read validated limits from the shared system config, and administrators can manage all ten limits from Settings.
+
+### Done
+- Added the shared `uploadLimits` schema, defaults, fail-open Redis reader, and GET/PATCH `/admin/config` wiring. Missing or malformed stored values retain the previous limits.
+- Replaced the nine hardcoded 20MB checks across merchant catalogue, studio/web, merchant try-on, kiosk, dev API, and Shopify routes with per-surface configuration reads.
+- Added a dedicated configurable limit to the previously unbounded admin bulk-import ZIP route, including clean 413 handling for both thrown and flagged multipart truncation behavior.
+- Added the Admin Web Settings section with nine MB controls and one GB bulk-import control, including byte conversion on load/save.
+- Added regression coverage for every upload surface plus admin config round-tripping. Final serialized acceptance runs passed all 12 touched test files: 41/41 integration tests and 53/53 non-integration tests.
+- Verification passed: full monorepo typecheck excluding admin-mobile, API/admin focused typechecks, and repository-wide Biome check (existing warning baseline only).
+
+### Failed / Not Done
+- The authenticated browser walkthrough of the new Settings section was not run in this environment.
+- An initial parallel combined integration run was invalidated by test files racing on the shared Redis `config:system` key; rerunning the complete set with file parallelism disabled passed.
+
+### Open Questions / Decisions
+- No implementation decision remains open. Before deployment, manually confirm the ten Settings values render and persist after reload with an authenticated admin session.
+
 ## 2026-07-21 - Saree mannequin style selection
 
 Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-21-saree-mannequin-style-selection.md`: administrators can manage global saree mannequin styles, merchants can select an active style, the selected workflow is snapshotted onto the job, the dispatcher honors that snapshot, and the Android catalogue app exposes the picker with a backward-compatible fallback.
