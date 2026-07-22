@@ -112,7 +112,7 @@ describe('admin dev-api routes', () => {
     expect(res.json()).toEqual({ ok: true });
   });
 
-  it('404s without an admin token', async () => {
+  it('401s without an admin token', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/dev-api/tryon-categories',
