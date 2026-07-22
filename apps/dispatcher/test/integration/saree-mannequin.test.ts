@@ -338,4 +338,84 @@ describe('dispatcher — saree mannequin (step 1) job', () => {
       styleTemplate.id,
     );
   });
+
+  it('processes a dev-API saree_mannequin job with garmentTypeId: null and a snapshotted workflowTemplateId to COMPLETED', async () => {
+    // Mirrors the exact shape createDevSareeMannequinJob writes: garmentTypeId
+    // and faceId are always null, and the workflow is resolved entirely off
+    // params.workflowTemplateId — garment_subcategories is never touched.
+    const [user] = await env.db
+      .insert(schema.users)
+      .values({ email: `mannequin-dev-${Date.now()}@test.com`, passwordHash: 'x', tier: 'free' })
+      .returning();
+
+    const [devTemplate] = await env.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `saree-step1-dev-${Date.now()}`,
+        label: 'Step1 Dev',
+        jsonContent: {
+          '2': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        },
+        workflowType: 'saree_step1',
+        faceNodeId: '',
+        poseNodeId: '',
+        bgNodeId: '',
+        upperNodeIds: [],
+        facePhasePromptNode: '',
+        garmentPhasePromptNode: '',
+        tryonPersonNodeId: null,
+        tryonGarmentNodeId: '2',
+        tryonOutputNodeId: '10',
+      })
+      .returning();
+
+    const [job] = await env.db
+      .insert(schema.jobs)
+      .values({ userId: user.id, status: 'QUEUED', priority: false, creditsCharged: 0 })
+      .returning();
+
+    await env.db.insert(schema.jobInputs).values({
+      jobId: job.id,
+      upperGarmentKey: `inputs/${job.id}/garment.jpg`,
+      faceId: null,
+      garmentTypeId: null,
+      params: { kind: 'saree_mannequin', workflowTemplateId: devTemplate.id },
+    });
+
+    await env.s3.send(
+      new PutObjectCommand({
+        Bucket: env.r2Bucket,
+        Key: `inputs/${job.id}/garment.jpg`,
+        Body: Buffer.from('stub'),
+        ContentType: 'image/jpeg',
+      }),
+    );
+
+    const log = createLogger('test');
+    await processJob(
+      { db: env.db, redis, pub, storage: env.storage, s3: env.s3, r2Bucket: env.r2Bucket, log },
+      job.id,
+      user.id,
+      'jobs:normal',
+      '1-4',
+    );
+
+    const [completedJob] = await env.db
+      .select()
+      .from(schema.jobs)
+      .where(eq(schema.jobs.id, job.id));
+    // Prior to the guard fix this job would have been marked FAILED with
+    // MANNEQUIN_INPUTS_MISSING before ever reaching the snapshot check.
+    expect(completedJob?.status).toBe('COMPLETED');
+
+    const [dispatchEvent] = await env.db
+      .select()
+      .from(schema.jobEvents)
+      .where(
+        and(eq(schema.jobEvents.jobId, job.id), eq(schema.jobEvents.eventType, 'COMFY_DISPATCH')),
+      );
+    expect((dispatchEvent?.payload as { workflowTemplateId?: string })?.workflowTemplateId).toBe(
+      devTemplate.id,
+    );
+  });
 });
