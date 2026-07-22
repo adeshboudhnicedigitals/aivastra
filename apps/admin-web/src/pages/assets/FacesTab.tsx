@@ -3,6 +3,7 @@ import { AddFaceModal } from '../../components/AddFaceModal';
 import { AssetThumb } from '../../components/AssetThumb';
 import { EditFaceModal } from '../../components/EditFaceModal';
 import { Icon } from '../../components/Icons';
+import { Pager } from '../../components/Pager';
 import { Switch } from '../../components/Switch';
 import { apiErrorMessage, apiFetch } from '../../lib/data';
 import type { ModelFace } from '../../types';
@@ -15,6 +16,8 @@ const GENDER_TABS = [
   { k: 'boys' as const, l: 'Boys' },
   { k: 'girls' as const, l: 'Girls' },
 ];
+
+const FACES_PAGE_SIZE = 75;
 
 export function FacesTab() {
   const {
@@ -55,6 +58,7 @@ export function FacesTab() {
   const [showFaceUpload, setShowFaceUpload] = useState(false);
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
   const [confirmDeleteFace, setConfirmDeleteFace] = useState<ModelFace | null>(null);
+  const [facesPage, setFacesPage] = useState(1);
 
   useEffect(() => {
     loadFaces();
@@ -113,6 +117,12 @@ export function FacesTab() {
   };
 
   const filteredFaces = faces.filter((f) => genderFilter === 'all' || f.gender === genderFilter);
+  const facesTotalPages = Math.max(1, Math.ceil(filteredFaces.length / FACES_PAGE_SIZE));
+  const facesClampedPage = Math.min(facesPage, facesTotalPages);
+  const pagedFaces = filteredFaces.slice(
+    (facesClampedPage - 1) * FACES_PAGE_SIZE,
+    facesClampedPage * FACES_PAGE_SIZE,
+  );
 
   return (
     <>
@@ -186,7 +196,7 @@ export function FacesTab() {
               marginTop: 10,
             }}
           >
-            {filteredFaces.map((face) => (
+            {pagedFaces.map((face) => (
               <div
                 key={face.id}
                 className="card"
@@ -269,6 +279,15 @@ export function FacesTab() {
               </div>
             )}
           </div>
+          {facesTotalPages > 1 && (
+            <Pager
+              page={facesClampedPage - 1}
+              totalPages={facesTotalPages}
+              onPage={(n) => setFacesPage(n + 1)}
+              totalItems={filteredFaces.length}
+              pageSize={FACES_PAGE_SIZE}
+            />
+          )}
         </>
       )}
 
