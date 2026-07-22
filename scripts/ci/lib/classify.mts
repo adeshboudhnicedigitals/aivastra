@@ -97,9 +97,16 @@ export function classify(input: ClassifyInput): DetectResult {
       continue;
     }
 
+    // Infra covers the prod compose file, the cloudflared configs and the Alloy
+    // config — all of which govern how the running containers are wired, so a
+    // change here only reaches production once every service is recreated.
+    // Selecting all services (rather than merely flagging) keeps prod from
+    // drifting away from the repo: previously this `continue`d without picking
+    // any target, so an infra-only merge went green and deployed nothing.
     if (matchAny(file, config.infraPaths)) {
       result.infrastructureChanged = true;
-      addReason('infra', file);
+      result.fallbackToAll = true;
+      addReason('ALL', file);
       continue;
     }
 
