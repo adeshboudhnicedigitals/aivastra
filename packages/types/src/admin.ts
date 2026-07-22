@@ -94,6 +94,26 @@ export const SystemConfigBody = z.object({
       creditCost: z.number().int().positive().max(1_000),
     })
     .optional(),
+  // Admin-configurable per-surface upload size ceilings. Each replaces a previously
+  // hardcoded byte constant (see apps/api/src/lib/upload-limits-config.ts for
+  // defaults/readers). Omitted = fall back to the hardcoded default. No minimum
+  // floor is enforced deliberately — only a positive integer is required.
+  uploadLimits: z
+    .object({
+      merchantCatalogMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      webGarmentMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      merchantTryonMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      kioskUploadMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      devApiMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      shopifyCatalogSourceMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      shopifyCustomerPhotoMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      shopifyProductImageMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      shopifyProductSyncMaxBytes: z.number().int().positive().max(52_428_800).optional(),
+      // Different ceiling: this is a ZIP of many images (admin bulk asset import),
+      // not a single photo.
+      bulkImportMaxBytes: z.number().int().positive().max(3_221_225_472).optional(),
+    })
+    .optional(),
 });
 
 // ── Model asset upload schemas ────────────────────────────────────────────
