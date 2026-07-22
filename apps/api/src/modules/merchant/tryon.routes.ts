@@ -5,9 +5,8 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { createMerchantTryonJob } from './create-tryon-job.js';
-
-const MAX_TRYON_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 async function loadOwnedJob(app: FastifyInstance, merchantId: string, id: string) {
   const [job] = await app.db
@@ -187,11 +186,12 @@ export async function merchantTryonRoutes(app: FastifyInstance) {
       } catch {
         throw new AppError('BAD_UPLOAD', 400, 'uploaded photo not found');
       }
-      if (photoHead.contentLength > MAX_TRYON_UPLOAD_BYTES) {
+      const maxTryonBytes = await getUploadLimitBytes(app, 'merchantTryonMaxBytes');
+      if (photoHead.contentLength > maxTryonBytes) {
         throw new AppError(
           'BAD_UPLOAD',
           413,
-          `uploaded photo exceeds ${MAX_TRYON_UPLOAD_BYTES / (1024 * 1024)}MB limit`,
+          `uploaded photo exceeds ${maxTryonBytes / (1024 * 1024)}MB limit`,
         );
       }
 
