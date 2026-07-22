@@ -7,10 +7,13 @@ import { createDevJobCore } from './create-job.js';
 
 /**
  * Creates a developer-API saree-mannequin (step-1) job from a raw garment
- * cloth image. Resolves the workflow off whichever garment_subcategories row
- * has requires_mannequin_step = true — today, exactly one (Flat Saree). No
- * category/garmentType param yet; add one if a second such garment type ever
- * exists (see docs/superpowers/specs/2026-07-20-dev-saree-mannequin-api-design.md).
+ * cloth image. Resolves the workflow off the dedicated single-row
+ * dev_saree_mannequin_config table — the public saree-mannequin endpoint owns
+ * its own workflow pointer, decoupled from garment_subcategories, so the
+ * internal saree Studio flow can change independently. The resolved
+ * workflowTemplateId is snapshotted into job_inputs.params so the dispatcher
+ * never re-reads any internal catalog table for this job (see
+ * processor.ts processDevSareeMannequin, params.workflowTemplateId branch).
  *
  * faceId is always null here — the workflow's face comes from a fixed URL node
  * baked into the template, not a caller-supplied image.
@@ -25,24 +28,27 @@ export async function createDevSareeMannequinJob(
 ): Promise<{ jobId: string }> {
   const cost = await getSareeMannequinDevCreditCost(app);
 
-  const [garmentType] = await app.db
+  // Resolve off the DEDICATED single-row dev config, not garment_subcategories —
+  // the public saree-mannequin endpoint owns its own workflow pointer, so the
+  // internal saree Studio flow can change independently. Snapshotting the resolved
+  // workflow into params (below) means the dispatcher never re-reads any internal
+  // catalog table for this job (see processor.ts processDevSareeMannequin).
+  const [config] = await app.db
     .select({
-      id: schema.garmentSubcategories.id,
-      workflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
-      isActive: schema.garmentSubcategories.isActive,
+      workflowTemplateId: schema.devSareeMannequinConfig.workflowTemplateId,
+      isActive: schema.devSareeMannequinConfig.isActive,
     })
-    .from(schema.garmentSubcategories)
-    .where(eq(schema.garmentSubcategories.requiresMannequinStep, true))
+    .from(schema.devSareeMannequinConfig)
     .limit(1);
 
-  if (!garmentType?.isActive || !garmentType.workflowTemplateId) {
+  if (!config || !config.isActive || !config.workflowTemplateId) {
     throw new AppError('BAD_CATEGORY', 400, 'saree mannequin generation is not configured');
   }
 
   const [template] = await app.db
     .select({ isActive: schema.workflowTemplates.isActive })
     .from(schema.workflowTemplates)
-    .where(eq(schema.workflowTemplates.id, garmentType.workflowTemplateId));
+    .where(eq(schema.workflowTemplates.id, config.workflowTemplateId));
   if (!template?.isActive) {
     throw new AppError('BAD_CATEGORY', 400, 'saree mannequin generation is not configured');
   }
@@ -61,9 +67,10 @@ export async function createDevSareeMannequinJob(
     metricKind: 'saree_mannequin',
     buildJobInputs: () => ({
       upperGarmentKey: params.garmentKey,
-      garmentTypeId: garmentType.id,
+      garmentTypeId: null,
       faceId: null,
-      params: { kind: 'saree_mannequin' },
+      // Snapshot the workflow so the dispatcher routes off params, not internal tables.
+      params: { kind: 'saree_mannequin', workflowTemplateId: config.workflowTemplateId },
     }),
   });
 }
