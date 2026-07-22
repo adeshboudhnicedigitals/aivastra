@@ -18,6 +18,7 @@ SELECT
 FROM garment_subcategories gsc
 WHERE gsc.requires_mannequin_step = TRUE
   AND gsc.mannequin_workflow_template_id IS NOT NULL
+  AND gsc.is_active = TRUE
 ORDER BY gsc.id
 LIMIT 1
 ON CONFLICT (id) DO NOTHING;

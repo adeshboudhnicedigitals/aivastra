@@ -93,7 +93,9 @@ export async function createDevJobCore(
  * requires the garment to be a prior COMPLETED job of the caller (sourceJobId)
  * and resolves the workflow through a garment-type → tryon-category chain. A
  * third-party developer has neither, so this resolves the workflow straight off
- * tryon_categories.slug. Same reasoning merchant/create-job.ts documents at its top.
+ * dev_tryon_categories.slug — a dedicated table decoupled from the internal
+ * tryon_categories table used by Studio/kiosk/merchant flows. Same reasoning
+ * merchant/create-job.ts documents at its top.
  *
  * The job row is userId-owned (the merchant's user) so the dispatcher's existing
  * transactional refund-on-terminal-failure path applies with no changes.
