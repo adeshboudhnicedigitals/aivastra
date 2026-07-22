@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { boolean, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { workflowTemplates } from './models.js';
 
@@ -15,5 +16,18 @@ export const devTryonCategories = pgTable('dev_tryon_categories', {
   sortOrder: integer('sort_order').notNull().default(0),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Single-row global config for the developer-API saree-mannequin endpoint.
+// Upsert with the fixed id below. Owns its own workflow pointer so the dev
+// endpoint never resolves through garment_subcategories.requires_mannequin_step
+// (which the internal saree Studio flow shares).
+export const devSareeMannequinConfig = pgTable('dev_saree_mannequin_config', {
+  id: uuid('id').primaryKey().default(sql`'00000000-0000-0000-0000-000000000002'::uuid`),
+  workflowTemplateId: uuid('workflow_template_id').references(() => workflowTemplates.id, {
+    onDelete: 'set null',
+  }),
+  isActive: boolean('is_active').notNull().default(true),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
