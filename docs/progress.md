@@ -17,6 +17,23 @@ Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-22-ad
 ### Open Questions / Decisions
 - No implementation decision remains open. Before deployment, manually confirm the ten Settings values render and persist after reload with an authenticated admin session.
 
+## 2026-07-22 - Docker manifest-only dependency layers
+
+Split dependency installation from source copying in all six service Dockerfiles so source-only changes reuse the pnpm install layer.
+
+### Done
+- Added a manifest-only `deps` stage to the admin-web, API, catalogues-web, chatbot, dispatcher, and Shopify Dockerfiles. Each stage copies the root manifests plus all tracked workspace package manifests before running the existing service-scoped `pnpm install --no-frozen-lockfile --filter <workspace>...`.
+- Changed each build stage to inherit from `deps`, then copy the full source tree and run the service's unchanged build steps. Existing build arguments, environment variables, runtime layouts, ports, and commands were preserved.
+- Verified cold `--no-cache` builds for API (shared workspace dependencies) and admin-web (frontend-only dependency subtree). Both images built successfully.
+- Verified the warm-cache acceptance path with a temporary admin-web source-only content change: the manifest copies and scoped pnpm install were `CACHED`, while `COPY . .` and the Vite build reran. The temporary source change was removed and its original SHA-256 restored.
+- Removed the temporary `test-api:manifest-cache` and `test-admin:manifest-cache` images after verification.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None. Frozen-lockfile enforcement, runtime pruning, CI, Compose, and application-source changes remain separate out-of-scope work.
+
 ## 2026-07-21 - Saree mannequin style selection
 
 Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-21-saree-mannequin-style-selection.md`: administrators can manage global saree mannequin styles, merchants can select an active style, the selected workflow is snapshotted onto the job, the dispatcher honors that snapshot, and the Android catalogue app exposes the picker with a backward-compatible fallback.
