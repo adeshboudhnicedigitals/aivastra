@@ -3,7 +3,7 @@ import { CheckIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
-const BENEFITS = ['Studio-quality output', 'Multiple model options', 'Ready for ecommerce'];
+const BENEFITS = ['Studio quality output', 'Multiple model options', 'Ready for ecommerce'];
 
 export function PreviewPanel() {
   return (
@@ -134,7 +134,7 @@ export function PreviewPanel() {
               paddingTop: 16,
             }}
           >
-            Preview your AI-generated output here before download.
+            Preview your AI generated output here before download.
           </span>
         </div>
       </div>
