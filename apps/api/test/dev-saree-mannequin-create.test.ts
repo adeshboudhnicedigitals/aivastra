@@ -1,6 +1,6 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import {
@@ -134,6 +134,20 @@ describe('POST /v1/dev/saree-mannequin', () => {
     const body = await res.json();
     expect(body.error.code).toBe('INSUFFICIENT_CREDITS');
     await setCredits(100);
+  });
+});
+
+describe('POST /v1/dev/saree-mannequin upload limit', () => {
+  afterEach(async () => {
+    await app.redis.del('config:system');
+  });
+
+  it('rejects a garment file above the admin-configured limit', async () => {
+    await app.redis.set('config:system', JSON.stringify({ uploadLimits: { devApiMaxBytes: 10 } }));
+    const res = await post(form({ garment: Buffer.alloc(1024) }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.message).toContain('MB limit');
   });
 });
 

@@ -265,4 +265,30 @@ describe('POST /v1/shopify/catalog/generate', () => {
     expect(body.error.code).toBe('BAD_REQUEST');
     expect(body.error.message).toContain("not one of this product's current images");
   });
+
+  it('rejects a source image above the admin-configured Shopify catalogue limit', async () => {
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { shopifyCatalogSourceMaxBytes: 5 } }),
+    );
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/catalog/generate',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          shopifyProductId: 1,
+          sourceImageUrl: 'https://cdn.shopify.com/s/files/1/0/0/products/shirt.jpg',
+          faceId,
+          looks: [{ poseId, backgroundId }],
+          aspectRatio: '3:4',
+          resolution: 'HD',
+        }),
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.message).toContain('MB');
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
 });

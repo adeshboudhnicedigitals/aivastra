@@ -8,6 +8,7 @@ import {
   DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG,
   DEFAULT_TRYON_CONFIG,
 } from '../../lib/resolution-config.js';
+import { DEFAULT_UPLOAD_LIMITS } from '../../lib/upload-limits-config.js';
 import { requireAdmin } from './guard.js';
 
 const KEY = 'config:system';
@@ -33,6 +34,7 @@ export async function adminConfigRoutes(app: FastifyInstance) {
       cfg.maxOutputPx = cfg.maxOutputPx ?? DEFAULT_MAX_OUTPUT_PX;
       cfg.tryon = cfg.tryon ?? DEFAULT_TRYON_CONFIG;
       cfg.sareeMannequinDev = cfg.sareeMannequinDev ?? DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG;
+      cfg.uploadLimits = { ...DEFAULT_UPLOAD_LIMITS, ...cfg.uploadLimits };
       return cfg;
     },
   );

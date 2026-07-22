@@ -536,8 +536,8 @@ export default function PricingPage(): React.ReactElement {
                     maxWidth: 480,
                   }}
                 >
-                  Designed for growing brands creating AI-powered fashion catalogues and virtual
-                  try-ons at scale.
+                  Designed for growing brands creating AI powered fashion catalogues and virtual
+                  tryons at scale.
                 </div>
                 {activatedDate && (
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 6 }}>
@@ -625,7 +625,7 @@ export default function PricingPage(): React.ReactElement {
                 </div>
               )}
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: '16px' }}>
-                Credits are shared across AI Catalogue Generation and AI Virtual Try-On.
+                Credits are shared across AI Catalogue Generation and AI Virtual Tryon.
               </div>
             </div>
           </div>

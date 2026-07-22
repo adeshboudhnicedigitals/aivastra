@@ -132,6 +132,43 @@ describe('GET /v1/shopify/products/:id/images', () => {
 });
 
 describe('PATCH /v1/shopify/products/:id', () => {
+  it('rejects a garment image above the admin-configured limit', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = (async (url: string) => {
+      if (typeof url === 'string' && url.includes('/images.json')) {
+        return {
+          ok: true,
+          json: async () => ({
+            images: [{ id: 1, src: 'https://cdn.shopify.com/oversized.jpg' }],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        headers: new Map([['content-type', 'image/jpeg']]),
+        arrayBuffer: async () => new Uint8Array(2048).buffer,
+      } as unknown as Response;
+    }) as typeof fetch;
+
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { shopifyProductImageMaxBytes: 1024 } }),
+    );
+    try {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/shopify/products/1',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        payload: { garmentImageUrl: 'https://cdn.shopify.com/oversized.jpg' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.message).toContain('MB');
+    } finally {
+      await app.redis.del('config:system');
+      global.fetch = originalFetch;
+    }
+  });
+
   it('rejects enabling a product that is not active', async () => {
     const res = await app.inject({
       method: 'PATCH',

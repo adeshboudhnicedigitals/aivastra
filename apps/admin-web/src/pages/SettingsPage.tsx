@@ -387,6 +387,19 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   >([]);
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
+  const [uploadLimitsMb, setUploadLimitsMb] = useState({
+    merchantCatalogMaxBytes: 20,
+    webGarmentMaxBytes: 20,
+    merchantTryonMaxBytes: 20,
+    kioskUploadMaxBytes: 20,
+    devApiMaxBytes: 20,
+    shopifyCatalogSourceMaxBytes: 20,
+    shopifyCustomerPhotoMaxBytes: 20,
+    shopifyProductImageMaxBytes: 20,
+    shopifyProductSyncMaxBytes: 20,
+  });
+  const [bulkImportMaxGb, setBulkImportMaxGb] = useState(2.5);
+  const [uploadLimitsExpanded, setUploadLimitsExpanded] = useState(false);
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
 
@@ -407,6 +420,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       merchantCatalogAspectRatio?: string;
       tryon?: { creditCost: number };
       sareeMannequinDev?: { creditCost: number };
+      uploadLimits?: Record<string, number>;
     }>('/admin/config')
       .then((cfg) => {
         if (cfg.resolutions) setResolutions(cfg.resolutions);
@@ -416,6 +430,38 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
         if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
         if (cfg.sareeMannequinDev) setSareeMannequinDevCreditCost(cfg.sareeMannequinDev.creditCost);
+        if (cfg.uploadLimits) {
+          const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
+          setUploadLimitsMb({
+            merchantCatalogMaxBytes: bytesToMb(
+              cfg.uploadLimits.merchantCatalogMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            webGarmentMaxBytes: bytesToMb(cfg.uploadLimits.webGarmentMaxBytes ?? 20 * 1024 * 1024),
+            merchantTryonMaxBytes: bytesToMb(
+              cfg.uploadLimits.merchantTryonMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            kioskUploadMaxBytes: bytesToMb(
+              cfg.uploadLimits.kioskUploadMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            devApiMaxBytes: bytesToMb(cfg.uploadLimits.devApiMaxBytes ?? 20 * 1024 * 1024),
+            shopifyCatalogSourceMaxBytes: bytesToMb(
+              cfg.uploadLimits.shopifyCatalogSourceMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            shopifyCustomerPhotoMaxBytes: bytesToMb(
+              cfg.uploadLimits.shopifyCustomerPhotoMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            shopifyProductImageMaxBytes: bytesToMb(
+              cfg.uploadLimits.shopifyProductImageMaxBytes ?? 20 * 1024 * 1024,
+            ),
+            shopifyProductSyncMaxBytes: bytesToMb(
+              cfg.uploadLimits.shopifyProductSyncMaxBytes ?? 20 * 1024 * 1024,
+            ),
+          });
+          const bytesToGb = (b: number) => Math.round((b / (1024 * 1024 * 1024)) * 100) / 100;
+          setBulkImportMaxGb(
+            bytesToGb(cfg.uploadLimits.bulkImportMaxBytes ?? 2.5 * 1024 * 1024 * 1024),
+          );
+        }
       })
       .catch((e) =>
         toast({
@@ -439,6 +485,8 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   const saveSysConfig = async () => {
     setSysSaving(true);
     try {
+      const mbToBytes = (mb: number) => Math.round(mb * 1024 * 1024);
+      const gbToBytes = (gb: number) => Math.round(gb * 1024 * 1024 * 1024);
       await apiFetch('/admin/config', {
         method: 'PATCH',
         body: JSON.stringify({
@@ -448,6 +496,18 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           merchantCatalogAspectRatio,
           tryon: { creditCost: tryonCreditCost },
           sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
+          uploadLimits: {
+            merchantCatalogMaxBytes: mbToBytes(uploadLimitsMb.merchantCatalogMaxBytes),
+            webGarmentMaxBytes: mbToBytes(uploadLimitsMb.webGarmentMaxBytes),
+            merchantTryonMaxBytes: mbToBytes(uploadLimitsMb.merchantTryonMaxBytes),
+            kioskUploadMaxBytes: mbToBytes(uploadLimitsMb.kioskUploadMaxBytes),
+            devApiMaxBytes: mbToBytes(uploadLimitsMb.devApiMaxBytes),
+            shopifyCatalogSourceMaxBytes: mbToBytes(uploadLimitsMb.shopifyCatalogSourceMaxBytes),
+            shopifyCustomerPhotoMaxBytes: mbToBytes(uploadLimitsMb.shopifyCustomerPhotoMaxBytes),
+            shopifyProductImageMaxBytes: mbToBytes(uploadLimitsMb.shopifyProductImageMaxBytes),
+            shopifyProductSyncMaxBytes: mbToBytes(uploadLimitsMb.shopifyProductSyncMaxBytes),
+            bulkImportMaxBytes: gbToBytes(bulkImportMaxGb),
+          },
         }),
       });
       toast({ title: 'System config saved' });
@@ -1167,6 +1227,134 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       </span>
                     </div>
                   </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Upload Limits
+                    <button
+                      type="button"
+                      aria-expanded={uploadLimitsExpanded}
+                      aria-controls="upload-limits-options"
+                      aria-label={
+                        uploadLimitsExpanded ? 'Collapse upload limits' : 'Expand upload limits'
+                      }
+                      onClick={() => setUploadLimitsExpanded((expanded) => !expanded)}
+                      style={{
+                        width: 26,
+                        height: 26,
+                        marginLeft: 8,
+                        padding: 0,
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        background: 'var(--surface-2)',
+                        color: 'var(--text)',
+                        fontSize: 20,
+                        lineHeight: 1,
+                        cursor: 'pointer',
+                        verticalAlign: 'middle',
+                      }}
+                    >
+                      <span aria-hidden="true">{uploadLimitsExpanded ? '−' : '+'}</span>
+                    </button>
+                  </div>
+                  {uploadLimitsExpanded && (
+                    <div id="upload-limits-options">
+                      <div className="setting-desc" style={{ marginBottom: 12 }}>
+                        Maximum accepted file size per upload surface. Existing uploads already in
+                        progress are unaffected; this only applies to uploads made after saving.
+                      </div>
+                      {(
+                        [
+                          ['merchantCatalogMaxBytes', 'Merchant catalogue (Android flat photo)'],
+                          ['webGarmentMaxBytes', 'Studio / web garment upload'],
+                          ['merchantTryonMaxBytes', 'Merchant try-on customer photo'],
+                          ['kioskUploadMaxBytes', 'Kiosk customer photo'],
+                          ['devApiMaxBytes', 'Dev API upload'],
+                          ['shopifyCatalogSourceMaxBytes', 'Shopify catalogue source image'],
+                          ['shopifyCustomerPhotoMaxBytes', 'Shopify storefront customer photo'],
+                          ['shopifyProductImageMaxBytes', 'Shopify product-image import'],
+                          ['shopifyProductSyncMaxBytes', 'Shopify webhook product sync'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <div
+                          key={key}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            marginBottom: 8,
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--r)',
+                            background: 'var(--surface-2)',
+                          }}
+                        >
+                          <span className="setting-lbl">{label}</span>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              marginLeft: 'auto',
+                            }}
+                          >
+                            <input
+                              className="input"
+                              type="number"
+                              min={0}
+                              max={50}
+                              step={0.1}
+                              style={{ width: 80, textAlign: 'right' }}
+                              value={uploadLimitsMb[key]}
+                              disabled={sysSaving}
+                              onChange={(e) =>
+                                setUploadLimitsMb((prev) => ({
+                                  ...prev,
+                                  [key]: Number(e.target.value),
+                                }))
+                              }
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>MB</span>
+                          </div>
+                        </div>
+                      ))}
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '10px 12px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--r)',
+                          background: 'var(--surface-2)',
+                        }}
+                      >
+                        <span className="setting-lbl">Admin bulk-import ZIP</span>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            marginLeft: 'auto',
+                          }}
+                        >
+                          <input
+                            className="input"
+                            type="number"
+                            min={0}
+                            max={3}
+                            step={0.1}
+                            style={{ width: 80, textAlign: 'right' }}
+                            value={bulkImportMaxGb}
+                            disabled={sysSaving}
+                            onChange={(e) => setBulkImportMaxGb(Number(e.target.value))}
+                          />
+                          <span style={{ fontSize: 13, color: 'var(--muted)' }}>GB</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
