@@ -876,7 +876,14 @@ async function processSareeMannequinJob(
   const faceId = inputs.faceId;
   const garmentTypeId = inputs.garmentTypeId;
 
-  if (!garmentKey || !garmentTypeId) {
+  // Dev-API saree-mannequin jobs snapshot their resolved workflow template
+  // directly into params and set garmentTypeId to null (they never touch
+  // garment_subcategories) — see createDevSareeMannequinJob. garmentTypeId is
+  // only needed as a fallback lookup key when no snapshot is present, so it
+  // must not be required here when a snapshot already exists.
+  const hasSnapshottedWorkflow = typeof rawParams.workflowTemplateId === 'string';
+
+  if (!garmentKey || (!garmentTypeId && !hasSnapshottedWorkflow)) {
     await markFailed(
       cfg,
       jobId,
@@ -898,6 +905,23 @@ async function processSareeMannequinJob(
 
   let workflowTemplateId = snapshottedWorkflowTemplateId;
   if (!workflowTemplateId) {
+    // No snapshot present — the guard above only allows this when
+    // garmentTypeId is non-null, so this is the garment-type-default lookup
+    // path. Re-checked explicitly (rather than relying on the guard above)
+    // both to narrow the type for TS and as a defensive belt-and-braces check.
+    if (!garmentTypeId) {
+      await markFailed(
+        cfg,
+        jobId,
+        userId,
+        stream,
+        messageId,
+        'MANNEQUIN_INPUTS_MISSING',
+        jobLog,
+        startedAt,
+      );
+      return;
+    }
     const [garmentType] = await db
       .select({
         mannequinWorkflowTemplateId: schema.garmentSubcategories.mannequinWorkflowTemplateId,
