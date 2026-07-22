@@ -13,12 +13,12 @@ import {
 import { and, asc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { createDevTryonJob } from './create-job.js';
 import { createDevSareeMannequinJob } from './create-saree-mannequin-job.js';
 import { sniffImageMime } from './image-sniff.js';
 import { hashApiKey } from './keys.js';
 
-const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const EXT_BY_MIME = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -122,6 +122,7 @@ export async function devRoutes(app: FastifyInstance) {
       const merchantId = req.merchantId as string;
       const merchantUserId = req.merchantUserId as string;
       const apiKeyId = req.apiKeyId as string;
+      const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let categorySlug: string | undefined;
       const files: Record<string, { buf: Buffer; mime: string }> = {};
@@ -141,11 +142,11 @@ export async function devRoutes(app: FastifyInstance) {
         for (const fieldname of ['person', 'garment'] as const) {
           const raw = parsed.data[fieldname].replace(/^data:[^;]+;base64,/, '');
           const buf = Buffer.from(raw, 'base64');
-          if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
+          if (buf.length === 0 || buf.length > maxFileBytes) {
             throw new AppError(
               'VALIDATION',
               400,
-              `${fieldname} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+              `${fieldname} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
             );
           }
           // Magic bytes only — decoding garbage base64 still yields *some* buffer.
@@ -163,7 +164,7 @@ export async function devRoutes(app: FastifyInstance) {
         // The global multipart limit is 2.5GB (server.ts) for the admin zip-import
         // route, so this route MUST set its own limits — it does not inherit a safe
         // default.
-        const parts = req.parts({ limits: { fileSize: MAX_FILE_BYTES, files: 2 } });
+        const parts = req.parts({ limits: { fileSize: maxFileBytes, files: 2 } });
         for await (const part of parts) {
           if (part.type === 'field' && part.fieldname === 'category') {
             categorySlug = String(part.value);
@@ -177,14 +178,14 @@ export async function devRoutes(app: FastifyInstance) {
             throw new AppError(
               'VALIDATION',
               400,
-              `${part.fieldname} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+              `${part.fieldname} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
             );
           });
           if (part.file.truncated) {
             throw new AppError(
               'VALIDATION',
               400,
-              `${part.fieldname} exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+              `${part.fieldname} exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
             );
           }
           // Magic bytes only — part.mimetype is client-declared and untrusted.
@@ -259,6 +260,7 @@ export async function devRoutes(app: FastifyInstance) {
       const merchantId = req.merchantId as string;
       const merchantUserId = req.merchantUserId as string;
       const apiKeyId = req.apiKeyId as string;
+      const maxFileBytes = await getUploadLimitBytes(req.server, 'devApiMaxBytes');
 
       let garmentFile: { buf: Buffer; mime: string } | undefined;
 
@@ -275,11 +277,11 @@ export async function devRoutes(app: FastifyInstance) {
         }
         const raw = parsed.data.garment.replace(/^data:[^;]+;base64,/, '');
         const buf = Buffer.from(raw, 'base64');
-        if (buf.length === 0 || buf.length > MAX_FILE_BYTES) {
+        if (buf.length === 0 || buf.length > maxFileBytes) {
           throw new AppError(
             'VALIDATION',
             400,
-            `garment exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+            `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
           );
         }
         const mime = sniffImageMime(buf);
@@ -288,7 +290,7 @@ export async function devRoutes(app: FastifyInstance) {
         }
         garmentFile = { buf, mime };
       } else {
-        const parts = req.parts({ limits: { fileSize: MAX_FILE_BYTES, files: 1 } });
+        const parts = req.parts({ limits: { fileSize: maxFileBytes, files: 1 } });
         for await (const part of parts) {
           if (part.type !== 'file') continue;
           if (part.fieldname !== 'garment') {
@@ -298,14 +300,14 @@ export async function devRoutes(app: FastifyInstance) {
             throw new AppError(
               'VALIDATION',
               400,
-              `garment exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+              `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
             );
           });
           if (part.file.truncated) {
             throw new AppError(
               'VALIDATION',
               400,
-              `garment exceeds the ${MAX_FILE_BYTES / (1024 * 1024)}MB limit`,
+              `garment exceeds the ${maxFileBytes / (1024 * 1024)}MB limit`,
             );
           }
           const mime = sniffImageMime(buf);

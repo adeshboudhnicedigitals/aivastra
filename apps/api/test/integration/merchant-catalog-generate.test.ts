@@ -282,6 +282,53 @@ describe('merchant catalog generate (single, Path B)', () => {
     void merchant; // referenced only for setup symmetry with other tests in this file
   });
 
+  it('rejects a merchant catalogue upload above the admin-configured limit', async () => {
+    const { userId } = await createMerchant(app, 'catalog-limit@example.com');
+    await grantUserCredits(app, userId, 100);
+    const { garmentType, face, bg } = await seedFullDefaults('women');
+
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        merchantCatalogDefaults: { women: { faceId: face.id, backgroundId: bg.id } },
+        merchantCatalogAspectRatio: '2:3',
+        uploadLimits: { merchantCatalogMaxBytes: 1024 },
+      }),
+    );
+
+    const auth = await authHeader(userId);
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: {
+        category: 'women',
+        name: 'Sarees',
+        garmentSubcategoryId: garmentType.id,
+      },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const presigned = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/presign',
+      headers: auth,
+      payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 2048 },
+    });
+    expect(presigned.statusCode).toBe(200);
+    const { r2Key } = presigned.json() as { r2Key: string };
+    await app.storage.putObject(r2Key, Buffer.alloc(2048), 'image/jpeg');
+
+    const genRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey: r2Key },
+    });
+    expect(genRes.statusCode).toBe(413);
+    expect(genRes.json().error.message).toContain('MB limit');
+  });
+
   it('rejects with 400 when the garment type has no default pose configured', async () => {
     const { userId } = await createMerchant(app, 'gen-nopose@example.com');
     await grantUserCredits(app, userId, 100);

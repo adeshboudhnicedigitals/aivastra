@@ -380,6 +380,31 @@ describe('kiosk jobs', () => {
     expect(uncart.statusCode).toBe(204);
   });
 
+  it('rejects a kiosk customer photo above the admin-configured limit', async () => {
+    const merchant = await seedMerchant(app, 'kiosk-limit@example.com', 100);
+    const { accessToken } = await claimDevice(app, merchant.id, 'Device 1', 'android-1');
+    const item = await seedCatalogItem(app, merchant.id);
+
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { kioskUploadMaxBytes: 1024 } }),
+    );
+    try {
+      const r2Key = await uploadCustomerPhoto(app, accessToken, Buffer.alloc(2048));
+
+      const jobRes = await app.inject({
+        method: 'POST',
+        url: '/v1/kiosk/jobs',
+        headers: { authorization: `Bearer ${accessToken}` },
+        payload: { merchantCatalogItemId: item.id, customerPhotoKey: r2Key },
+      });
+      expect(jobRes.statusCode).toBe(413);
+      expect(jobRes.json().error.message).toContain('MB limit');
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
+
   it('rejects a customer photo key presigned by device A when device B submits the job', async () => {
     const merchant = await seedMerchant(app, 'merchant-shared@example.com', 100);
     const deviceA = await claimDevice(app, merchant.id, 'Tablet A', 'android-a');

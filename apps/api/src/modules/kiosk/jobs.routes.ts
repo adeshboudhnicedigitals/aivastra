@@ -6,10 +6,9 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { merchantRefund } from '../merchant/ledger.js';
 import { createKioskJob, KIOSK_JOB_COST } from './create-job.js';
-
-const MAX_KIOSK_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 async function checkRateLimit(
   redis: Redis,
@@ -217,11 +216,12 @@ export async function kioskJobsRoutes(app: FastifyInstance) {
       } catch {
         throw new AppError('BAD_UPLOAD', 400, 'uploaded photo not found');
       }
-      if (photoHead.contentLength > MAX_KIOSK_UPLOAD_BYTES) {
+      const maxKioskBytes = await getUploadLimitBytes(app, 'kioskUploadMaxBytes');
+      if (photoHead.contentLength > maxKioskBytes) {
         throw new AppError(
           'BAD_UPLOAD',
           413,
-          `uploaded photo exceeds ${MAX_KIOSK_UPLOAD_BYTES / (1024 * 1024)}MB limit`,
+          `uploaded photo exceeds ${maxKioskBytes / (1024 * 1024)}MB limit`,
         );
       }
 

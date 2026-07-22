@@ -1,3 +1,39 @@
+## 2026-07-22 - Admin-configurable upload limits
+
+Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-22-admin-configurable-upload-limits.md`: all API upload surfaces now read validated limits from the shared system config, and administrators can manage all ten limits from Settings.
+
+### Done
+- Added the shared `uploadLimits` schema, defaults, fail-open Redis reader, and GET/PATCH `/admin/config` wiring. Missing or malformed stored values retain the previous limits.
+- Replaced the nine hardcoded 20MB checks across merchant catalogue, studio/web, merchant try-on, kiosk, dev API, and Shopify routes with per-surface configuration reads.
+- Added a dedicated configurable limit to the previously unbounded admin bulk-import ZIP route, including clean 413 handling for both thrown and flagged multipart truncation behavior.
+- Added the Admin Web Settings section with nine MB controls and one GB bulk-import control, including byte conversion on load/save.
+- Added regression coverage for every upload surface plus admin config round-tripping. Final serialized acceptance runs passed all 12 touched test files: 41/41 integration tests and 53/53 non-integration tests.
+- Verification passed: full monorepo typecheck excluding admin-mobile, API/admin focused typechecks, and repository-wide Biome check (existing warning baseline only).
+
+### Failed / Not Done
+- The authenticated browser walkthrough of the new Settings section was not run in this environment.
+- An initial parallel combined integration run was invalidated by test files racing on the shared Redis `config:system` key; rerunning the complete set with file parallelism disabled passed.
+
+### Open Questions / Decisions
+- No implementation decision remains open. Before deployment, manually confirm the ten Settings values render and persist after reload with an authenticated admin session.
+
+## 2026-07-22 - Docker manifest-only dependency layers
+
+Split dependency installation from source copying in all six service Dockerfiles so source-only changes reuse the pnpm install layer.
+
+### Done
+- Added a manifest-only `deps` stage to the admin-web, API, catalogues-web, chatbot, dispatcher, and Shopify Dockerfiles. Each stage copies the root manifests plus all tracked workspace package manifests before running the existing service-scoped `pnpm install --no-frozen-lockfile --filter <workspace>...`.
+- Changed each build stage to inherit from `deps`, then copy the full source tree and run the service's unchanged build steps. Existing build arguments, environment variables, runtime layouts, ports, and commands were preserved.
+- Verified cold `--no-cache` builds for API (shared workspace dependencies) and admin-web (frontend-only dependency subtree). Both images built successfully.
+- Verified the warm-cache acceptance path with a temporary admin-web source-only content change: the manifest copies and scoped pnpm install were `CACHED`, while `COPY . .` and the Vite build reran. The temporary source change was removed and its original SHA-256 restored.
+- Removed the temporary `test-api:manifest-cache` and `test-admin:manifest-cache` images after verification.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None. Frozen-lockfile enforcement, runtime pruning, CI, Compose, and application-source changes remain separate out-of-scope work.
+
 ## 2026-07-21 (later) - Saree two-step generation fix: full regression pass (Task 8/8)
 
 Final task of `docs/superpowers/plans/2026-07-21-saree-two-step-generation-fix.md`, executed on `fix/saree-two-step-generation` (Tasks 1-7 already committed and individually reviewed). This pass ran the whole monorepo build/typecheck/test suite once, reconciled every failure against the plan's documented pre-existing-failure list, and logs the fix here per `CLAUDE.md`'s progress-tracking rule. No implementation changes made in this task — regression verification only.

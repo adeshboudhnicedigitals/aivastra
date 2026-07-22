@@ -222,6 +222,44 @@ describe('syncProduct', () => {
     expect(row.failedReason).toContain('20MB');
   });
 
+  it('respects an admin-configured limit lower than the default 20MB cap', async () => {
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { shopifyProductSyncMaxBytes: 5 } }),
+    );
+    try {
+      const fakeFetch = (async () =>
+        ({
+          ok: true,
+          arrayBuffer: async () => new Uint8Array([1, 2, 3, 4, 5, 6]).buffer,
+          headers: new Map([['content-type', 'image/jpeg']]),
+        }) as unknown as Response) as typeof fetch;
+      await syncProduct(
+        app,
+        storeId,
+        {
+          id: 48,
+          title: 'Configured Limit Product',
+          image: { src: 'https://cdn.shopify.com/c.jpg' },
+        },
+        fakeFetch,
+      );
+      const [row] = await app.db
+        .select()
+        .from(schema.shopifyProductGarments)
+        .where(
+          and(
+            eq(schema.shopifyProductGarments.storeId, storeId),
+            eq(schema.shopifyProductGarments.shopifyProductId, 48),
+          ),
+        );
+      expect(row.status).toBe('failed');
+      expect(row.failedReason).toContain('MB');
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
+
   it('persists product_type/tags/vendor and leaves funnel unassigned with no matching rule', async () => {
     await syncProduct(
       app,
