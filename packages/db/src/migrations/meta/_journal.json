@@ -862,6 +862,13 @@
       "when": 1784703494225,
       "tag": "0122_striped_viper",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1784703839269,
+      "tag": "0123_fantastic_guardian",
+      "breakpoints": true
     }
   ]
 }
