@@ -8,6 +8,7 @@ import {
   type CreateTryOnJobRequest,
   type Resolution,
   resolutionFromDims,
+  type SareeStep2Inputs,
 } from '@aivastra/types';
 import { aliasedTable, and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
@@ -57,18 +58,83 @@ export async function resolveMannequinGarmentKey(
   return keys.output(mannequinJobId);
 }
 
-export async function createJob(
+/**
+ * H2: keys are format-pinned by zod, but the format alone does not prove the
+ * caller owns the object — another user's key has the same shape. Verify each
+ * garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
+ * before any credit/DB mutation. `trustedGarmentKeys` bypasses the Redis-binding
+ * check for a key already proven to belong to this user by an earlier step in
+ * the same request (see regenerate.ts, shopify/catalog.routes.ts) — the 24h
+ * upload-ownership binding may have expired by the time of a regenerate.
+ */
+export async function verifyGarmentKey(
   app: FastifyInstance,
   userId: string,
-  body: z.infer<typeof CreateTryOnJobRequest>,
-  opts?: { trustedGarmentKeys?: Set<string> },
-) {
+  key: string,
+  trustedGarmentKeys?: Set<string>,
+): Promise<void> {
+  if (trustedGarmentKeys?.has(key)) {
+    await assertGarmentObjectValid(app, key);
+    return;
+  }
+  await assertOwnsUploadKey(app, userId, key);
+}
+
+export interface TryonPlanLook {
+  poseId: string;
+  backgroundId: string;
+  upperGarmentKey: string | null;
+  lowerCatalogId: string | null;
+  lowerGarmentKey: string | null;
+  shoeCatalogId: string | null;
+  workflowTemplateId: string | null;
+  promptGarmentPhase: string | null;
+  params: Record<string, unknown>;
+}
+
+export interface TryonPlan {
+  catalogueId: string;
+  cost: number;
+  looks: TryonPlanLook[];
+}
+
+/**
+ * Validates a tryon request end-to-end — server-side cost, garment-type/
+ * mannequin-step policy, face/background/pose/catalog existence, and per-pose
+ * workflow node requirements — and produces a plan of QUEUED-job-ready "looks".
+ * Read-only: never deducts credits, inserts rows, or enqueues anything. Shared
+ * by createJob (the direct /v1/jobs/tryon path) and createSareeMannequinJob's
+ * step-2 planning (Task 3), so both stay validation-identical without
+ * duplicating this logic.
+ *
+ * The caller resolves `upperGarmentKey` itself before calling in — either via
+ * `resolveMannequinGarmentKey` (mannequinJobId path) or `verifyGarmentKey`
+ * (direct upload path) — since only the caller knows which form applies.
+ * `opts.resolvedUpperGarmentKey` is `null` only when the caller must defer that
+ * resolution (the saree-mannequin step-2 path, until its mannequin job
+ * completes). `opts.trustedGarmentKeys` passes through the same regenerate-flow
+ * bypass createJob's own upperGarmentKey resolution uses, so the lower/third
+ * garment verification below stays consistent with the caller's.
+ */
+export async function resolveTryonPlan(
+  app: FastifyInstance,
+  userId: string,
+  body:
+    | z.infer<typeof CreateTryOnJobRequest>
+    | {
+        catalogueId?: string;
+        inputs: z.infer<typeof SareeStep2Inputs>;
+        params?: z.infer<typeof CreateTryOnJobRequest>['params'];
+        userHint?: string;
+        aspectRatio: string;
+        platform?: string;
+      },
+  opts: { resolvedUpperGarmentKey: string | null; trustedGarmentKeys?: Set<string> },
+): Promise<TryonPlan> {
   const {
     faceId,
     garmentTypeId,
     catalogueTemplateMappingId,
-    upperGarmentKey,
-    mannequinJobId,
     lowerCatalogId,
     lowerGarmentKey,
     thirdGarmentKey,
@@ -76,6 +142,7 @@ export async function createJob(
   } = body.inputs;
   const aspectRatio: string | undefined = body.aspectRatio;
   const platform: string | undefined = body.platform;
+  const resolvedUpperGarmentKey = opts.resolvedUpperGarmentKey ?? undefined;
 
   // S1: compute cost server-side from actual output dims — never trust client's `resolution`.
   const customW = body.params?.outputWidth;
@@ -145,43 +212,29 @@ export async function createJob(
       };
     }
   }
-  if (requiresMannequinStep && !mannequinJobId) {
+
+  // Defensive backstop only — for both current callers, opts.resolvedUpperGarmentKey
+  // is always `string | null` by construction (never JS `undefined`), so this never
+  // fires from createJob (which pre-checks the raw mannequinJobId/upperGarmentKey
+  // fields itself, see below) or from a saree-step2 caller passing `null` to
+  // legitimately defer resolution. It only guards a caller that bypasses the type
+  // and passes `undefined` outright.
+  if (requiresMannequinStep && opts.resolvedUpperGarmentKey === undefined) {
     throw new AppError('VALIDATION', 400, 'mannequinJobId required for this garment type');
   }
-  if (!requiresMannequinStep && mannequinJobId) {
-    throw new AppError('VALIDATION', 400, 'mannequinJobId not valid for this garment type');
-  }
 
-  // H2: keys are format-pinned by zod, but the format alone does not prove the
-  // caller owns the object — another user's key has the same shape. Verify each
-  // garment key was issued to THIS user by /v1/uploads/presign (Redis binding)
-  // before any credit/DB mutation.
-  async function verifyGarmentKey(key: string) {
-    if (opts?.trustedGarmentKeys?.has(key)) {
-      await assertGarmentObjectValid(app, key);
-      return;
-    }
-    await assertOwnsUploadKey(app, userId, key);
+  if (lowerGarmentKey) {
+    await verifyGarmentKey(app, userId, lowerGarmentKey, opts.trustedGarmentKeys);
   }
-  // The garment image actually used for this job's upper — either a fresh
-  // presigned upload (verified above via verifyGarmentKey, trusted-key aware for
-  // regeneration) or a completed saree-mannequin job's output (resolveMannequinGarmentKey
-  // does its own ownership check against jobs.userId, no Redis-binding TTL involved,
-  // so it doesn't need verifyGarmentKey's trusted-key bypass).
-  let resolvedUpperGarmentKey: string | undefined;
-  if (mannequinJobId) {
-    resolvedUpperGarmentKey = await resolveMannequinGarmentKey(app, userId, mannequinJobId);
-  } else if (upperGarmentKey) {
-    await verifyGarmentKey(upperGarmentKey);
-    resolvedUpperGarmentKey = upperGarmentKey;
+  if (thirdGarmentKey) {
+    await verifyGarmentKey(app, userId, thirdGarmentKey, opts.trustedGarmentKeys);
   }
-  if (lowerGarmentKey) await verifyGarmentKey(lowerGarmentKey);
-  if (thirdGarmentKey) await verifyGarmentKey(thirdGarmentKey);
 
   // Normalize to a single per-look list. This only rejects "neither form present" —
   // it does not independently re-enforce "not both", since CreateTryOnJobInputs's
   // zod .refine() (a true XOR via !==) already guarantees that upstream of every
-  // route that calls createJob. This guard exists because TS can't see the refine's
+  // route that calls createJob (and SareeStep2Inputs' own refine does the same for
+  // the saree-mannequin path). This guard exists because TS can't see the refine's
   // constraint through the optional fields on body.inputs.
   const legacyBackgroundId = body.inputs.backgroundId;
   const legacyPoseIds = body.inputs.poseIds;
@@ -482,11 +535,11 @@ export async function createJob(
           r.configWorkflowTemplateId != null ? r.overrideSizeNodeIds : r.defaultSizeNodeIds,
       })));
 
-  // Build map for O(1) lookup in the insert loop
+  // Build map for O(1) lookup below.
   const poseWorkflowMap = new Map(poseWorkflows.map((pw) => [pw.poseId, pw]));
 
   for (const pw of poseWorkflows) {
-    if (pw.upperNodeIds.length > 0 && !resolvedUpperGarmentKey) {
+    if (pw.upperNodeIds.length > 0 && opts.resolvedUpperGarmentKey === undefined) {
       throw new AppError('VALIDATION', 400, 'upper garment required for this pose');
     }
     if (pw.lowerNodeId) {
@@ -503,6 +556,108 @@ export async function createJob(
       throw new AppError('VALIDATION', 400, 'shoe catalog item required for this pose');
     }
   }
+
+  const catalogueId = ('catalogueId' in body ? body.catalogueId : undefined) ?? randomUUID();
+  const looks_: TryonPlanLook[] = looks.map((look) => {
+    const pw = poseWorkflowMap.get(look.poseId);
+    // Only store inputs the workflow actually supports — strips irrelevant fields
+    // so the dispatcher never receives/resolves data it won't use.
+    const lookUpperGarmentKey =
+      pw?.upperNodeIds && pw.upperNodeIds.length > 0 ? (resolvedUpperGarmentKey ?? null) : null;
+    const effectiveLowerCatalogId =
+      pw?.lowerNodeId && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
+    const effectiveLowerGarmentKey = pw?.lowerNodeId && lowerGarmentKey ? lowerGarmentKey : null;
+    const effectiveShoeCatalogId = pw?.shoeNodeId ? (shoeCatalogId ?? null) : null;
+    return {
+      poseId: look.poseId,
+      backgroundId: look.backgroundId,
+      upperGarmentKey: lookUpperGarmentKey,
+      lowerCatalogId: effectiveLowerCatalogId,
+      lowerGarmentKey: effectiveLowerGarmentKey,
+      shoeCatalogId: effectiveShoeCatalogId,
+      workflowTemplateId: pw?.workflowTemplateId ?? null,
+      promptGarmentPhase: pw?.promptGarmentPhase ?? null,
+      params: {
+        ...(body.params ?? {}),
+        // Always the clamped, server-computed dims — whether derived from the
+        // aspect-ratio enum or a custom request, this is what the dispatcher
+        // patches the workflow with. Never let a raw pre-maxOutputPx value through.
+        outputWidth: outputDims.width,
+        outputHeight: outputDims.height,
+        ...(aspectRatio ? { aspectRatio } : {}),
+        resolution,
+        ...(platform ? { platform } : {}),
+        ...(catalogueTemplateMappingId
+          ? {
+              catalogueTemplateMappingId,
+              workflowTemplateId: pw?.workflowTemplateId,
+              ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
+            }
+          : {}),
+      },
+    };
+  });
+
+  return { catalogueId, cost: COST, looks: looks_ };
+}
+
+export async function createJob(
+  app: FastifyInstance,
+  userId: string,
+  body: z.infer<typeof CreateTryOnJobRequest>,
+  opts?: { trustedGarmentKeys?: Set<string> },
+) {
+  const {
+    faceId,
+    garmentTypeId,
+    upperGarmentKey,
+    mannequinJobId,
+    lowerGarmentKey,
+    thirdGarmentKey,
+  } = body.inputs;
+
+  // mannequinJobId vs. upperGarmentKey is XOR'd by zod, but WHICH one is valid
+  // depends on this garment type's requiresMannequinStep policy. resolveTryonPlan
+  // (below) re-derives requiresMannequinStep internally too (along with its
+  // saree-step2 workflow node IDs), but it only ever sees opts.resolvedUpperGarmentKey
+  // — not the raw mannequinJobId/upperGarmentKey fields — so this specific
+  // cross-check has to live here, where both are still in scope.
+  let requiresMannequinStep = false;
+  if (garmentTypeId) {
+    const [gtRow] = await app.db
+      .select({ requiresMannequinStep: schema.garmentSubcategories.requiresMannequinStep })
+      .from(schema.garmentSubcategories)
+      .where(eq(schema.garmentSubcategories.id, garmentTypeId));
+    requiresMannequinStep = gtRow?.requiresMannequinStep ?? false;
+  }
+  if (requiresMannequinStep && !mannequinJobId) {
+    throw new AppError('VALIDATION', 400, 'mannequinJobId required for this garment type');
+  }
+  if (!requiresMannequinStep && mannequinJobId) {
+    throw new AppError('VALIDATION', 400, 'mannequinJobId not valid for this garment type');
+  }
+
+  // The garment image actually used for this job's upper — either a fresh
+  // presigned upload (verified via verifyGarmentKey, trusted-key aware for
+  // regeneration) or a completed saree-mannequin job's output (resolveMannequinGarmentKey
+  // does its own ownership check against jobs.userId, no Redis-binding TTL involved,
+  // so it doesn't need verifyGarmentKey's trusted-key bypass).
+  let resolvedUpperGarmentKey: string | undefined;
+  if (mannequinJobId) {
+    resolvedUpperGarmentKey = await resolveMannequinGarmentKey(app, userId, mannequinJobId);
+  } else if (upperGarmentKey) {
+    await verifyGarmentKey(app, userId, upperGarmentKey, opts?.trustedGarmentKeys);
+    resolvedUpperGarmentKey = upperGarmentKey;
+  }
+  if (lowerGarmentKey)
+    await verifyGarmentKey(app, userId, lowerGarmentKey, opts?.trustedGarmentKeys);
+  if (thirdGarmentKey)
+    await verifyGarmentKey(app, userId, thirdGarmentKey, opts?.trustedGarmentKeys);
+
+  const plan = await resolveTryonPlan(app, userId, body, {
+    resolvedUpperGarmentKey: resolvedUpperGarmentKey ?? null,
+    trustedGarmentKeys: opts?.trustedGarmentKeys,
+  });
 
   const [[user], [planRow]] = await Promise.all([
     app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
@@ -524,67 +679,36 @@ export async function createJob(
   // Never re-derived after this point — see spec precedence rule.
   const watermark: boolean = planRow?.watermark ?? false;
 
-  const catalogueId = body.catalogueId ?? randomUUID();
   const jobIds = await app.db.transaction(async (tx) => {
     const created: string[] = [];
-    for (const look of looks) {
-      const pw = poseWorkflowMap.get(look.poseId);
-
-      // Only store inputs the workflow actually supports — strips irrelevant fields
-      // so the dispatcher never receives/resolves data it won't use.
-      const lookUpperGarmentKey =
-        pw?.upperNodeIds && pw.upperNodeIds.length > 0 ? (resolvedUpperGarmentKey ?? null) : null;
-      const effectiveLowerCatalogId =
-        pw?.lowerNodeId && !lowerGarmentKey ? (lowerCatalogId ?? null) : null;
-      const effectiveLowerGarmentKey = pw?.lowerNodeId && lowerGarmentKey ? lowerGarmentKey : null;
-      const effectiveShoeCatalogId = pw?.shoeNodeId ? (shoeCatalogId ?? null) : null;
-      // Always store aspectRatio — patcher gates on sizeNodeIds.length at dispatch time
-      const effectiveAspectRatio = aspectRatio;
-
+    for (const look of plan.looks) {
       const [job] = await tx
         .insert(schema.jobs)
         .values({
           userId,
-          catalogueId,
+          catalogueId: plan.catalogueId,
           status: 'QUEUED',
           priority,
           queueStream,
           watermark,
-          creditsCharged: COST,
+          creditsCharged: plan.cost,
           source: 'catalog',
         })
         .returning();
-      await atomicDeduct(tx as unknown as DB, userId, COST, job.id);
+      await atomicDeduct(tx as unknown as DB, userId, plan.cost, job.id);
       await tx.insert(schema.jobInputs).values({
         jobId: job.id,
-        upperGarmentKey: lookUpperGarmentKey,
+        upperGarmentKey: look.upperGarmentKey,
         faceId,
         backgroundId: look.backgroundId,
         poseId: look.poseId,
         garmentTypeId: garmentTypeId ?? null,
-        lowerCatalogId: effectiveLowerCatalogId,
-        lowerGarmentKey: effectiveLowerGarmentKey,
+        lowerCatalogId: look.lowerCatalogId,
+        lowerGarmentKey: look.lowerGarmentKey,
         thirdGarmentKey: thirdGarmentKey ?? null,
-        shoeCatalogId: effectiveShoeCatalogId,
+        shoeCatalogId: look.shoeCatalogId,
         userHint: promptGuard(body.userHint),
-        params: {
-          ...(body.params ?? {}),
-          // Always the clamped, server-computed dims — whether derived from the
-          // aspect-ratio enum or a custom request, this is what the dispatcher
-          // patches the workflow with. Never let a raw pre-maxOutputPx value through.
-          outputWidth: outputDims.width,
-          outputHeight: outputDims.height,
-          ...(effectiveAspectRatio ? { aspectRatio: effectiveAspectRatio } : {}),
-          resolution,
-          ...(platform ? { platform } : {}),
-          ...(catalogueTemplateMappingId
-            ? {
-                catalogueTemplateMappingId,
-                workflowTemplateId: pw?.workflowTemplateId,
-                ...(pw?.promptGarmentPhase ? { promptGarmentPhase: pw.promptGarmentPhase } : {}),
-              }
-            : {}),
-        },
+        params: look.params,
       });
       created.push(job.id);
     }
@@ -606,7 +730,7 @@ export async function createJob(
   if (failedEnqueues.length > 0) {
     await Promise.all(
       failedEnqueues.map(async (jobId) => {
-        await refund(app.db, userId, COST, jobId, 'REFUND_ENQUEUE_FAIL');
+        await refund(app.db, userId, plan.cost, jobId, 'REFUND_ENQUEUE_FAIL');
         await app.db
           .update(schema.jobs)
           .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
@@ -618,7 +742,7 @@ export async function createJob(
     }
   }
 
-  return { catalogueId, jobIds };
+  return { catalogueId: plan.catalogueId, jobIds };
 }
 
 export async function createSimpleTryonJob(

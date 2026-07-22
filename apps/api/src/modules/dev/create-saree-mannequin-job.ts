@@ -2,7 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { getTryonCreditCost } from '../../lib/resolution-config.js';
+import { getSareeMannequinDevCreditCost } from '../../lib/resolution-config.js';
 import { createDevJobCore } from './create-job.js';
 
 /**
@@ -23,7 +23,7 @@ export async function createDevSareeMannequinJob(
     garmentKey: string;
   },
 ): Promise<{ jobId: string }> {
-  const cost = await getTryonCreditCost(app);
+  const cost = await getSareeMannequinDevCreditCost(app);
 
   const [garmentType] = await app.db
     .select({
@@ -35,7 +35,7 @@ export async function createDevSareeMannequinJob(
     .where(eq(schema.garmentSubcategories.requiresMannequinStep, true))
     .limit(1);
 
-  if (!garmentType || !garmentType.isActive || !garmentType.workflowTemplateId) {
+  if (!garmentType?.isActive || !garmentType.workflowTemplateId) {
     throw new AppError('BAD_CATEGORY', 400, 'saree mannequin generation is not configured');
   }
 
