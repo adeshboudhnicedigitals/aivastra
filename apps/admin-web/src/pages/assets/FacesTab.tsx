@@ -380,9 +380,9 @@ export function FacesTab() {
 
       {showFaceUpload && (
         <AddFaceModal
-          onDone={(face) => {
+          onDone={(newFaces) => {
             setShowFaceUpload(false);
-            setFaces((prev) => [...prev, face]);
+            setFaces((prev) => [...prev, ...newFaces]);
           }}
           onClose={() => setShowFaceUpload(false)}
           toast={toast}
