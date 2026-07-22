@@ -399,6 +399,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     shopifyProductSyncMaxBytes: 20,
   });
   const [bulkImportMaxGb, setBulkImportMaxGb] = useState(2.5);
+  const [uploadLimitsExpanded, setUploadLimitsExpanded] = useState(false);
   const [sysLoading, setSysLoading] = useState(true);
   const [sysSaving, setSysSaving] = useState(false);
 
@@ -1231,95 +1232,129 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
                   <div className="setting-lbl" style={{ marginBottom: 4 }}>
                     Upload Limits
-                  </div>
-                  <div className="setting-desc" style={{ marginBottom: 12 }}>
-                    Maximum accepted file size per upload surface. Existing uploads already in
-                    progress are unaffected; this only applies to uploads made after saving.
-                  </div>
-                  {(
-                    [
-                      ['merchantCatalogMaxBytes', 'Merchant catalogue (Android flat photo)'],
-                      ['webGarmentMaxBytes', 'Studio / web garment upload'],
-                      ['merchantTryonMaxBytes', 'Merchant try-on customer photo'],
-                      ['kioskUploadMaxBytes', 'Kiosk customer photo'],
-                      ['devApiMaxBytes', 'Dev API upload'],
-                      ['shopifyCatalogSourceMaxBytes', 'Shopify catalogue source image'],
-                      ['shopifyCustomerPhotoMaxBytes', 'Shopify storefront customer photo'],
-                      ['shopifyProductImageMaxBytes', 'Shopify product-image import'],
-                      ['shopifyProductSyncMaxBytes', 'Shopify webhook product sync'],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <div
-                      key={key}
+                    <button
+                      type="button"
+                      aria-expanded={uploadLimitsExpanded}
+                      aria-controls="upload-limits-options"
+                      aria-label={
+                        uploadLimitsExpanded ? 'Collapse upload limits' : 'Expand upload limits'
+                      }
+                      onClick={() => setUploadLimitsExpanded((expanded) => !expanded)}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 12,
-                        padding: '10px 12px',
-                        marginBottom: 8,
+                        width: 26,
+                        height: 26,
+                        marginLeft: 8,
+                        padding: 0,
                         border: '1px solid var(--border)',
-                        borderRadius: 'var(--r)',
+                        borderRadius: 6,
                         background: 'var(--surface-2)',
+                        color: 'var(--text)',
+                        fontSize: 20,
+                        lineHeight: 1,
+                        cursor: 'pointer',
+                        verticalAlign: 'middle',
                       }}
                     >
-                      <span className="setting-lbl">{label}</span>
+                      <span aria-hidden="true">{uploadLimitsExpanded ? '−' : '+'}</span>
+                    </button>
+                  </div>
+                  {uploadLimitsExpanded && (
+                    <div id="upload-limits-options">
+                      <div className="setting-desc" style={{ marginBottom: 12 }}>
+                        Maximum accepted file size per upload surface. Existing uploads already in
+                        progress are unaffected; this only applies to uploads made after saving.
+                      </div>
+                      {(
+                        [
+                          ['merchantCatalogMaxBytes', 'Merchant catalogue (Android flat photo)'],
+                          ['webGarmentMaxBytes', 'Studio / web garment upload'],
+                          ['merchantTryonMaxBytes', 'Merchant try-on customer photo'],
+                          ['kioskUploadMaxBytes', 'Kiosk customer photo'],
+                          ['devApiMaxBytes', 'Dev API upload'],
+                          ['shopifyCatalogSourceMaxBytes', 'Shopify catalogue source image'],
+                          ['shopifyCustomerPhotoMaxBytes', 'Shopify storefront customer photo'],
+                          ['shopifyProductImageMaxBytes', 'Shopify product-image import'],
+                          ['shopifyProductSyncMaxBytes', 'Shopify webhook product sync'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <div
+                          key={key}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '10px 12px',
+                            marginBottom: 8,
+                            border: '1px solid var(--border)',
+                            borderRadius: 'var(--r)',
+                            background: 'var(--surface-2)',
+                          }}
+                        >
+                          <span className="setting-lbl">{label}</span>
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              marginLeft: 'auto',
+                            }}
+                          >
+                            <input
+                              className="input"
+                              type="number"
+                              min={0}
+                              max={50}
+                              step={0.1}
+                              style={{ width: 80, textAlign: 'right' }}
+                              value={uploadLimitsMb[key]}
+                              disabled={sysSaving}
+                              onChange={(e) =>
+                                setUploadLimitsMb((prev) => ({
+                                  ...prev,
+                                  [key]: Number(e.target.value),
+                                }))
+                              }
+                            />
+                            <span style={{ fontSize: 13, color: 'var(--muted)' }}>MB</span>
+                          </div>
+                        </div>
+                      ))}
                       <div
                         style={{
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 6,
-                          marginLeft: 'auto',
+                          gap: 12,
+                          padding: '10px 12px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 'var(--r)',
+                          background: 'var(--surface-2)',
                         }}
                       >
-                        <input
-                          className="input"
-                          type="number"
-                          min={0}
-                          max={50}
-                          step={0.1}
-                          style={{ width: 80, textAlign: 'right' }}
-                          value={uploadLimitsMb[key]}
-                          disabled={sysSaving}
-                          onChange={(e) =>
-                            setUploadLimitsMb((prev) => ({
-                              ...prev,
-                              [key]: Number(e.target.value),
-                            }))
-                          }
-                        />
-                        <span style={{ fontSize: 13, color: 'var(--muted)' }}>MB</span>
+                        <span className="setting-lbl">Admin bulk-import ZIP</span>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            marginLeft: 'auto',
+                          }}
+                        >
+                          <input
+                            className="input"
+                            type="number"
+                            min={0}
+                            max={3}
+                            step={0.1}
+                            style={{ width: 80, textAlign: 'right' }}
+                            value={bulkImportMaxGb}
+                            disabled={sysSaving}
+                            onChange={(e) => setBulkImportMaxGb(Number(e.target.value))}
+                          />
+                          <span style={{ fontSize: 13, color: 'var(--muted)' }}>GB</span>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      padding: '10px 12px',
-                      border: '1px solid var(--border)',
-                      borderRadius: 'var(--r)',
-                      background: 'var(--surface-2)',
-                    }}
-                  >
-                    <span className="setting-lbl">Admin bulk-import ZIP</span>
-                    <div
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
-                    >
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={3}
-                        step={0.1}
-                        style={{ width: 80, textAlign: 'right' }}
-                        value={bulkImportMaxGb}
-                        disabled={sysSaving}
-                        onChange={(e) => setBulkImportMaxGb(Number(e.target.value))}
-                      />
-                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>GB</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 <div style={{ marginTop: 24, marginBottom: 8 }}>
