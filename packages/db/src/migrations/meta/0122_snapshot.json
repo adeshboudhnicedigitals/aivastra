@@ -1,5 +1,5 @@
 {
-  "id": "db72f53a-e8b5-4bd3-951d-9ed3a7033fd5",
+  "id": "a0adc006-624c-4727-a588-ee041eb27982",
   "prevId": "945ed582-60a3-41b1-86bc-146ff173612f",
   "version": "7",
   "dialect": "postgresql",
@@ -61,19 +61,19 @@
         "admin_users_user_id_users_id_fk": {
           "name": "admin_users_user_id_users_id_fk",
           "tableFrom": "admin_users",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "admin_users_user_id_unique": {
           "name": "admin_users_user_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["user_id"]
+          "columns": ["user_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -140,19 +140,19 @@
         "api_keys_merchant_id_merchants_id_fk": {
           "name": "api_keys_merchant_id_merchants_id_fk",
           "tableFrom": "api_keys",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "api_keys_key_hash_unique": {
           "name": "api_keys_key_hash_unique",
-          "nullsNotDistinct": false,
-          "columns": ["key_hash"]
+          "columns": ["key_hash"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -225,11 +225,11 @@
         "catalog_categories_type_id_catalog_types_id_fk": {
           "name": "catalog_categories_type_id_catalog_types_id_fk",
           "tableFrom": "catalog_categories",
-          "tableTo": "catalog_types",
           "columnsFrom": ["type_id"],
+          "tableTo": "catalog_types",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -319,11 +319,11 @@
         "catalog_items_category_id_catalog_categories_id_fk": {
           "name": "catalog_items_category_id_catalog_categories_id_fk",
           "tableFrom": "catalog_items",
-          "tableTo": "catalog_categories",
           "columnsFrom": ["category_id"],
+          "tableTo": "catalog_categories",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -361,8 +361,8 @@
       "uniqueConstraints": {
         "catalog_types_slug_unique": {
           "name": "catalog_types_slug_unique",
-          "nullsNotDistinct": false,
-          "columns": ["slug"]
+          "columns": ["slug"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -438,10 +438,10 @@
             }
           ],
           "isUnique": true,
-          "where": "\"chatbot_conversations\".\"status\" <> 'CLOSED'",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"chatbot_conversations\".\"status\" <> 'CLOSED'",
+          "concurrently": false
         },
         "chatbot_conversations_status_idx": {
           "name": "chatbot_conversations_status_idx",
@@ -460,29 +460,29 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "chatbot_conversations_user_id_users_id_fk": {
           "name": "chatbot_conversations_user_id_users_id_fk",
           "tableFrom": "chatbot_conversations",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "chatbot_conversations_assigned_agent_id_admin_users_id_fk": {
           "name": "chatbot_conversations_assigned_agent_id_admin_users_id_fk",
           "tableFrom": "chatbot_conversations",
-          "tableTo": "admin_users",
           "columnsFrom": ["assigned_agent_id"],
+          "tableTo": "admin_users",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -520,8 +520,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "as": "to_tsvector('english', content)",
-            "type": "stored"
+            "type": "stored",
+            "as": "to_tsvector('english', content)"
           }
         },
         "embedding": {
@@ -551,9 +551,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "hnsw",
-          "with": {}
+          "concurrently": false
         },
         "chatbot_embeddings_tsv_idx": {
           "name": "chatbot_embeddings_tsv_idx",
@@ -566,20 +566,20 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "gin",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "chatbot_embeddings_qna_id_chatbot_qna_id_fk": {
           "name": "chatbot_embeddings_qna_id_chatbot_qna_id_fk",
           "tableFrom": "chatbot_embeddings",
-          "tableTo": "chatbot_qna",
           "columnsFrom": ["qna_id"],
+          "tableTo": "chatbot_qna",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -648,11 +648,11 @@
         "chatbot_events_conversation_id_chatbot_conversations_id_fk": {
           "name": "chatbot_events_conversation_id_chatbot_conversations_id_fk",
           "tableFrom": "chatbot_events",
-          "tableTo": "chatbot_conversations",
           "columnsFrom": ["conversation_id"],
+          "tableTo": "chatbot_conversations",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -728,20 +728,20 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "chatbot_messages_conversation_id_chatbot_conversations_id_fk": {
           "name": "chatbot_messages_conversation_id_chatbot_conversations_id_fk",
           "tableFrom": "chatbot_messages",
-          "tableTo": "chatbot_conversations",
           "columnsFrom": ["conversation_id"],
+          "tableTo": "chatbot_conversations",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -883,11 +883,11 @@
         "contact_requests_user_id_users_id_fk": {
           "name": "contact_requests_user_id_users_id_fk",
           "tableFrom": "contact_requests",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -950,11 +950,11 @@
         "credit_ledger_user_id_users_id_fk": {
           "name": "credit_ledger_user_id_users_id_fk",
           "tableFrom": "credit_ledger",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1067,8 +1067,8 @@
       "uniqueConstraints": {
         "credit_plans_slug_unique": {
           "name": "credit_plans_slug_unique",
-          "nullsNotDistinct": false,
-          "columns": ["slug"]
+          "columns": ["slug"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -1148,11 +1148,11 @@
         "credit_requests_user_id_users_id_fk": {
           "name": "credit_requests_user_id_users_id_fk",
           "tableFrom": "credit_requests",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1252,19 +1252,19 @@
         "payments_user_id_users_id_fk": {
           "name": "payments_user_id_users_id_fk",
           "tableFrom": "payments",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "payments_razorpay_order_id_unique": {
           "name": "payments_razorpay_order_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["razorpay_order_id"]
+          "columns": ["razorpay_order_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -1301,97 +1301,15 @@
         "user_credits_user_id_users_id_fk": {
           "name": "user_credits_user_id_users_id_fk",
           "tableFrom": "user_credits",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.dev_tryon_categories": {
-      "name": "dev_tryon_categories",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "workflow_template_id": {
-          "name": "workflow_template_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "dev_tryon_categories_workflow_template_id_workflow_templates_id_fk": {
-          "name": "dev_tryon_categories_workflow_template_id_workflow_templates_id_fk",
-          "tableFrom": "dev_tryon_categories",
-          "tableTo": "workflow_templates",
-          "columnsFrom": ["workflow_template_id"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "dev_tryon_categories_slug_unique": {
-          "name": "dev_tryon_categories_slug_unique",
-          "nullsNotDistinct": false,
-          "columns": ["slug"]
-        }
-      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -1438,11 +1356,11 @@
         "job_events_job_id_jobs_id_fk": {
           "name": "job_events_job_id_jobs_id_fk",
           "tableFrom": "job_events",
-          "tableTo": "jobs",
           "columnsFrom": ["job_id"],
+          "tableTo": "jobs",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1533,65 +1451,65 @@
         "job_inputs_job_id_jobs_id_fk": {
           "name": "job_inputs_job_id_jobs_id_fk",
           "tableFrom": "job_inputs",
-          "tableTo": "jobs",
           "columnsFrom": ["job_id"],
+          "tableTo": "jobs",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "job_inputs_face_id_model_faces_id_fk": {
           "name": "job_inputs_face_id_model_faces_id_fk",
           "tableFrom": "job_inputs",
-          "tableTo": "model_faces",
           "columnsFrom": ["face_id"],
+          "tableTo": "model_faces",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "job_inputs_background_id_model_backgrounds_id_fk": {
           "name": "job_inputs_background_id_model_backgrounds_id_fk",
           "tableFrom": "job_inputs",
-          "tableTo": "model_backgrounds",
           "columnsFrom": ["background_id"],
+          "tableTo": "model_backgrounds",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "job_inputs_pose_id_model_pose_assets_id_fk": {
           "name": "job_inputs_pose_id_model_pose_assets_id_fk",
           "tableFrom": "job_inputs",
-          "tableTo": "model_pose_assets",
           "columnsFrom": ["pose_id"],
+          "tableTo": "model_pose_assets",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "job_inputs_garment_type_id_garment_subcategories_id_fk": {
           "name": "job_inputs_garment_type_id_garment_subcategories_id_fk",
           "tableFrom": "job_inputs",
-          "tableTo": "garment_subcategories",
           "columnsFrom": ["garment_type_id"],
+          "tableTo": "garment_subcategories",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "job_inputs_lower_catalog_id_catalog_items_id_fk": {
           "name": "job_inputs_lower_catalog_id_catalog_items_id_fk",
           "tableFrom": "job_inputs",
-          "tableTo": "catalog_items",
           "columnsFrom": ["lower_catalog_id"],
+          "tableTo": "catalog_items",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "job_inputs_shoe_catalog_id_catalog_items_id_fk": {
           "name": "job_inputs_shoe_catalog_id_catalog_items_id_fk",
           "tableFrom": "job_inputs",
-          "tableTo": "catalog_items",
           "columnsFrom": ["shoe_catalog_id"],
+          "tableTo": "catalog_items",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1648,11 +1566,11 @@
         "job_outputs_job_id_jobs_id_fk": {
           "name": "job_outputs_job_id_jobs_id_fk",
           "tableFrom": "job_outputs",
-          "tableTo": "jobs",
           "columnsFrom": ["job_id"],
+          "tableTo": "jobs",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1805,47 +1723,47 @@
         "jobs_user_id_users_id_fk": {
           "name": "jobs_user_id_users_id_fk",
           "tableFrom": "jobs",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "jobs_merchant_id_merchants_id_fk": {
           "name": "jobs_merchant_id_merchants_id_fk",
           "tableFrom": "jobs",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "jobs_api_key_id_api_keys_id_fk": {
           "name": "jobs_api_key_id_api_keys_id_fk",
           "tableFrom": "jobs",
-          "tableTo": "api_keys",
           "columnsFrom": ["api_key_id"],
+          "tableTo": "api_keys",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "jobs_kiosk_device_id_kiosk_devices_id_fk": {
           "name": "jobs_kiosk_device_id_kiosk_devices_id_fk",
           "tableFrom": "jobs",
-          "tableTo": "kiosk_devices",
           "columnsFrom": ["kiosk_device_id"],
+          "tableTo": "kiosk_devices",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "jobs_shopify_store_id_shopify_stores_id_fk": {
           "name": "jobs_shopify_store_id_shopify_stores_id_fk",
           "tableFrom": "jobs",
-          "tableTo": "shopify_stores",
           "columnsFrom": ["shopify_store_id"],
+          "tableTo": "shopify_stores",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -1907,20 +1825,20 @@
         "shopify_catalog_jobs_job_id_jobs_id_fk": {
           "name": "shopify_catalog_jobs_job_id_jobs_id_fk",
           "tableFrom": "shopify_catalog_jobs",
-          "tableTo": "jobs",
           "columnsFrom": ["job_id"],
+          "tableTo": "jobs",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "shopify_catalog_jobs_store_id_shopify_stores_id_fk": {
           "name": "shopify_catalog_jobs_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_catalog_jobs",
-          "tableTo": "shopify_stores",
           "columnsFrom": ["store_id"],
+          "tableTo": "shopify_stores",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2021,11 +1939,11 @@
         "kiosk_devices_merchant_id_merchants_id_fk": {
           "name": "kiosk_devices_merchant_id_merchants_id_fk",
           "tableFrom": "kiosk_devices",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2076,37 +1994,37 @@
         "kiosk_result_cart_items_job_id_jobs_id_fk": {
           "name": "kiosk_result_cart_items_job_id_jobs_id_fk",
           "tableFrom": "kiosk_result_cart_items",
-          "tableTo": "jobs",
           "columnsFrom": ["job_id"],
+          "tableTo": "jobs",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "kiosk_result_cart_items_merchant_id_merchants_id_fk": {
           "name": "kiosk_result_cart_items_merchant_id_merchants_id_fk",
           "tableFrom": "kiosk_result_cart_items",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "kiosk_result_cart_items_kiosk_device_id_kiosk_devices_id_fk": {
           "name": "kiosk_result_cart_items_kiosk_device_id_kiosk_devices_id_fk",
           "tableFrom": "kiosk_result_cart_items",
-          "tableTo": "kiosk_devices",
           "columnsFrom": ["kiosk_device_id"],
+          "tableTo": "kiosk_devices",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "kiosk_result_cart_items_job_merchant_unique": {
           "name": "kiosk_result_cart_items_job_merchant_unique",
-          "nullsNotDistinct": false,
-          "columns": ["job_id", "merchant_id"]
+          "columns": ["job_id", "merchant_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -2155,37 +2073,37 @@
         "kiosk_result_likes_job_id_jobs_id_fk": {
           "name": "kiosk_result_likes_job_id_jobs_id_fk",
           "tableFrom": "kiosk_result_likes",
-          "tableTo": "jobs",
           "columnsFrom": ["job_id"],
+          "tableTo": "jobs",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "kiosk_result_likes_merchant_id_merchants_id_fk": {
           "name": "kiosk_result_likes_merchant_id_merchants_id_fk",
           "tableFrom": "kiosk_result_likes",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "kiosk_result_likes_kiosk_device_id_kiosk_devices_id_fk": {
           "name": "kiosk_result_likes_kiosk_device_id_kiosk_devices_id_fk",
           "tableFrom": "kiosk_result_likes",
-          "tableTo": "kiosk_devices",
           "columnsFrom": ["kiosk_device_id"],
+          "tableTo": "kiosk_devices",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "kiosk_result_likes_job_merchant_unique": {
           "name": "kiosk_result_likes_job_merchant_unique",
-          "nullsNotDistinct": false,
-          "columns": ["job_id", "merchant_id"]
+          "columns": ["job_id", "merchant_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -2330,9 +2248,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "merchant_catalog_items_subcategory_idx": {
           "name": "merchant_catalog_items_subcategory_idx",
@@ -2345,9 +2263,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "merchant_catalog_items_merchant_source_job_unique": {
           "name": "merchant_catalog_items_merchant_source_job_unique",
@@ -2366,39 +2284,39 @@
             }
           ],
           "isUnique": true,
-          "where": "\"merchant_catalog_items\".\"source_job_id\" is not null",
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "where": "\"merchant_catalog_items\".\"source_job_id\" is not null",
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "merchant_catalog_items_merchant_id_merchants_id_fk": {
           "name": "merchant_catalog_items_merchant_id_merchants_id_fk",
           "tableFrom": "merchant_catalog_items",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "merchant_catalog_items_subcategory_id_merchant_catalog_subcategories_id_fk": {
           "name": "merchant_catalog_items_subcategory_id_merchant_catalog_subcategories_id_fk",
           "tableFrom": "merchant_catalog_items",
-          "tableTo": "merchant_catalog_subcategories",
           "columnsFrom": ["subcategory_id"],
+          "tableTo": "merchant_catalog_subcategories",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "merchant_catalog_items_source_job_id_jobs_id_fk": {
           "name": "merchant_catalog_items_source_job_id_jobs_id_fk",
           "tableFrom": "merchant_catalog_items",
-          "tableTo": "jobs",
           "columnsFrom": ["source_job_id"],
+          "tableTo": "jobs",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -2482,29 +2400,29 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "merchant_catalog_subcategories_merchant_id_merchants_id_fk": {
           "name": "merchant_catalog_subcategories_merchant_id_merchants_id_fk",
           "tableFrom": "merchant_catalog_subcategories",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "merchant_catalog_subcategories_garment_subcategory_id_garment_subcategories_id_fk": {
           "name": "merchant_catalog_subcategories_garment_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "merchant_catalog_subcategories",
-          "tableTo": "garment_subcategories",
           "columnsFrom": ["garment_subcategory_id"],
+          "tableTo": "garment_subcategories",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2567,11 +2485,11 @@
         "merchant_credit_ledger_merchant_id_merchants_id_fk": {
           "name": "merchant_credit_ledger_merchant_id_merchants_id_fk",
           "tableFrom": "merchant_credit_ledger",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2610,11 +2528,11 @@
         "merchant_credits_merchant_id_merchants_id_fk": {
           "name": "merchant_credits_merchant_id_merchants_id_fk",
           "tableFrom": "merchant_credits",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -2714,19 +2632,19 @@
         "merchant_payments_merchant_id_merchants_id_fk": {
           "name": "merchant_payments_merchant_id_merchants_id_fk",
           "tableFrom": "merchant_payments",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "merchant_payments_razorpay_order_id_unique": {
           "name": "merchant_payments_razorpay_order_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["razorpay_order_id"]
+          "columns": ["razorpay_order_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -2827,19 +2745,19 @@
         "merchants_user_id_users_id_fk": {
           "name": "merchants_user_id_users_id_fk",
           "tableFrom": "merchants",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "merchants_user_id_unique": {
           "name": "merchants_user_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["user_id"]
+          "columns": ["user_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -2868,11 +2786,11 @@
         "catalog_item_subcategories_subcategory_id_garment_subcategories_id_fk": {
           "name": "catalog_item_subcategories_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "catalog_item_subcategories",
-          "tableTo": "garment_subcategories",
           "columnsFrom": ["subcategory_id"],
+          "tableTo": "garment_subcategories",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -2935,38 +2853,38 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "catalogue_template_looks_template_id_catalogue_templates_id_fk": {
           "name": "catalogue_template_looks_template_id_catalogue_templates_id_fk",
           "tableFrom": "catalogue_template_looks",
-          "tableTo": "catalogue_templates",
           "columnsFrom": ["template_id"],
+          "tableTo": "catalogue_templates",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "catalogue_template_looks_pose_asset_id_model_pose_assets_id_fk": {
           "name": "catalogue_template_looks_pose_asset_id_model_pose_assets_id_fk",
           "tableFrom": "catalogue_template_looks",
-          "tableTo": "model_pose_assets",
           "columnsFrom": ["pose_asset_id"],
+          "tableTo": "model_pose_assets",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         },
         "catalogue_template_looks_background_id_model_backgrounds_id_fk": {
           "name": "catalogue_template_looks_background_id_model_backgrounds_id_fk",
           "tableFrom": "catalogue_template_looks",
-          "tableTo": "model_backgrounds",
           "columnsFrom": ["background_id"],
+          "tableTo": "model_backgrounds",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3044,46 +2962,46 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "catalogue_template_pose_workflows_mapping_id_catalogue_template_subcategories_id_fk": {
           "name": "catalogue_template_pose_workflows_mapping_id_catalogue_template_subcategories_id_fk",
           "tableFrom": "catalogue_template_pose_workflows",
-          "tableTo": "catalogue_template_subcategories",
           "columnsFrom": ["mapping_id"],
+          "tableTo": "catalogue_template_subcategories",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "catalogue_template_pose_workflows_pose_asset_id_model_pose_assets_id_fk": {
           "name": "catalogue_template_pose_workflows_pose_asset_id_model_pose_assets_id_fk",
           "tableFrom": "catalogue_template_pose_workflows",
-          "tableTo": "model_pose_assets",
           "columnsFrom": ["pose_asset_id"],
+          "tableTo": "model_pose_assets",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "catalogue_template_pose_workflows_workflow_template_id_workflow_templates_id_fk": {
           "name": "catalogue_template_pose_workflows_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "catalogue_template_pose_workflows",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "catalogue_template_pose_workflows_mapping_pose_unique": {
           "name": "catalogue_template_pose_workflows_mapping_pose_unique",
-          "nullsNotDistinct": false,
-          "columns": ["mapping_id", "pose_asset_id"]
+          "columns": ["mapping_id", "pose_asset_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -3126,37 +3044,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "catalogue_template_subcategories_template_id_catalogue_templates_id_fk": {
           "name": "catalogue_template_subcategories_template_id_catalogue_templates_id_fk",
           "tableFrom": "catalogue_template_subcategories",
-          "tableTo": "catalogue_templates",
           "columnsFrom": ["template_id"],
+          "tableTo": "catalogue_templates",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "catalogue_template_subcategories_subcategory_id_garment_subcategories_id_fk": {
           "name": "catalogue_template_subcategories_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "catalogue_template_subcategories",
-          "tableTo": "garment_subcategories",
           "columnsFrom": ["subcategory_id"],
+          "tableTo": "garment_subcategories",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "catalogue_template_subcategories_template_subcategory_unique": {
           "name": "catalogue_template_subcategories_template_subcategory_unique",
-          "nullsNotDistinct": false,
-          "columns": ["template_id", "subcategory_id"]
+          "columns": ["template_id", "subcategory_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -3291,37 +3209,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "garment_shot_type_workflows_garment_type_id_garment_subcategories_id_fk": {
           "name": "garment_shot_type_workflows_garment_type_id_garment_subcategories_id_fk",
           "tableFrom": "garment_shot_type_workflows",
-          "tableTo": "garment_subcategories",
           "columnsFrom": ["garment_type_id"],
+          "tableTo": "garment_subcategories",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "garment_shot_type_workflows_workflow_template_id_workflow_templates_id_fk": {
           "name": "garment_shot_type_workflows_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "garment_shot_type_workflows",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "garment_shot_type_workflows_garment_type_shot_type_unique": {
           "name": "garment_shot_type_workflows_garment_type_shot_type_unique",
-          "nullsNotDistinct": false,
-          "columns": ["garment_type_id", "shot_type"]
+          "columns": ["garment_type_id", "shot_type"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -3478,38 +3396,38 @@
         "garment_subcategories_default_lower_catalog_id_catalog_items_id_fk": {
           "name": "garment_subcategories_default_lower_catalog_id_catalog_items_id_fk",
           "tableFrom": "garment_subcategories",
-          "tableTo": "catalog_items",
           "columnsFrom": ["default_lower_catalog_id"],
+          "tableTo": "catalog_items",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "garment_subcategories_default_shoe_catalog_id_catalog_items_id_fk": {
           "name": "garment_subcategories_default_shoe_catalog_id_catalog_items_id_fk",
           "tableFrom": "garment_subcategories",
-          "tableTo": "catalog_items",
           "columnsFrom": ["default_shoe_catalog_id"],
+          "tableTo": "catalog_items",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "garment_subcategories_mannequin_workflow_template_id_workflow_templates_id_fk": {
           "name": "garment_subcategories_mannequin_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "garment_subcategories",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["mannequin_workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         },
         "garment_subcategories_saree_step2_workflow_template_id_workflow_templates_id_fk": {
           "name": "garment_subcategories_saree_step2_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "garment_subcategories",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["saree_step2_workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -3632,11 +3550,11 @@
         "model_backgrounds_category_id_catalog_categories_id_fk": {
           "name": "model_backgrounds_category_id_catalog_categories_id_fk",
           "tableFrom": "model_backgrounds",
-          "tableTo": "catalog_categories",
           "columnsFrom": ["category_id"],
+          "tableTo": "catalog_categories",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3840,11 +3758,11 @@
         "model_pose_assets_workflow_template_id_workflow_templates_id_fk": {
           "name": "model_pose_assets_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "model_pose_assets",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -3927,9 +3845,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "pose_garment_configs_subcategory_id_idx": {
           "name": "pose_garment_configs_subcategory_id_idx",
@@ -3942,46 +3860,46 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "pose_garment_configs_pose_asset_id_model_pose_assets_id_fk": {
           "name": "pose_garment_configs_pose_asset_id_model_pose_assets_id_fk",
           "tableFrom": "pose_garment_configs",
-          "tableTo": "model_pose_assets",
           "columnsFrom": ["pose_asset_id"],
+          "tableTo": "model_pose_assets",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "pose_garment_configs_subcategory_id_garment_subcategories_id_fk": {
           "name": "pose_garment_configs_subcategory_id_garment_subcategories_id_fk",
           "tableFrom": "pose_garment_configs",
-          "tableTo": "garment_subcategories",
           "columnsFrom": ["subcategory_id"],
+          "tableTo": "garment_subcategories",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "pose_garment_configs_workflow_template_id_workflow_templates_id_fk": {
           "name": "pose_garment_configs_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "pose_garment_configs",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "pose_garment_configs_pose_subcat_unique": {
           "name": "pose_garment_configs_pose_subcat_unique",
-          "nullsNotDistinct": false,
-          "columns": ["pose_asset_id", "subcategory_id"]
+          "columns": ["pose_asset_id", "subcategory_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4051,11 +3969,11 @@
         "saree_mannequin_styles_mannequin_workflow_template_id_workflow_templates_id_fk": {
           "name": "saree_mannequin_styles_mannequin_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "saree_mannequin_styles",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["mannequin_workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -4261,8 +4179,8 @@
       "uniqueConstraints": {
         "workflow_templates_slug_unique": {
           "name": "workflow_templates_slug_unique",
-          "nullsNotDistinct": false,
-          "columns": ["slug"]
+          "columns": ["slug"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4323,11 +4241,11 @@
         "saree_settings_workflow_template_id_workflow_templates_id_fk": {
           "name": "saree_settings_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "saree_settings",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -4400,28 +4318,28 @@
         "shopify_funnel_rules_store_id_shopify_stores_id_fk": {
           "name": "shopify_funnel_rules_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_funnel_rules",
-          "tableTo": "shopify_stores",
           "columnsFrom": ["store_id"],
+          "tableTo": "shopify_stores",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "shopify_funnel_rules_funnel_template_id_shopify_funnel_templates_id_fk": {
           "name": "shopify_funnel_rules_funnel_template_id_shopify_funnel_templates_id_fk",
           "tableFrom": "shopify_funnel_rules",
-          "tableTo": "shopify_funnel_templates",
           "columnsFrom": ["funnel_template_id"],
+          "tableTo": "shopify_funnel_templates",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "shopify_funnel_rules_store_id_funnel_template_id_unique": {
           "name": "shopify_funnel_rules_store_id_funnel_template_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["store_id", "funnel_template_id"]
+          "columns": ["store_id", "funnel_template_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4491,19 +4409,19 @@
         "shopify_funnel_templates_workflow_template_id_workflow_templates_id_fk": {
           "name": "shopify_funnel_templates_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "shopify_funnel_templates",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "shopify_funnel_templates_slug_unique": {
           "name": "shopify_funnel_templates_slug_unique",
-          "nullsNotDistinct": false,
-          "columns": ["slug"]
+          "columns": ["slug"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4620,28 +4538,28 @@
         "shopify_product_garments_store_id_shopify_stores_id_fk": {
           "name": "shopify_product_garments_store_id_shopify_stores_id_fk",
           "tableFrom": "shopify_product_garments",
-          "tableTo": "shopify_stores",
           "columnsFrom": ["store_id"],
+          "tableTo": "shopify_stores",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "shopify_product_garments_funnel_template_id_shopify_funnel_templates_id_fk": {
           "name": "shopify_product_garments_funnel_template_id_shopify_funnel_templates_id_fk",
           "tableFrom": "shopify_product_garments",
-          "tableTo": "shopify_funnel_templates",
           "columnsFrom": ["funnel_template_id"],
+          "tableTo": "shopify_funnel_templates",
           "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "shopify_product_garments_store_id_shopify_product_id_shopify_variant_id_unique": {
           "name": "shopify_product_garments_store_id_shopify_product_id_shopify_variant_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["store_id", "shopify_product_id", "shopify_variant_id"]
+          "columns": ["store_id", "shopify_product_id", "shopify_variant_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4749,29 +4667,29 @@
         "shopify_stores_owner_user_id_users_id_fk": {
           "name": "shopify_stores_owner_user_id_users_id_fk",
           "tableFrom": "shopify_stores",
-          "tableTo": "users",
           "columnsFrom": ["owner_user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "shopify_stores_store_key_unique": {
           "name": "shopify_stores_store_key_unique",
-          "nullsNotDistinct": false,
-          "columns": ["store_key"]
+          "columns": ["store_key"],
+          "nullsNotDistinct": false
         },
         "shopify_stores_shop_domain_unique": {
           "name": "shopify_stores_shop_domain_unique",
-          "nullsNotDistinct": false,
-          "columns": ["shop_domain"]
+          "columns": ["shop_domain"],
+          "nullsNotDistinct": false
         },
         "shopify_stores_shopify_shop_id_unique": {
           "name": "shopify_stores_shopify_shop_id_unique",
-          "nullsNotDistinct": false,
-          "columns": ["shopify_shop_id"]
+          "columns": ["shopify_shop_id"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4841,19 +4759,19 @@
         "tryon_categories_workflow_template_id_workflow_templates_id_fk": {
           "name": "tryon_categories_workflow_template_id_workflow_templates_id_fk",
           "tableFrom": "tryon_categories",
-          "tableTo": "workflow_templates",
           "columnsFrom": ["workflow_template_id"],
+          "tableTo": "workflow_templates",
           "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "tryon_categories_slug_unique": {
           "name": "tryon_categories_slug_unique",
-          "nullsNotDistinct": false,
-          "columns": ["slug"]
+          "columns": ["slug"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -4909,11 +4827,11 @@
         "tryon_category_samples_category_id_tryon_categories_id_fk": {
           "name": "tryon_category_samples_category_id_tryon_categories_id_fk",
           "tableFrom": "tryon_category_samples",
-          "tableTo": "tryon_categories",
           "columnsFrom": ["category_id"],
+          "tableTo": "tryon_categories",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -5046,20 +4964,20 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "oauth_accounts_user_id_users_id_fk": {
           "name": "oauth_accounts_user_id_users_id_fk",
           "tableFrom": "oauth_accounts",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -5173,29 +5091,29 @@
         "refresh_tokens_user_id_users_id_fk": {
           "name": "refresh_tokens_user_id_users_id_fk",
           "tableFrom": "refresh_tokens",
-          "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "tableTo": "users",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "refresh_tokens_kiosk_device_id_kiosk_devices_id_fk": {
           "name": "refresh_tokens_kiosk_device_id_kiosk_devices_id_fk",
           "tableFrom": "refresh_tokens",
-          "tableTo": "kiosk_devices",
           "columnsFrom": ["kiosk_device_id"],
+          "tableTo": "kiosk_devices",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "refresh_tokens_merchant_id_merchants_id_fk": {
           "name": "refresh_tokens_merchant_id_merchants_id_fk",
           "tableFrom": "refresh_tokens",
-          "tableTo": "merchants",
           "columnsFrom": ["merchant_id"],
+          "tableTo": "merchants",
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -5305,8 +5223,8 @@
       "uniqueConstraints": {
         "users_email_unique": {
           "name": "users_email_unique",
-          "nullsNotDistinct": false,
-          "columns": ["email"]
+          "columns": ["email"],
+          "nullsNotDistinct": false
         }
       },
       "policies": {},
@@ -5382,10 +5300,10 @@
   },
   "enums": {},
   "schemas": {},
+  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
-  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},
