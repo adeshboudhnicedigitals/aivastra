@@ -79,7 +79,8 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.modelFaces.isActive, true),
             isNull(schema.modelFaces.deletedAt),
           ),
-        );
+        )
+        .orderBy(asc(schema.modelFaces.sortOrder), asc(schema.modelFaces.label));
 
       return {
         items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })),
