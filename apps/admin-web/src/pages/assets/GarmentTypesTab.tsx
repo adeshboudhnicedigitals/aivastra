@@ -9,6 +9,7 @@ import { makeThumbnail } from '../../lib/thumbnail';
 import type {
   GarmentType,
   GenderSlug,
+  MappedTemplateLook,
   MappedTemplatePoseWorkflow,
   PoseGarmentConfig,
   ShotTypeWorkflow,
@@ -1007,9 +1008,12 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
   const [items, setItems] = useState<TemplateGarmentTypeMapping[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [batchSaving, setBatchSaving] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<TemplateGarmentTypeMapping | null>(null);
 
   const load = useCallback(async () => {
+    setSelectedTemplateIds([]);
     setLoading(true);
     try {
       const res = await apiFetch<{ items: TemplateGarmentTypeMapping[] }>(
@@ -1062,6 +1066,48 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
     }
   };
 
+  const selectedItems = items.filter((item) => selectedTemplateIds.includes(item.id));
+  const allTemplatesSelected =
+    items.length > 0 && items.every((item) => selectedTemplateIds.includes(item.id));
+  const selectedAllMapped = selectedItems.length > 0 && selectedItems.every((item) => item.mapped);
+
+  const toggleTemplateSelection = (templateId: string) => {
+    setSelectedTemplateIds((current) =>
+      current.includes(templateId)
+        ? current.filter((id) => id !== templateId)
+        : [...current, templateId],
+    );
+  };
+
+  const setSelectedMapped = async (mapped: boolean) => {
+    const templates = selectedItems.filter((item) => item.mapped !== mapped);
+    if (templates.length === 0) return;
+
+    setBatchSaving(true);
+    try {
+      for (const template of templates) {
+        const response = await apiFetch<{ ok: true; mappingId: string | null }>(
+          `/admin/assets/garment-types/${sub.id}/templates/${template.id}`,
+          { method: 'PATCH', body: JSON.stringify({ mapped }) },
+        );
+        setItems((current) =>
+          current.map((item) =>
+            item.id === template.id ? { ...item, mapped, mappingId: response.mappingId } : item,
+          ),
+        );
+      }
+      setSelectedTemplateIds([]);
+    } catch (error) {
+      void load();
+      toast({
+        kind: 'error',
+        title: `Failed to ${mapped ? 'enable' : 'disable'} selected templates`,
+        body: (error as Error).message,
+      });
+    } finally {
+      setBatchSaving(false);
+    }
+  };
   return (
     <section>
       <SectionHeader
@@ -1076,7 +1122,44 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
           )
         }
       />
-
+      {!loading && items.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 14,
+            marginTop: 12,
+          }}
+        >
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={allTemplatesSelected}
+              disabled={batchSaving}
+              onChange={() =>
+                setSelectedTemplateIds(allTemplatesSelected ? [] : items.map((item) => item.id))
+              }
+              style={{ accentColor: 'var(--pink)' }}
+            />
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Select all</span>
+          </label>
+          {selectedItems.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+                {selectedItems.length} selected
+              </span>
+              <span style={{ fontSize: 12 }}>
+                {selectedAllMapped ? 'Enabled' : 'Enable selected'}
+              </span>
+              <Switch
+                checked={selectedAllMapped}
+                onChange={() => void setSelectedMapped(!selectedAllMapped)}
+              />
+            </div>
+          )}
+        </div>
+      )}
       {loading ? (
         <div style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)' }}>
           Loading…
@@ -1101,15 +1184,51 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
             <div
               key={item.id}
               className="card"
+              onClick={() => {
+                if (!batchSaving) toggleTemplateSelection(item.id);
+              }}
               style={{
                 padding: 0,
                 overflow: 'hidden',
                 display: 'flex',
                 flexDirection: 'column',
-                outline: item.mapped ? '2px solid var(--pink)' : undefined,
-                opacity: savingId === item.id ? 0.7 : 1,
+                position: 'relative',
+                cursor: batchSaving ? 'default' : 'pointer',
+                outline: selectedTemplateIds.includes(item.id)
+                  ? '2px solid var(--pink)'
+                  : item.mapped
+                    ? '2px solid var(--pink)'
+                    : undefined,
+                opacity: savingId === item.id || batchSaving ? 0.7 : 1,
               }}
             >
+              <label
+                style={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  zIndex: 1,
+                  display: 'flex',
+                  width: 26,
+                  height: 26,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: 5,
+                  background: 'transparent',
+                  cursor: batchSaving ? 'default' : 'pointer',
+                }}
+                onClick={(event) => event.stopPropagation()}
+                title={`Select ${item.label}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedTemplateIds.includes(item.id)}
+                  disabled={batchSaving}
+                  onChange={() => toggleTemplateSelection(item.id)}
+                  aria-label={`Select ${item.label}`}
+                  style={{ accentColor: 'var(--pink)' }}
+                />
+              </label>
               <div
                 style={{
                   background: 'var(--surface2, #1a1a1a)',
@@ -1155,16 +1274,21 @@ function GarmentTemplateMappingPanel({ sub, workflows, toast }: GarmentTemplateM
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>
                     {item.mapped ? `${item.poseAssetIds.length} poses` : 'Not offered'}
                   </span>
-                  <Switch
-                    checked={item.mapped}
-                    onChange={() => void toggleMapped(item.id, !item.mapped)}
-                  />
+                  <div onClick={(event) => event.stopPropagation()}>
+                    <Switch
+                      checked={item.mapped}
+                      onChange={() => void toggleMapped(item.id, !item.mapped)}
+                    />
+                  </div>
                 </div>
                 {item.mapped && item.mappingId && (
                   <button
                     className="btn sm"
                     style={{ width: '100%', marginTop: 9, justifyContent: 'center' }}
-                    onClick={() => setEditingTemplate(item)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setEditingTemplate(item);
+                    }}
                   >
                     <Icon.Edit /> Configure workflows
                   </button>
@@ -1203,27 +1327,36 @@ function MappedTemplateWorkflowModal({
   onClose,
 }: MappedTemplateWorkflowModalProps) {
   const [items, setItems] = useState<MappedTemplatePoseWorkflow[]>([]);
+  const [looks, setLooks] = useState<MappedTemplateLook[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [savingLookId, setSavingLookId] = useState<string | null>(null);
   const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
   const [promptDraft, setPromptDraft] = useState('');
 
   useEffect(() => {
     setLoading(true);
-    void apiFetch<{ items: MappedTemplatePoseWorkflow[] }>(
-      `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses`,
-    )
-      .then((response) => setItems(response.items))
+    void Promise.all([
+      apiFetch<{ items: MappedTemplatePoseWorkflow[] }>(
+        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/poses`,
+      ),
+      apiFetch<{ items: MappedTemplateLook[] }>(
+        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/looks`,
+      ),
+    ])
+      .then(([posesResponse, looksResponse]) => {
+        setItems(posesResponse.items);
+        setLooks(looksResponse.items);
+      })
       .catch((error) =>
         toast({
           kind: 'error',
-          title: 'Failed to load template poses',
+          title: 'Failed to load template configuration',
           body: (error as Error).message,
         }),
       )
       .finally(() => setLoading(false));
   }, [mapping.mappingId, toast]);
-
   const setWorkflow = async (poseAssetId: string, workflowTemplateId: string | null) => {
     const previous = items;
     const currentItem = items.find((i) => i.id === poseAssetId);
@@ -1332,9 +1465,37 @@ function MappedTemplateWorkflowModal({
     }
   };
 
+  const setLookEnabled = async (lookId: string, isEnabled: boolean) => {
+    const previous = looks;
+    setSavingLookId(lookId);
+    setLooks((current) =>
+      current.map((look) => (look.id === lookId ? { ...look, isEnabled } : look)),
+    );
+    try {
+      await apiFetch<{ ok: true; isEnabled: boolean }>(
+        `/admin/assets/catalogue-template-mappings/${mapping.mappingId}/looks/${lookId}`,
+        { method: 'PATCH', body: JSON.stringify({ isEnabled }) },
+      );
+    } catch (error) {
+      setLooks(previous);
+      toast({
+        kind: 'error',
+        title: 'Failed to update look visibility',
+        body: (error as Error).message,
+      });
+    } finally {
+      setSavingLookId(null);
+    }
+  };
+  const looksByPoseId = new Map<string, MappedTemplateLook[]>();
+  for (const look of looks) {
+    const poseLooks = looksByPoseId.get(look.poseAssetId) ?? [];
+    poseLooks.push(look);
+    looksByPoseId.set(look.poseAssetId, poseLooks);
+  }
   const configuredCount = items.filter((item) => item.workflowTemplateId).length;
   return (
-    <div className="modal-overlay" onClick={savingId ? undefined : onClose}>
+    <div className="modal-overlay" onClick={savingId || savingLookId ? undefined : onClose}>
       <div
         className="modal"
         onClick={(event) => event.stopPropagation()}
@@ -1347,7 +1508,11 @@ function MappedTemplateWorkflowModal({
               {garmentTypeLabel} / {configuredCount} of {items.length} poses ready
             </p>
           </div>
-          <button className="btn sm ghost" onClick={onClose} disabled={!!savingId}>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={!!savingId || !!savingLookId}
+          >
             <Icon.Close />
           </button>
         </div>
@@ -1418,15 +1583,32 @@ function MappedTemplateWorkflowModal({
                       placeholder="— search workflow —"
                       ariaLabel={`Workflow for ${item.displayName ?? item.label}`}
                     />
-                    <button
-                      className="btn sm ghost"
-                      disabled={!item.workflowTemplateId || savingId === item.id}
-                      onClick={() =>
-                        editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
-                      }
-                    >
-                      <Icon.MessageSquare /> Prompt
-                    </button>
+                    <div style={{ display: 'grid', justifyItems: 'end', gap: 7 }}>
+                      <button
+                        className="btn sm ghost"
+                        disabled={!item.workflowTemplateId || savingId === item.id}
+                        onClick={() =>
+                          editingPromptId === item.id ? closePromptEditor() : openPromptEditor(item)
+                        }
+                      >
+                        <Icon.MessageSquare /> Prompt
+                      </button>
+                      {(looksByPoseId.get(item.id) ?? []).map((look) => (
+                        <div
+                          key={look.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                          title={`Visible for ${garmentTypeLabel}: ${look.backgroundLabel}`}
+                        >
+                          <span style={{ color: 'var(--muted)', fontSize: 10 }}>
+                            {look.isEnabled ? 'Visible' : 'Hidden'}
+                          </span>
+                          <Switch
+                            checked={look.isEnabled}
+                            onChange={() => void setLookEnabled(look.id, !look.isEnabled)}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   {editingPromptId === item.id && (
                     <div className="card" style={{ padding: 10 }}>
@@ -1483,7 +1665,7 @@ function MappedTemplateWorkflowModal({
           >
             Mapping {mapping.mappingId}
           </span>
-          <button className="btn" onClick={onClose} disabled={!!savingId}>
+          <button className="btn" onClick={onClose} disabled={!!savingId || !!savingLookId}>
             Close
           </button>
         </div>

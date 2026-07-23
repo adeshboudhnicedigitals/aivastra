@@ -281,6 +281,29 @@ export const catalogueTemplateSubcategories = pgTable(
   }),
 );
 
+// A look is enabled for every mapped garment type by default. This table stores
+// only the exceptions: a look an admin has hidden for one concrete
+// template-to-garment-type mapping. Deleting the row restores the default.
+export const catalogueTemplateLookExclusions = pgTable(
+  'catalogue_template_look_exclusions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    mappingId: uuid('mapping_id')
+      .notNull()
+      .references(() => catalogueTemplateSubcategories.id, { onDelete: 'cascade' }),
+    lookId: uuid('look_id')
+      .notNull()
+      .references(() => catalogueTemplateLooks.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    uniqMappingLook: unique('catalogue_template_look_exclusions_mapping_look_unique').on(
+      table.mappingId,
+      table.lookId,
+    ),
+    mappingIdx: index('catalogue_template_look_exclusions_mapping_id_idx').on(table.mappingId),
+  }),
+);
 // Workflow selection for one pose inside one mapped template. Global templates
 // deliberately carry no workflow; the same template pose can therefore use a
 // different workflow when the template is mapped to Shirt, Suit, or another type.
