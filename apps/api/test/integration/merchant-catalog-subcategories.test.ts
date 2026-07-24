@@ -37,10 +37,32 @@ async function authHeader(userId: string) {
   return { authorization: `Bearer ${token}` };
 }
 
+// The shared /v1/merchant/catalog/subcategories routes (used by the web
+// catalogue-manager) accept any active garment type, for any category — not
+// just saree/mannequin ones. That restriction only applies to the dedicated
+// /v1/merchant/catalog/saree-subcategories endpoint the saree Android app uses
+// (see the describe block below).
 async function seedGarmentType(app: TestApp, genderSlug: string) {
   const [row] = await app.db
     .insert(schema.garmentSubcategories)
-    .values({ genderSlug, slug: `shirt-${randomUUID()}`, label: 'Shirt' })
+    .values({
+      genderSlug,
+      slug: `shirt-${randomUUID()}`,
+      label: 'Shirt',
+    })
+    .returning();
+  return row;
+}
+
+async function seedSareeGarmentType(app: TestApp, genderSlug: string) {
+  const [row] = await app.db
+    .insert(schema.garmentSubcategories)
+    .values({
+      genderSlug,
+      slug: `saree-${randomUUID()}`,
+      label: 'Saree',
+      requiresMannequinStep: true,
+    })
     .returning();
   return row;
 }
@@ -172,5 +194,59 @@ describe('merchant catalog subcategories', () => {
     expect(remainingProducts).toHaveLength(0);
 
     await expect(app.storage.headObject(imageKey)).rejects.toThrow();
+  });
+
+  describe('GET /v1/merchant/catalog/saree-subcategories', () => {
+    it('self-provisions one subcategory per active saree garment type on first read', async () => {
+      const merchant = await createMerchant(app, 'saree-subcat-provision@example.com');
+      const auth = await authHeader(merchant.userId);
+      const sareeType = await seedSareeGarmentType(app, 'women');
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/merchant/catalog/saree-subcategories?category=women',
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as { items: Array<{ name: string; garmentSubcategoryId: string }> };
+      expect(body.items).toHaveLength(1);
+      expect(body.items[0].garmentSubcategoryId).toBe(sareeType.id);
+    });
+
+    it('shows only saree (requiresMannequinStep) subcategories, unlike the shared endpoint', async () => {
+      const merchant = await createMerchant(app, 'saree-subcat-filter@example.com');
+      const auth = await authHeader(merchant.userId);
+      const shirtType = await seedGarmentType(app, 'women');
+      const sareeType = await seedSareeGarmentType(app, 'women');
+
+      await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Shirts', garmentSubcategoryId: shirtType.id },
+      });
+      await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: sareeType.id },
+      });
+
+      const shared = await app.inject({
+        method: 'GET',
+        url: '/v1/merchant/catalog/subcategories?category=women',
+        headers: auth,
+      });
+      expect((shared.json() as { items: unknown[] }).items).toHaveLength(2);
+
+      const sareeOnly = await app.inject({
+        method: 'GET',
+        url: '/v1/merchant/catalog/saree-subcategories?category=women',
+        headers: auth,
+      });
+      const sareeOnlyBody = sareeOnly.json() as { items: Array<{ name: string }> };
+      expect(sareeOnlyBody.items).toHaveLength(1);
+      expect(sareeOnlyBody.items[0].name).toBe('Sarees');
+    });
   });
 });

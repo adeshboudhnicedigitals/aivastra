@@ -236,7 +236,8 @@ export type JobStatus =
   | 'UPLOADING'
   | 'COMPLETED'
   | 'FAILED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'PENDING_MANNEQUIN';
 
 export interface Job {
   id: string;
@@ -330,6 +331,17 @@ export interface ModelPoseAsset {
   sortOrder: number;
   deletedAt: string | null;
   createdAt: string;
+}
+
+export interface SareeMannequinStyle {
+  id: string;
+  label: string;
+  previewImageKey: string | null;
+  mannequinWorkflowTemplateId: string;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PoseGarmentConfig {

@@ -234,7 +234,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [detect, ci-gate]
+    # `!cancelled()` is load-bearing, not decoration. GitHub propagates a
+    # `skipped` result transitively down the whole needs graph: when nothing
+    # testable changed, `test` skips (empty matrix), and that skip reaches
+    # `deploy` through `ci-gate` even though ci-gate itself has `always()`
+    # and succeeds — `always()` rescues only the job it is written on, not
+    # its descendants. A job escapes the propagation only if its own `if:`
+    # contains a status-check function, so without this the deploy silently
+    # skipped on every admin/web-only merge. Because adding a status
+    # function also drops the implicit `success()` on `needs`, the two
+    # result checks below restore that gate explicitly.
     if: >-
+      !cancelled() &&
+      needs.detect.result == 'success' &&
+      needs['ci-gate'].result == 'success' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.detect.outputs.has_deployable == 'true'
@@ -253,6 +266,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           SERVICES: ${{ needs.detect.outputs.compose_services }}
           MIGRATION_CHANGED: ${{ needs.detect.outputs.migration_changed }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           trap 'rm -f /tmp/deploy_key' EXIT
@@ -260,7 +274,7 @@ jobs:
           install -m 600 /dev/null /tmp/deploy_key
           echo "$SSH_KEY" > /tmp/deploy_key
 
-          echo "deploying services: ${SERVICES}"
+          echo "deploying services: ${SERVICES} at ${DEPLOY_SHA}"
 
           ssh -i /tmp/deploy_key \
               -o StrictHostKeyChecking=no \
@@ -269,13 +283,21 @@ jobs:
               "set -euo pipefail
                SERVICES='${SERVICES}'
                MIGRATION_CHANGED='${MIGRATION_CHANGED}'
+               DEPLOY_SHA='${DEPLOY_SHA}'
                COMPOSE=\"docker compose -f infra/docker-compose.prod.yml --env-file .env.production\"
 
-               echo '→ pulling latest code'
+               echo \"→ checking out \${DEPLOY_SHA}\"
                git config --global --add safe.directory ${DEPLOY_PATH}
                cd ${DEPLOY_PATH}
+               # Reset to the exact commit this run tested, not to whatever main
+               # points at right now: with two merges landing close together the
+               # earlier run would otherwise ship the later run's code, and the
+               # SHA that passed CI would not be the SHA deployed. Fetching main
+               # first guarantees the commit is present (it is always an ancestor
+               # of, or equal to, the branch tip) without relying on the server
+               # allowing a bare-SHA fetch.
                git fetch https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git main
-               git reset --hard FETCH_HEAD
+               git reset --hard \${DEPLOY_SHA}
 
                echo \"→ building images for: \${SERVICES}\"
                \${COMPOSE} build \${SERVICES}

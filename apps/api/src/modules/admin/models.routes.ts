@@ -16,6 +16,7 @@ import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { requireAdmin } from './guard.js';
 
 export async function adminAssetsRoutes(app: FastifyInstance) {
@@ -29,7 +30,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const rows = await app.db
       .select()
       .from(schema.modelFaces)
-      .where(isNull(schema.modelFaces.deletedAt));
+      .where(isNull(schema.modelFaces.deletedAt))
+      .orderBy(schema.modelFaces.sortOrder);
     return { items: rows };
   });
 
@@ -846,8 +848,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
 
   // ── Bulk import from ZIP ──────────────────────────────────────────────────
   app.post('/admin/assets/bulk-import', { preHandler: RW }, async (req, reply) => {
-    const data = await req.file();
+    const maxBulkImportBytes = await getUploadLimitBytes(app, 'bulkImportMaxBytes');
+    const data = await req.file({ limits: { fileSize: maxBulkImportBytes } });
     if (!data) throw new AppError('VALIDATION', 400, 'no file uploaded');
+
+    // Buffering below can either throw or mark the stream truncated when it hits the
+    // limit, depending on multipart parser behavior. Normalize both cases below.
 
     // Read metadata fields from form
     const fields = data.fields as Record<string, { value?: string }>;
@@ -863,7 +869,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     }
 
     // Buffer the ZIP
-    const zipBuffer = await data.toBuffer();
+    const zipBuffer = await data.toBuffer().catch(() => {
+      throw new AppError(
+        'VALIDATION',
+        413,
+        `uploaded ZIP exceeds ${maxBulkImportBytes / (1024 * 1024)}MB limit`,
+      );
+    });
+    if (data.file.truncated) {
+      throw new AppError(
+        'VALIDATION',
+        413,
+        `uploaded ZIP exceeds ${maxBulkImportBytes / (1024 * 1024)}MB limit`,
+      );
+    }
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries().filter((e) => !e.isDirectory);
 
@@ -1112,4 +1131,96 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     });
     reply.raw.end();
   });
+
+  // ── Saree Mannequin Styles ──────────────────────────────────────────────
+
+  app.get('/admin/assets/saree-styles', { preHandler: RW }, async () => {
+    const rows = await app.db
+      .select()
+      .from(schema.sareeMannequinStyles)
+      .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
+    return { items: rows };
+  });
+
+  app.post(
+    '/admin/assets/saree-styles/presign',
+    { preHandler: RW, schema: { body: z.object({ contentType: AssetContentType }) } },
+    async (req) => {
+      const { contentType } = req.body as { contentType: string };
+      const r2Key = keys.sareeStyle(randomUUID());
+      const presign = await app.storage.presignPut(r2Key, contentType, 5_000_000, 300);
+      return { r2Key, uploadUrl: presign.url };
+    },
+  );
+
+  app.post(
+    '/admin/assets/saree-styles',
+    {
+      preHandler: RW,
+      schema: {
+        body: z.object({
+          label: z.string().min(1),
+          previewImageKey: z.string().optional(),
+          mannequinWorkflowTemplateId: z.string().uuid(),
+          sortOrder: z.number().int().optional(),
+          isActive: z.boolean().optional(),
+        }),
+      },
+    },
+    async (req, reply) => {
+      const body = req.body as {
+        label: string;
+        previewImageKey?: string;
+        mannequinWorkflowTemplateId: string;
+        sortOrder?: number;
+        isActive?: boolean;
+      };
+      const [inserted] = await app.db
+        .insert(schema.sareeMannequinStyles)
+        .values({
+          label: body.label,
+          previewImageKey: body.previewImageKey ?? null,
+          mannequinWorkflowTemplateId: body.mannequinWorkflowTemplateId,
+          sortOrder: body.sortOrder ?? 0,
+          isActive: body.isActive ?? true,
+        })
+        .returning();
+      reply.code(201);
+      return inserted;
+    },
+  );
+
+  app.patch(
+    '/admin/assets/saree-styles/:id',
+    {
+      preHandler: RW,
+      schema: {
+        params: uuidParam,
+        body: z.object({
+          label: z.string().min(1).optional(),
+          previewImageKey: z.string().optional(),
+          mannequinWorkflowTemplateId: z.string().uuid().optional(),
+          sortOrder: z.number().int().optional(),
+          isActive: z.boolean().optional(),
+        }),
+      },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as {
+        label?: string;
+        previewImageKey?: string;
+        mannequinWorkflowTemplateId?: string;
+        sortOrder?: number;
+        isActive?: boolean;
+      };
+      const [updated] = await app.db
+        .update(schema.sareeMannequinStyles)
+        .set({ ...body, updatedAt: new Date() })
+        .where(eq(schema.sareeMannequinStyles.id, id))
+        .returning();
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'saree style not found');
+      return updated;
+    },
+  );
 }

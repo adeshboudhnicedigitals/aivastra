@@ -617,7 +617,10 @@ export async function authRoutes(app: FastifyInstance) {
       const sessions = await activeDeviceSessions(app, user.id);
       const otherSessions = sessions.filter((session) => session.deviceId !== deviceId);
 
-      if (otherSessions.length >= user.maxActiveDevices) {
+      // The saree catalogue Android app ('mobile' portal) has no device cap — a
+      // merchant's staff routinely share one account across multiple tablets at
+      // once. Only 'kiosk' enforces maxActiveDevices (one active kiosk per account).
+      if (platform !== 'mobile' && otherSessions.length >= user.maxActiveDevices) {
         const forceLogoutToken = await createForceLogoutToken(app, {
           userId: user.id,
           deviceId,

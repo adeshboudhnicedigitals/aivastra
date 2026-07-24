@@ -10,7 +10,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 object MerchantCatalogRepository {
     private val mapper = ObjectMapper()
     suspend fun fetchSubcategories(category: String): List<MerchantCatalogSubcategory> {
-        val response = APICaller.getJsonAuthed("${APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SUBCATEGORIES}?category=$category", PrefsManager.getAccessToken())
+        val response = APICaller.getJsonAuthed("${APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SAREE_SUBCATEGORIES}?category=$category", PrefsManager.getAccessToken())
         return mapper.readValue(response, MerchantCatalogSubcategoryListResponse::class.java).items
     }
     suspend fun fetchItems(subcategoryId: String? = null, search: String? = null): List<MerchantCatalogItem> {
@@ -29,8 +29,21 @@ object MerchantCatalogRepository {
         APICaller.putToPresignedUrl(uploadUrl, file.asRequestBody(contentType.toMediaType()))
     }
 
-    suspend fun generate(subcategoryId: String, flatImageKey: String): String {
-        val body = org.json.JSONObject().apply { put("subcategoryId", subcategoryId); put("flatImageKey", flatImageKey) }.toString()
+    suspend fun fetchSareeStyles(): List<SareeStyle> {
+        val response = APICaller.getJsonAuthed(APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_SAREE_STYLES, PrefsManager.getAccessToken())
+        return mapper.readValue(response, SareeStyleListResponse::class.java).items
+    }
+
+    suspend fun generate(subcategoryId: String, flatImageKey: String, sareeStyleId: String?): String {
+        // This app only ever generates saree catalog images — skip the normal pose/
+        // background/face compositing step and finalize with the mannequin-drape
+        // output directly (see createMerchantSareeMannequinJob on the API side).
+        val body = org.json.JSONObject().apply {
+            put("subcategoryId", subcategoryId)
+            put("flatImageKey", flatImageKey)
+            put("mannequinOnly", true)
+            if (sareeStyleId != null) put("sareeStyleId", sareeStyleId)
+        }.toString()
         val response = APICaller.postJsonAuthed(APIConstant.API_ENDPOINTS.MERCHANT_CATALOG_GENERATE, body, PrefsManager.getAccessToken())
         return mapper.readValue(response, MerchantCatalogGenerateResponse::class.java).jobId
     }

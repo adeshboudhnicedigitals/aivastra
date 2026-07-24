@@ -61,6 +61,7 @@ const TERMINAL = ['COMPLETED', 'FAILED', 'CANCELLED'];
 
 // [min%, max%, durationMs] for each non-terminal stage
 const STAGE_RANGES: Record<string, [number, number, number]> = {
+  PENDING_MANNEQUIN: [0, 3, 0],
   QUEUED: [0, 5, 0],
   PREPROCESSING: [5, 25, 30_000],
   GENERATING: [25, 88, 240_000],
@@ -198,11 +199,13 @@ function ImageCard({
   const cardBg = isCompleted ? C.lighter : C.dark;
 
   const stageLabel =
-    job.status === 'PREPROCESSING'
-      ? 'Preparing…'
-      : job.status === 'UPLOADING'
-        ? 'Saving…'
-        : 'Generating…';
+    job.status === 'PENDING_MANNEQUIN'
+      ? 'Preparing garment…'
+      : job.status === 'PREPROCESSING'
+        ? 'Preparing…'
+        : job.status === 'UPLOADING'
+          ? 'Saving…'
+          : 'Generating…';
 
   return (
     <>
@@ -452,7 +455,15 @@ function ImageCard({
                 borderRadius: 20,
               }}
             >
-              {isCompleted ? 'Ready' : isFailed ? 'Failed' : isQueued ? 'Queued' : 'Generating'}
+              {isCompleted
+                ? 'Ready'
+                : isFailed
+                  ? 'Failed'
+                  : isQueued
+                    ? 'Queued'
+                    : job.status === 'PENDING_MANNEQUIN'
+                      ? 'Preparing'
+                      : 'Generating'}
             </span>
             <span style={{ fontSize: 11, color: C.light }}>
               {new Date(job.createdAt).toLocaleDateString('en-IN', {
