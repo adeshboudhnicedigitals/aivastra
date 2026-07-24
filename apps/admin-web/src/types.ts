@@ -119,6 +119,14 @@ export interface MappedTemplatePoseWorkflow {
   source: 'auto' | 'manual' | null;
 }
 
+export interface MappedTemplateLook {
+  id: string;
+  poseAssetId: string;
+  poseLabel: string;
+  poseThumbnailUrl: string;
+  backgroundLabel: string;
+  isEnabled: boolean;
+}
 export interface ShotTypeWorkflow {
   shotType: 'full' | 'half' | 'closeup';
   workflowTemplateId: string | null;

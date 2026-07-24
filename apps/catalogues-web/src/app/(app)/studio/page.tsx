@@ -551,6 +551,7 @@ export default function StudioPage(): React.ReactElement {
     queryFn: () => api.get(`/v1/models/garment-types?gender=${gender}`),
     enabled: !!gender,
   });
+  const selectedGarmentType = garmentTypes?.items.find((g) => g.id === garmentTypeId);
   const didAutoGarment = useRef('');
   useEffect(() => {
     if (garmentTypes?.items?.length && !garmentTypeId && didAutoGarment.current !== gender) {
@@ -558,6 +559,19 @@ export default function StudioPage(): React.ReactElement {
       didAutoGarment.current = gender;
     }
   }, [garmentTypes, garmentTypeId, gender]);
+  const defaultsAppliedForGarmentType = useRef('');
+  useEffect(() => {
+    if (!garmentTypeId || defaultsAppliedForGarmentType.current === garmentTypeId) return;
+
+    const garmentType = garmentTypes?.items.find((item) => item.id === garmentTypeId);
+    if (!garmentType) return;
+
+    // Mirror the garment type configuration in the visible pickers. Users can
+    // still replace or clear either selection before generating.
+    setLowerCatalogId(garmentType.defaultLowerCatalogId ?? '');
+    setShoeCatalogId(garmentType.defaultShoeCatalogId ?? '');
+    defaultsAppliedForGarmentType.current = garmentTypeId;
+  }, [garmentTypeId, garmentTypes]);
   const {
     data: faces,
     isError: facesError,
@@ -702,6 +716,23 @@ export default function StudioPage(): React.ReactElement {
     catalogueTemplateId === 'custom'
       ? selectedPoses.some((p) => p.hasShoes)
       : selectedLooks.some((l) => l.hasShoes);
+  const previousCatalogNeeds = useRef({ lower: false, shoes: false });
+  useEffect(() => {
+    if (needsLower && !previousCatalogNeeds.current.lower && !lowerCatalogId) {
+      setLowerCatalogId(selectedGarmentType?.defaultLowerCatalogId ?? '');
+    }
+    if (needsShoes && !previousCatalogNeeds.current.shoes && !shoeCatalogId) {
+      setShoeCatalogId(selectedGarmentType?.defaultShoeCatalogId ?? '');
+    }
+    previousCatalogNeeds.current = { lower: needsLower, shoes: needsShoes };
+  }, [
+    lowerCatalogId,
+    needsLower,
+    needsShoes,
+    selectedGarmentType?.defaultLowerCatalogId,
+    selectedGarmentType?.defaultShoeCatalogId,
+    shoeCatalogId,
+  ]);
   const selectedCount = catalogueTemplateId === 'custom' ? poseIds.length : selectedLookIds.length;
   // Lower/shoe catalog fetch needs the pose IDs behind whatever is currently selected —
   // `poseIds` only ever holds the custom-mode picker's selection, template mode's poses
@@ -907,15 +938,11 @@ export default function StudioPage(): React.ReactElement {
     setSelectedLookIds([]);
     setBackgroundId('');
     setPoseIds([]);
-    setLowerCatalogId('');
-    setShoeCatalogId('');
   }
   function handleBackgroundSelect(id: string) {
     setCatalogueTemplateId('custom');
     setBackgroundId(id);
     setPoseIds([]);
-    setLowerCatalogId('');
-    setShoeCatalogId('');
   }
   function handleCatalogueTemplateSelect(id: string) {
     setCatalogueTemplateId(id);
@@ -926,15 +953,11 @@ export default function StudioPage(): React.ReactElement {
     setSelectedLookIds(template ? template.looks.map((look) => look.id) : []);
     setBackgroundId('');
     setPoseIds([]);
-    setLowerCatalogId('');
-    setShoeCatalogId('');
   }
   function handleLookToggle(id: string) {
     setSelectedLookIds((prev) =>
       prev.includes(id) ? prev.filter((l) => l !== id) : [...prev, id],
     );
-    setLowerCatalogId('');
-    setShoeCatalogId('');
   }
   function handlePoseSelect(id: string) {
     setPoseIds((prev) => {
@@ -1154,7 +1177,6 @@ export default function StudioPage(): React.ReactElement {
     }
   }
 
-  const selectedGarmentType = garmentTypes?.items.find((g) => g.id === garmentTypeId);
   const requiresLowerUpload = selectedGarmentType?.requiresLowerUpload ?? false;
   const requiresThirdUpload = selectedGarmentType?.requiresThirdUpload ?? false;
   const hasMultipleUploadBoxes = requiresLowerUpload || requiresThirdUpload;
