@@ -15,7 +15,7 @@ const PUBLIC_PATHS = [
 ];
 // Features not ready for real users — hidden from the sidebar (see sidebar.tsx
 // devOnly) and blocked here so direct navigation can't reach them either.
-const DEV_ONLY_PATHS = ['/tutorials'];
+const DEV_ONLY_PATHS: string[] = [];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
