@@ -234,13 +234,6 @@
 
         const actions = document.createElement('div');
         actions.className = 'aivastra-tryon__history-actions';
-        if (entry.productUrl) {
-          const cartLink = document.createElement('a');
-          cartLink.className = 'aivastra-tryon__history-cart';
-          cartLink.href = entry.productUrl;
-          cartLink.textContent = 'View Product';
-          actions.appendChild(cartLink);
-        }
         if (typeof navigator.share === 'function') {
           const shareBtn = document.createElement('button');
           shareBtn.type = 'button';
