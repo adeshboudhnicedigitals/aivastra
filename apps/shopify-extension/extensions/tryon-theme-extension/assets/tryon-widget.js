@@ -6,6 +6,9 @@
   function initWidget(root) {
     const widgetKey = root.dataset.widgetKey;
     const productId = Number(root.dataset.productId);
+    const productTitle = root.dataset.productTitle || '';
+    const productUrl = root.dataset.productUrl || '';
+    const productImage = root.dataset.productImage || '';
     const apiBase = root.dataset.apiBase.replace(/\/$/, '');
 
     const button = root.querySelector('.aivastra-tryon__button');
@@ -13,6 +16,8 @@
     const closeBtn = root.querySelector('.aivastra-tryon__close');
     const resetBtn = root.querySelector('.aivastra-tryon__reset');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
+    const cameraInput = root.querySelector('.aivastra-tryon__file-input-camera');
+    const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const steps = {
       upload: root.querySelector('.aivastra-tryon__step--upload'),
       ready: root.querySelector('.aivastra-tryon__step--ready'),
@@ -25,6 +30,11 @@
     const readyImage = root.querySelector('.aivastra-tryon__ready-image');
     const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
     const ctaBtn = root.querySelector('.aivastra-tryon__cta');
+
+    if (avatarImage && productImage) {
+      avatarImage.src = productImage;
+      avatarImage.hidden = false;
+    }
 
     const pages = {
       main: root.querySelector('.aivastra-tryon__page--main'),
@@ -174,11 +184,17 @@
 
     // Fires each time a job completes — resultUrl is a stable public R2 URL
     // (not presigned), so it's safe to keep around indefinitely in
-    // localStorage. History is per-browser, same pattern as the "reuse last
-    // photo" feature: no server-side concept of a widget shopper's identity
-    // exists to key a real history endpoint off of.
+    // localStorage. History is per-browser and spans every product tried on
+    // this store, same pattern as the "reuse last photo" feature: no
+    // server-side concept of a widget shopper's identity exists to key a
+    // real history endpoint off of.
     function addToHistory(resultUrl) {
-      const entry = { resultUrl, createdAt: Date.now() };
+      const entry = {
+        resultUrl,
+        createdAt: Date.now(),
+        productTitle,
+        productUrl,
+      };
       const history = [entry, ...getHistory()].slice(0, HISTORY_MAX_ITEMS);
       try {
         localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
@@ -186,6 +202,17 @@
         /* private-browsing / storage-full — history just won't persist */
       }
       updateHistoryBadge(history.length);
+    }
+
+    function formatHistoryDate(timestamp) {
+      try {
+        return new Date(timestamp).toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+        });
+      } catch (_err) {
+        return '';
+      }
     }
 
     function renderHistoryList() {
@@ -196,19 +223,59 @@
       if (historyEmpty) historyEmpty.hidden = history.length > 0;
       for (let i = 0; i < history.length; i++) {
         const entry = history[i];
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = 'aivastra-tryon__history-item';
+        const card = document.createElement('div');
+        card.className = 'aivastra-tryon__history-card';
+
+        const media = document.createElement('button');
+        media.type = 'button';
+        media.className = 'aivastra-tryon__history-media';
         const img = document.createElement('img');
         img.src = entry.resultUrl;
         img.alt = '';
-        item.appendChild(img);
-        item.addEventListener('click', () => {
+        media.appendChild(img);
+        media.addEventListener('click', () => {
           resultImage.src = entry.resultUrl;
           showStep('result');
           showPage('main');
         });
-        historyList.appendChild(item);
+        card.appendChild(media);
+
+        const meta = document.createElement('div');
+        meta.className = 'aivastra-tryon__history-meta';
+        const title = document.createElement('strong');
+        title.textContent = entry.productTitle || 'Try-on';
+        meta.appendChild(title);
+        const date = document.createElement('span');
+        date.textContent = formatHistoryDate(entry.createdAt);
+        meta.appendChild(date);
+        card.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'aivastra-tryon__history-actions';
+        if (entry.productUrl) {
+          const cartLink = document.createElement('a');
+          cartLink.className = 'aivastra-tryon__history-cart';
+          cartLink.href = entry.productUrl;
+          cartLink.textContent = 'View Product';
+          actions.appendChild(cartLink);
+        }
+        if (typeof navigator.share === 'function') {
+          const shareBtn = document.createElement('button');
+          shareBtn.type = 'button';
+          shareBtn.className = 'aivastra-tryon__history-share';
+          shareBtn.setAttribute('aria-label', 'Share');
+          shareBtn.innerHTML =
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.2"/><circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="m8 11 7.8-4.6M8 13l7.8 4.6"/></svg>';
+          shareBtn.addEventListener('click', () => {
+            navigator.share({ url: entry.resultUrl }).catch(() => {
+              /* user cancelled the share sheet — nothing to do */
+            });
+          });
+          actions.appendChild(shareBtn);
+        }
+        if (actions.childNodes.length > 0) card.appendChild(actions);
+
+        historyList.appendChild(card);
       }
     }
 
@@ -446,15 +513,17 @@
     if (reuseRemoveBtn) {
       reuseRemoveBtn.addEventListener('click', forgetPhoto);
     }
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files?.[0];
+    function handlePickedFile(input) {
+      const file = input.files?.[0];
       if (!file) return;
       if (!file.type.startsWith('image/') || file.size > MAX_PHOTO_BYTES) {
         showStep('error');
         return;
       }
       showReady({ file });
-    });
+    }
+    fileInput.addEventListener('change', () => handlePickedFile(fileInput));
+    if (cameraInput) cameraInput.addEventListener('change', () => handlePickedFile(cameraInput));
     const retryBtns = root.querySelectorAll('.aivastra-tryon__retry');
     for (let k = 0; k < retryBtns.length; k++) {
       retryBtns[k].addEventListener('click', startOver);
