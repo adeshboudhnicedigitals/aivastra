@@ -59,6 +59,8 @@ export function FacesTab() {
   const [editingFace, setEditingFace] = useState<ModelFace | null>(null);
   const [confirmDeleteFace, setConfirmDeleteFace] = useState<ModelFace | null>(null);
   const [facesPage, setFacesPage] = useState(1);
+  const [bulkSortStart, setBulkSortStart] = useState(0);
+  const [bulkSortSaving, setBulkSortSaving] = useState(false);
 
   useEffect(() => {
     loadFaces();
@@ -116,7 +118,45 @@ export function FacesTab() {
     }
   };
 
-  const filteredFaces = faces.filter((f) => genderFilter === 'all' || f.gender === genderFilter);
+  const doBulkSortOrder = async () => {
+    if (selectedFaceIds.length === 0) return;
+    setBulkSortSaving(true);
+    const orderedSelected = filteredFaces
+      .filter((f) => selectedFaceIds.includes(f.id))
+      .map((f, i) => ({ id: f.id, sortOrder: bulkSortStart + i }));
+    try {
+      await Promise.all(
+        orderedSelected.map(({ id, sortOrder }) =>
+          apiFetch(`/admin/assets/faces/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ sortOrder }),
+          }),
+        ),
+      );
+      setFaces((prev) =>
+        prev.map((f) => {
+          const entry = orderedSelected.find((e) => e.id === f.id);
+          return entry ? { ...f, sortOrder: entry.sortOrder } : f;
+        }),
+      );
+      toast({
+        title: `Sort order updated for ${orderedSelected.length} face${orderedSelected.length !== 1 ? 's' : ''}`,
+      });
+      setSelectedFaceIds([]);
+    } catch (e) {
+      toast({
+        kind: 'error',
+        title: 'Failed to update sort order',
+        body: apiErrorMessage(e, 'Please try again.'),
+      });
+    } finally {
+      setBulkSortSaving(false);
+    }
+  };
+
+  const filteredFaces = faces
+    .filter((f) => genderFilter === 'all' || f.gender === genderFilter)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
   const facesTotalPages = Math.max(1, Math.ceil(filteredFaces.length / FACES_PAGE_SIZE));
   const facesClampedPage = Math.min(facesPage, facesTotalPages);
   const pagedFaces = filteredFaces.slice(
@@ -180,12 +220,36 @@ export function FacesTab() {
               </button>
             )}
             {selectedFaceIds.length > 0 && (
-              <button
-                className="btn sm danger"
-                onClick={() => setConfirmBulkDeleteFaceIds([...selectedFaceIds])}
-              >
-                <Icon.Trash /> Move to recycle bin ({selectedFaceIds.length})
-              </button>
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    Sort from
+                  </span>
+                  <input
+                    type="number"
+                    className="input"
+                    min={0}
+                    step={1}
+                    value={bulkSortStart}
+                    disabled={bulkSortSaving}
+                    onChange={(e) => setBulkSortStart(Number(e.target.value))}
+                    style={{ width: 64, padding: '3px 6px', fontSize: 12, height: 28 }}
+                  />
+                  <button
+                    className="btn sm"
+                    disabled={bulkSortSaving}
+                    onClick={() => void doBulkSortOrder()}
+                  >
+                    {bulkSortSaving ? 'Saving…' : `Apply (${selectedFaceIds.length})`}
+                  </button>
+                </div>
+                <button
+                  className="btn sm danger"
+                  onClick={() => setConfirmBulkDeleteFaceIds([...selectedFaceIds])}
+                >
+                  <Icon.Trash /> Move to recycle bin ({selectedFaceIds.length})
+                </button>
+              </>
             )}
           </div>
           <div
