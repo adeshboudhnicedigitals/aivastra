@@ -55,12 +55,7 @@
     let pendingFile = null;
     let pendingReuseKey = null;
 
-    const reusePanel = root.querySelector('.aivastra-tryon__reuse-panel');
-    const reuseThumb = root.querySelector('.aivastra-tryon__reuse-thumb');
-    const reuseUseBtn = root.querySelector('.aivastra-tryon__reuse-use');
-    const reuseRemoveBtn = root.querySelector('.aivastra-tryon__reuse-remove');
     const reuseExpiredNote = root.querySelector('.aivastra-tryon__reuse-expired-note');
-    const uploadLabelText = root.querySelector('.aivastra-tryon__upload-label-text');
     const REUSE_STORAGE_KEY = 'aivastra_last_photo';
     const REUSE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -93,34 +88,23 @@
       }
     }
 
-    function hideReusePanel() {
-      if (reusePanel) reusePanel.hidden = true;
-      if (uploadLabelText) uploadLabelText.textContent = 'Drag and drop photo, or choose file';
-    }
-
-    let lastReusePreviewUrl = null;
-
-    function showReusePanel(previewUrl) {
-      if (!reusePanel || !reuseThumb) return;
-      reuseThumb.src = previewUrl;
-      lastReusePreviewUrl = previewUrl;
-      reusePanel.hidden = false;
-      if (uploadLabelText) uploadLabelText.textContent = 'Or upload a new photo';
-    }
-
     function forgetPhoto() {
       try {
         localStorage.removeItem(REUSE_STORAGE_KEY);
       } catch (_err) {
         /* ignore */
       }
-      hideReusePanel();
     }
 
-    async function tryShowReusePanel() {
+    // Entry point for the main flow (modal open, "Try another pose", "Try
+    // again"): a returning shopper with a remembered photo goes straight to
+    // the ready screen with it pre-loaded (design frame 3) instead of
+    // revisiting the upload step. No remembered photo (or it's expired /
+    // no longer owned) falls back to a fresh upload.
+    async function enterMainFlow() {
       const remembered = getRememberedPhoto();
       if (!remembered) {
-        hideReusePanel();
+        showStep('upload');
         return;
       }
       try {
@@ -131,12 +115,13 @@
         });
         if (!res.ok) {
           forgetPhoto();
+          showStep('upload');
           return;
         }
         const body = await res.json();
-        showReusePanel(body.previewUrl);
+        showReady({ reuseKey: remembered.r2Key, previewUrl: body.previewUrl });
       } catch (_err) {
-        hideReusePanel();
+        showStep('upload');
       }
     }
 
@@ -301,11 +286,10 @@
     }
 
     function startOver() {
-      showStep('upload');
       fileInput.value = '';
       resetReadyPreview();
       if (reuseExpiredNote) reuseExpiredNote.hidden = true;
-      tryShowReusePanel();
+      enterMainFlow();
     }
 
     function openModal() {
@@ -505,19 +489,6 @@
     if (historyBtn) historyBtn.addEventListener('click', () => showPage('history'));
     if (historyBackBtn) historyBackBtn.addEventListener('click', () => showPage('main'));
     updateHistoryBadge(getHistory().length);
-    if (reuseUseBtn) {
-      reuseUseBtn.addEventListener('click', () => {
-        const remembered = getRememberedPhoto();
-        if (!remembered) {
-          hideReusePanel();
-          return;
-        }
-        showReady({ reuseKey: remembered.r2Key, previewUrl: lastReusePreviewUrl });
-      });
-    }
-    if (reuseRemoveBtn) {
-      reuseRemoveBtn.addEventListener('click', forgetPhoto);
-    }
     function handlePickedFile(input) {
       const file = input.files?.[0];
       if (!file) return;
