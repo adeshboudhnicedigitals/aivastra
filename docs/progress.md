@@ -1,3 +1,117 @@
+## 2026-07-21 - Bulk template enablement by garment type
+
+### Done
+- Made template cards themselves selectable and changed their selection checkboxes to transparent, minimal overlays.
+- Kept Select all and the bulk enable/disable toggle as a compact side-by-side control row. It reuses the existing per-template mapping endpoint and does not change template, workflow, or Studio/Sellio logic.
+- Verified the Admin production build passes.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+## 2026-07-21 - In-popup per-garment template look visibility
+
+### Done
+- Added per-look shown/hidden toggles beside the existing Prompt control in each row of the Admin **Configure workflows** popup; no separate visibility section, new template button, or new modal was added.
+- A hidden look is stored only as a mapping-specific exclusion. Re-enabling it removes that exclusion and restores the normal default, without affecting the template for any other garment type.
+- Studio and the Sellio Studio flow automatically omit excluded looks through the existing public template response; workflow, garment-default, and other selection logic remain unchanged.
+- Added generated migration `0117_amusing_darkstar` and a focused integration regression test.
+- Applied migration `0117_amusing_darkstar` to the local database after confirming the Admin popup error was caused by the missing table.
+- Verified API typecheck, API/Admin lint (one existing API warning), Admin production build, and the focused visibility integration test (passed).
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+## 2026-07-21 - Persistent garment defaults in Studio and Sellio
+
+### Done
+- Fixed default selections being cleared by unrelated Studio steps such as face, background, template, and look selection.
+- Added a guarded restoration when a selected pose newly requires a lower garment or footwear, for both Studio and the Sellio embedded Studio wizard; manually chosen or cleared selections are not overwritten while that requirement remains active.
+- Retained Sellio's visible default-preview behavior.
+- Verified the catalogues-web TypeScript check and Sellio wizard Biome check pass.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Studio's targeted Biome check continues to report two pre-existing warnings unrelated to this change.
+## 2026-07-21 - Reverted direct garment-default assignment
+
+### Done
+- Reverted the direct lower-garment and footwear default assignments added in the immediately preceding Studio and Sellio change.
+- Retained the earlier effect-based default selection and Sellio preview visibility behavior.
+- Verified the catalogues-web TypeScript check passes.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+## 2026-07-21 - Sidebar credit-plan icon
+
+### Done
+- Replaced the View Plans heart symbol in the sidebar credit card with the supplied `public/assets/add_credits.png` icon.
+- Verified the catalogues-web TypeScript check and sidebar Biome check pass.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+## 2026-07-21 - Sellio default selection visibility
+
+### Done
+- Fixed the Sellio embedded Studio preview so a selected default lower garment or footwear item is always included in the four visible catalog cards instead of being hidden by random ordering.
+- Preserved manual selection and all existing wizard behavior.
+- Verified the catalogues-web TypeScript check and the modified wizard's Biome check pass.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
+## 2026-07-21 - Sellio embedded Studio garment defaults
+
+### Done
+- Updated the Sellio “Create AI Catalogue” embedded wizard to preselect the selected garment type's configured lower garment and footwear defaults, matching Studio.
+- Preserved the wizard's existing pose reset, uploads, catalog loading, manual picker overrides, and submit-time fallback behavior.
+- Verified the catalogues-web TypeScript check passes.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- The catalogues-web lint command reports pre-existing warnings outside this change; it exits successfully and reports no issue in the updated wizard.
+
+## 2026-07-21 - Studio catalog options and garment defaults
+
+### Done
+- Diagnosed the incomplete lower-garment and footwear pickers as an API behavior, not a local-data issue: the selected garment type restricted Studio to its explicitly mapped catalog items.
+- Updated the Studio catalog endpoint to return every active item of the selected gender and requested type after a supporting pose is selected; garment type still determines the workflow and its configured lower-garment/footwear defaults remain preselected in Studio.
+- Added an API integration regression test proving that an active same-gender lower garment is returned even when it is not mapped to the selected garment type.
+- Verified API typecheck and the focused integration test (1 passed).
+
+### Failed / Not Done
+- The broad catalog integration invocation still has one pre-existing seed failure: its legacy `/v1/catalog/models` test inserts a `catalog_items` row without the now-required `type`. The new focused regression test passes.
+
+### Open Questions / Decisions
+- The Studio preview continues to show five random options initially; **View more** now exposes the complete active, same-gender catalog.
+
+## 2026-07-21 - Studio garment-type catalog defaults
+
+### Done
+- Updated the Studio garment-type selection flow so an admin-configured default lower garment and default footwear item are immediately selected in their respective Studio pickers.
+- Kept both picker selections editable: a user can still choose a different catalog item or clear the default before generating.
+- Preserved the existing submit-time fallback, which ensures defaults continue to be sent even when the optional picker is not shown for the selected pose.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None.
 ## 2026-07-22 - Admin-configurable upload limits
 
 Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-22-admin-configurable-upload-limits.md`: all API upload surfaces now read validated limits from the shared system config, and administrators can manage all ten limits from Settings.
@@ -3843,3 +3957,4 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
+

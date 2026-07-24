@@ -383,6 +383,97 @@ describe('GET /v1/models/catalogue-templates', () => {
     expect(suitTemplate.looks[0].hasLower).toBe(true);
   });
 
+  it('hides an excluded look only for its mapped garment type', async () => {
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'Shared pose',
+        genderSlug: 'women',
+        r2Key: 'shared-pose.jpg',
+        thumbnailKey: 'shared-pose.jpg',
+      })
+      .returning();
+    const backgrounds = await app.db
+      .insert(schema.modelBackgrounds)
+      .values([
+        { label: 'Standing background', r2Key: 'standing.jpg', thumbnailKey: 'standing.jpg' },
+        { label: 'Sitting background', r2Key: 'sitting.jpg', thumbnailKey: 'sitting.jpg' },
+      ])
+      .returning();
+    const [template] = await app.db
+      .insert(schema.catalogueTemplates)
+      .values({ genderSlug: 'women', label: 'Visibility template' })
+      .returning();
+    const looks = await app.db
+      .insert(schema.catalogueTemplateLooks)
+      .values([
+        {
+          templateId: template.id,
+          poseAssetId: pose.id,
+          backgroundId: backgrounds[0]?.id ?? '',
+          sortOrder: 0,
+        },
+        {
+          templateId: template.id,
+          poseAssetId: pose.id,
+          backgroundId: backgrounds[1]?.id ?? '',
+          sortOrder: 1,
+        },
+      ])
+      .returning();
+    const [saree, dress] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values([
+        { genderSlug: 'women', slug: `saree-visible-${pose.id}`, label: 'Saree' },
+        { genderSlug: 'women', slug: `dress-visible-${pose.id}`, label: 'Dress' },
+      ])
+      .returning();
+    const mappings = await app.db
+      .insert(schema.catalogueTemplateSubcategories)
+      .values([
+        { templateId: template.id, subcategoryId: saree?.id ?? '' },
+        { templateId: template.id, subcategoryId: dress?.id ?? '' },
+      ])
+      .returning();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `visibility-workflow-${pose.id}`,
+        label: 'Visibility workflow',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    await app.db.insert(schema.catalogueTemplatePoseWorkflows).values([
+      { mappingId: mappings[0]?.id ?? '', poseAssetId: pose.id, workflowTemplateId: workflow.id },
+      { mappingId: mappings[1]?.id ?? '', poseAssetId: pose.id, workflowTemplateId: workflow.id },
+    ]);
+    await app.db.insert(schema.catalogueTemplateLookExclusions).values({
+      mappingId: mappings[0]?.id ?? '',
+      lookId: looks[1]?.id ?? '',
+    });
+
+    const token = await loginToken('templates-look-visibility@x.com');
+    const getLooks = async (garmentTypeId: string) => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/v1/models/catalogue-templates?gender=women&garmentTypeId=${garmentTypeId}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json().items.find((item: { id: string }) => item.id === template.id).looks;
+    };
+
+    const sareeLooks = await getLooks(saree?.id ?? '');
+    const dressLooks = await getLooks(dress?.id ?? '');
+    expect(sareeLooks.map((look: { id: string }) => look.id)).toEqual([looks[0]?.id]);
+    expect(dressLooks.map((look: { id: string }) => look.id)).toEqual(looks.map((look) => look.id));
+  });
   it('returns an empty list when garmentTypeId is omitted', async () => {
     const token = await loginToken('templates-no-gt@x.com');
     const res = await app.inject({

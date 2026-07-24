@@ -79,7 +79,8 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.modelFaces.isActive, true),
             isNull(schema.modelFaces.deletedAt),
           ),
-        );
+        )
+        .orderBy(asc(schema.modelFaces.sortOrder), asc(schema.modelFaces.label));
 
       return {
         items: items.map((i) => ({ ...i, thumbnailUrl: app.storage.publicUrl(i.thumbnailUrl) })),
@@ -393,6 +394,16 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.catalogueTemplateSubcategories.subcategoryId, garmentTypeId),
           ),
         )
+        .leftJoin(
+          schema.catalogueTemplateLookExclusions,
+          and(
+            eq(
+              schema.catalogueTemplateLookExclusions.mappingId,
+              schema.catalogueTemplateSubcategories.id,
+            ),
+            eq(schema.catalogueTemplateLookExclusions.lookId, schema.catalogueTemplateLooks.id),
+          ),
+        )
         .innerJoin(
           schema.catalogueTemplatePoseWorkflows,
           and(
@@ -416,7 +427,12 @@ export async function modelsRoutes(app: FastifyInstance) {
             eq(schema.workflowTemplates.isActive, true),
           ),
         )
-        .where(inArray(schema.catalogueTemplateLooks.templateId, templateIds))
+        .where(
+          and(
+            inArray(schema.catalogueTemplateLooks.templateId, templateIds),
+            isNull(schema.catalogueTemplateLookExclusions.id),
+          ),
+        )
         .orderBy(asc(schema.catalogueTemplateLooks.sortOrder));
 
       const looksByTemplate = new Map<string, typeof lookRows>();

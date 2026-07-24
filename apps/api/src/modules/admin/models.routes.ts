@@ -30,7 +30,8 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
     const rows = await app.db
       .select()
       .from(schema.modelFaces)
-      .where(isNull(schema.modelFaces.deletedAt));
+      .where(isNull(schema.modelFaces.deletedAt))
+      .orderBy(schema.modelFaces.sortOrder);
     return { items: rows };
   });
 
