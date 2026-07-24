@@ -1,20 +1,12 @@
-import {
-  Banner,
-  BlockStack,
-  Card,
-  InlineGrid,
-  InlineStack,
-  Page,
-  Button as PolarisButton,
-  Select,
-  Spinner,
-  Text,
-  Thumbnail,
-} from '@shopify/polaris';
-import type { ComponentProps, ComponentType, ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { CatalogJobThumb } from '../components/CatalogJobThumb';
+import { CheckIcon, SpinnerIcon } from '../components/icons';
+import { PageHeader } from '../components/PageHeader';
+import { ProductPickerGrid } from '../components/ProductPickerGrid';
 import { apiFetch } from '../lib/api';
+import { BRAND } from '../theme';
 import type {
   CatalogGenerateJob,
   CatalogOptions,
@@ -22,12 +14,7 @@ import type {
   ShopifyProductListItem,
 } from '../types';
 
-// Polaris types Button.children as `string | string[]`, but the runtime just
-// wraps children in <Text>, which renders any ReactNode fine — this repo's
-// thumbnail-card buttons rely on that. Widen the type instead of restructuring.
-const Button = PolarisButton as unknown as ComponentType<
-  Omit<ComponentProps<typeof PolarisButton>, 'children'> & { children?: ReactNode }
->;
+const THUMB_PAGE_SIZE = 14;
 
 const GENDERS = [
   { label: 'Women', value: 'women' },
@@ -35,6 +22,164 @@ const GENDERS = [
   { label: 'Girls', value: 'girls' },
   { label: 'Boys', value: 'boys' },
 ];
+
+const cardStyle: CSSProperties = {
+  background: '#fff',
+  border: `1px solid ${BRAND.border}`,
+  borderRadius: '16px',
+  padding: '20px',
+};
+
+const sectionLabelStyle: CSSProperties = {
+  fontSize: '13.5px',
+  fontWeight: 700,
+  color: BRAND.ink,
+  marginBottom: '10px',
+};
+
+const selectStyle: CSSProperties = {
+  height: '38px',
+  border: `1px solid ${BRAND.borderInput}`,
+  borderRadius: '10px',
+  padding: '0 12px',
+  fontSize: '13.5px',
+  color: BRAND.ink,
+  background: '#fff',
+  cursor: 'pointer',
+};
+
+function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <label htmlFor={id} style={{ fontSize: '12.5px', fontWeight: 600, color: BRAND.textMuted }}>
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function SelectableThumb({
+  src,
+  alt,
+  selected,
+  onClick,
+  size = 132,
+  aspectRatio = '1',
+}: {
+  src: string;
+  alt: string;
+  selected: boolean;
+  onClick: () => void;
+  size?: number;
+  aspectRatio?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={alt}
+      style={{
+        position: 'relative',
+        width: `${size}px`,
+        aspectRatio,
+        padding: 0,
+        borderRadius: '12px',
+        overflow: 'hidden',
+        cursor: 'pointer',
+        flexShrink: 0,
+        background: '#F1F0F5',
+        border: selected ? `2px solid ${BRAND.purple}` : `1px solid ${BRAND.border}`,
+        boxShadow: selected ? `0 0 0 3px ${BRAND.purpleTint}` : 'none',
+      }}
+    >
+      {/* biome-ignore lint/performance/noImgElement: dynamic remote thumbnail */}
+      <img src={src} alt={alt} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      {selected && (
+        <span
+          style={{
+            position: 'absolute',
+            top: '4px',
+            right: '4px',
+            width: '18px',
+            height: '18px',
+            borderRadius: '50%',
+            background: BRAND.purple,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <CheckIcon size={11} color="#fff" strokeWidth={3} />
+        </span>
+      )}
+    </button>
+  );
+}
+
+function ThumbRow<T extends { id: string; label: string; thumbnailUrl: string }>({
+  items,
+  isSelected,
+  onSelect,
+  aspectRatio = '1',
+}: {
+  items: T[];
+  isSelected: (item: T) => boolean;
+  onSelect: (item: T) => void;
+  aspectRatio?: string;
+}) {
+  const [visibleCount, setVisibleCount] = useState(THUMB_PAGE_SIZE);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset the page on a genuinely new item list, not every render
+  useEffect(() => {
+    setVisibleCount(THUMB_PAGE_SIZE);
+  }, [items]);
+
+  const visible = items.slice(0, visibleCount);
+  const remaining = items.length - visible.length;
+
+  return (
+    <>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, 132px)',
+          gap: '16px',
+          alignItems: 'start',
+        }}
+      >
+        {visible.map((item) => (
+          <SelectableThumb
+            key={item.id}
+            src={item.thumbnailUrl}
+            alt={item.label}
+            selected={isSelected(item)}
+            onClick={() => onSelect(item)}
+            aspectRatio={aspectRatio}
+          />
+        ))}
+      </div>
+      {remaining > 0 && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((n) => n + THUMB_PAGE_SIZE)}
+          style={{
+            marginTop: '10px',
+            border: 'none',
+            background: 'none',
+            color: BRAND.purple,
+            fontSize: '12.5px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            padding: 0,
+          }}
+        >
+          Load {Math.min(remaining, THUMB_PAGE_SIZE)} more
+        </button>
+      )}
+    </>
+  );
+}
 
 export default function CatalogGeneratePage() {
   const [params] = useSearchParams();
@@ -191,194 +336,195 @@ export default function CatalogGeneratePage() {
   }
 
   return (
-    <Page
-      title="Generate catalog images"
-      backAction={{ content: 'Products', onAction: () => navigate('/products') }}
-    >
-      <BlockStack gap="400">
-        {error && (
-          <Banner tone="critical" title="Something went wrong" onDismiss={() => setError(null)}>
-            {error}
-          </Banner>
-        )}
+    <div>
+      <PageHeader title="Generate catalog images" backTo="/products" backLabel="Products" />
 
+      {error && (
+        <div
+          style={{
+            background: BRAND.dangerBg,
+            border: '1px solid rgba(200,30,58,0.18)',
+            borderRadius: '14px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            fontSize: '13.5px',
+            color: '#8C1830',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {!productId && (
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">
-                Choose a product
-              </Text>
-              {pickerLoading && <Spinner size="small" />}
-              {!pickerLoading && pickerProducts.length === 0 && (
-                <Text as="p" tone="subdued">
-                  No products found.
-                </Text>
-              )}
-              <InlineStack gap="200" wrap>
-                {pickerProducts.map((p) => (
-                  <Button
-                    key={p.shopifyProductId}
-                    onClick={() =>
-                      navigate(`/catalog-generate?productId=${p.shopifyProductId}`, {
-                        replace: true,
-                      })
-                    }
-                  >
-                    <BlockStack gap="100">
-                      <Thumbnail source={p.thumbnailUrl} alt={p.title ?? ''} size="large" />
-                      <Text as="span" variant="bodySm">
-                        {p.title}
-                      </Text>
-                    </BlockStack>
-                  </Button>
-                ))}
-              </InlineStack>
-            </BlockStack>
-          </Card>
+          <div style={cardStyle}>
+            <div style={sectionLabelStyle}>Choose a product</div>
+            <ProductPickerGrid
+              loading={pickerLoading}
+              products={pickerProducts}
+              onPick={(id) => navigate(`/catalog-generate?productId=${id}`, { replace: true })}
+            />
+          </div>
         )}
 
         {productId && (
           <>
-            <Card>
-              <BlockStack gap="200">
-                <Text as="h2" variant="headingMd">
-                  Garment image
-                </Text>
-                <InlineStack gap="200" wrap>
-                  {images.map((img) => (
-                    <Button
-                      key={img.id}
-                      pressed={selectedImageSrc === img.src}
-                      onClick={() => setSelectedImageSrc(img.src)}
-                    >
-                      <Thumbnail source={img.src} alt="" size="large" />
-                    </Button>
-                  ))}
-                </InlineStack>
-              </BlockStack>
-            </Card>
+            <div style={cardStyle}>
+              <div style={sectionLabelStyle}>Garment image</div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, 132px)',
+                  gap: '16px',
+                  alignItems: 'start',
+                }}
+              >
+                {images.map((img) => (
+                  <SelectableThumb
+                    key={img.id}
+                    src={img.src}
+                    alt=""
+                    selected={selectedImageSrc === img.src}
+                    onClick={() => setSelectedImageSrc(img.src)}
+                  />
+                ))}
+              </div>
+            </div>
 
-            <Card>
-              <BlockStack gap="200">
-                <Select label="Gender" options={GENDERS} value={gender} onChange={setGender} />
-                <Select
-                  label="Garment type"
-                  options={[
-                    { label: 'Select...', value: '' },
-                    ...(options?.garmentTypes.map((g) => ({ label: g.label, value: g.id })) ?? []),
-                  ]}
-                  value={garmentTypeId}
-                  onChange={setGarmentTypeId}
-                />
-              </BlockStack>
-            </Card>
+            <div style={cardStyle}>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                <Field id="catalog-gen-gender" label="Gender">
+                  <select
+                    id="catalog-gen-gender"
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value)}
+                    style={{ ...selectStyle, minWidth: '160px' }}
+                  >
+                    {GENDERS.map((g) => (
+                      <option key={g.value} value={g.value}>
+                        {g.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field id="catalog-gen-garment-type" label="Garment type">
+                  <select
+                    id="catalog-gen-garment-type"
+                    value={garmentTypeId}
+                    onChange={(e) => setGarmentTypeId(e.target.value)}
+                    style={{ ...selectStyle, minWidth: '200px' }}
+                  >
+                    <option value="">Select…</option>
+                    {options?.garmentTypes.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            </div>
 
             {options && (
-              <Card>
-                <BlockStack gap="300">
-                  <Text as="h2" variant="headingMd">
-                    Model face
-                  </Text>
-                  <InlineStack gap="200" wrap>
-                    {options.faces.map((f) => (
-                      <Button key={f.id} pressed={faceId === f.id} onClick={() => setFaceId(f.id)}>
-                        <Thumbnail source={f.thumbnailUrl} alt={f.label} />
-                      </Button>
-                    ))}
-                  </InlineStack>
+              <div style={cardStyle}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <div>
+                    <div style={sectionLabelStyle}>Model face</div>
+                    <ThumbRow
+                      items={options.faces}
+                      isSelected={(f) => faceId === f.id}
+                      onSelect={(f) => setFaceId(f.id)}
+                    />
+                  </div>
 
-                  <Text as="h2" variant="headingMd">
-                    Background
-                  </Text>
-                  <InlineStack gap="200" wrap>
-                    {options.backgrounds.map((b) => (
-                      <Button
-                        key={b.id}
-                        pressed={backgroundId === b.id}
-                        onClick={() => setBackgroundId(b.id)}
-                      >
-                        <Thumbnail source={b.thumbnailUrl} alt={b.label} />
-                      </Button>
-                    ))}
-                  </InlineStack>
+                  <div>
+                    <div style={sectionLabelStyle}>Background</div>
+                    <ThumbRow
+                      items={options.backgrounds}
+                      isSelected={(b) => backgroundId === b.id}
+                      onSelect={(b) => setBackgroundId(b.id)}
+                    />
+                  </div>
 
-                  <Text as="h2" variant="headingMd">
-                    Poses (select one or more)
-                  </Text>
-                  <InlineStack gap="200" wrap>
-                    {options.poses.map((p) => (
-                      <Button
-                        key={p.id}
-                        pressed={selectedLooks.has(p.id)}
-                        onClick={() => togglePose(p.id)}
-                      >
-                        <Thumbnail source={p.thumbnailUrl} alt={p.label} />
-                      </Button>
-                    ))}
-                  </InlineStack>
+                  <div>
+                    <div style={sectionLabelStyle}>Poses (select one or more)</div>
+                    <ThumbRow
+                      items={options.poses}
+                      isSelected={(p) => selectedLooks.has(p.id)}
+                      onSelect={(p) => togglePose(p.id)}
+                      aspectRatio="3 / 4"
+                    />
+                  </div>
 
                   {poseNeedsLower && (
-                    <Select
-                      label="Lower garment"
-                      options={[
-                        { label: 'Select...', value: '' },
-                        ...options.lowerItems.map((i) => ({ label: i.label, value: i.id })),
-                      ]}
-                      value={lowerCatalogId}
-                      onChange={setLowerCatalogId}
-                    />
-                  )}
-                  {poseNeedsShoes && (
-                    <Select
-                      label="Shoes"
-                      options={[
-                        { label: 'Select...', value: '' },
-                        ...options.shoeItems.map((i) => ({ label: i.label, value: i.id })),
-                      ]}
-                      value={shoeCatalogId}
-                      onChange={setShoeCatalogId}
-                    />
+                    <div>
+                      <div style={sectionLabelStyle}>Lower garment</div>
+                      <ThumbRow
+                        items={options.lowerItems}
+                        isSelected={(i) => lowerCatalogId === i.id}
+                        onSelect={(i) => setLowerCatalogId(i.id)}
+                      />
+                    </div>
                   )}
 
-                  <Button variant="primary" loading={generating} onClick={generate}>
-                    Generate
-                  </Button>
-                </BlockStack>
-              </Card>
+                  {poseNeedsShoes && (
+                    <div>
+                      <div style={sectionLabelStyle}>Shoes</div>
+                      <ThumbRow
+                        items={options.shoeItems}
+                        isSelected={(i) => shoeCatalogId === i.id}
+                        onSelect={(i) => setShoeCatalogId(i.id)}
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={generate}
+                    disabled={generating}
+                    style={{
+                      alignSelf: 'flex-start',
+                      height: '40px',
+                      padding: '0 22px',
+                      border: 'none',
+                      borderRadius: '10px',
+                      background: BRAND.buttonGradient,
+                      color: '#fff',
+                      fontSize: '13.5px',
+                      fontWeight: 700,
+                      cursor: generating ? 'default' : 'pointer',
+                      opacity: generating ? 0.7 : 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    {generating && <SpinnerIcon size={14} color="#fff" />}
+                    {generating ? 'Generating…' : 'Generate'}
+                  </button>
+                </div>
+              </div>
             )}
           </>
         )}
 
         {jobs.length > 0 && (
-          <Card>
-            <BlockStack gap="300">
-              <Text as="h2" variant="headingMd">
-                Results
-              </Text>
-              <InlineGrid columns={3} gap="300">
-                {jobs.map((j) => (
-                  <BlockStack key={j.jobId} gap="200">
-                    {j.status === 'COMPLETED' && j.resultUrl ? (
-                      <Thumbnail source={j.resultUrl} alt="" size="large" />
-                    ) : j.status === 'FAILED' ? (
-                      <Text as="p" tone="critical">
-                        Generation failed{j.errorCode ? ` (${j.errorCode})` : ''}
-                      </Text>
-                    ) : (
-                      <Spinner size="small" />
-                    )}
-                    {j.status === 'COMPLETED' && (
-                      <Button disabled={j.published} onClick={() => publish(j.jobId)}>
-                        {j.published ? 'Added to product' : 'Add to product'}
-                      </Button>
-                    )}
-                  </BlockStack>
-                ))}
-              </InlineGrid>
-            </BlockStack>
-          </Card>
+          <div style={cardStyle}>
+            <div style={sectionLabelStyle}>Results</div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: '16px',
+              }}
+            >
+              {jobs.map((j) => (
+                <CatalogJobThumb key={j.jobId} job={j} onPublish={publish} />
+              ))}
+            </div>
+          </div>
         )}
-      </BlockStack>
-    </Page>
+      </div>
+    </div>
   );
 }

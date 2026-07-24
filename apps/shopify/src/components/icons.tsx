@@ -97,6 +97,26 @@ export function ExternalLinkIcon({ size = 12, color = '#fff' }: { size?: number;
   );
 }
 
+export function ArrowLeftIcon({
+  size = 14,
+  color = 'currentColor',
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path
+        d="M19 12H5M11 18l-6-6 6-6"
+        stroke={color}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function ArrowRightIcon({ size = 14, color = '#fff' }: { size?: number; color?: string }) {
   return (
     <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -193,6 +213,50 @@ export function FunnelIcon({
   return (
     <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill={color}>
       <path d="M4 4h16l-6.2 8.2v6.3l-3.6 1.8v-8.1L4 4z" />
+    </svg>
+  );
+}
+
+export function CatalogGenerateIcon({
+  size = 16,
+  color = 'currentColor',
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path
+        d="M12 3v6M12 3l3.5 2M12 3L8.5 5"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <rect x="4" y="11" width="7" height="9" rx="1.5" stroke={color} strokeWidth="1.8" />
+      <path d="M15 13h5M15 16.5h5M15 20h5" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function GeneratedImagesIcon({
+  size = 16,
+  color = 'currentColor',
+}: {
+  size?: number;
+  color?: string;
+}) {
+  return (
+    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="4" width="18" height="14" rx="2" stroke={color} strokeWidth="1.8" />
+      <circle cx="8.5" cy="9" r="1.5" stroke={color} strokeWidth="1.8" />
+      <path
+        d="M4 15.5l4.5-4.5 3 3 3.5-4.5 5 6"
+        stroke={color}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
