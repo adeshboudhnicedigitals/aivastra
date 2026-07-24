@@ -70,7 +70,6 @@ const NAV: {
     href: '/tutorials',
     label: 'Tutorials',
     icon: 'monitor-play',
-    devOnly: true,
   },
   { id: 'contact', href: '/contact-us', label: 'Contact Us', icon: 'phone' },
 ];
