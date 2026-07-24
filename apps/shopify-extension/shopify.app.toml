@@ -2,7 +2,7 @@
 
 client_id = "771a0258b180063d6015e4f5f8f1f586"
 name = "AiVastra"
-application_url = "https://admin.aivastra.com/shopify-admin"
+application_url = "https://app.aivastra.com/v1/shopify/auth"
 embedded = true
 
 [access_scopes]
