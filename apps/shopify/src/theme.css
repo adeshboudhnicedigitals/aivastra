@@ -22,3 +22,20 @@
   --p-border-radius-300: 0.75rem;
   --p-shadow-100: 0 0 0 1px rgba(0, 0, 0, 0.06);
 }
+
+/* Used by the custom-styled Dashboard/Products/Funnel pages (not Polaris
+ * components) for the saving spinner and the "processing" status dot. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulseDot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
