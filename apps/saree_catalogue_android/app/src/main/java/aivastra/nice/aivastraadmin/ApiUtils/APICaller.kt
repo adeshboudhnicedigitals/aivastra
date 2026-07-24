@@ -28,6 +28,16 @@ object APICaller {
         context = appContext.applicationContext
     }
 
+    // Fires once, from wherever a request happens to be running, the moment a refresh token is
+    // confirmed dead — the single place every authed call routes through, rather than threading a
+    // "session expired" signal through every ViewModel that calls postJsonAuthed/getJsonAuthed.
+    // DashBoardActivity is the sole authenticated container, so it's the only registrant.
+    private var onSessionExpired: (() -> Unit)? = null
+
+    fun setSessionExpiredListener(listener: (() -> Unit)?) {
+        onSessionExpired = listener
+    }
+
     private val client: OkHttpClient by lazy {
         // BODY logs full request/response bodies and the Authorization header to logcat.
         // Only acceptable on debug builds. Release must never log tokens or payloads.
@@ -104,21 +114,31 @@ object APICaller {
         return try {
             execute(request)
         } catch (e: ApiException.BackendError) {
-            if (e.httpStatus == 401 && refreshAccessToken()) {
-                val retryRequest = builder
-                    .url(resolvedUrl)
-                    .header(APIConstant.Parameter.AUTHORIZATION, "Bearer ${PrefsManager.getAccessToken()}")
-                    .build()
-                execute(retryRequest)
-            } else {
-                throw e
+            if (e.httpStatus != 401) throw e
+            when (refreshAccessToken()) {
+                RefreshOutcome.SUCCESS -> {
+                    val retryRequest = builder
+                        .url(resolvedUrl)
+                        .header(APIConstant.Parameter.AUTHORIZATION, "Bearer ${PrefsManager.getAccessToken()}")
+                        .build()
+                    execute(retryRequest)
+                }
+                // The server explicitly rejected the refresh token — PrefsManager is already
+                // cleared and the session-expired listener already fired. Never surface the
+                // original raw 401 here; the caller is about to be navigated away from anyway.
+                RefreshOutcome.SESSION_DEAD -> throw ApiException.SessionExpired()
+                // Refresh itself failed for a transient reason (network) — the session is still
+                // intact, so surface the original error for a normal retry-later UX.
+                RefreshOutcome.TRANSIENT_FAILURE -> throw e
             }
         }
     }
 
-    private suspend fun refreshAccessToken(): Boolean = refreshMutex.withLock {
+    private enum class RefreshOutcome { SUCCESS, SESSION_DEAD, TRANSIENT_FAILURE }
+
+    private suspend fun refreshAccessToken(): RefreshOutcome = refreshMutex.withLock {
         val refreshToken = PrefsManager.getRefreshToken()
-        if (refreshToken.isBlank()) return@withLock false
+        if (refreshToken.isBlank()) return@withLock RefreshOutcome.SESSION_DEAD
         try {
             val body = JSONObject().apply {
                 put("refreshToken", refreshToken)
@@ -130,15 +150,22 @@ object APICaller {
                 .build()
             val json = JSONObject(execute(request))
             val newAccessToken = json.optString("accessToken", "")
-            if (newAccessToken.isBlank()) return@withLock false
+            if (newAccessToken.isBlank()) return@withLock RefreshOutcome.TRANSIENT_FAILURE
             PrefsManager.updateAccessToken(newAccessToken)
             val newRefreshToken = json.optString("refreshToken", "")
             if (newRefreshToken.isNotBlank()) {
                 PrefsManager.saveRefreshToken(newRefreshToken)
             }
-            true
+            RefreshOutcome.SUCCESS
+        } catch (e: ApiException.BackendError) {
+            // Expired, revoked, or reused — retrying can never recover this. Clear the dead
+            // session now and notify so the app redirects to login instead of getting stuck
+            // showing a raw backend error on every subsequent request.
+            PrefsManager.deleteuser()
+            onSessionExpired?.invoke()
+            RefreshOutcome.SESSION_DEAD
         } catch (e: Exception) {
-            false
+            RefreshOutcome.TRANSIENT_FAILURE
         }
     }
 

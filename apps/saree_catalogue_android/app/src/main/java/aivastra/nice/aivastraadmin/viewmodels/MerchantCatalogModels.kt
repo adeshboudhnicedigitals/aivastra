@@ -14,6 +14,11 @@ data class MerchantCatalogItem(@JsonProperty("id") val id: String = "", @JsonPro
 data class MerchantCatalogListResponse(@JsonProperty("items") val items: List<MerchantCatalogItem> = emptyList())
 
 @JsonIgnoreProperties(ignoreUnknown = true)
+data class SareeStyle(@JsonProperty("id") val id: String = "", @JsonProperty("label") val label: String = "", @JsonProperty("previewUrl") val previewUrl: String? = null, @JsonProperty("sortOrder") val sortOrder: Int = 0) : Serializable
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class SareeStyleListResponse(@JsonProperty("items") val items: List<SareeStyle> = emptyList())
+
+@JsonIgnoreProperties(ignoreUnknown = true)
 data class MerchantCatalogPresignResponse(@JsonProperty("assetId") val assetId: String = "", @JsonProperty("uploadUrl") val uploadUrl: String = "", @JsonProperty("r2Key") val r2Key: String = "")
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class MerchantCatalogGenerateResponse(@JsonProperty("jobId") val jobId: String = "")

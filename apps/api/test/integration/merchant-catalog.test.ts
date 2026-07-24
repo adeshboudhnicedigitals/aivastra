@@ -61,7 +61,11 @@ async function createUser(app: TestApp, email: string) {
 async function seedGarmentType(app: TestApp, genderSlug: string) {
   const [row] = await app.db
     .insert(schema.garmentSubcategories)
-    .values({ genderSlug, slug: `type-${randomUUID()}`, label: 'Type' })
+    .values({
+      genderSlug,
+      slug: `type-${randomUUID()}`,
+      label: 'Type',
+    })
     .returning();
   return row;
 }

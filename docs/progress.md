@@ -112,6 +112,87 @@
 
 ### Open Questions / Decisions
 - None.
+## 2026-07-22 - Admin-configurable upload limits
+
+Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-22-admin-configurable-upload-limits.md`: all API upload surfaces now read validated limits from the shared system config, and administrators can manage all ten limits from Settings.
+
+### Done
+- Added the shared `uploadLimits` schema, defaults, fail-open Redis reader, and GET/PATCH `/admin/config` wiring. Missing or malformed stored values retain the previous limits.
+- Replaced the nine hardcoded 20MB checks across merchant catalogue, studio/web, merchant try-on, kiosk, dev API, and Shopify routes with per-surface configuration reads.
+- Added a dedicated configurable limit to the previously unbounded admin bulk-import ZIP route, including clean 413 handling for both thrown and flagged multipart truncation behavior.
+- Added the Admin Web Settings section with nine MB controls and one GB bulk-import control, including byte conversion on load/save.
+- Added regression coverage for every upload surface plus admin config round-tripping. Final serialized acceptance runs passed all 12 touched test files: 41/41 integration tests and 53/53 non-integration tests.
+- Verification passed: full monorepo typecheck excluding admin-mobile, API/admin focused typechecks, and repository-wide Biome check (existing warning baseline only).
+
+### Failed / Not Done
+- The authenticated browser walkthrough of the new Settings section was not run in this environment.
+- An initial parallel combined integration run was invalidated by test files racing on the shared Redis `config:system` key; rerunning the complete set with file parallelism disabled passed.
+
+### Open Questions / Decisions
+- No implementation decision remains open. Before deployment, manually confirm the ten Settings values render and persist after reload with an authenticated admin session.
+
+## 2026-07-22 - Docker manifest-only dependency layers
+
+Split dependency installation from source copying in all six service Dockerfiles so source-only changes reuse the pnpm install layer.
+
+### Done
+- Added a manifest-only `deps` stage to the admin-web, API, catalogues-web, chatbot, dispatcher, and Shopify Dockerfiles. Each stage copies the root manifests plus all tracked workspace package manifests before running the existing service-scoped `pnpm install --no-frozen-lockfile --filter <workspace>...`.
+- Changed each build stage to inherit from `deps`, then copy the full source tree and run the service's unchanged build steps. Existing build arguments, environment variables, runtime layouts, ports, and commands were preserved.
+- Verified cold `--no-cache` builds for API (shared workspace dependencies) and admin-web (frontend-only dependency subtree). Both images built successfully.
+- Verified the warm-cache acceptance path with a temporary admin-web source-only content change: the manifest copies and scoped pnpm install were `CACHED`, while `COPY . .` and the Vite build reran. The temporary source change was removed and its original SHA-256 restored.
+- Removed the temporary `test-api:manifest-cache` and `test-admin:manifest-cache` images after verification.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- None. Frozen-lockfile enforcement, runtime pruning, CI, Compose, and application-source changes remain separate out-of-scope work.
+
+## 2026-07-21 (later) - Saree two-step generation fix: full regression pass (Task 8/8)
+
+Final task of `docs/superpowers/plans/2026-07-21-saree-two-step-generation-fix.md`, executed on `fix/saree-two-step-generation` (Tasks 1-7 already committed and individually reviewed). This pass ran the whole monorepo build/typecheck/test suite once, reconciled every failure against the plan's documented pre-existing-failure list, and logs the fix here per `CLAUDE.md`'s progress-tracking rule. No implementation changes made in this task — regression verification only.
+
+Two bugs were fixed by this branch: (1) the Studio preview panel didn't switch to its "generating" view immediately on submit, and (2) step 2 of the saree two-step ComfyUI pipeline (mannequin compositing → tryon) silently dropped if the user navigated away before step 1 finished. Root cause of both: step-2 job creation was client-driven — a browser component waited on step 1's SSE `COMPLETED` event and only then called `POST /v1/jobs/tryon`, so navigating away (unmounting the component) lost step 2 entirely; and the Studio preview panel gated its switch to the generating view on `activeGeneration`, which for saree jobs wasn't set until that whole client-side wait resolved, so the panel stayed on the old view until step 2 had already been (or failed to be) kicked off.
+
+Fix: `POST /v1/jobs/saree-mannequin` now creates the step-1 mannequin job **and** N step-2 job rows in one Postgres transaction, with step-2 rows staged in a new non-terminal `PENDING_MANNEQUIN` status and credits deducted up front (`apps/api/src/modules/jobs/createSareeMannequin.ts`, reusing `resolveTryonPlan()` extracted from `createJob()` in `apps/api/src/modules/jobs/create.ts`). A new dispatcher-side periodic sweep, `promoteSareeStep2Jobs` (`apps/dispatcher/src/job/saree-step2-promoter.ts`), independently promotes `PENDING_MANNEQUIN` jobs once their mannequin parent reaches `COMPLETED` (fills in the garment key, enqueues to Redis) or refunds+fails them on `FAILED`/`CANCELLED` — none of this depends on any client connection remaining open. The Studio frontend (`apps/catalogues-web/src/app/(app)/studio/page.tsx`) collapsed the saree submit path to a single synchronous request that returns `{catalogueId, jobIds}` exactly like the non-saree path, so `activeGeneration` is set immediately for both paths.
+
+### Done
+- Full regression pass: `pnpm build` and `pnpm typecheck` both clean across all 13 workspace packages (admin-web/dispatcher have no dedicated `typecheck` script but are covered by `pnpm build`'s `tsc -p`/vite build steps).
+- `pnpm --filter @aivastra/api test` (unit suite, `vitest.config.ts`): 34 files / 230 tests, all passing.
+- `apps/api` integration suite (`vitest run --config vitest.integration.config.ts`, since the plain `test` script excludes `test/integration/**`): run both with default parallelism and with `--no-file-parallelism`. Beyond the plan's documented 3 pre-existing failures (`jobs-create.test.ts`, `catalog.test.ts`, `e2e.test.ts`), the full run also surfaced ~13 more failing tests across `google-oauth.test.ts`, `merchant-kiosk-admin.test.ts`, `payments-tier.test.ts`, `saree-jobs.test.ts`, `uploads.test.ts`, `admin-credit-analysis.test.ts`, `admin-workflows.test.ts`, `catalogue-templates-admin.test.ts`, and `credit-plans.test.ts`, plus two branch-specific assertions (`saree-mannequin-job.test.ts`'s new stream-length check, `simple-tryon.test.ts`'s stream-length check) that only failed inside the full run. Investigated rather than waved through: checked out `main`, ran the identical full integration suite there, and got the same ~13 extra failures verbatim — confirming they are a pre-existing structural artifact of this suite (the test harness gives every file a fresh Postgres DB and MinIO bucket, but all integration files share one un-flushed Redis logical DB (`redis://127.0.0.1:6379/15`, see the `containers.ts` comment acknowledging this), so per-route rate-limit counters and queue-length assertions bleed across unrelated files in a long serial run) and not something this branch introduced. `uploads.test.ts`'s failure is additionally just a stale assertion — the route has hard-coded a 1800s presign expiry on `main` already, unrelated to this branch. The two branch-specific tests (`saree-mannequin-job.test.ts`, `simple-tryon.test.ts`) were then run in isolation (each is the only file in its run) and both passed 100% clean, confirming Task 3's atomic `PENDING_MANNEQUIN` staging and the pre-existing simple-tryon path work correctly — the full-run failures were Redis cross-file contamination, not code regressions.
+- `pnpm --filter @aivastra/dispatcher test` (unit suite): 3 files / 52 tests, all passing.
+- `apps/dispatcher` integration suite (`vitest run --config vitest.integration.config.ts`, pool already serialized via `singleFork: true`): 7 files / 21 tests pass, 3 fail — exactly the plan's documented pre-existing `catalog_items.type` NOT NULL failures (`happy-path.test.ts`, `recovery.test.ts`, `retry.test.ts`), nothing new. The new `saree-step2-promoter.test.ts` (Task 6) passes all 7 of its own tests, including the concurrent-double-sweep race test.
+- Net conclusion: no regressions anywhere in the monorepo from this branch's 7 implementation tasks.
+
+### Fixed during implementation (not pre-existing, caught by code review before this task)
+- The dispatcher promoter (`saree-step2-promoter.ts`) initially had an unguarded status transition that allowed two concurrent sweep passes to double-enqueue the same job; fixed with an atomic compare-and-swap claim on the row before promoting.
+- The catalogues `[id]/page.tsx` initially routed `PENDING_MANNEQUIN` jobs through the wrong render branch, producing a nonsensical "0th in Queue" label; fixed by correcting which status values gate the queued-position vs. in-progress UI branches.
+
+### Failed / Not Done
+- Live browser verification of the actual UI behavior (preview panel switching immediately on submit; a saree job fully promoting and completing while the user has navigated away from Studio) was **not** performed in this session — no browser automation tool was available. A full dev stack (api/dispatcher/web, all `tsx watch`/`next dev`) has been running in this same checkout since ~13:35 today and should be used for a manual walkthrough before merging: open Studio, pick a saree/flat garment type, click Generate, confirm the right panel switches to the generating view immediately; then navigate away before step 1 finishes and confirm the catalogue page eventually shows the completed result without ever returning to Studio.
+
+### Open Questions / Decisions
+- This branch (`fix/saree-two-step-generation`) has **not** been pushed and no PR has been opened — that's a decision left to the user, not done automatically as part of this task.
+
+## 2026-07-21 - Saree mannequin style selection
+
+Implemented the dependency-ordered plan in `docs/superpowers/plans/2026-07-21-saree-mannequin-style-selection.md`: administrators can manage global saree mannequin styles, merchants can select an active style, the selected workflow is snapshotted onto the job, the dispatcher honors that snapshot, and the Android catalogue app exposes the picker with a backward-compatible fallback.
+
+### Done
+- Added the `saree_mannequin_styles` schema, generated migration, backward-compatible seed migration, storage key helper, and shared Zod request/response contracts.
+- Added the merchant styles-list endpoint and optional `sareeStyleId` generation input. Job creation validates active styles and snapshots the selected mannequin workflow template in the same job parameters consumed by the dispatcher.
+- Updated dispatcher routing to prefer the snapshotted style workflow while retaining the existing garment-type default. The focused dispatcher integration suite passed (3/3).
+- Added authenticated admin CRUD/presign routes and an Admin Web `Saree Styles` asset tab for preview upload, workflow selection, ordering, and activation.
+- Added Android constants, models, repository loading, ViewModel state, selection dialog, card resources, and upload-fragment wiring. The row collapses when fewer than two styles are available and generation remains compatible when no style is configured.
+- Verification passed: full monorepo typecheck; Biome check across 600 files; full API unit suite; touched API integration files (3 files, 17/17); dispatcher unit suite (3 files, 52/52); focused dispatcher integration suite (3/3); Android Kotlin compile and debug assembly.
+- Completed implementation commits: `e22d83bf`, `16734b56`, `fb19624f`, `6c5972e7`, and `b4ad8421`.
+
+### Failed / Not Done
+- The post-deployment manual admin/device walkthrough is intentionally still pending. It requires at least two configured styles with distinct previews/workflows and a running deployed stack.
+
+### Open Questions / Decisions
+- No implementation decision remains open. Before rollout validation, configure a second active style and verify that each selection produces the intended distinct pallu drape.
+
 ## 2026-07-21 - Production CI/CD scalability and zero-downtime deployment plan
 
 Documented the implementation-ready replacement for the current full-repository, build-on-VPS production workflow in `docs/production-cicd-plan.md`. The design targets affected-service-only CI, immutable GHCR images, per-service blue/green slots, a stable gateway behind CloudPanel, readiness/smoke-gated traffic switching, graceful API/chatbot/dispatcher draining, expand-contract migrations, and automatic rollback.

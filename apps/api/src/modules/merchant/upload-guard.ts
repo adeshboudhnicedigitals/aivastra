@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 
-const MERCHANT_CATALOG_MAX_BYTES = 5 * 1024 * 1024;
 const MERCHANT_CATALOG_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 export async function assertMerchantUploadKey(
@@ -26,8 +26,9 @@ export async function assertMerchantUploadKey(
     throw new AppError('BAD_UPLOAD', 400, `${label} not found`);
   }
 
-  if (head.contentLength > MERCHANT_CATALOG_MAX_BYTES) {
-    throw new AppError('BAD_UPLOAD', 413, `${label} exceeds 5MB limit`);
+  const maxBytes = await getUploadLimitBytes(app, 'merchantCatalogMaxBytes');
+  if (head.contentLength > maxBytes) {
+    throw new AppError('BAD_UPLOAD', 413, `${label} exceeds ${maxBytes / (1024 * 1024)}MB limit`);
   }
   if (!head.contentType || !MERCHANT_CATALOG_CONTENT_TYPES.has(head.contentType)) {
     throw new AppError('BAD_UPLOAD', 400, `${label} must be jpeg, png, or webp`);

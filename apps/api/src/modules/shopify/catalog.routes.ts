@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { createJob } from '../jobs/create.js';
 import { createProductMedia } from './catalog-publish.js';
 import { fetchLiveProductImages } from './products.routes.js';
@@ -35,11 +36,10 @@ const JobsQuery = z
     message: 'catalogueId or shopifyProductId is required',
   });
 
-const MAX_GARMENT_SOURCE_BYTES = 10 * 1024 * 1024;
-
 /** Mirrors PATCH /v1/shopify/products/:id's download-to-R2 logic (products.routes.ts):
- *  10MB cap, 10s abort timeout, no-redirect fetch. Namespaced by store+product so
- *  concurrent generations across stores/products never collide on the same key. */
+ *  admin-configured cap (default 20MB), 10s abort timeout, no-redirect fetch.
+ *  Namespaced by store+product so concurrent generations across stores/products
+ *  never collide on the same key. */
 async function downloadProductImageToR2(
   app: FastifyInstance,
   storeId: string,
@@ -47,6 +47,7 @@ async function downloadProductImageToR2(
   sourceImageUrl: string,
 ): Promise<string> {
   assertShopifyCdn(sourceImageUrl);
+  const maxSourceBytes = await getUploadLimitBytes(app, 'shopifyCatalogSourceMaxBytes');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   let res: Response;
@@ -62,12 +63,20 @@ async function downloadProductImageToR2(
   }
   if (!res.ok) throw new AppError('SHOPIFY', 502, 'failed to download the selected product image');
   const contentLength = res.headers.get('content-length');
-  if (contentLength && parseInt(contentLength, 10) > MAX_GARMENT_SOURCE_BYTES) {
-    throw new AppError('BAD_REQUEST', 400, 'source image exceeds 10MB');
+  if (contentLength && parseInt(contentLength, 10) > maxSourceBytes) {
+    throw new AppError(
+      'BAD_REQUEST',
+      400,
+      `source image exceeds ${maxSourceBytes / (1024 * 1024)}MB`,
+    );
   }
   const arrayBuffer = await res.arrayBuffer();
-  if (arrayBuffer.byteLength > MAX_GARMENT_SOURCE_BYTES) {
-    throw new AppError('BAD_REQUEST', 400, 'source image exceeds 10MB');
+  if (arrayBuffer.byteLength > maxSourceBytes) {
+    throw new AppError(
+      'BAD_REQUEST',
+      400,
+      `source image exceeds ${maxSourceBytes / (1024 * 1024)}MB`,
+    );
   }
   const contentType = res.headers.get('content-type') ?? 'image/jpeg';
   const r2Key = `shopify-catalog-garments/${storeId}/${shopifyProductId}/${randomUUID()}.jpg`;

@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 interface Option {
   id: string;
@@ -31,7 +32,40 @@ export function SearchableSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [coords, setCoords] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    upward: boolean;
+    maxHeight: number;
+  } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const DROPDOWN_MAX_HEIGHT = 220;
+
+  function computeCoords() {
+    const rect = inputRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const upward = spaceBelow < DROPDOWN_MAX_HEIGHT + 12 && spaceAbove > spaceBelow;
+    const avail = (upward ? spaceAbove : spaceBelow) - 12;
+    setCoords({
+      left: rect.left,
+      top: upward ? rect.top - 4 : rect.bottom + 4,
+      width: rect.width,
+      upward,
+      maxHeight: Math.max(120, Math.min(DROPDOWN_MAX_HEIGHT, avail)),
+    });
+  }
+
+  function openDropdown() {
+    computeCoords();
+    setOpen(true);
+    setQuery('');
+  }
 
   const allOptions = emptyLabel ? [{ id: '', label: emptyLabel }, ...options] : options;
   const selectedLabel = allOptions.find((o) => o.id === value)?.label ?? '';
@@ -42,7 +76,10 @@ export function SearchableSelect({
   useEffect(() => {
     if (!open) return;
     const onClickOutside = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const inRoot = rootRef.current?.contains(target);
+      const inDropdown = dropdownRef.current?.contains(target);
+      if (!inRoot && !inDropdown) {
         setOpen(false);
         setQuery('');
       }
@@ -51,9 +88,23 @@ export function SearchableSelect({
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, [open]);
 
+  // Reposition the portalled dropdown when the page scrolls or resizes so it
+  // stays glued to the input (portal is position:fixed relative to viewport).
+  useEffect(() => {
+    if (!open) return;
+    const onReflow = () => computeCoords();
+    window.addEventListener('scroll', onReflow, true);
+    window.addEventListener('resize', onReflow);
+    return () => {
+      window.removeEventListener('scroll', onReflow, true);
+      window.removeEventListener('resize', onReflow);
+    };
+  }, [open]);
+
   return (
     <div ref={rootRef} style={{ position: 'relative' }}>
       <input
+        ref={inputRef}
         id={id}
         className="select"
         style={style}
@@ -61,10 +112,7 @@ export function SearchableSelect({
         disabled={disabled}
         placeholder={placeholder}
         value={open ? query : selectedLabel}
-        onFocus={() => {
-          setOpen(true);
-          setQuery('');
-        }}
+        onFocus={openDropdown}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') {
@@ -73,57 +121,63 @@ export function SearchableSelect({
           }
         }}
       />
-      {open && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            right: 0,
-            zIndex: 20,
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--r)',
-            boxShadow: 'var(--shadow-lg)',
-            maxHeight: 220,
-            overflowY: 'auto',
-          }}
-        >
-          {filtered.length === 0 ? (
-            <div style={{ padding: '9px 12px', fontSize: 13, color: 'var(--muted)' }}>
-              No matches
-            </div>
-          ) : (
-            filtered.map((o) => (
-              <div
-                key={o.id}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onChange(o.id);
-                  setOpen(false);
-                  setQuery('');
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--surface-2)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background =
-                    o.id === value ? 'var(--surface-2)' : 'transparent';
-                }}
-                style={{
-                  padding: '9px 12px',
-                  fontSize: 14,
-                  color: 'var(--ink)',
-                  cursor: 'pointer',
-                  background: o.id === value ? 'var(--surface-2)' : 'transparent',
-                }}
-              >
-                {o.label}
+      {open &&
+        coords &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            style={{
+              position: 'fixed',
+              left: coords.left,
+              width: coords.width,
+              ...(coords.upward
+                ? { bottom: window.innerHeight - coords.top }
+                : { top: coords.top }),
+              zIndex: 1000,
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r)',
+              boxShadow: 'var(--shadow-lg)',
+              maxHeight: coords.maxHeight,
+              overflowY: 'auto',
+            }}
+          >
+            {filtered.length === 0 ? (
+              <div style={{ padding: '9px 12px', fontSize: 13, color: 'var(--muted)' }}>
+                No matches
               </div>
-            ))
-          )}
-        </div>
-      )}
+            ) : (
+              filtered.map((o) => (
+                <div
+                  key={o.id}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onChange(o.id);
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--surface-2)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background =
+                      o.id === value ? 'var(--surface-2)' : 'transparent';
+                  }}
+                  style={{
+                    padding: '9px 12px',
+                    fontSize: 14,
+                    color: 'var(--ink)',
+                    cursor: 'pointer',
+                    background: o.id === value ? 'var(--surface-2)' : 'transparent',
+                  }}
+                >
+                  {o.label}
+                </div>
+              ))
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -150,6 +150,31 @@ describe('shopify customer routes', () => {
     expect(credits.balance).toBeLessThan(100);
   });
 
+  it('rejects a customer photo above the admin-configured limit', async () => {
+    const owner = await seedOwner(100);
+    const store = await seedStore(owner.id);
+    await seedGarment(store.id, 8);
+
+    await app.redis.set(
+      'config:system',
+      JSON.stringify({ uploadLimits: { shopifyCustomerPhotoMaxBytes: 1024 } }),
+    );
+    try {
+      const r2Key = await uploadCustomerPhoto(store.storeKey, Buffer.alloc(2048));
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/shopify/customer/jobs',
+        headers: { 'x-widget-key': store.storeKey },
+        payload: { customerPhotoKey: r2Key, shopifyProductId: 8 },
+      });
+      expect(res.statusCode).toBe(413);
+      expect(res.json().error.message).toContain('MB limit');
+    } finally {
+      await app.redis.del('config:system');
+    }
+  });
+
   it('scopes job status/events by store, not by shopper identity', async () => {
     const owner = await seedOwner(100);
     const store = await seedStore(owner.id);

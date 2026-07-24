@@ -15,6 +15,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { loadEnv } from './env.js';
 import { startHealthServer } from './health/server.js';
+import { promoteSareeStep2Jobs } from './job/saree-step2-promoter.js';
 import { makeDb } from './lib/db.js';
 import { makeRedis } from './lib/redis.js';
 import { makeStorage } from './lib/storage.js';
@@ -133,12 +134,17 @@ async function main(): Promise<void> {
     void recoverPendingJobs(redis, processorCfg, env.XPENDING_CLAIM_THRESHOLD_MS, log);
   }, 60_000);
 
+  const sareeStep2Interval = setInterval(() => {
+    void promoteSareeStep2Jobs(processorCfg);
+  }, 5_000);
+
   log.info('dispatcher ready');
 
   async function shutdown(signal: string): Promise<void> {
     log.info({ signal }, 'shutting down dispatcher');
     clearInterval(sweeperInterval);
     clearInterval(recoveryInterval);
+    clearInterval(sareeStep2Interval);
     stopConsumer();
     stopWebhooks();
     stopHealthMonitor();

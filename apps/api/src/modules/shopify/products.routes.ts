@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
+import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { assertShopifyCdn } from './products.sync.js';
 import { shopifyAdminFetch } from './service.js';
 
@@ -151,13 +152,22 @@ export async function shopifyProductsRoutes(app: FastifyInstance) {
           clearTimeout(timeout);
         }
         if (!res.ok) throw new AppError('SHOPIFY', 502, 'failed to download the selected image');
+        const maxProductImageBytes = await getUploadLimitBytes(app, 'shopifyProductImageMaxBytes');
         const contentLength = res.headers.get('content-length');
-        if (contentLength && parseInt(contentLength, 10) > 10 * 1024 * 1024) {
-          throw new AppError('BAD_REQUEST', 400, 'image exceeds 10MB');
+        if (contentLength && parseInt(contentLength, 10) > maxProductImageBytes) {
+          throw new AppError(
+            'BAD_REQUEST',
+            400,
+            `image exceeds ${maxProductImageBytes / (1024 * 1024)}MB`,
+          );
         }
         const arrayBuffer = await res.arrayBuffer();
-        if (arrayBuffer.byteLength > 10 * 1024 * 1024) {
-          throw new AppError('BAD_REQUEST', 400, 'image exceeds 10MB');
+        if (arrayBuffer.byteLength > maxProductImageBytes) {
+          throw new AppError(
+            'BAD_REQUEST',
+            400,
+            `image exceeds ${maxProductImageBytes / (1024 * 1024)}MB`,
+          );
         }
         const contentType = res.headers.get('content-type') ?? 'image/jpeg';
         newR2Key = `shopify-garments/${store.id}/${shopifyProductId}/garment-${randomUUID()}.jpg`;

@@ -35,6 +35,7 @@ export interface GenerationPanelProps {
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 
 const STATUS_PROGRESS: Record<string, number> = {
+  PENDING_MANNEQUIN: 3,
   QUEUED: 10,
   PREPROCESSING: 30,
   GENERATING: 60,

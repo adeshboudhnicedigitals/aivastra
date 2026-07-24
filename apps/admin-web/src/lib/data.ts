@@ -10,6 +10,7 @@ export const TONES = [
 ];
 
 export const STATUS_ORDER = [
+  'PENDING_MANNEQUIN',
   'QUEUED',
   'PREPROCESSING',
   'GENERATING',
@@ -19,6 +20,7 @@ export const STATUS_ORDER = [
 
 export function statusBadge(s: string): [string, string] {
   const m: Record<string, [string, string]> = {
+    PENDING_MANNEQUIN: ['info', 'Preparing garment'],
     QUEUED: ['info', 'Queued'],
     PREPROCESSING: ['accent', 'Preprocessing'],
     GENERATING: ['accent', 'Generating'],

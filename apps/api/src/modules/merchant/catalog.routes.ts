@@ -15,7 +15,7 @@ import { and, count, desc, eq, ilike, inArray, or, type SQL } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
-import { createMerchantCatalogJob } from './create-job.js';
+import { createMerchantCatalogJob, createMerchantSareeMannequinJob } from './create-job.js';
 import { assertMerchantUploadKey } from './upload-guard.js';
 
 type MerchantCatalogRow = typeof schema.merchantCatalogItems.$inferSelect;
@@ -149,7 +149,13 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           )
         : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
 
-      let rows = await app.db
+      // General-purpose: lists subcategories across every garment type for this
+      // merchant/category, backed by the same unfiltered /v1/models/garment-types
+      // list the web catalogue-manager already uses. The saree Android app has its
+      // own dedicated GET /v1/merchant/catalog/saree-subcategories below — do not
+      // add a requiresMannequinStep filter here, it would break every non-saree
+      // category's ability to create/list subcategories.
+      const rows = await app.db
         .select()
         .from(schema.merchantCatalogSubcategories)
         .where(where)
@@ -158,10 +164,59 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           desc(schema.merchantCatalogSubcategories.createdAt),
         );
 
+      return { items: await Promise.all(rows.map((row) => serializeSubcategory(app, row))) };
+    },
+  );
+
+  app.get(
+    '/v1/merchant/catalog/saree-subcategories',
+    { preHandler: app.requireMerchant },
+    async (req) => {
+      const merchantId = req.merchantClientId;
+      if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
+
+      const { category } = req.query as { category?: string };
+      const where = category
+        ? and(
+            eq(schema.merchantCatalogSubcategories.merchantId, merchantId),
+            eq(schema.merchantCatalogSubcategories.category, category),
+          )
+        : eq(schema.merchantCatalogSubcategories.merchantId, merchantId);
+
+      // Dedicated to the saree catalogue Android app — only ever shows/creates
+      // subcategories for garment types that use the mannequin (saree) pipeline.
+      // Does not affect the general /v1/merchant/catalog/subcategories endpoint
+      // the web catalogue-manager uses for every other category/garment type.
+      const merchantCatalogSubcategoryColumns = {
+        id: schema.merchantCatalogSubcategories.id,
+        merchantId: schema.merchantCatalogSubcategories.merchantId,
+        category: schema.merchantCatalogSubcategories.category,
+        name: schema.merchantCatalogSubcategories.name,
+        garmentSubcategoryId: schema.merchantCatalogSubcategories.garmentSubcategoryId,
+        sortOrder: schema.merchantCatalogSubcategories.sortOrder,
+        createdAt: schema.merchantCatalogSubcategories.createdAt,
+        updatedAt: schema.merchantCatalogSubcategories.updatedAt,
+      };
+      let rows = await app.db
+        .select(merchantCatalogSubcategoryColumns)
+        .from(schema.merchantCatalogSubcategories)
+        .innerJoin(
+          schema.garmentSubcategories,
+          eq(
+            schema.garmentSubcategories.id,
+            schema.merchantCatalogSubcategories.garmentSubcategoryId,
+          ),
+        )
+        .where(and(where, eq(schema.garmentSubcategories.requiresMannequinStep, true)))
+        .orderBy(
+          schema.merchantCatalogSubcategories.sortOrder,
+          desc(schema.merchantCatalogSubcategories.createdAt),
+        );
+
       // No admin UI creates these rows, so a merchant who has never been
       // seeded for this category would otherwise be stuck forever with an
       // empty picker. Self-provision one subcategory per active admin
-      // garment type for the category on first read.
+      // saree garment type for the category on first read.
       if (rows.length === 0 && category) {
         const garmentTypes = await app.db
           .select({ id: schema.garmentSubcategories.id, label: schema.garmentSubcategories.label })
@@ -170,9 +225,6 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
             and(
               eq(schema.garmentSubcategories.genderSlug, category),
               eq(schema.garmentSubcategories.isActive, true),
-              // Merchant catalogue only supports the saree (mannequin) pipeline —
-              // garmentSubcategories also holds the unrelated customer-studio
-              // upper/lower garment taxonomy for the same genders.
               eq(schema.garmentSubcategories.requiresMannequinStep, true),
             ),
           )
@@ -190,9 +242,16 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
           );
 
           rows = await app.db
-            .select()
+            .select(merchantCatalogSubcategoryColumns)
             .from(schema.merchantCatalogSubcategories)
-            .where(where)
+            .innerJoin(
+              schema.garmentSubcategories,
+              eq(
+                schema.garmentSubcategories.id,
+                schema.merchantCatalogSubcategories.garmentSubcategoryId,
+              ),
+            )
+            .where(and(where, eq(schema.garmentSubcategories.requiresMannequinStep, true)))
             .orderBy(
               schema.merchantCatalogSubcategories.sortOrder,
               desc(schema.merchantCatalogSubcategories.createdAt),
@@ -691,6 +750,34 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get('/v1/merchant/catalog/saree-styles', { preHandler: app.requireMerchant }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.sareeMannequinStyles.id,
+        label: schema.sareeMannequinStyles.label,
+        previewImageKey: schema.sareeMannequinStyles.previewImageKey,
+        sortOrder: schema.sareeMannequinStyles.sortOrder,
+      })
+      .from(schema.sareeMannequinStyles)
+      .where(eq(schema.sareeMannequinStyles.isActive, true))
+      .orderBy(schema.sareeMannequinStyles.sortOrder, schema.sareeMannequinStyles.label);
+
+    const items = await Promise.all(
+      rows.map(async (row) => ({
+        id: row.id,
+        label: row.label,
+        previewUrl: row.previewImageKey
+          ? await app.storage
+              .presignGet(row.previewImageKey, 3600)
+              .then((result) => result.url)
+              .catch(() => null)
+          : null,
+        sortOrder: row.sortOrder,
+      })),
+    );
+    return { items };
+  });
+
   app.post(
     '/v1/merchant/catalog/generate',
     { preHandler: app.requireMerchant, schema: { body: MerchantCatalogGenerateBody } },
@@ -698,7 +785,7 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
       const merchantId = req.merchantClientId;
       if (!merchantId) throw new AppError('UNAUTH', 401, 'missing merchant');
 
-      const { subcategoryId, flatImageKey } = req.body as z.infer<
+      const { subcategoryId, flatImageKey, mannequinOnly, sareeStyleId } = req.body as z.infer<
         typeof MerchantCatalogGenerateBody
       >;
 
@@ -722,14 +809,22 @@ export async function merchantCatalogRoutes(app: FastifyInstance) {
         .limit(1);
       if (!row) throw new AppError('NOT_FOUND', 404, 'subcategory not found');
 
-      const { jobId } = await createMerchantCatalogJob(app, {
-        userId: row.userId,
-        garmentSubcategoryId: row.garmentSubcategoryId,
-        category: row.category,
-        flatImageKey,
-        subcategoryId,
-        merchantId,
-      });
+      const { jobId } = mannequinOnly
+        ? await createMerchantSareeMannequinJob(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            flatImageKey,
+            merchantId,
+            sareeStyleId,
+          })
+        : await createMerchantCatalogJob(app, {
+            userId: row.userId,
+            garmentSubcategoryId: row.garmentSubcategoryId,
+            category: row.category,
+            flatImageKey,
+            subcategoryId,
+            merchantId,
+          });
 
       reply.code(201);
       return { jobId };
