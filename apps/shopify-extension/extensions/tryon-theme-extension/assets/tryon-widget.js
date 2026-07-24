@@ -144,7 +144,7 @@
       const onHistory = name === 'history';
       if (headerMain) headerMain.hidden = onHistory;
       if (headerHistory) headerHistory.hidden = !onHistory;
-      if (historyBtn) historyBtn.hidden = onHistory;
+      if (historyBtn) historyBtn.hidden = onHistory || getHistory().length === 0;
       if (resetBtn) resetBtn.hidden = onHistory;
       if (onHistory) renderHistoryList();
     }
@@ -166,6 +166,7 @@
     }
 
     function updateHistoryBadge(count) {
+      if (historyBtn) historyBtn.hidden = count === 0;
       if (!historyBadge) return;
       historyBadge.hidden = count === 0;
       historyBadge.textContent = String(count);
