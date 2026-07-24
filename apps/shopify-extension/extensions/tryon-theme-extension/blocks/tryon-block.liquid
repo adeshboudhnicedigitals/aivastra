@@ -31,69 +31,90 @@
       <div class="aivastra-tryon__modal-content">
         <div class="aivastra-tryon__modal-inner">
           <div class="aivastra-tryon__header">
-            <div>
-              <p class="aivastra-tryon__heading">Try It On</p>
-              <p class="aivastra-tryon__subheading">See how it looks on you</p>
+            <div class="aivastra-tryon__header-main">
+              <div>
+                <p class="aivastra-tryon__heading">Try It On</p>
+                <p class="aivastra-tryon__subheading">See how it looks on you</p>
+              </div>
+            </div>
+            <div class="aivastra-tryon__header-history" hidden>
+              <button type="button" class="aivastra-tryon__history-back" aria-label="Back">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+              </button>
+              <p class="aivastra-tryon__heading">History</p>
             </div>
             <div class="aivastra-tryon__header-actions">
+              <button type="button" class="aivastra-tryon__history-btn" aria-label="View history">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                <span class="aivastra-tryon__history-badge" hidden>0</span>
+              </button>
               <button type="button" class="aivastra-tryon__reset">Try another pose</button>
               <button type="button" class="aivastra-tryon__close" aria-label="Close">&times;</button>
             </div>
           </div>
 
-          <div class="aivastra-tryon__step aivastra-tryon__step--upload">
-            <div class="aivastra-tryon__reuse-panel" hidden>
-              <div class="aivastra-tryon__reuse-info">
-                <img class="aivastra-tryon__reuse-thumb" alt="" />
-                <button type="button" class="aivastra-tryon__reuse-use">Use this photo</button>
+          <div class="aivastra-tryon__page aivastra-tryon__page--main">
+            <div class="aivastra-tryon__step aivastra-tryon__step--upload">
+              <div class="aivastra-tryon__reuse-panel" hidden>
+                <div class="aivastra-tryon__reuse-info">
+                  <img class="aivastra-tryon__reuse-thumb" alt="" />
+                  <button type="button" class="aivastra-tryon__reuse-use">Use this photo</button>
+                </div>
+                <button type="button" class="aivastra-tryon__reuse-remove">Not you? Remove</button>
               </div>
-              <button type="button" class="aivastra-tryon__reuse-remove">Not you? Remove</button>
+              <p class="aivastra-tryon__reuse-expired-note" hidden>
+                Your previous photo expired — please upload a new one.
+              </p>
+              <label class="aivastra-tryon__upload-btn">
+                <span class="aivastra-tryon__upload-placeholder">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+                  <span class="aivastra-tryon__upload-label-text">Drag and drop photo, or choose file</span>
+                </span>
+                <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
+              </label>
             </div>
-            <p class="aivastra-tryon__reuse-expired-note" hidden>
-              Your previous photo expired — please upload a new one.
+
+            <div class="aivastra-tryon__step aivastra-tryon__step--ready" hidden>
+              <div class="aivastra-tryon__ready-preview">
+                <img class="aivastra-tryon__ready-image" alt="" />
+                <button type="button" class="aivastra-tryon__change-photo">Change Photo</button>
+              </div>
+              <button type="button" class="aivastra-tryon__cta">
+                <span>{{ block.settings.button_text | default: 'Try It On' | escape }} Now</span>
+              </button>
+              <p class="aivastra-tryon__disclaimer">AI can make mistakes.</p>
+            </div>
+
+            <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
+              <div class="aivastra-tryon__progress-canvas">
+                <p>{{ 'tryon.generating' | t }}</p>
+                <div class="aivastra-tryon__progress-bar-track">
+                  <div class="aivastra-tryon__progress-bar-fill"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="aivastra-tryon__step aivastra-tryon__step--pending" hidden>
+              <p>{{ 'tryon.pending' | t }}</p>
+            </div>
+
+            <div class="aivastra-tryon__step aivastra-tryon__step--result" hidden>
+              <img class="aivastra-tryon__result-image" alt="{{ 'tryon.result_alt' | t }}" />
+            </div>
+
+            <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
+              <p>{{ 'tryon.error' | t }}</p>
+              <button type="button" class="aivastra-tryon__retry">
+                {{ 'tryon.try_again' | t }}
+              </button>
+            </div>
+          </div>
+
+          <div class="aivastra-tryon__page aivastra-tryon__page--history" hidden>
+            <div class="aivastra-tryon__history-list"></div>
+            <p class="aivastra-tryon__history-empty" hidden>
+              No try-ons yet — results you generate will show up here.
             </p>
-            <label class="aivastra-tryon__upload-btn">
-              <span class="aivastra-tryon__upload-placeholder">
-                <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
-                <span class="aivastra-tryon__upload-label-text">Drag and drop photo, or choose file</span>
-              </span>
-              <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
-            </label>
-          </div>
-
-          <div class="aivastra-tryon__step aivastra-tryon__step--ready" hidden>
-            <div class="aivastra-tryon__ready-preview">
-              <img class="aivastra-tryon__ready-image" alt="" />
-              <button type="button" class="aivastra-tryon__change-photo">Change Photo</button>
-            </div>
-            <button type="button" class="aivastra-tryon__cta">
-              <span>{{ block.settings.button_text | default: 'Try It On' | escape }} Now</span>
-            </button>
-            <p class="aivastra-tryon__disclaimer">AI can make mistakes.</p>
-          </div>
-
-          <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
-            <div class="aivastra-tryon__progress-canvas">
-              <p>{{ 'tryon.generating' | t }}</p>
-              <div class="aivastra-tryon__progress-bar-track">
-                <div class="aivastra-tryon__progress-bar-fill"></div>
-              </div>
-            </div>
-          </div>
-
-          <div class="aivastra-tryon__step aivastra-tryon__step--pending" hidden>
-            <p>{{ 'tryon.pending' | t }}</p>
-          </div>
-
-          <div class="aivastra-tryon__step aivastra-tryon__step--result" hidden>
-            <img class="aivastra-tryon__result-image" alt="{{ 'tryon.result_alt' | t }}" />
-          </div>
-
-          <div class="aivastra-tryon__step aivastra-tryon__step--error" hidden>
-            <p>{{ 'tryon.error' | t }}</p>
-            <button type="button" class="aivastra-tryon__retry">
-              {{ 'tryon.try_again' | t }}
-            </button>
           </div>
         </div>
       </div>

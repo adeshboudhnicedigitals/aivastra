@@ -26,6 +26,20 @@
     const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
     const ctaBtn = root.querySelector('.aivastra-tryon__cta');
 
+    const pages = {
+      main: root.querySelector('.aivastra-tryon__page--main'),
+      history: root.querySelector('.aivastra-tryon__page--history'),
+    };
+    const headerMain = root.querySelector('.aivastra-tryon__header-main');
+    const headerHistory = root.querySelector('.aivastra-tryon__header-history');
+    const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
+    const historyBackBtn = root.querySelector('.aivastra-tryon__history-back');
+    const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
+    const historyList = root.querySelector('.aivastra-tryon__history-list');
+    const historyEmpty = root.querySelector('.aivastra-tryon__history-empty');
+    const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
+    const HISTORY_MAX_ITEMS = 12;
+
     // Photo picked (new upload or "use this photo" reuse) but generation not
     // yet confirmed — set by showReady(), consumed and cleared once the CTA
     // is clicked. Exactly one of the two is set at a time.
@@ -123,6 +137,80 @@
       }
     }
 
+    function showPage(name) {
+      for (const key in pages) {
+        if (pages[key]) pages[key].hidden = key !== name;
+      }
+      const onHistory = name === 'history';
+      if (headerMain) headerMain.hidden = onHistory;
+      if (headerHistory) headerHistory.hidden = !onHistory;
+      if (historyBtn) historyBtn.hidden = onHistory;
+      if (resetBtn) resetBtn.hidden = onHistory;
+      if (onHistory) renderHistoryList();
+    }
+
+    function getHistory() {
+      let raw;
+      try {
+        raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+      } catch (_err) {
+        return [];
+      }
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_err) {
+        return [];
+      }
+    }
+
+    function updateHistoryBadge(count) {
+      if (!historyBadge) return;
+      historyBadge.hidden = count === 0;
+      historyBadge.textContent = String(count);
+    }
+
+    // Fires each time a job completes — resultUrl is a stable public R2 URL
+    // (not presigned), so it's safe to keep around indefinitely in
+    // localStorage. History is per-browser, same pattern as the "reuse last
+    // photo" feature: no server-side concept of a widget shopper's identity
+    // exists to key a real history endpoint off of.
+    function addToHistory(resultUrl) {
+      const entry = { resultUrl, createdAt: Date.now() };
+      const history = [entry, ...getHistory()].slice(0, HISTORY_MAX_ITEMS);
+      try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+      } catch (_err) {
+        /* private-browsing / storage-full — history just won't persist */
+      }
+      updateHistoryBadge(history.length);
+    }
+
+    function renderHistoryList() {
+      const history = getHistory();
+      updateHistoryBadge(history.length);
+      if (!historyList) return;
+      historyList.innerHTML = '';
+      if (historyEmpty) historyEmpty.hidden = history.length > 0;
+      for (let i = 0; i < history.length; i++) {
+        const entry = history[i];
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'aivastra-tryon__history-item';
+        const img = document.createElement('img');
+        img.src = entry.resultUrl;
+        img.alt = '';
+        item.appendChild(img);
+        item.addEventListener('click', () => {
+          resultImage.src = entry.resultUrl;
+          showStep('result');
+          showPage('main');
+        });
+        historyList.appendChild(item);
+      }
+    }
+
     function resetReadyPreview() {
       if (readyImage) {
         if (readyImage.src) URL.revokeObjectURL(readyImage.src);
@@ -155,6 +243,7 @@
 
     function openModal() {
       modal.hidden = false;
+      showPage('main');
       startOver();
     }
 
@@ -301,6 +390,7 @@
         const resultUrl = await waitForResult(jobResult.jobId);
         resultImage.src = resultUrl;
         showStep('result');
+        addToHistory(resultUrl);
       } catch (err) {
         if (isReuse && err && err.expiredReuse) {
           forgetPhoto();
@@ -339,6 +429,9 @@
     if (resetBtn) resetBtn.addEventListener('click', startOver);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
+    if (historyBtn) historyBtn.addEventListener('click', () => showPage('history'));
+    if (historyBackBtn) historyBackBtn.addEventListener('click', () => showPage('main'));
+    updateHistoryBadge(getHistory().length);
     if (reuseUseBtn) {
       reuseUseBtn.addEventListener('click', () => {
         const remembered = getRememberedPhoto();
