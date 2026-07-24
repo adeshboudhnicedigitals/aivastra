@@ -42,4 +42,24 @@ describe('assertPublicHttpUrl', () => {
   it('rejects a malformed URL', async () => {
     await expect(assertPublicHttpUrl('not a url')).rejects.toThrow(/not a valid URL/);
   });
+
+  it('rejects an IPv4-mapped IPv6 address for a blocked range other than loopback', async () => {
+    await expect(assertPublicHttpUrl('http://[::ffff:169.254.169.254]/x.jpg')).rejects.toThrow(
+      /not allowed/,
+    );
+  });
+
+  it('rejects an IPv4-mapped IPv6 address for private 10.x', async () => {
+    await expect(assertPublicHttpUrl('http://[::ffff:10.0.0.5]/x.jpg')).rejects.toThrow(
+      /not allowed/,
+    );
+  });
+
+  it('accepts an IPv4-mapped IPv6 address for a public IP', async () => {
+    // WHATWG URL normalizes bracketed IPv4-mapped IPv6 literals to hex-group
+    // form (e.g. "::ffff:1.1.1.1" -> "::ffff:101:101") before we ever see
+    // `parsed.hostname`, so assert against the normalized form.
+    const url = await assertPublicHttpUrl('http://[::ffff:1.1.1.1]/x.jpg');
+    expect(url.hostname).toBe('[::ffff:101:101]');
+  });
 });

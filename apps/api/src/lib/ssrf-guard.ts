@@ -5,6 +5,52 @@ import { AppError } from './errors.js';
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:']);
 
 /**
+ * Encodes which IPv4 ranges are blocked (loopback, private, link-local /
+ * cloud-metadata, "this network", multicast/reserved). This is the single
+ * source of truth for IPv4 range blocking — both the native `family === 4`
+ * check and the IPv4-mapped-IPv6 (`::ffff:a.b.c.d`) check below must funnel
+ * through this so an attacker can't bypass the blocklist by re-encoding a
+ * blocked IPv4 address as its IPv6-mapped form.
+ */
+function isBlockedIpv4(parts: number[]): boolean {
+  const a = parts[0];
+  const b = parts[1];
+  if (a === 127) return true; // loopback
+  if (a === 10) return true; // private
+  if (a === 172 && b >= 16 && b <= 31) return true; // private
+  if (a === 192 && b === 168) return true; // private
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata
+  if (a === 0) return true; // "this network"
+  if (a >= 224) return true; // multicast/reserved
+  return false;
+}
+
+// IPv4-mapped IPv6 can reach us in two shapes:
+//  - dotted-quad, e.g. "::ffff:169.254.169.254" (as returned by some DNS resolvers)
+//  - hex-group, e.g. "::ffff:a9fe:a9fe" (WHATWG URL normalizes bracketed IPv6
+//    literals like "[::ffff:169.254.169.254]" into THIS form before we ever see
+//    `parsed.hostname` — the dotted form never reaches us for URL literals).
+// Both must be unwrapped and checked, or the hex-group path is a silent bypass.
+const IPV4_MAPPED_IPV6_DOTTED_RE = /^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+const IPV4_MAPPED_IPV6_HEX_RE = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/;
+
+/** Extracts the embedded IPv4 octets from an IPv4-mapped IPv6 address, in either
+ * of its two textual shapes. Returns null if `normalized` isn't IPv4-mapped. */
+function extractMappedIpv4Parts(normalized: string): number[] | null {
+  const dotted = normalized.match(IPV4_MAPPED_IPV6_DOTTED_RE);
+  if (dotted) {
+    return [Number(dotted[1]), Number(dotted[2]), Number(dotted[3]), Number(dotted[4])];
+  }
+  const hex = normalized.match(IPV4_MAPPED_IPV6_HEX_RE);
+  if (hex) {
+    const hi = parseInt(hex[1], 16);
+    const lo = parseInt(hex[2], 16);
+    return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff];
+  }
+  return null;
+}
+
+/**
  * Blocks loopback, private, link-local, and other non-public ranges. Applied to
  * the actually-resolved IP (not just the hostname string) so a hostname that
  * resolves to a private address is still blocked.
@@ -13,16 +59,7 @@ function isBlockedIp(ip: string): boolean {
   const family = isIP(ip);
   if (family === 4) {
     const parts = ip.split('.').map(Number);
-    const a = parts[0];
-    const b = parts[1];
-    if (a === 127) return true; // loopback
-    if (a === 10) return true; // private
-    if (a === 172 && b >= 16 && b <= 31) return true; // private
-    if (a === 192 && b === 168) return true; // private
-    if (a === 169 && b === 254) return true; // link-local / cloud metadata
-    if (a === 0) return true; // "this network"
-    if (a >= 224) return true; // multicast/reserved
-    return false;
+    return isBlockedIpv4(parts);
   }
   if (family === 6) {
     const normalized = ip.toLowerCase();
@@ -36,7 +73,12 @@ function isBlockedIp(ip: string): boolean {
     ) {
       return true; // link-local fe80::/10
     }
-    if (normalized === '::' || normalized.startsWith('::ffff:127.')) return true;
+    if (normalized === '::') return true;
+    // IPv4-mapped IPv6 (::ffff:a.b.c.d or ::ffff:xxxx:xxxx) — unwrap and re-check
+    // against the same IPv4 blocklist, otherwise e.g. ::ffff:169.254.169.254
+    // sails through as a "valid family-6 address" and never gets range-checked.
+    const mappedParts = extractMappedIpv4Parts(normalized);
+    if (mappedParts) return isBlockedIpv4(mappedParts);
     return false;
   }
   return true; // not a recognizable IP — treat as blocked
