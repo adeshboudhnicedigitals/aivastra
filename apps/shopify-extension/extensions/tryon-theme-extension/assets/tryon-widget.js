@@ -349,6 +349,7 @@
         body: JSON.stringify({ shopifyProductId: productId, customerPhotoKey: customerPhotoKey }),
       });
       if (res.status === 402) {
+        showPage('main');
         showStep('error');
         const errorStep = steps.error;
         if (errorStep) {
@@ -452,20 +453,24 @@
         rememberPhoto(customerPhotoKey);
         const jobResult = await createJob(customerPhotoKey);
         if (jobResult.pending) {
+          showPage('main');
           showStep('pending');
           return;
         }
         const resultUrl = await waitForResult(jobResult.jobId);
         resultImage.src = resultUrl;
+        showPage('main');
         showStep('result');
         addToHistory(resultUrl);
       } catch (err) {
         if (isReuse && err && err.expiredReuse) {
           forgetPhoto();
+          showPage('main');
           showStep('upload');
           if (reuseExpiredNote) reuseExpiredNote.hidden = false;
           return;
         }
+        showPage('main');
         showStep('error');
       }
     }
@@ -484,6 +489,7 @@
           const customerPhotoKey = await uploadPhoto(file);
           await proceedWithPhoto(customerPhotoKey, false);
         } catch (_err) {
+          showPage('main');
           showStep('error');
         }
       } else if (reuseKey) {
