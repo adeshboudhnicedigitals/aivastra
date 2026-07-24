@@ -14,7 +14,6 @@
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
-    const resetBtn = root.querySelector('.aivastra-tryon__reset');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
     const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const steps = {
@@ -139,7 +138,6 @@
       if (headerMain) headerMain.hidden = onHistory;
       if (headerHistory) headerHistory.hidden = !onHistory;
       if (historyBtn) historyBtn.hidden = onHistory || getHistory().length === 0;
-      if (resetBtn) resetBtn.hidden = onHistory;
       if (onHistory) renderHistoryList();
     }
 
@@ -483,7 +481,6 @@
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
-    if (resetBtn) resetBtn.addEventListener('click', startOver);
     if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
     if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (historyBtn) historyBtn.addEventListener('click', () => showPage('history'));
