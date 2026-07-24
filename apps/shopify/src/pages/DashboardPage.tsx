@@ -109,50 +109,48 @@ function StepRow({
         </div>
       </div>
       <div style={{ display: 'flex', gap: '8px', flexShrink: 0, alignItems: 'center' }}>
+        {secondaryLabel && onSecondary && (
+          <button
+            type="button"
+            onClick={onSecondary}
+            style={{
+              height: '34px',
+              padding: '0 13px',
+              border: `1px solid ${BRAND.borderStrong}`,
+              borderRadius: '9px',
+              background: '#fff',
+              color: BRAND.inkSoft,
+              fontSize: '12.5px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {secondaryLabel}
+          </button>
+        )}
         {done ? (
           <span style={{ fontSize: '13px', fontWeight: 600, color: BRAND.successText }}>Done</span>
         ) : (
-          <>
-            {secondaryLabel && onSecondary && (
-              <button
-                type="button"
-                onClick={onSecondary}
-                style={{
-                  height: '34px',
-                  padding: '0 13px',
-                  border: `1px solid ${BRAND.borderStrong}`,
-                  borderRadius: '9px',
-                  background: '#fff',
-                  color: BRAND.inkSoft,
-                  fontSize: '12.5px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {secondaryLabel}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onPrimary}
-              disabled={primaryLoading}
-              style={{
-                height: '34px',
-                padding: '0 13px',
-                border: 'none',
-                borderRadius: '9px',
-                background: BRAND.buttonGradient,
-                color: '#fff',
-                fontSize: '12.5px',
-                fontWeight: 600,
-                cursor: primaryLoading ? 'default' : 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {primaryLoading ? 'Working…' : primaryLabel}
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={onPrimary}
+            disabled={primaryLoading}
+            style={{
+              height: '34px',
+              padding: '0 13px',
+              border: 'none',
+              borderRadius: '9px',
+              background: BRAND.buttonGradient,
+              color: '#fff',
+              fontSize: '12.5px',
+              fontWeight: 600,
+              cursor: primaryLoading ? 'default' : 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {primaryLoading ? 'Working…' : primaryLabel}
+          </button>
         )}
       </div>
     </div>
