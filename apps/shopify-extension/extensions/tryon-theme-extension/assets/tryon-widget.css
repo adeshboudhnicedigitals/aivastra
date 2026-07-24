@@ -330,8 +330,7 @@
   gap: 12px;
 }
 
-.aivastra-tryon__choose-btn,
-.aivastra-tryon__camera-btn {
+.aivastra-tryon__choose-btn {
   position: relative;
   width: 100%;
   min-height: 48px;
@@ -342,9 +341,6 @@
   border-radius: 999px;
   font-size: 13.5px;
   cursor: pointer;
-}
-
-.aivastra-tryon__choose-btn {
   background: var(--aivastra-button-color, #000000);
   color: var(--aivastra-text-color, #ffffff);
   box-shadow: 0 7px 16px rgba(0, 0, 0, 0.15);
@@ -354,15 +350,7 @@
   font-weight: 600;
 }
 
-.aivastra-tryon__camera-btn {
-  min-height: 44px;
-  border: 1px solid #d1d5db;
-  background: #fff;
-  color: #4b5563;
-}
-
-.aivastra-tryon__file-input,
-.aivastra-tryon__file-input-camera {
+.aivastra-tryon__file-input {
   position: absolute;
   width: 1px;
   height: 1px;

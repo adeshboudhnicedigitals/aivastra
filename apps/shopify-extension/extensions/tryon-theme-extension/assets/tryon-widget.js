@@ -16,7 +16,6 @@
     const closeBtn = root.querySelector('.aivastra-tryon__close');
     const resetBtn = root.querySelector('.aivastra-tryon__reset');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
-    const cameraInput = root.querySelector('.aivastra-tryon__file-input-camera');
     const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const steps = {
       upload: root.querySelector('.aivastra-tryon__step--upload'),
@@ -529,7 +528,6 @@
       showReady({ file });
     }
     fileInput.addEventListener('change', () => handlePickedFile(fileInput));
-    if (cameraInput) cameraInput.addEventListener('change', () => handlePickedFile(cameraInput));
     const retryBtns = root.querySelectorAll('.aivastra-tryon__retry');
     for (let k = 0; k < retryBtns.length; k++) {
       retryBtns[k].addEventListener('click', startOver);
