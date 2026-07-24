@@ -147,4 +147,77 @@ describe('catalog', () => {
     ]);
     expect(allItems.length).toBeGreaterThan(0);
   });
+  it('GET /v1/catalog/lower keeps all active same-gender choices available after choosing a garment type', async () => {
+    const token = await getToken();
+    const unique = Date.now();
+    const [workflow] = await app.db
+      .insert(schema.workflowTemplates)
+      .values({
+        slug: `catalog-all-options-${unique}`,
+        label: 'Catalog all-options workflow',
+        jsonContent: {},
+        faceNodeId: '1',
+        poseNodeId: '2',
+        bgNodeId: '3',
+        upperNodeIds: ['4'],
+        lowerNodeId: '7',
+        facePhasePromptNode: '5',
+        garmentPhasePromptNode: '6',
+      })
+      .returning();
+    const [pose] = await app.db
+      .insert(schema.modelPoseAssets)
+      .values({
+        label: 'All options pose',
+        genderSlug: 'women',
+        r2Key: `all-options-pose-${unique}.jpg`,
+        thumbnailKey: `all-options-pose-${unique}-thumb.jpg`,
+        workflowTemplateId: workflow.id,
+      })
+      .returning();
+    const [garmentType] = await app.db
+      .insert(schema.garmentSubcategories)
+      .values({
+        genderSlug: 'women',
+        slug: `catalog-all-options-${unique}`,
+        label: 'All options garment type',
+      })
+      .returning();
+    const [mappedItem, unlinkedItem] = await app.db
+      .insert(schema.catalogItems)
+      .values([
+        {
+          type: 'lower',
+          genderSlug: 'women',
+          label: `Mapped lower ${unique}`,
+          r2Key: `mapped-lower-${unique}.jpg`,
+          thumbnailKey: `mapped-lower-${unique}-thumb.jpg`,
+          isActive: true,
+        },
+        {
+          type: 'lower',
+          genderSlug: 'women',
+          label: `Unlinked lower ${unique}`,
+          r2Key: `unlinked-lower-${unique}.jpg`,
+          thumbnailKey: `unlinked-lower-${unique}-thumb.jpg`,
+          isActive: true,
+        },
+      ])
+      .returning();
+    await app.db.insert(schema.catalogItemSubcategories).values({
+      catalogItemId: mappedItem.id,
+      subcategoryId: garmentType.id,
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/catalog/lower?gender=women&poseIds=${pose.id}&garmentTypeId=${garmentType.id}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const serializedTree = JSON.stringify(res.json().tree);
+    expect(serializedTree).toContain(mappedItem.label);
+    expect(serializedTree).toContain(unlinkedItem.label);
+  });
 });

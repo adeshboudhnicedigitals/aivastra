@@ -130,63 +130,28 @@ export async function catalogRoutes(app: FastifyInstance) {
 
         if (!hasSupportingPose && mappedSupporting.length === 0) return { type, tree: [] };
 
-        const defaultIds: string[] = [];
-        const mappedIds: string[] = [];
-        if (garmentTypeId) {
-          const [gt] = await app.db
-            .select({
-              defaultLowerCatalogId: schema.garmentSubcategories.defaultLowerCatalogId,
-              defaultShoeCatalogId: schema.garmentSubcategories.defaultShoeCatalogId,
-            })
-            .from(schema.garmentSubcategories)
-            .where(eq(schema.garmentSubcategories.id, garmentTypeId));
-          const defaultId = type === 'lower' ? gt?.defaultLowerCatalogId : gt?.defaultShoeCatalogId;
-          if (defaultId) defaultIds.push(defaultId);
-
-          const mappings = await app.db
-            .select({ catalogItemId: schema.catalogItemSubcategories.catalogItemId })
-            .from(schema.catalogItemSubcategories)
-            .where(eq(schema.catalogItemSubcategories.subcategoryId, garmentTypeId));
-          mappedIds.push(...mappings.map((m) => m.catalogItemId));
-        }
-
-        const allowedIds = [...new Set([...mappedIds, ...defaultIds])];
-        if (garmentTypeId && allowedIds.length === 0) return { type, tree: [] };
-
-        // Return active catalog items of this type/gender. When a garment type is
-        // selected, limit the result to assets mapped to that type plus its default.
+        // Garment type determines the pose workflow, while the Studio picker must
+        // offer every active lower garment or shoe for the selected gender. Its
+        // configured default is selected client-side, but does not narrow the
+        // available alternatives.
         const conditions = [
           eq(schema.catalogItems.isActive, true),
           eq(schema.catalogItems.type, type),
         ];
         if (gender) conditions.push(eq(schema.catalogItems.genderSlug, gender));
-        if (garmentTypeId) conditions.push(inArray(schema.catalogItems.id, allowedIds));
 
         const items = await app.db
           .select()
           .from(schema.catalogItems)
           .where(and(...conditions));
 
-        // Also fetch the garment type's default item if not already in the result
-        let allItems = items;
-        if (defaultIds.length > 0) {
-          const missing = defaultIds.filter((id) => !items.some((i) => i.id === id));
-          if (missing.length > 0) {
-            const extraItems = await app.db
-              .select()
-              .from(schema.catalogItems)
-              .where(inArray(schema.catalogItems.id, missing));
-            allItems = [...items, ...extraItems];
-          }
-        }
-
-        const enriched = allItems.map((i) => ({
+        const enriched = items.map((i) => ({
           ...i,
           thumbnailUrl: app.storage.publicUrl(i.thumbnailKey),
         }));
 
         const catIds = [
-          ...new Set(allItems.map((i) => i.categoryId).filter((id): id is number => id != null)),
+          ...new Set(items.map((i) => i.categoryId).filter((id): id is number => id != null)),
         ];
         const cats =
           catIds.length > 0
