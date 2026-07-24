@@ -6,30 +6,55 @@
   function initWidget(root) {
     const widgetKey = root.dataset.widgetKey;
     const productId = Number(root.dataset.productId);
+    const productTitle = root.dataset.productTitle || '';
+    const productUrl = root.dataset.productUrl || '';
+    const productImage = root.dataset.productImage || '';
     const apiBase = root.dataset.apiBase.replace(/\/$/, '');
 
     const button = root.querySelector('.aivastra-tryon__button');
     const modal = root.querySelector('.aivastra-tryon__modal');
     const closeBtn = root.querySelector('.aivastra-tryon__close');
-    const resetBtn = root.querySelector('.aivastra-tryon__reset');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
-    const uploadPreview = root.querySelector('.aivastra-tryon__upload-preview');
-    const uploadPlaceholder = root.querySelector('.aivastra-tryon__upload-placeholder');
+    const avatarImage = root.querySelector('.aivastra-tryon__avatar-image');
     const steps = {
       upload: root.querySelector('.aivastra-tryon__step--upload'),
+      ready: root.querySelector('.aivastra-tryon__step--ready'),
       progress: root.querySelector('.aivastra-tryon__step--progress'),
       pending: root.querySelector('.aivastra-tryon__step--pending'),
       result: root.querySelector('.aivastra-tryon__step--result'),
       error: root.querySelector('.aivastra-tryon__step--error'),
     };
     const resultImage = root.querySelector('.aivastra-tryon__result-image');
+    const readyImage = root.querySelector('.aivastra-tryon__ready-image');
+    const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
+    const ctaBtn = root.querySelector('.aivastra-tryon__cta');
 
-    const reusePanel = root.querySelector('.aivastra-tryon__reuse-panel');
-    const reuseThumb = root.querySelector('.aivastra-tryon__reuse-thumb');
-    const reuseUseBtn = root.querySelector('.aivastra-tryon__reuse-use');
-    const reuseRemoveBtn = root.querySelector('.aivastra-tryon__reuse-remove');
+    if (avatarImage && productImage) {
+      avatarImage.src = productImage;
+      avatarImage.hidden = false;
+    }
+
+    const pages = {
+      main: root.querySelector('.aivastra-tryon__page--main'),
+      history: root.querySelector('.aivastra-tryon__page--history'),
+    };
+    const headerMain = root.querySelector('.aivastra-tryon__header-main');
+    const headerHistory = root.querySelector('.aivastra-tryon__header-history');
+    const historyBtn = root.querySelector('.aivastra-tryon__history-btn');
+    const historyBackBtn = root.querySelector('.aivastra-tryon__history-back');
+    const historyBadge = root.querySelector('.aivastra-tryon__history-badge');
+    const historyList = root.querySelector('.aivastra-tryon__history-list');
+    const historyEmpty = root.querySelector('.aivastra-tryon__history-empty');
+    const HISTORY_STORAGE_KEY = 'aivastra_tryon_history';
+    const HISTORY_MAX_ITEMS = 12;
+
+    // Photo picked (new upload or "use this photo" reuse) but generation not
+    // yet confirmed — set by showReady(), consumed and cleared once the CTA
+    // is clicked. Exactly one of the two is set at a time.
+    let pendingFile = null;
+    let pendingReuseKey = null;
+
     const reuseExpiredNote = root.querySelector('.aivastra-tryon__reuse-expired-note');
-    const uploadLabelText = root.querySelector('.aivastra-tryon__upload-label-text');
     const REUSE_STORAGE_KEY = 'aivastra_last_photo';
     const REUSE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
@@ -62,31 +87,23 @@
       }
     }
 
-    function hideReusePanel() {
-      if (reusePanel) reusePanel.hidden = true;
-      if (uploadLabelText) uploadLabelText.textContent = 'Drag and drop photo, or choose file';
-    }
-
-    function showReusePanel(previewUrl) {
-      if (!reusePanel || !reuseThumb) return;
-      reuseThumb.src = previewUrl;
-      reusePanel.hidden = false;
-      if (uploadLabelText) uploadLabelText.textContent = 'Or upload a new photo';
-    }
-
     function forgetPhoto() {
       try {
         localStorage.removeItem(REUSE_STORAGE_KEY);
       } catch (_err) {
         /* ignore */
       }
-      hideReusePanel();
     }
 
-    async function tryShowReusePanel() {
+    // Entry point for the main flow (modal open, "Try another pose", "Try
+    // again"): a returning shopper with a remembered photo goes straight to
+    // the ready screen with it pre-loaded (design frame 3) instead of
+    // revisiting the upload step. No remembered photo (or it's expired /
+    // no longer owned) falls back to a fresh upload.
+    async function enterMainFlow() {
       const remembered = getRememberedPhoto();
       if (!remembered) {
-        hideReusePanel();
+        showStep('upload');
         return;
       }
       try {
@@ -97,12 +114,13 @@
         });
         if (!res.ok) {
           forgetPhoto();
+          showStep('upload');
           return;
         }
         const body = await res.json();
-        showReusePanel(body.previewUrl);
+        showReady({ reuseKey: remembered.r2Key, previewUrl: body.previewUrl });
       } catch (_err) {
-        hideReusePanel();
+        showStep('upload');
       }
     }
 
@@ -112,25 +130,162 @@
       }
     }
 
-    function resetUploadPreview() {
-      if (uploadPreview) {
-        if (uploadPreview.src) URL.revokeObjectURL(uploadPreview.src);
-        uploadPreview.src = '';
-        uploadPreview.hidden = true;
+    function showPage(name) {
+      for (const key in pages) {
+        if (pages[key]) pages[key].hidden = key !== name;
       }
-      if (uploadPlaceholder) uploadPlaceholder.hidden = false;
+      const onHistory = name === 'history';
+      if (headerMain) headerMain.hidden = onHistory;
+      if (headerHistory) headerHistory.hidden = !onHistory;
+      if (historyBtn) historyBtn.hidden = onHistory || getHistory().length === 0;
+      if (onHistory) renderHistoryList();
+    }
+
+    function getHistory() {
+      let raw;
+      try {
+        raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+      } catch (_err) {
+        return [];
+      }
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_err) {
+        return [];
+      }
+    }
+
+    function updateHistoryBadge(count) {
+      if (historyBtn) historyBtn.hidden = count === 0;
+      if (!historyBadge) return;
+      historyBadge.hidden = count === 0;
+      historyBadge.textContent = String(count);
+    }
+
+    // Fires each time a job completes — resultUrl is a stable public R2 URL
+    // (not presigned), so it's safe to keep around indefinitely in
+    // localStorage. History is per-browser and spans every product tried on
+    // this store, same pattern as the "reuse last photo" feature: no
+    // server-side concept of a widget shopper's identity exists to key a
+    // real history endpoint off of.
+    function addToHistory(resultUrl) {
+      const entry = {
+        resultUrl,
+        createdAt: Date.now(),
+        productTitle,
+        productUrl,
+      };
+      const history = [entry, ...getHistory()].slice(0, HISTORY_MAX_ITEMS);
+      try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+      } catch (_err) {
+        /* private-browsing / storage-full — history just won't persist */
+      }
+      updateHistoryBadge(history.length);
+    }
+
+    function formatHistoryDate(timestamp) {
+      try {
+        return new Date(timestamp).toLocaleDateString(undefined, {
+          month: 'short',
+          day: 'numeric',
+        });
+      } catch (_err) {
+        return '';
+      }
+    }
+
+    function renderHistoryList() {
+      const history = getHistory();
+      updateHistoryBadge(history.length);
+      if (!historyList) return;
+      historyList.innerHTML = '';
+      if (historyEmpty) historyEmpty.hidden = history.length > 0;
+      for (let i = 0; i < history.length; i++) {
+        const entry = history[i];
+        const card = document.createElement('div');
+        card.className = 'aivastra-tryon__history-card';
+
+        const media = document.createElement('button');
+        media.type = 'button';
+        media.className = 'aivastra-tryon__history-media';
+        const img = document.createElement('img');
+        img.src = entry.resultUrl;
+        img.alt = '';
+        media.appendChild(img);
+        media.addEventListener('click', () => {
+          resultImage.src = entry.resultUrl;
+          showStep('result');
+          showPage('main');
+        });
+        card.appendChild(media);
+
+        const meta = document.createElement('div');
+        meta.className = 'aivastra-tryon__history-meta';
+        const title = document.createElement('strong');
+        title.textContent = entry.productTitle || 'Try-on';
+        meta.appendChild(title);
+        const date = document.createElement('span');
+        date.textContent = formatHistoryDate(entry.createdAt);
+        meta.appendChild(date);
+        card.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'aivastra-tryon__history-actions';
+        if (typeof navigator.share === 'function') {
+          const shareBtn = document.createElement('button');
+          shareBtn.type = 'button';
+          shareBtn.className = 'aivastra-tryon__history-share';
+          shareBtn.setAttribute('aria-label', 'Share');
+          shareBtn.innerHTML =
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="2.2"/><circle cx="6" cy="12" r="2.2"/><circle cx="18" cy="19" r="2.2"/><path d="m8 11 7.8-4.6M8 13l7.8 4.6"/></svg>';
+          shareBtn.addEventListener('click', () => {
+            navigator.share({ url: entry.resultUrl }).catch(() => {
+              /* user cancelled the share sheet — nothing to do */
+            });
+          });
+          actions.appendChild(shareBtn);
+        }
+        if (actions.childNodes.length > 0) card.appendChild(actions);
+
+        historyList.appendChild(card);
+      }
+    }
+
+    function resetReadyPreview() {
+      if (readyImage) {
+        if (readyImage.src) URL.revokeObjectURL(readyImage.src);
+        readyImage.src = '';
+      }
+      pendingFile = null;
+      pendingReuseKey = null;
+    }
+
+    // Shows the picked photo (new upload or reused) full-size with an
+    // explicit "Try It On Now" CTA, instead of generating immediately —
+    // exactly one of file/reuseKey is passed by the two callers.
+    function showReady({ file, reuseKey, previewUrl }) {
+      resetReadyPreview();
+      pendingFile = file || null;
+      pendingReuseKey = reuseKey || null;
+      if (readyImage) {
+        readyImage.src = file ? URL.createObjectURL(file) : previewUrl || '';
+      }
+      showStep('ready');
     }
 
     function startOver() {
-      showStep('upload');
       fileInput.value = '';
-      resetUploadPreview();
+      resetReadyPreview();
       if (reuseExpiredNote) reuseExpiredNote.hidden = true;
-      tryShowReusePanel();
+      enterMainFlow();
     }
 
     function openModal() {
       modal.hidden = false;
+      showPage('main');
       startOver();
     }
 
@@ -168,6 +323,7 @@
         body: JSON.stringify({ shopifyProductId: productId, customerPhotoKey: customerPhotoKey }),
       });
       if (res.status === 402) {
+        showPage('main');
         showStep('error');
         const errorStep = steps.error;
         if (errorStep) {
@@ -271,70 +427,68 @@
         rememberPhoto(customerPhotoKey);
         const jobResult = await createJob(customerPhotoKey);
         if (jobResult.pending) {
+          showPage('main');
           showStep('pending');
           return;
         }
         const resultUrl = await waitForResult(jobResult.jobId);
         resultImage.src = resultUrl;
+        showPage('main');
         showStep('result');
+        addToHistory(resultUrl);
       } catch (err) {
         if (isReuse && err && err.expiredReuse) {
           forgetPhoto();
+          showPage('main');
           showStep('upload');
           if (reuseExpiredNote) reuseExpiredNote.hidden = false;
           return;
         }
+        showPage('main');
         showStep('error');
       }
     }
 
-    async function handleFile(file) {
-      if (!file.type.startsWith('image/')) {
-        showStep('error');
-        return;
-      }
-      if (file.size > MAX_PHOTO_BYTES) {
-        showStep('error');
-        return;
-      }
-
-      showStep('progress');
-      try {
-        const customerPhotoKey = await uploadPhoto(file);
-        await proceedWithPhoto(customerPhotoKey, false);
-      } catch (_err) {
-        showStep('error');
+    // Fires from the "Try It On Now" CTA on the ready step — the photo was
+    // already picked (new upload or reuse) and is just waiting for the
+    // shopper to confirm before spending a generation.
+    async function confirmReady() {
+      const file = pendingFile;
+      const reuseKey = pendingReuseKey;
+      pendingFile = null;
+      pendingReuseKey = null;
+      if (file) {
+        showStep('progress');
+        try {
+          const customerPhotoKey = await uploadPhoto(file);
+          await proceedWithPhoto(customerPhotoKey, false);
+        } catch (_err) {
+          showPage('main');
+          showStep('error');
+        }
+      } else if (reuseKey) {
+        showStep('progress');
+        await proceedWithPhoto(reuseKey, true);
       }
     }
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
-    if (resetBtn) resetBtn.addEventListener('click', startOver);
-    if (reuseUseBtn) {
-      reuseUseBtn.addEventListener('click', () => {
-        const remembered = getRememberedPhoto();
-        if (!remembered) {
-          hideReusePanel();
-          return;
-        }
-        showStep('progress');
-        proceedWithPhoto(remembered.r2Key, true);
-      });
-    }
-    if (reuseRemoveBtn) {
-      reuseRemoveBtn.addEventListener('click', forgetPhoto);
-    }
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files?.[0];
+    if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
+    if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
+    if (historyBtn) historyBtn.addEventListener('click', () => showPage('history'));
+    if (historyBackBtn) historyBackBtn.addEventListener('click', () => showPage('main'));
+    updateHistoryBadge(getHistory().length);
+    function handlePickedFile(input) {
+      const file = input.files?.[0];
       if (!file) return;
-      if (uploadPreview && uploadPlaceholder && file.type.startsWith('image/')) {
-        if (uploadPreview.src) URL.revokeObjectURL(uploadPreview.src);
-        uploadPreview.src = URL.createObjectURL(file);
-        uploadPreview.hidden = false;
-        uploadPlaceholder.hidden = true;
+      if (!file.type.startsWith('image/') || file.size > MAX_PHOTO_BYTES) {
+        showStep('error');
+        return;
       }
-      handleFile(file);
-    });
+      showReady({ file });
+    }
+    fileInput.addEventListener('change', () => handlePickedFile(fileInput));
     const retryBtns = root.querySelectorAll('.aivastra-tryon__retry');
     for (let k = 0; k < retryBtns.length; k++) {
       retryBtns[k].addEventListener('click', startOver);
