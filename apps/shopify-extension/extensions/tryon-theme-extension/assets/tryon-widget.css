@@ -21,6 +21,7 @@
   border: 1px solid #e5e7eb;
   border-radius: 20px;
   width: 400px;
+  height: 700px;
   max-width: calc(100vw - 32px);
   max-height: calc(100dvh - 48px);
   overflow: hidden;
@@ -39,8 +40,10 @@
 
 .aivastra-tryon__modal-inner {
   padding: 29px;
-  max-height: 90vh;
+  height: 100%;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .aivastra-tryon__header {
@@ -146,6 +149,13 @@
   padding: 0;
 }
 
+.aivastra-tryon__page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .aivastra-tryon__page[hidden] {
   display: none;
 }
@@ -154,6 +164,9 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .aivastra-tryon__history-card {
@@ -200,29 +213,13 @@
 }
 
 .aivastra-tryon__history-actions {
-  display: grid;
-  grid-template-columns: 1fr 44px;
+  display: flex;
+  justify-content: flex-end;
   gap: 8px;
 }
 
-.aivastra-tryon__history-actions:has(> :only-child) {
-  grid-template-columns: 1fr;
-}
-
-.aivastra-tryon__history-cart {
-  height: 40px;
-  border-radius: 10px;
-  background: var(--aivastra-button-color, #000000);
-  color: var(--aivastra-text-color, #ffffff);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-}
-
 .aivastra-tryon__history-share {
+  width: 44px;
   height: 40px;
   border-radius: 10px;
   border: 1px solid #e5e7eb;
@@ -233,7 +230,11 @@
 }
 
 .aivastra-tryon__history-empty {
-  margin: 32px 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
   text-align: center;
   font-size: 13px;
   color: #6b7280;
@@ -357,14 +358,38 @@
   line-height: 1.5;
 }
 
+.aivastra-tryon__step {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .aivastra-tryon__step[hidden] {
   display: none;
 }
 
+.aivastra-tryon__step--upload {
+  justify-content: center;
+}
+
 .aivastra-tryon__step--ready {
-  display: flex;
-  flex-direction: column;
   gap: 16px;
+}
+
+.aivastra-tryon__step--progress {
+  justify-content: center;
+}
+
+.aivastra-tryon__step--pending,
+.aivastra-tryon__step--error {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.aivastra-tryon__step--result {
+  justify-content: center;
 }
 
 .aivastra-tryon__ready-preview {
