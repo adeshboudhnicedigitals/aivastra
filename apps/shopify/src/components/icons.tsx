@@ -196,32 +196,3 @@ export function FunnelIcon({
     </svg>
   );
 }
-
-export function AiVastraMark({ size = 24 }: { size?: number }) {
-  return (
-    <svg aria-hidden="true" width={size} height={size} viewBox="0 0 32 32" fill="none">
-      <defs>
-        <linearGradient
-          id="aivastraNavLogoGrad"
-          x1="0"
-          y1="0"
-          x2="32"
-          y2="32"
-          gradientUnits="userSpaceOnUse"
-        >
-          <stop offset="0" stopColor="#521D9C" />
-          <stop offset="0.5" stopColor="#BD2587" />
-          <stop offset="1" stopColor="#F96657" />
-        </linearGradient>
-      </defs>
-      <g fill="url(#aivastraNavLogoGrad)">
-        <rect x="13" y="2" width="6" height="12" rx="3" />
-        <rect x="13" y="2" width="6" height="12" rx="3" transform="rotate(60 16 16)" />
-        <rect x="13" y="2" width="6" height="12" rx="3" transform="rotate(120 16 16)" />
-        <rect x="13" y="2" width="6" height="12" rx="3" transform="rotate(180 16 16)" />
-        <rect x="13" y="2" width="6" height="12" rx="3" transform="rotate(240 16 16)" />
-        <rect x="13" y="2" width="6" height="12" rx="3" transform="rotate(300 16 16)" />
-      </g>
-    </svg>
-  );
-}

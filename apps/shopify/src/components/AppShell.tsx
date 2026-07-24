@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { BRAND, FONT_STACK } from '../theme';
-import { AiVastraMark, ChevronDownIcon, DashboardIcon, FunnelIcon, ProductsIcon } from './icons';
+import { ChevronDownIcon, DashboardIcon, FunnelIcon, ProductsIcon } from './icons';
 
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: DashboardIcon },
@@ -34,19 +34,9 @@ export function AppShell({ children, shopDomain }: { children: ReactNode; shopDo
           boxSizing: 'border-box',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-          <AiVastraMark size={24} />
-          <span
-            style={{
-              fontSize: '16px',
-              fontWeight: 700,
-              color: BRAND.ink,
-              letterSpacing: '-0.01em',
-            }}
-          >
-            AiVastra
-          </span>
-        </div>
+        {/* Empty spacer mirrors the nav pill's own width on the right (shop
+            domain chip) so the nav stays visually centered without a logo. */}
+        <div style={{ width: '180px' }} />
 
         <div
           style={{
