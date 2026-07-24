@@ -13,16 +13,24 @@
     const closeBtn = root.querySelector('.aivastra-tryon__close');
     const resetBtn = root.querySelector('.aivastra-tryon__reset');
     const fileInput = root.querySelector('.aivastra-tryon__file-input');
-    const uploadPreview = root.querySelector('.aivastra-tryon__upload-preview');
-    const uploadPlaceholder = root.querySelector('.aivastra-tryon__upload-placeholder');
     const steps = {
       upload: root.querySelector('.aivastra-tryon__step--upload'),
+      ready: root.querySelector('.aivastra-tryon__step--ready'),
       progress: root.querySelector('.aivastra-tryon__step--progress'),
       pending: root.querySelector('.aivastra-tryon__step--pending'),
       result: root.querySelector('.aivastra-tryon__step--result'),
       error: root.querySelector('.aivastra-tryon__step--error'),
     };
     const resultImage = root.querySelector('.aivastra-tryon__result-image');
+    const readyImage = root.querySelector('.aivastra-tryon__ready-image');
+    const changePhotoBtn = root.querySelector('.aivastra-tryon__change-photo');
+    const ctaBtn = root.querySelector('.aivastra-tryon__cta');
+
+    // Photo picked (new upload or "use this photo" reuse) but generation not
+    // yet confirmed — set by showReady(), consumed and cleared once the CTA
+    // is clicked. Exactly one of the two is set at a time.
+    let pendingFile = null;
+    let pendingReuseKey = null;
 
     const reusePanel = root.querySelector('.aivastra-tryon__reuse-panel');
     const reuseThumb = root.querySelector('.aivastra-tryon__reuse-thumb');
@@ -67,9 +75,12 @@
       if (uploadLabelText) uploadLabelText.textContent = 'Drag and drop photo, or choose file';
     }
 
+    let lastReusePreviewUrl = null;
+
     function showReusePanel(previewUrl) {
       if (!reusePanel || !reuseThumb) return;
       reuseThumb.src = previewUrl;
+      lastReusePreviewUrl = previewUrl;
       reusePanel.hidden = false;
       if (uploadLabelText) uploadLabelText.textContent = 'Or upload a new photo';
     }
@@ -112,19 +123,32 @@
       }
     }
 
-    function resetUploadPreview() {
-      if (uploadPreview) {
-        if (uploadPreview.src) URL.revokeObjectURL(uploadPreview.src);
-        uploadPreview.src = '';
-        uploadPreview.hidden = true;
+    function resetReadyPreview() {
+      if (readyImage) {
+        if (readyImage.src) URL.revokeObjectURL(readyImage.src);
+        readyImage.src = '';
       }
-      if (uploadPlaceholder) uploadPlaceholder.hidden = false;
+      pendingFile = null;
+      pendingReuseKey = null;
+    }
+
+    // Shows the picked photo (new upload or reused) full-size with an
+    // explicit "Try It On Now" CTA, instead of generating immediately —
+    // exactly one of file/reuseKey is passed by the two callers.
+    function showReady({ file, reuseKey, previewUrl }) {
+      resetReadyPreview();
+      pendingFile = file || null;
+      pendingReuseKey = reuseKey || null;
+      if (readyImage) {
+        readyImage.src = file ? URL.createObjectURL(file) : previewUrl || '';
+      }
+      showStep('ready');
     }
 
     function startOver() {
       showStep('upload');
       fileInput.value = '';
-      resetUploadPreview();
+      resetReadyPreview();
       if (reuseExpiredNote) reuseExpiredNote.hidden = true;
       tryShowReusePanel();
     }
@@ -288,28 +312,33 @@
       }
     }
 
-    async function handleFile(file) {
-      if (!file.type.startsWith('image/')) {
-        showStep('error');
-        return;
-      }
-      if (file.size > MAX_PHOTO_BYTES) {
-        showStep('error');
-        return;
-      }
-
-      showStep('progress');
-      try {
-        const customerPhotoKey = await uploadPhoto(file);
-        await proceedWithPhoto(customerPhotoKey, false);
-      } catch (_err) {
-        showStep('error');
+    // Fires from the "Try It On Now" CTA on the ready step — the photo was
+    // already picked (new upload or reuse) and is just waiting for the
+    // shopper to confirm before spending a generation.
+    async function confirmReady() {
+      const file = pendingFile;
+      const reuseKey = pendingReuseKey;
+      pendingFile = null;
+      pendingReuseKey = null;
+      if (file) {
+        showStep('progress');
+        try {
+          const customerPhotoKey = await uploadPhoto(file);
+          await proceedWithPhoto(customerPhotoKey, false);
+        } catch (_err) {
+          showStep('error');
+        }
+      } else if (reuseKey) {
+        showStep('progress');
+        await proceedWithPhoto(reuseKey, true);
       }
     }
 
     button.addEventListener('click', openModal);
     closeBtn.addEventListener('click', closeModal);
     if (resetBtn) resetBtn.addEventListener('click', startOver);
+    if (ctaBtn) ctaBtn.addEventListener('click', confirmReady);
+    if (changePhotoBtn) changePhotoBtn.addEventListener('click', () => fileInput.click());
     if (reuseUseBtn) {
       reuseUseBtn.addEventListener('click', () => {
         const remembered = getRememberedPhoto();
@@ -317,8 +346,7 @@
           hideReusePanel();
           return;
         }
-        showStep('progress');
-        proceedWithPhoto(remembered.r2Key, true);
+        showReady({ reuseKey: remembered.r2Key, previewUrl: lastReusePreviewUrl });
       });
     }
     if (reuseRemoveBtn) {
@@ -327,13 +355,11 @@
     fileInput.addEventListener('change', () => {
       const file = fileInput.files?.[0];
       if (!file) return;
-      if (uploadPreview && uploadPlaceholder && file.type.startsWith('image/')) {
-        if (uploadPreview.src) URL.revokeObjectURL(uploadPreview.src);
-        uploadPreview.src = URL.createObjectURL(file);
-        uploadPreview.hidden = false;
-        uploadPlaceholder.hidden = true;
+      if (!file.type.startsWith('image/') || file.size > MAX_PHOTO_BYTES) {
+        showStep('error');
+        return;
       }
-      handleFile(file);
+      showReady({ file });
     });
     const retryBtns = root.querySelectorAll('.aivastra-tryon__retry');
     for (let k = 0; k < retryBtns.length; k++) {

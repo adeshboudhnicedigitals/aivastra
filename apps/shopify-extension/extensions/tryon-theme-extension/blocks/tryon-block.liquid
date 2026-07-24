@@ -31,7 +31,10 @@
       <div class="aivastra-tryon__modal-content">
         <div class="aivastra-tryon__modal-inner">
           <div class="aivastra-tryon__header">
-            <p class="aivastra-tryon__heading">AiVastra Try On</p>
+            <div>
+              <p class="aivastra-tryon__heading">Try It On</p>
+              <p class="aivastra-tryon__subheading">See how it looks on you</p>
+            </div>
             <div class="aivastra-tryon__header-actions">
               <button type="button" class="aivastra-tryon__reset">Try another pose</button>
               <button type="button" class="aivastra-tryon__close" aria-label="Close">&times;</button>
@@ -50,13 +53,23 @@
               Your previous photo expired — please upload a new one.
             </p>
             <label class="aivastra-tryon__upload-btn">
-              <img class="aivastra-tryon__upload-preview" hidden alt="" />
               <span class="aivastra-tryon__upload-placeholder">
                 <svg xmlns="http://www.w3.org/2000/svg" width="29" height="29" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
                 <span class="aivastra-tryon__upload-label-text">Drag and drop photo, or choose file</span>
               </span>
               <input type="file" accept="image/*" class="aivastra-tryon__file-input" />
             </label>
+          </div>
+
+          <div class="aivastra-tryon__step aivastra-tryon__step--ready" hidden>
+            <div class="aivastra-tryon__ready-preview">
+              <img class="aivastra-tryon__ready-image" alt="" />
+              <button type="button" class="aivastra-tryon__change-photo">Change Photo</button>
+            </div>
+            <button type="button" class="aivastra-tryon__cta">
+              <span>{{ block.settings.button_text | default: 'Try It On' | escape }} Now</span>
+            </button>
+            <p class="aivastra-tryon__disclaimer">AI can make mistakes.</p>
           </div>
 
           <div class="aivastra-tryon__step aivastra-tryon__step--progress" hidden>
