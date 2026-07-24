@@ -1,27 +1,12 @@
-import {
-  Banner,
-  BlockStack,
-  Card,
-  InlineGrid,
-  InlineStack,
-  Page,
-  Button as PolarisButton,
-  Spinner,
-  Text,
-  Thumbnail,
-} from '@shopify/polaris';
-import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { CatalogJobThumb } from '../components/CatalogJobThumb';
+import { SpinnerIcon, SyncIcon } from '../components/icons';
+import { PageHeader } from '../components/PageHeader';
+import { ProductPickerGrid } from '../components/ProductPickerGrid';
 import { apiFetch } from '../lib/api';
+import { BRAND } from '../theme';
 import type { CatalogGenerateJob, ShopifyProductListItem } from '../types';
-
-// Polaris types Button.children as `string | string[]`, but the runtime just
-// wraps children in <Text>, which renders any ReactNode fine — this repo's
-// thumbnail-card buttons rely on that. Widen the type instead of restructuring.
-const Button = PolarisButton as unknown as ComponentType<
-  Omit<ComponentProps<typeof PolarisButton>, 'children'> & { children?: ReactNode }
->;
 
 interface Run {
   catalogueId: string;
@@ -103,96 +88,161 @@ export default function GeneratedImagesPage() {
   const runs = useMemo(() => groupIntoRuns(jobs), [jobs]);
 
   return (
-    <Page
-      title="Generated images"
-      backAction={{ content: 'Products', onAction: () => navigate('/products') }}
-      primaryAction={productId ? { content: 'Refresh', onAction: load, loading } : undefined}
-    >
-      <BlockStack gap="400">
-        {error && (
-          <Banner tone="critical" title="Something went wrong" onDismiss={() => setError(null)}>
-            {error}
-          </Banner>
-        )}
+    <div>
+      <PageHeader
+        title="Generated images"
+        backTo="/products"
+        backLabel="Products"
+        action={
+          productId ? (
+            <button
+              type="button"
+              onClick={load}
+              disabled={loading}
+              style={{
+                height: '38px',
+                padding: '0 16px',
+                border: `1px solid ${BRAND.borderStrong}`,
+                borderRadius: '10px',
+                background: '#fff',
+                color: BRAND.inkSoft,
+                fontSize: '13.5px',
+                fontWeight: 600,
+                cursor: loading ? 'default' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <SyncIcon size={14} />
+              {loading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          ) : undefined
+        }
+      />
 
+      {error && (
+        <div
+          style={{
+            background: BRAND.dangerBg,
+            border: '1px solid rgba(200,30,58,0.18)',
+            borderRadius: '14px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            fontSize: '13.5px',
+            color: '#8C1830',
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         {!productId && (
-          <Card>
-            <BlockStack gap="200">
-              <Text as="h2" variant="headingMd">
-                Choose a product
-              </Text>
-              {pickerLoading && <Spinner size="small" />}
-              {!pickerLoading && pickerProducts.length === 0 && (
-                <Text as="p" tone="subdued">
-                  No products found.
-                </Text>
-              )}
-              <InlineStack gap="200" wrap>
-                {pickerProducts.map((p) => (
-                  <Button
-                    key={p.shopifyProductId}
-                    onClick={() =>
-                      navigate(`/generated-images?productId=${p.shopifyProductId}`, {
-                        replace: true,
-                      })
-                    }
-                  >
-                    <BlockStack gap="100">
-                      <Thumbnail source={p.thumbnailUrl} alt={p.title ?? ''} size="large" />
-                      <Text as="span" variant="bodySm">
-                        {p.title}
-                      </Text>
-                    </BlockStack>
-                  </Button>
-                ))}
-              </InlineStack>
-            </BlockStack>
-          </Card>
+          <div
+            style={{
+              background: '#fff',
+              border: `1px solid ${BRAND.border}`,
+              borderRadius: '16px',
+              padding: '20px',
+            }}
+          >
+            <div
+              style={{
+                fontSize: '13.5px',
+                fontWeight: 700,
+                color: BRAND.ink,
+                marginBottom: '10px',
+              }}
+            >
+              Choose a product
+            </div>
+            <ProductPickerGrid
+              loading={pickerLoading}
+              products={pickerProducts}
+              onPick={(id) => navigate(`/generated-images?productId=${id}`, { replace: true })}
+            />
+          </div>
         )}
 
-        {productId && loading && runs.length === 0 && <Spinner size="large" />}
+        {productId && loading && runs.length === 0 && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '64px 0',
+            }}
+          >
+            <SpinnerIcon size={26} color={BRAND.purple} />
+          </div>
+        )}
 
         {productId && !loading && runs.length === 0 && !error && (
-          <Card>
-            <Text as="p" tone="subdued">
-              No catalog images have been generated for this product yet.
-            </Text>
-          </Card>
+          <div
+            style={{
+              background: '#fff',
+              border: `1px solid ${BRAND.border}`,
+              borderRadius: '16px',
+              padding: '64px 24px',
+              textAlign: 'center',
+              fontSize: '13.5px',
+              color: BRAND.textMuted,
+            }}
+          >
+            No catalog images have been generated for this product yet.
+          </div>
         )}
 
         {runs.map((run) => (
-          <Card key={run.catalogueId}>
-            <BlockStack gap="300">
-              <InlineStack align="space-between">
-                <Text as="h2" variant="headingMd">
-                  {new Date(run.createdAt).toLocaleString()}
-                </Text>
-                <Thumbnail source={run.sourceImageUrl} alt="Source garment" size="small" />
-              </InlineStack>
-              <InlineGrid columns={3} gap="300">
-                {run.jobs.map((j) => (
-                  <BlockStack key={j.jobId} gap="200">
-                    {j.status === 'COMPLETED' && j.resultUrl ? (
-                      <Thumbnail source={j.resultUrl} alt="" size="large" />
-                    ) : j.status === 'FAILED' ? (
-                      <Text as="p" tone="critical">
-                        Generation failed{j.errorCode ? ` (${j.errorCode})` : ''}
-                      </Text>
-                    ) : (
-                      <Spinner size="small" />
-                    )}
-                    {j.status === 'COMPLETED' && (
-                      <Button disabled={j.published} onClick={() => publish(j.jobId)}>
-                        {j.published ? 'Added to product' : 'Add to product'}
-                      </Button>
-                    )}
-                  </BlockStack>
-                ))}
-              </InlineGrid>
-            </BlockStack>
-          </Card>
+          <div
+            key={run.catalogueId}
+            style={{
+              background: '#fff',
+              border: `1px solid ${BRAND.border}`,
+              borderRadius: '16px',
+              padding: '20px',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: '14px',
+              }}
+            >
+              <div style={{ fontSize: '13.5px', fontWeight: 700, color: BRAND.ink }}>
+                {new Date(run.createdAt).toLocaleString()}
+              </div>
+              {/* biome-ignore lint/performance/noImgElement: dynamic remote thumbnail */}
+              <img
+                src={run.sourceImageUrl}
+                alt="Source garment"
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '8px',
+                  objectFit: 'cover',
+                  background: '#F1F0F5',
+                }}
+              />
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: '16px',
+              }}
+            >
+              {run.jobs.map((j) => (
+                <CatalogJobThumb key={j.jobId} job={j} onPublish={publish} />
+              ))}
+            </div>
+          </div>
         ))}
-      </BlockStack>
-    </Page>
+      </div>
+    </div>
   );
 }
