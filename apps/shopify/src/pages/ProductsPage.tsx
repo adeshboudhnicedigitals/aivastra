@@ -1,6 +1,7 @@
-import { Banner, Button, Page, Select, TextField, Thumbnail } from '@shopify/polaris';
+import { Banner, Page, Select, TextField, Thumbnail } from '@shopify/polaris';
+// import { Button } from '@shopify/polaris'; // re-enable with "View images" button below
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+// import { useNavigate } from 'react-router-dom'; // re-enable with "View images" button below
 import { apiFetch } from '../lib/api';
 import { STATUS_BADGE_BG, STATUS_BADGE_TEXT, STATUS_DOT_COLOR } from '../lib/statusColors';
 import type { FunnelTemplateItem, ShopifyProductListItem } from '../types';
@@ -77,7 +78,7 @@ function StatusBadge({
 }
 
 export default function ProductsPage() {
-  const navigate = useNavigate();
+  // const navigate = useNavigate(); // re-enable with "View images" button below
   const [items, setItems] = useState<ShopifyProductListItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -287,6 +288,7 @@ export default function ProductsPage() {
                   ))}
                 </select>
               </div>
+              {/* Feature not shipping yet — button hidden, GeneratedImagesPage route left intact.
               <div style={{ width: '120px' }}>
                 <Button
                   size="slim"
@@ -295,6 +297,7 @@ export default function ProductsPage() {
                   View images
                 </Button>
               </div>
+              */}
             </div>
           ))}
 
