@@ -615,6 +615,7 @@ export default function StudioPage(): React.ReactElement {
   const [isUploadingBackground, setIsUploadingBackground] = useState(false);
   const [backgroundUrlInput, setBackgroundUrlInput] = useState('');
   const [isFetchingBackgroundUrl, setIsFetchingBackgroundUrl] = useState(false);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
   async function handleMyBackgroundUpload(file: File) {
     if (isUploadingBackground) return;
@@ -641,8 +642,9 @@ export default function StudioPage(): React.ReactElement {
       );
       await refetchMyBackgrounds();
       setBackgroundId(created.id);
+      setUploadModalOpen(false);
     } catch (e) {
-      showToast(`Upload failed: ${(e as Error).message ?? 'please try again'}`);
+      showToast(`Upload failed: ${(e as Error).message || 'please try again'}`);
     } finally {
       setIsUploadingBackground(false);
     }
@@ -659,8 +661,9 @@ export default function StudioPage(): React.ReactElement {
       await refetchMyBackgrounds();
       setBackgroundId(created.id);
       setBackgroundUrlInput('');
+      setUploadModalOpen(false);
     } catch (e) {
-      showToast(`Couldn't load that image: ${(e as Error).message ?? 'please try again'}`);
+      showToast(`Couldn't load that image: ${(e as Error).message || 'please try again'}`);
     } finally {
       setIsFetchingBackgroundUrl(false);
     }
@@ -672,7 +675,7 @@ export default function StudioPage(): React.ReactElement {
       if (backgroundId === id) setBackgroundId('');
       await refetchMyBackgrounds();
     } catch (e) {
-      showToast(`Couldn't delete: ${(e as Error).message ?? 'please try again'}`);
+      showToast(`Couldn't delete: ${(e as Error).message || 'please try again'}`);
     }
   }
   const { data: backgroundCategories } = useQuery<BackgroundCategoriesResponse>({
@@ -2453,6 +2456,44 @@ export default function StudioPage(): React.ReactElement {
                   <div
                     style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}
                   >
+                    <button
+                      type="button"
+                      onClick={() => setUploadModalOpen(true)}
+                      style={{
+                        width: 130,
+                        height: 170,
+                        borderRadius: 12,
+                        border: `1.5px dashed ${C.border}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 10,
+                        cursor: 'pointer',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: C.text,
+                        textAlign: 'center',
+                        padding: 8,
+                        background: 'none',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 10,
+                          display: 'grid',
+                          placeItems: 'center',
+                          background: C.card,
+                          border: `1px solid ${C.border}`,
+                          color: C.pink,
+                        }}
+                      >
+                        <ImagePlusIcon size={18} />
+                      </span>
+                      Add background
+                    </button>
                     {(myBackgrounds?.items ?? []).map((b) => (
                       <div key={b.id} style={{ position: 'relative' }}>
                         <SelCard
@@ -2489,75 +2530,155 @@ export default function StudioPage(): React.ReactElement {
                         </button>
                       </div>
                     ))}
-                    <label
-                      style={{
-                        width: 130,
-                        height: 170,
-                        borderRadius: 12,
-                        border: `1.5px dashed ${C.border}`,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 6,
-                        cursor: isUploadingBackground ? 'wait' : 'pointer',
-                        fontSize: 12,
-                        color: C.mid,
-                        textAlign: 'center',
-                        padding: 8,
-                      }}
-                    >
-                      {isUploadingBackground ? 'Uploading…' : 'Upload image'}
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        style={{ display: 'none' }}
-                        disabled={isUploadingBackground}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleMyBackgroundUpload(file);
-                          e.target.value = '';
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <input
-                      type="text"
-                      value={backgroundUrlInput}
-                      onChange={(e) => setBackgroundUrlInput(e.target.value)}
-                      placeholder="Paste an image URL"
-                      disabled={isFetchingBackgroundUrl}
-                      style={{
-                        flex: 1,
-                        padding: '8px 12px',
-                        borderRadius: 8,
-                        border: `1px solid ${C.border}`,
-                        fontSize: 13,
-                        background: C.card,
-                        color: C.text,
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleMyBackgroundFromUrl}
-                      disabled={isFetchingBackgroundUrl || !backgroundUrlInput.trim()}
-                      style={{
-                        padding: '8px 16px',
-                        borderRadius: 8,
-                        border: 'none',
-                        background: grad,
-                        color: C.white,
-                        fontWeight: 600,
-                        fontSize: 13,
-                        cursor: isFetchingBackgroundUrl ? 'wait' : 'pointer',
-                        opacity: isFetchingBackgroundUrl || !backgroundUrlInput.trim() ? 0.6 : 1,
-                      }}
-                    >
-                      {isFetchingBackgroundUrl ? 'Loading…' : 'Add'}
-                    </button>
                   </div>
                 </div>
+                {uploadModalOpen && (
+                  // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
+                  <div
+                    role="presentation"
+                    style={{
+                      position: 'fixed',
+                      inset: 0,
+                      background: 'rgba(0,0,0,0.4)',
+                      zIndex: 1000,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    onClick={() => setUploadModalOpen(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setUploadModalOpen(false);
+                    }}
+                  >
+                    {/* biome-ignore lint/a11y/noStaticElementInteractions: modal panel; click swallowed to prevent backdrop dismiss */}
+                    <div
+                      style={{
+                        background: C.white,
+                        borderRadius: 12,
+                        padding: 24,
+                        width: 420,
+                        maxWidth: '90vw',
+                        boxSizing: 'border-box',
+                        boxShadow: '0 10px 40px rgba(0,0,0,0.15)',
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={() => {}}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 20,
+                        }}
+                      >
+                        <h2 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+                          Add a background
+                        </h2>
+                        <button
+                          type="button"
+                          onClick={() => setUploadModalOpen(false)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: C.mid,
+                          }}
+                        >
+                          <XIcon size={20} />
+                        </button>
+                      </div>
+                      <label
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          padding: '32px 16px',
+                          borderRadius: 12,
+                          border: `1.5px dashed ${C.border}`,
+                          cursor: isUploadingBackground ? 'wait' : 'pointer',
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: C.text,
+                          textAlign: 'center',
+                        }}
+                      >
+                        <ImagePlusIcon size={22} />
+                        {isUploadingBackground ? 'Uploading…' : 'Upload an image'}
+                        <span style={{ fontSize: 11, fontWeight: 400, color: C.mid }}>
+                          JPEG, PNG, or WebP — up to 10 MB
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          style={{ display: 'none' }}
+                          disabled={isUploadingBackground}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleMyBackgroundUpload(file);
+                            e.target.value = '';
+                          }}
+                        />
+                      </label>
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          margin: '20px 0',
+                          color: C.mid,
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ flex: 1, height: 1, background: C.border }} />
+                        or paste an image URL
+                        <div style={{ flex: 1, height: 1, background: C.border }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                          type="text"
+                          value={backgroundUrlInput}
+                          onChange={(e) => setBackgroundUrlInput(e.target.value)}
+                          placeholder="https://example.com/image.jpg"
+                          disabled={isFetchingBackgroundUrl}
+                          style={{
+                            flex: 1,
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            border: `1px solid ${C.border}`,
+                            fontSize: 13,
+                            background: C.card,
+                            color: C.text,
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleMyBackgroundFromUrl}
+                          disabled={isFetchingBackgroundUrl || !backgroundUrlInput.trim()}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: 8,
+                            border: 'none',
+                            background: grad,
+                            color: C.white,
+                            fontWeight: 600,
+                            fontSize: 13,
+                            cursor: isFetchingBackgroundUrl ? 'wait' : 'pointer',
+                            opacity:
+                              isFetchingBackgroundUrl || !backgroundUrlInput.trim() ? 0.6 : 1,
+                          }}
+                        >
+                          {isFetchingBackgroundUrl ? 'Loading…' : 'Add'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {backgroundsError ? (
                   <ErrorState
                     compact
