@@ -2453,46 +2453,61 @@ export default function StudioPage(): React.ReactElement {
                   <p style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 8 }}>
                     My backgrounds
                   </p>
-                  <div
-                    style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}
-                  >
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
                     <button
                       type="button"
                       onClick={() => setUploadModalOpen(true)}
                       style={{
-                        width: 130,
-                        height: 170,
+                        width: '100%',
                         borderRadius: 12,
-                        border: `1.5px dashed ${C.border}`,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 10,
                         cursor: 'pointer',
-                        fontSize: 12,
-                        fontWeight: 600,
                         color: C.text,
                         textAlign: 'center',
-                        padding: 8,
+                        padding: 0,
                         background: 'none',
+                        border: 'none',
                       }}
                     >
                       <span
                         style={{
-                          width: 36,
-                          height: 36,
+                          width: '100%',
+                          aspectRatio: 215.2 / 212.67,
                           borderRadius: 10,
-                          display: 'grid',
-                          placeItems: 'center',
-                          background: C.card,
-                          border: `1px solid ${C.border}`,
-                          color: C.pink,
+                          border: `1.5px dashed ${C.border}`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          boxSizing: 'border-box',
                         }}
                       >
-                        <ImagePlusIcon size={18} />
+                        <span
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 10,
+                            display: 'grid',
+                            placeItems: 'center',
+                            background: C.card,
+                            border: `1px solid ${C.border}`,
+                            color: C.pink,
+                          }}
+                        >
+                          <ImagePlusIcon size={18} />
+                        </span>
                       </span>
-                      Add background
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          padding: '8px 4px 6px',
+                          width: '100%',
+                        }}
+                      >
+                        Add background
+                      </span>
                     </button>
                     {(myBackgrounds?.items ?? []).map((b) => (
                       <div key={b.id} style={{ position: 'relative' }}>
@@ -2501,7 +2516,7 @@ export default function StudioPage(): React.ReactElement {
                           onClick={() => handleBackgroundSelect(b.id)}
                           imageUrl={b.thumbnailUrl}
                           label={b.label}
-                          w={130}
+                          w="100%"
                           ratio={215.2 / 212.67}
                         />
                         <button
