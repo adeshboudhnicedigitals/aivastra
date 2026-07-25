@@ -606,6 +606,75 @@ export default function StudioPage(): React.ReactElement {
       setBackgroundId(backgrounds.items[0]?.id ?? '');
     }
   }, [backgrounds, backgroundId]);
+  const { data: myBackgrounds, refetch: refetchMyBackgrounds } = useQuery<{
+    items: { id: string; label: string; thumbnailUrl: string }[];
+  }>({
+    queryKey: ['backgrounds', 'mine'],
+    queryFn: () => api.get('/v1/backgrounds/mine'),
+  });
+  const [isUploadingBackground, setIsUploadingBackground] = useState(false);
+  const [backgroundUrlInput, setBackgroundUrlInput] = useState('');
+  const [isFetchingBackgroundUrl, setIsFetchingBackgroundUrl] = useState(false);
+
+  async function handleMyBackgroundUpload(file: File) {
+    if (isUploadingBackground) return;
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('File exceeds 10 MB. Please choose a smaller image.');
+      return;
+    }
+    if (!(await isSupportedImageBytes(file))) {
+      showToast('Unsupported file type. Please upload a JPEG, PNG, or WebP image.');
+      return;
+    }
+    setIsUploadingBackground(true);
+    try {
+      const { uploadUrl, r2Key } = await api.post<{
+        uploadUrl: string;
+        r2Key: string;
+        id: string;
+        expiresIn: number;
+      }>('/v1/backgrounds/mine/presign', { contentType: file.type, contentLength: file.size });
+      await api.uploadToR2WithProgress(uploadUrl, file, () => {});
+      const created = await api.post<{ id: string; label: string; thumbnailUrl: string }>(
+        '/v1/backgrounds/mine/confirm',
+        { r2Key },
+      );
+      await refetchMyBackgrounds();
+      setBackgroundId(created.id);
+    } catch (e) {
+      showToast(`Upload failed: ${(e as Error).message ?? 'please try again'}`);
+    } finally {
+      setIsUploadingBackground(false);
+    }
+  }
+
+  async function handleMyBackgroundFromUrl() {
+    if (isFetchingBackgroundUrl || !backgroundUrlInput.trim()) return;
+    setIsFetchingBackgroundUrl(true);
+    try {
+      const created = await api.post<{ id: string; label: string; thumbnailUrl: string }>(
+        '/v1/backgrounds/mine/from-url',
+        { url: backgroundUrlInput.trim() },
+      );
+      await refetchMyBackgrounds();
+      setBackgroundId(created.id);
+      setBackgroundUrlInput('');
+    } catch (e) {
+      showToast(`Couldn't load that image: ${(e as Error).message ?? 'please try again'}`);
+    } finally {
+      setIsFetchingBackgroundUrl(false);
+    }
+  }
+
+  async function handleDeleteMyBackground(id: string) {
+    try {
+      await api.del(`/v1/backgrounds/mine/${id}`);
+      if (backgroundId === id) setBackgroundId('');
+      await refetchMyBackgrounds();
+    } catch (e) {
+      showToast(`Couldn't delete: ${(e as Error).message ?? 'please try again'}`);
+    }
+  }
   const { data: backgroundCategories } = useQuery<BackgroundCategoriesResponse>({
     queryKey: ['background-categories', gender],
     queryFn: () => api.get(`/v1/models/background-categories?gender=${gender}`),
@@ -2377,6 +2446,118 @@ export default function StudioPage(): React.ReactElement {
                     )
                   }
                 />
+                <div style={{ marginBottom: 20 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: C.mid, marginBottom: 8 }}>
+                    My backgrounds
+                  </p>
+                  <div
+                    style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}
+                  >
+                    {(myBackgrounds?.items ?? []).map((b) => (
+                      <div key={b.id} style={{ position: 'relative' }}>
+                        <SelCard
+                          selected={backgroundId === b.id}
+                          onClick={() => handleBackgroundSelect(b.id)}
+                          imageUrl={b.thumbnailUrl}
+                          label={b.label}
+                          w={130}
+                          ratio={215.2 / 212.67}
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteMyBackground(b.id);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: 4,
+                            right: 4,
+                            width: 22,
+                            height: 22,
+                            borderRadius: '50%',
+                            border: 'none',
+                            background: 'rgba(0,0,0,0.55)',
+                            color: C.white,
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            lineHeight: 1,
+                          }}
+                          aria-label={`Delete ${b.label}`}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    <label
+                      style={{
+                        width: 130,
+                        height: 170,
+                        borderRadius: 12,
+                        border: `1.5px dashed ${C.border}`,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        cursor: isUploadingBackground ? 'wait' : 'pointer',
+                        fontSize: 12,
+                        color: C.mid,
+                        textAlign: 'center',
+                        padding: 8,
+                      }}
+                    >
+                      {isUploadingBackground ? 'Uploading…' : 'Upload image'}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        style={{ display: 'none' }}
+                        disabled={isUploadingBackground}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleMyBackgroundUpload(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <input
+                      type="text"
+                      value={backgroundUrlInput}
+                      onChange={(e) => setBackgroundUrlInput(e.target.value)}
+                      placeholder="Paste an image URL"
+                      disabled={isFetchingBackgroundUrl}
+                      style={{
+                        flex: 1,
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        border: `1px solid ${C.border}`,
+                        fontSize: 13,
+                        background: C.card,
+                        color: C.text,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleMyBackgroundFromUrl}
+                      disabled={isFetchingBackgroundUrl || !backgroundUrlInput.trim()}
+                      style={{
+                        padding: '8px 16px',
+                        borderRadius: 8,
+                        border: 'none',
+                        background: grad,
+                        color: C.white,
+                        fontWeight: 600,
+                        fontSize: 13,
+                        cursor: isFetchingBackgroundUrl ? 'wait' : 'pointer',
+                        opacity: isFetchingBackgroundUrl || !backgroundUrlInput.trim() ? 0.6 : 1,
+                      }}
+                    >
+                      {isFetchingBackgroundUrl ? 'Loading…' : 'Add'}
+                    </button>
+                  </div>
+                </div>
                 {backgroundsError ? (
                   <ErrorState
                     compact
