@@ -10,7 +10,7 @@ import {
   resolutionFromDims,
   type SareeStep2Inputs,
 } from '@aivastra/types';
-import { aliasedTable, and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { aliasedTable, and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -310,6 +310,20 @@ export async function resolveTryonPlan(
         and(
           inArray(schema.modelBackgrounds.id, distinctBackgroundIds),
           eq(schema.modelBackgrounds.isActive, true),
+          // A background is valid input either when it's not personal (scope='general'
+          // or scope='template' — both open to any caller, matching pre-existing
+          // behavior) or when it's the caller's own scope='user' row. Deliberately
+          // `ne(scope, 'user')` rather than `eq(scope, 'general')` — catalogue-template
+          // jobs resolve backgroundIds that can be scope='template' through this same
+          // query (see resolveTryonPlan's templateLooks path above), so narrowing to
+          // 'general' only would reject legitimate template-scoped backgrounds.
+          or(
+            ne(schema.modelBackgrounds.scope, 'user'),
+            and(
+              eq(schema.modelBackgrounds.scope, 'user'),
+              eq(schema.modelBackgrounds.userId, userId),
+            ),
+          ),
         ),
       ),
     app.db
