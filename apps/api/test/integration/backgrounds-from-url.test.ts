@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { signAccess } from '../../src/modules/auth/service.js';
 import { buildTestApp, type TestApp } from '../helpers/api';
 import { type Containers, startContainers } from '../helpers/containers';
 
@@ -21,26 +22,12 @@ describe('POST /v1/backgrounds/mine/from-url', () => {
   });
 
   async function getToken(email: string) {
-    await app.inject({
-      method: 'POST',
-      url: '/v1/auth/register',
-      payload: { displayName: 'BG URL User', email, password: 'password123' },
-    });
     const [user] = await app.db
-      .select({ id: schema.users.id })
-      .from(schema.users)
-      .where(eq(schema.users.email, email));
-    if (!user) throw new Error('user not found');
-    await app.db
-      .update(schema.users)
-      .set({ emailVerified: true })
-      .where(eq(schema.users.id, user.id));
-    const login = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/login',
-      payload: { email, password: 'password123' },
-    });
-    return login.json().accessToken as string;
+      .insert(schema.users)
+      .values({ email, emailVerified: true, tier: 'free' })
+      .returning();
+    const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+    return signAccess(secret, user.id, { kind: 'access' }, app.env.JWT_EXPIRY);
   }
 
   it('fetches a public-IP image URL, stores it as scope=user, and returns the item', async () => {
