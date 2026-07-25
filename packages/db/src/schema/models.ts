@@ -12,6 +12,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { catalogCategories, catalogItems } from './catalog.js';
+import { users } from './users.js';
 
 export const modelFaces = pgTable('model_faces', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -28,27 +29,41 @@ export const modelFaces = pgTable('model_faces', {
 });
 
 // Global pool — no faceId FK
-export const modelBackgrounds = pgTable('model_backgrounds', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  label: text('label').notNull(),
-  r2Key: text('r2_key').notNull(),
-  thumbnailKey: text('thumbnail_key').notNull(),
-  bgComfyR2Key: text('bg_comfy_r2_key'), // ComfyUI-specific background (moved from model_pose_assets)
-  categoryId: integer('category_id').references(() => catalogCategories.id), // nullable — null means uncategorized (pre-existing backgrounds)
-  tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`), // free-form entity tags, independent of category (e.g. "warm tone")
-  specialTag: text('special_tag'), // 'featured' | 'trending' | 'popular' | null — per-asset, moved off category level
-  genderSlug: text('gender_slug'), // nullable — null means shown for all genders
-  // 'general' = visible in the admin Backgrounds tab and studio "create your own look";
-  // 'template' = uploaded from within a catalogue template's looks builder, hidden from
-  // both (managed only via the template that owns it). See scope column on modelPoseAssets.
-  scope: text('scope').notNull().default('general'),
-  isActive: boolean('is_active').notNull().default(true),
-  isWhiteBg: boolean('is_white_bg').notNull().default(false),
-  sortOrder: integer('sort_order').notNull().default(0),
-  deletedAt: timestamp('deleted_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const modelBackgrounds = pgTable(
+  'model_backgrounds',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    label: text('label').notNull(),
+    r2Key: text('r2_key').notNull(),
+    thumbnailKey: text('thumbnail_key').notNull(),
+    bgComfyR2Key: text('bg_comfy_r2_key'), // ComfyUI-specific background (moved from model_pose_assets)
+    categoryId: integer('category_id').references(() => catalogCategories.id), // nullable — null means uncategorized (pre-existing backgrounds)
+    tags: text('tags').array().notNull().default(sql`ARRAY[]::text[]`), // free-form entity tags, independent of category (e.g. "warm tone")
+    specialTag: text('special_tag'), // 'featured' | 'trending' | 'popular' | null — per-asset, moved off category level
+    genderSlug: text('gender_slug'), // nullable — null means shown for all genders
+    // 'general' = visible in the admin Backgrounds tab and studio "create your own look";
+    // 'template' = uploaded from within a catalogue template's looks builder, hidden from
+    // both (managed only via the template that owns it); 'user' = uploaded by a user into
+    // their own personal library (studio "create your own look" -> "My backgrounds"), scoped
+    // by userId below, hidden from everyone else and from the admin-curated pool. See scope
+    // column on modelPoseAssets.
+    scope: text('scope').notNull().default('general'),
+    // Only set when scope='user' — the owning user. ON DELETE CASCADE so a deleted user's
+    // private backgrounds are cleaned up automatically.
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    isActive: boolean('is_active').notNull().default(true),
+    isWhiteBg: boolean('is_white_bg').notNull().default(false),
+    sortOrder: integer('sort_order').notNull().default(0),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index('model_backgrounds_user_id_idx')
+      .on(table.userId)
+      .where(sql`${table.userId} is not null`),
+  }),
+);
 
 // e.g. { genderSlug: 'men', slug: 'fullsleeveshirt', label: 'Full Sleeve Shirt' }
 export const garmentSubcategories = pgTable('garment_subcategories', {
