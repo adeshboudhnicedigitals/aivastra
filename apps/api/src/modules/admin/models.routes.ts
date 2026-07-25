@@ -11,7 +11,7 @@ import {
   PresignModelFaceBody,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import sharp from 'sharp';
 import { z } from 'zod';
@@ -197,7 +197,9 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
             genderSlug ? eq(schema.modelBackgrounds.genderSlug, genderSlug) : undefined,
             categoryId ? eq(schema.modelBackgrounds.categoryId, categoryId) : undefined,
             uncategorized ? isNull(schema.modelBackgrounds.categoryId) : undefined,
-            scope === 'all' ? undefined : eq(schema.modelBackgrounds.scope, scope ?? 'general'),
+            scope === 'all'
+              ? ne(schema.modelBackgrounds.scope, 'user')
+              : eq(schema.modelBackgrounds.scope, scope ?? 'general'),
           ),
         );
       return { items: rows };
@@ -707,7 +709,12 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       app.db
         .select()
         .from(schema.modelBackgrounds)
-        .where(sql`${schema.modelBackgrounds.deletedAt} IS NOT NULL`)
+        .where(
+          and(
+            sql`${schema.modelBackgrounds.deletedAt} IS NOT NULL`,
+            ne(schema.modelBackgrounds.scope, 'user'),
+          ),
+        )
         .orderBy(schema.modelBackgrounds.deletedAt),
       app.db
         .select({
