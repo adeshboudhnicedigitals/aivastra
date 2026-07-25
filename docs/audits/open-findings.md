@@ -405,6 +405,19 @@ Access token moved out of cookies entirely into a module-level variable in `apps
 
 ---
 
+#### SEC-H5 · DNS-rebinding TOCTOU in the personal-background URL-fetch SSRF guard
+**Severity:** High
+**Status:** 🔴 Open (accepted risk, tracked here per final-review recommendation)
+**File:** `apps/api/src/lib/ssrf-guard.ts`, `apps/api/src/lib/fetch-image.ts:20`
+
+`assertPublicHttpUrl()` resolves the hostname via `dns.lookup()` and validates the resolved IP against private/loopback/link-local/CGNAT-adjacent ranges (including IPv4-mapped-IPv6 and decimal/hex-encoded bypass forms — those are closed). `fetchImageWithCap()` then calls `fetch(url)`, which performs its **own independent DNS resolution**. An attacker-controlled hostname with a 0-TTL DNS record can resolve to a public IP for the guard's lookup and to `127.0.0.1` (or an internal address) for the fetch's actual connection — a classic DNS-rebinding bypass. Requires attacker-controlled DNS infrastructure, so it is not exploitable by an arbitrary URL alone, and is not Critical, but it is a real gap against the original spec requirement ("validate the IP actually connected to, not just the pre-DNS hostname").
+
+**Fix options:**
+- Connect to the already-validated IP directly (pin it via a custom undici `Agent`/`lookup` override) and carry the original hostname in the `Host` header (and TLS `servername`), so the IP that was checked is the IP that's connected to.
+- Simpler stopgap: re-resolve and re-check immediately before connecting in `fetchImageWithCap` isn't sufficient by itself (still a TOCTOU window, just smaller) — the pinned-IP approach is the real fix.
+
+---
+
 ### 🔵 Blocked — Product / Ops Decisions (Pipeline Hardening)
 
 #### PIPE-8 · Priority scheduler is starvation-prone
@@ -536,6 +549,7 @@ Free-trial credits are granted at account creation. Spending requires a verified
 | SEC-H2 | Security: access_token in memory ✅; CSP still open 🔴 | High | Medium |
 | SEC-H3 | ~~Security: world-readable storage bucket~~ ✅ Fixed | High | — |
 | SEC-H4 | Security: presigned PUT unbounded size | High | Medium |
+| SEC-H5 | Security: DNS-rebinding TOCTOU in background URL-fetch SSRF guard | High | Medium |
 | PIPE-8 | Pipeline: priority starvation | High | Product decision |
 | PIPE-9 | Pipeline: tier permanent after one purchase | High | Product decision |
 | PIPE-4 | Pipeline: SSE Redis fan-out | Medium | Ops input |
