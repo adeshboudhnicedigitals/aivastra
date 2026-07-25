@@ -45,6 +45,7 @@ import { adminWorkersRoutes } from './modules/admin/workers.routes.js';
 import { adminWorkflowsRoutes } from './modules/admin/workflows.routes.js';
 import { googleAuthRoutes } from './modules/auth/google.routes.js';
 import { authRoutes } from './modules/auth/routes.js';
+import { backgroundsRoutes } from './modules/backgrounds/routes.js';
 import { catalogRoutes } from './modules/catalog/routes.js';
 import { creditsRoutes } from './modules/credits/routes.js';
 import { devRoutes } from './modules/dev/routes.js';
@@ -259,6 +260,7 @@ export async function buildServer(env: Env) {
   await app.register(creditsRoutes);
   await app.register(catalogRoutes);
   await app.register(uploadsRoutes);
+  await app.register(backgroundsRoutes);
   await app.register(jobsRoutes);
   await app.register(kioskAuthRoutes);
   await app.register(kioskCatalogRoutes);
