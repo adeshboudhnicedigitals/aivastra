@@ -1,3 +1,29 @@
+## 2026-07-25 - Custom background upload (personal library)
+
+### Done
+- Let a logged-in user upload a file or paste a URL to add their own private background image in the Studio wizard's "Create your own look" background step, saved to a personal library visible and usable only by them.
+- Extended `model_backgrounds` with a nullable `user_id` column + new `scope='user'` value (reused the existing `scope` pattern already used for `scope='template'`) instead of a new table. Migration `0121_bitter_zemo`.
+- Added SSRF guard (`apps/api/src/lib/ssrf-guard.ts`) for user-supplied URLs: DNS-resolved-IP validation (not just hostname string) against private/loopback/link-local/CGNAT-adjacent ranges, including IPv4-mapped-IPv6 and decimal/hex-encoded bypass forms. Added capped, streaming image fetch (`apps/api/src/lib/fetch-image.ts`) with byte cap enforced mid-stream, no redirect-following.
+- Added `/v1/backgrounds/mine` API: `GET` (list), `POST /presign` + `POST /confirm` (direct upload), `POST /from-url`, `DELETE /:id` — all scoped to the caller via a Redis upload-ownership binding (presign/confirm) and DB ownership checks (list/delete). `confirm` and `from-url` share one normalize/store helper: both sniff real image bytes via `sharp`, reject unsupported formats, and re-encode to real JPEG before storing (closes an asymmetry where a presigned PUT's `Content-Type` header could be spoofed).
+- Gated job creation (`apps/api/src/modules/jobs/create.ts`) so a submitted `backgroundId` is only valid if it's not a personal background, or the caller owns it; soft-deleted personal backgrounds are also rejected.
+- Added a "My backgrounds" section to the Studio wizard's Step 2 background-selection UI (list, upload, add-via-URL, delete, select-for-job).
+- Executed via Subagent-Driven Development (6 tasks, each independently implemented + reviewed), followed by a final whole-branch review that caught and fixed one Critical + 6 Important issues before merge (see below).
+
+### Fixed during final whole-branch review (before merge)
+- **Critical:** the new `scope='user'` value was leaking into the admin panel's `scope=all` escape hatch (Catalogue Templates background picker) and the recycle-bin, both of which previously only ever returned curated rows and were never audited against the new scope value. A user's private background could reach the admin picker and, if attached to a public template, be served to every other user. Fixed by excluding `scope='user'` from those admin queries and from template-background validation (defense in depth).
+- The two new backgrounds test files independently hit the shared 5-req/min login rate limit when run together (9 logins in one Redis-backed window) — reproducible CI flake. Fixed by switching both to direct-DB-insert + JWT-mint, matching the repo's dominant test convention.
+- `confirm` (direct upload) had no size cap enforced server-side (presigned PUT ignores `contentLength`) and skipped the format-sniff/normalization that `/from-url` did — fixed via a `headObject` size check plus a shared validate-and-normalize helper used by both paths.
+- Added a per-route rate limit to `/from-url` (an authenticated server-side outbound-fetch primitive) matching the existing auth-routes idiom.
+- Job creation didn't check `deletedAt` on personal backgrounds, so a soft-deleted background remained usable in new jobs indefinitely — added the missing filter.
+- Logged the one deviation from the written plan: the job-creation ownership gate uses `ne(scope,'user')` rather than the plan's literal `eq(scope,'general')`, because the codebase has a third, pre-existing `scope='template'` value (catalogue-template look-builder, unrelated feature) that also flows through the same query and must remain open to all users. Re-verified safe by two independent reviewers via generated-SQL inspection.
+
+### Failed / Not Done
+- DNS-rebinding TOCTOU in the SSRF guard (the guard's DNS lookup and the actual `fetch()`'s internal DNS lookup are not the same lookup) is a known, spec-flagged gap, not fixed in this branch — requires attacker-controlled DNS, judged non-blocking for merge. Tracked as `SEC-H5` in `docs/audits/open-findings.md`.
+- No per-user quota/pagination on personal backgrounds, no R2 cleanup job for soft-deleted objects, `/from-url` error codes are flattened to a generic `VALIDATION` code rather than the spec's machine-readable variants (`INVALID_URL`/`BLOCKED_HOST`/etc.) — all judged Minor, deferred.
+
+### Open Questions / Decisions
+- Whether to invest in the pinned-IP fix for the DNS-rebinding gap (SEC-H5) or accept the risk long-term is an open product/security call, not resolved here.
+
 ## 2026-07-21 - Bulk template enablement by garment type
 
 ### Done
