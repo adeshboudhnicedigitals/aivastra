@@ -21,8 +21,14 @@
 - DNS-rebinding TOCTOU in the SSRF guard (the guard's DNS lookup and the actual `fetch()`'s internal DNS lookup are not the same lookup) is a known, spec-flagged gap, not fixed in this branch — requires attacker-controlled DNS, judged non-blocking for merge. Tracked as `SEC-H5` in `docs/audits/open-findings.md`.
 - No per-user quota/pagination on personal backgrounds, no R2 cleanup job for soft-deleted objects, `/from-url` error codes are flattened to a generic `VALIDATION` code rather than the spec's machine-readable variants (`INVALID_URL`/`BLOCKED_HOST`/etc.) — all judged Minor, deferred.
 
+### Follow-up work (post-review, same branch)
+- Moved the Studio "My backgrounds" upload dropzone and paste-URL input out of the always-visible inline layout into a modal, opened by clicking a single "Add background" tile (first item in the row). Typecheck/biome clean; not click-tested in a live browser (no browser tool available).
+- Added Pinterest link support to `/v1/backgrounds/mine/from-url`: `pin.it` short links and `pinterest.com` pin pages are HTML, not direct image bytes, so the prior pipeline rejected them outright. New `apps/api/src/lib/pinterest-resolver.ts` follows the redirect chain (each hop re-validated through the existing `assertPublicHttpUrl` SSRF guard, capped at 5 hops) and scrapes the landing page's `og:image` meta tag for the real image URL, itself re-validated before being handed to the existing `fetchImageWithCap`/normalize/store pipeline. 4 new integration tests (direct pin page, multi-hop pin.it redirect, missing-og:image rejection, hop-cap rejection), all mocking `fetch` and `dns.lookup` so they don't depend on real network access.
+- This adds two more DNS-rebinding TOCTOU windows of the same accepted-risk class already tracked as `SEC-H5` (each `assertPublicHttpUrl` call is a separate DNS lookup from the `fetch()` that follows it) — not treated as new risk, just more instances of the existing one.
+
 ### Open Questions / Decisions
 - Whether to invest in the pinned-IP fix for the DNS-rebinding gap (SEC-H5) or accept the risk long-term is an open product/security call, not resolved here.
+- Pinterest's `og:image` scraping depends on Pinterest continuing to server-render that meta tag for unauthenticated/bot requests (confirmed via live curl during development, not guaranteed to stay stable long-term).
 
 ## 2026-07-21 - Bulk template enablement by garment type
 
