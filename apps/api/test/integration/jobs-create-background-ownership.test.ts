@@ -167,4 +167,48 @@ describe('createJob — user-scoped background ownership', () => {
     });
     expect(res.statusCode).toBe(201);
   });
+
+  it("rejects a job that references the caller's own soft-deleted scope=user background", async () => {
+    await seedCreditPlan();
+    const { token, userId } = await registerUser('bgown-softdeleted@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, poseId } = await seedFaceAndPose();
+    const [myBg] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({
+        label: 'Deleted mine',
+        r2Key: 'deletedmine.jpg',
+        thumbnailKey: 'deletedmine.jpg',
+        scope: 'user',
+        userId,
+      })
+      .returning();
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    // Simulate what DELETE /v1/backgrounds/mine/:id does — soft-delete via
+    // deletedAt, not a hard delete. The row still exists and is still isActive.
+    await app.db
+      .update(schema.modelBackgrounds)
+      .set({ deletedAt: new Date() })
+      .where(eq(schema.modelBackgrounds.id, myBg.id));
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: { upperGarmentKey: garmentKey, faceId, backgroundId: myBg.id, poseIds: [poseId] },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+
+    const [bal] = await app.db
+      .select()
+      .from(schema.userCredits)
+      .where(eq(schema.userCredits.userId, userId));
+    expect(bal.balance).toBe(100); // nothing charged
+  });
 });
