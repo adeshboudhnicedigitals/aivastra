@@ -131,4 +131,40 @@ describe('createJob — user-scoped background ownership', () => {
       .where(eq(schema.userCredits.userId, userId));
     expect(bal.balance).toBe(100); // nothing charged
   });
+
+  it('accepts a job that references a scope=template background from any user', async () => {
+    await seedCreditPlan();
+    const [templateBg] = await app.db
+      .insert(schema.modelBackgrounds)
+      .values({
+        label: 'Template',
+        r2Key: 'template.jpg',
+        thumbnailKey: 'template.jpg',
+        scope: 'template',
+      })
+      .returning();
+
+    const { token, userId } = await registerUser('bgown-template@x.com');
+    await grantCredits(userId, 100);
+    const { faceId, poseId } = await seedFaceAndPose();
+    const garmentKey = `inputs/${userId}/garment.jpg`;
+    await bindUploadKey(userId, garmentKey);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/jobs/tryon',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        inputs: {
+          upperGarmentKey: garmentKey,
+          faceId,
+          backgroundId: templateBg.id,
+          poseIds: [poseId],
+        },
+        aspectRatio: '1:1',
+        resolution: '2K',
+      },
+    });
+    expect(res.statusCode).toBe(201);
+  });
 });
