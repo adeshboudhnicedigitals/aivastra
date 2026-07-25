@@ -310,6 +310,11 @@ export async function resolveTryonPlan(
         and(
           inArray(schema.modelBackgrounds.id, distinctBackgroundIds),
           eq(schema.modelBackgrounds.isActive, true),
+          // Soft-deleted personal backgrounds (DELETE /v1/backgrounds/mine/:id sets
+          // deletedAt rather than hard-deleting) must never validate here - the
+          // delete action is user-facing and must actually revoke usability, not
+          // just hide the row from GET /mine.
+          isNull(schema.modelBackgrounds.deletedAt),
           // A background is valid input either when it's not personal (scope='general'
           // or scope='template' — both open to any caller, matching pre-existing
           // behavior) or when it's the caller's own scope='user' row. Deliberately
