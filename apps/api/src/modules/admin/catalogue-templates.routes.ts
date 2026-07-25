@@ -7,7 +7,7 @@ import {
   PresignCatalogueTemplateThumbnailBody,
   PutCatalogueTemplateLooksBody,
 } from '@aivastra/types';
-import { and, asc, eq, inArray, isNull, notInArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, notInArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -151,6 +151,7 @@ export async function adminCatalogueTemplatesRoutes(app: FastifyInstance) {
                 inArray(schema.modelBackgrounds.id, backgroundIds),
                 eq(schema.modelBackgrounds.isActive, true),
                 isNull(schema.modelBackgrounds.deletedAt),
+                ne(schema.modelBackgrounds.scope, 'user'),
               ),
             ),
         ]);
