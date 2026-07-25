@@ -145,4 +145,74 @@ describe('/v1/backgrounds/mine', () => {
     });
     expect(mine.json().items.map((i: { id: string }) => i.id)).not.toContain(id);
   });
+
+  it('confirm rejects an uploaded object larger than the 10MB cap', async () => {
+    const { token, userId } = await getToken('bgmine4@x.com');
+
+    const presign = await app.inject({
+      method: 'POST',
+      url: '/v1/backgrounds/mine/presign',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { contentType: 'image/jpeg', contentLength: 1024 },
+    });
+    const { r2Key } = presign.json() as { r2Key: string };
+    expect(r2Key).toBe(`user-backgrounds/${userId}/${r2Key.split('/')[2]}`);
+
+    // The presigned PUT never enforces contentLength at R2 (see r2.ts presignPut), so a caller
+    // can upload far more than they declared. Simulate that by putting an object over the 10MB
+    // cap directly, then confirming it should be rejected before ever being buffered by getObject.
+    const oversized = Buffer.alloc(11 * 1024 * 1024, 1);
+    await app.storage.putObject(r2Key, oversized, 'image/jpeg');
+
+    const confirm = await app.inject({
+      method: 'POST',
+      url: '/v1/backgrounds/mine/confirm',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { r2Key },
+    });
+    expect(confirm.statusCode).toBe(400);
+  });
+
+  it('confirm normalizes a non-JPEG upload (real PNG bytes presigned as image/jpeg) to real JPEG', async () => {
+    const { token, userId } = await getToken('bgmine5@x.com');
+
+    const presign = await app.inject({
+      method: 'POST',
+      url: '/v1/backgrounds/mine/presign',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { contentType: 'image/jpeg', contentLength: 1024 },
+    });
+    const { r2Key } = presign.json() as { r2Key: string };
+    expect(r2Key).toBe(`user-backgrounds/${userId}/${r2Key.split('/')[2]}`);
+
+    // A presigned PUT signs the Content-Type header, not the payload bytes, so the caller can
+    // upload real PNG bytes under a key that presigned as image/jpeg. `confirm` must sniff the
+    // actual format and normalize it to real JPEG, matching what `from-url` already does.
+    const pngBuf = await sharp({
+      create: { width: 8, height: 8, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 1 } },
+    })
+      .png()
+      .toBuffer();
+    await app.storage.putObject(r2Key, pngBuf, 'image/jpeg');
+
+    const confirm = await app.inject({
+      method: 'POST',
+      url: '/v1/backgrounds/mine/confirm',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { r2Key, label: 'Normalized PNG' },
+    });
+    expect(confirm.statusCode).toBe(200);
+    const created = confirm.json();
+
+    const [row] = await app.db
+      .select()
+      .from(schema.modelBackgrounds)
+      .where(eq(schema.modelBackgrounds.id, created.id));
+    if (!row) throw new Error('background row not found');
+    expect(row.r2Key).toBe(r2Key);
+
+    const stored = await app.storage.getObject(row.r2Key);
+    const storedMeta = await sharp(stored).metadata();
+    expect(storedMeta.format).toBe('jpeg');
+  });
 });

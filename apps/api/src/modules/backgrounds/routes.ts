@@ -16,6 +16,10 @@ import { assertPublicHttpUrl } from '../../lib/ssrf-guard.js';
 
 const UPLOAD_OWNER_TTL_SEC = 24 * 60 * 60;
 const MAX_URL_IMAGE_BYTES = 15 * 1024 * 1024;
+// Matches PresignMyBackgroundBody.contentLength's max in packages/types/src/backgrounds.ts.
+// The presigned PUT does not enforce this at R2 (see r2.ts presignPut comment), so it must be
+// re-checked here via headObject before the object is ever read into API memory.
+const MAX_CONFIRM_UPLOAD_BYTES = 10 * 1024 * 1024;
 const ALLOWED_FORMATS = new Set(['jpeg', 'png', 'webp']);
 
 async function makeThumb(buf: Buffer): Promise<Buffer> {
@@ -28,6 +32,48 @@ async function makeThumb(buf: Buffer): Promise<Buffer> {
 
 function toItem(app: FastifyInstance, row: { id: string; label: string; thumbnailKey: string }) {
   return { id: row.id, label: row.label, thumbnailUrl: app.storage.publicUrl(row.thumbnailKey) };
+}
+
+/**
+ * Shared "validate -> normalize -> store" pipeline for both the `confirm` and `from-url` routes.
+ * Both routes end up with raw image bytes from different origins (an already-uploaded R2 object
+ * vs. freshly fetched bytes); from that point on the logic is identical: sniff the real format
+ * from bytes (never trust the caller-supplied Content-Type), reject anything not in
+ * ALLOWED_FORMATS, re-encode to real JPEG, generate a thumbnail from the original bytes, store
+ * both objects, and insert the DB row.
+ */
+async function normalizeAndStoreBackground(
+  app: FastifyInstance,
+  userId: string,
+  buf: Buffer,
+  r2Key: string,
+  thumbnailKey: string,
+  label: string | undefined,
+) {
+  let format: string | undefined;
+  try {
+    format = (await sharp(buf).metadata()).format;
+  } catch {
+    throw new AppError('BAD_UPLOAD', 400, 'uploaded file is not a valid image');
+  }
+  if (!format || !ALLOWED_FORMATS.has(format)) {
+    throw new AppError('BAD_UPLOAD', 400, 'unsupported image format');
+  }
+  const normalized = await sharp(buf).jpeg({ quality: 90 }).toBuffer();
+  const thumb = await makeThumb(buf);
+  await app.storage.putObject(r2Key, normalized, 'image/jpeg');
+  await app.storage.putObject(thumbnailKey, thumb, 'image/jpeg');
+  const [row] = await app.db
+    .insert(schema.modelBackgrounds)
+    .values({
+      label: label ?? 'My background',
+      r2Key,
+      thumbnailKey,
+      scope: 'user',
+      userId,
+    })
+    .returning();
+  return toItem(app, row);
 }
 
 const BACKGROUND_ROW_COLUMNS = {
@@ -79,68 +125,36 @@ export async function backgroundsRoutes(app: FastifyInstance) {
       if (owner !== req.userId) {
         throw new AppError('FORBIDDEN', 403, 'upload key not owned by caller');
       }
-      let buf: Buffer;
+      let head: { contentLength: number };
       try {
-        buf = await app.storage.getObject(r2Key);
+        head = await app.storage.headObject(r2Key);
       } catch {
         throw new AppError('BAD_UPLOAD', 400, 'uploaded background not found');
       }
-      let thumb: Buffer;
-      try {
-        thumb = await makeThumb(buf);
-      } catch {
-        throw new AppError('BAD_UPLOAD', 400, 'uploaded file is not a valid image');
+      if (head.contentLength > MAX_CONFIRM_UPLOAD_BYTES) {
+        throw new AppError('BAD_UPLOAD', 400, 'uploaded file exceeds size limit');
       }
+      const buf = await app.storage.getObject(r2Key);
       const thumbnailKey = r2Key.replace(/\.jpg$/, '.thumb.jpg');
-      await app.storage.putObject(thumbnailKey, thumb, 'image/jpeg');
-      const [row] = await app.db
-        .insert(schema.modelBackgrounds)
-        .values({
-          label: label ?? 'My background',
-          r2Key,
-          thumbnailKey,
-          scope: 'user',
-          userId: req.userId,
-        })
-        .returning();
-      return toItem(app, row);
+      return normalizeAndStoreBackground(app, req.userId, buf, r2Key, thumbnailKey, label);
     },
   );
 
   app.post(
     '/v1/backgrounds/mine/from-url',
-    { preHandler: app.requireUser, schema: { body: CreateMyBackgroundFromUrlBody } },
+    {
+      preHandler: app.requireUser,
+      schema: { body: CreateMyBackgroundFromUrlBody },
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
     async (req) => {
       const { url, label } = req.body as z.infer<typeof CreateMyBackgroundFromUrlBody>;
       const parsedUrl = await assertPublicHttpUrl(url);
       const buf = await fetchImageWithCap(parsedUrl, MAX_URL_IMAGE_BYTES, 10_000);
-      let format: string | undefined;
-      try {
-        format = (await sharp(buf).metadata()).format;
-      } catch {
-        throw new AppError('VALIDATION', 400, 'url did not return a valid image');
-      }
-      if (!format || !ALLOWED_FORMATS.has(format)) {
-        throw new AppError('VALIDATION', 400, 'unsupported image format');
-      }
       const id = randomUUID();
       const r2Key = keys.userBackground(req.userId, id);
       const thumbnailKey = keys.userBackgroundThumb(req.userId, id);
-      const normalized = await sharp(buf).jpeg({ quality: 90 }).toBuffer();
-      await app.storage.putObject(r2Key, normalized, 'image/jpeg');
-      const thumb = await makeThumb(buf);
-      await app.storage.putObject(thumbnailKey, thumb, 'image/jpeg');
-      const [row] = await app.db
-        .insert(schema.modelBackgrounds)
-        .values({
-          label: label ?? 'My background',
-          r2Key,
-          thumbnailKey,
-          scope: 'user',
-          userId: req.userId,
-        })
-        .returning();
-      return toItem(app, row);
+      return normalizeAndStoreBackground(app, req.userId, buf, r2Key, thumbnailKey, label);
     },
   );
 
