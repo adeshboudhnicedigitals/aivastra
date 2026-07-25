@@ -12,6 +12,7 @@ import sharp from 'sharp';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { fetchImageWithCap } from '../../lib/fetch-image.js';
+import { isPinterestUrl, resolvePinterestImageUrl } from '../../lib/pinterest-resolver.js';
 import { assertPublicHttpUrl } from '../../lib/ssrf-guard.js';
 
 const UPLOAD_OWNER_TTL_SEC = 24 * 60 * 60;
@@ -149,7 +150,10 @@ export async function backgroundsRoutes(app: FastifyInstance) {
     },
     async (req) => {
       const { url, label } = req.body as z.infer<typeof CreateMyBackgroundFromUrlBody>;
-      const parsedUrl = await assertPublicHttpUrl(url);
+      let parsedUrl = await assertPublicHttpUrl(url);
+      if (isPinterestUrl(parsedUrl)) {
+        parsedUrl = await resolvePinterestImageUrl(parsedUrl);
+      }
       const buf = await fetchImageWithCap(parsedUrl, MAX_URL_IMAGE_BYTES, 10_000);
       const id = randomUUID();
       const r2Key = keys.userBackground(req.userId, id);
