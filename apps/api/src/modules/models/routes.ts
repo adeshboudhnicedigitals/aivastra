@@ -64,12 +64,21 @@ export async function modelsRoutes(app: FastifyInstance) {
       .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
       .orderBy(asc(schema.sampleVideos.sortOrder));
     return {
-      items: rows.map((row) => ({
-        id: row.id,
-        title: row.title,
-        thumbnailUrl: app.storage.publicUrl(row.thumbnailR2Key),
-        previewVideoUrl: app.storage.publicUrl(row.videoR2Key),
-      })),
+      items: await Promise.all(
+        rows.map(async (row) => {
+          const [thumbnail, video] = await Promise.all([
+            app.storage.presignGet(row.thumbnailR2Key, 3_600),
+            app.storage.presignGet(row.videoR2Key, 3_600),
+          ]);
+
+          return {
+            id: row.id,
+            title: row.title,
+            thumbnailUrl: thumbnail.url,
+            previewVideoUrl: video.url,
+          };
+        }),
+      ),
     };
   });
 
