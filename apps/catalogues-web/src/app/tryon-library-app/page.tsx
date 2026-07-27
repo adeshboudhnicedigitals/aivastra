@@ -120,6 +120,12 @@ export default function TryonLibraryAppPage() {
 
   useEffect(() => {
     let cancelled = false;
+    if ('serviceWorker' in navigator) {
+      const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
+      navigator.serviceWorker
+        .register(`${BASE}/tryon-library-app-sw.js`, { scope: `${BASE}/tryon-library-app` })
+        .catch(() => {});
+    }
     (async () => {
       try {
         const res = await fetch(
