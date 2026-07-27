@@ -17,6 +17,12 @@ export const LoginBody = z.object({
   email: z.string().min(1).max(254),
   password: z.string().min(1).max(128),
 });
+// Used only by POST /v1/auth/login (the main web login route) — NOT by
+// LoginBody itself, so DeviceLoginBody (which extends LoginBody for the
+// Android app) is unaffected.
+export const WebLoginBody = LoginBody.extend({
+  portal: z.enum(['catalog-app']).optional(),
+});
 export const TokenPair = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
