@@ -39,6 +39,58 @@ async function withIdempotency<T>(
 }
 
 export async function jobsRoutes(app: FastifyInstance) {
+  app.get('/v1/catalog-videos', { preHandler: app.requireUser }, async (req) => {
+    const rows = await app.db
+      .select({
+        id: schema.jobs.id,
+        status: schema.jobs.status,
+        createdAt: schema.jobs.createdAt,
+        params: schema.jobInputs.params,
+      })
+      .from(schema.jobs)
+      .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .where(
+        and(eq(schema.jobs.userId, req.userId), sql`${schema.jobInputs.params}->>'kind' = 'video'`),
+      )
+      .orderBy(desc(schema.jobs.createdAt))
+      .limit(200);
+
+    return Promise.all(
+      rows.map(async (row) => {
+        const [output] = await app.db
+          .select({
+            resultKey: schema.jobOutputs.resultKey,
+            thumbnailKey: schema.jobOutputs.thumbnailKey,
+          })
+          .from(schema.jobOutputs)
+          .where(eq(schema.jobOutputs.jobId, row.id));
+        let videoUrl: string | null = null;
+        let thumbnailUrl: string | null = null;
+        if (output?.resultKey) {
+          try {
+            const [video, thumb] = await Promise.all([
+              app.storage.presignGet(output.resultKey, 3600),
+              output.thumbnailKey ? app.storage.presignGet(output.thumbnailKey, 3600) : null,
+            ]);
+            videoUrl = video.url;
+            thumbnailUrl = thumb?.url ?? null;
+          } catch {
+            // Missing result object: leave URLs null so the UI shows its placeholder.
+          }
+        }
+        const params = row.params as Record<string, unknown> | null;
+        return {
+          id: row.id,
+          status: row.status,
+          createdAt: row.createdAt,
+          sampleVideoId: params?.sampleVideoId ?? null,
+          videoUrl,
+          thumbnailUrl,
+        };
+      }),
+    );
+  });
+
   app.post(
     '/v1/jobs/tryon',
     { preHandler: app.requireUser, schema: { body: CreateTryOnJobRequest } },
