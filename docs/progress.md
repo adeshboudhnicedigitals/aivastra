@@ -1,3 +1,19 @@
+## 2026-07-27 - Merchant Catalogue Defaults: lower garments and shoes
+
+### Done
+- Extended the shared merchant-catalogue defaults schema with optional `lowerCatalogId` and `shoeCatalogId` values for each gender category; no database migration was required because the config is stored in the existing JSON field.
+- Updated merchant catalogue job creation to resolve the assigned pose's effective workflow through `poseGarmentConfigs` and `workflowTemplates`, apply lower-garment/shoe defaults only when that workflow requires them, and reject missing or inactive required defaults before creating a job.
+- Added admin Settings selectors for optional lower garments and shoes, filtered by category and catalogue type, with empty values omitted from the save payload.
+- Added schema persistence coverage and four merchant-generation integration cases covering required defaults, inactive defaults, and workflows that do not need lower garments or shoes.
+- Verification passed: workspace `pnpm typecheck`; default API test command; targeted integration suites (`admin-config`: 2/2, `merchant-catalog-generate`: 18/18); admin production build; and `pnpm lint` (exit 0, warning-only).
+
+### Failed / Not Done
+- The dedicated full API integration configuration is not globally green: unrelated suites collide on shared Redis rate limits/test isolation and expose existing contract/fixture failures. The two integration suites changed by this plan pass independently.
+- Live browser save/clear click-through was not run because no browser automation runtime is available in this environment; the admin production build validates the UI implementation.
+
+### Open Questions / Decisions
+- The root API test command currently excludes `test/integration/**`; the dedicated integration config should be serialized or given isolated Redis rate-limit state before it can serve as a reliable single-command full-suite gate.
+
 ## 2026-07-25 - Custom background upload (personal library)
 
 ### Done
