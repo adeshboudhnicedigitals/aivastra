@@ -4,6 +4,7 @@ import { LoginBody, RegisterBody } from '@aivastra/types';
 import { and, desc, eq, exists, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { sendPasswordResetEmail, sendVerificationEmail } from '../../lib/mailer.js';
 import {
@@ -534,7 +535,13 @@ export async function authRoutes(app: FastifyInstance) {
       .where(eq(schema.users.id, req.userId))
       .limit(1);
 
-    return { ...rest, hasPassword: passwordHash !== null, hasShopifyStore, isMerchant };
+    return {
+      ...rest,
+      hasPassword: passwordHash !== null,
+      hasShopifyStore,
+      isMerchant,
+      catalogVideoEnabled: isCatalogVideoAllowed(app.env, rest.email),
+    };
   });
 
   app.patch(
