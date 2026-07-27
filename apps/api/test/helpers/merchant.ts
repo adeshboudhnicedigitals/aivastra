@@ -159,3 +159,94 @@ export async function createTestSareeMannequinGarmentType(
 
   return { garmentTypeId: garmentType.id, workflowTemplateId: wf.id };
 }
+
+/**
+ * Creates a dev tryon category plus the workflow template it points at.
+ *
+ * Mirrors createTestTryonCategory but targets the dev_tryon_categories table instead.
+ */
+export async function createTestDevTryonCategory(
+  app: TestApp,
+  opts: {
+    slug: string;
+    name?: string;
+    isActive?: boolean;
+    templateIsActive?: boolean;
+    sortOrder?: number;
+  },
+) {
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `wf-${randomUUID()}`,
+      label: 'Test Dev Tryon WF',
+      jsonContent: {},
+      poseNodeId: 'x',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'x',
+      workflowType: 'tryon',
+      isActive: opts.templateIsActive ?? true,
+    })
+    .returning();
+  if (!wf) throw new Error('failed to create test workflow template');
+
+  const [cat] = await app.db
+    .insert(schema.devTryonCategories)
+    .values({
+      name: opts.name ?? 'Test Dev Category',
+      slug: opts.slug,
+      workflowTemplateId: wf.id,
+      isActive: opts.isActive ?? true,
+      sortOrder: opts.sortOrder ?? 0,
+    })
+    .returning();
+  if (!cat) throw new Error('failed to create test dev tryon category');
+
+  return { categoryId: cat.id, workflowTemplateId: wf.id };
+}
+
+/**
+ * Creates a dev_saree_mannequin_config row plus the saree_step1 workflow template it points at.
+ *
+ * Mirrors createTestSareeMannequinGarmentType but targets the dev_saree_mannequin_config
+ * singleton config table instead of garment_subcategories.
+ */
+export async function createTestDevSareeMannequinConfig(
+  app: TestApp,
+  opts: { isActive?: boolean; templateIsActive?: boolean; withPersonNode?: boolean } = {},
+) {
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `dev-saree-step1-${randomUUID()}`,
+      label: 'Test Dev Saree Step1 WF',
+      jsonContent: {
+        '31': { class_type: 'LoadImage', inputs: { image: 'placeholder.jpg' } },
+        '134': { class_type: 'SaveImage', inputs: {} },
+      },
+      poseNodeId: 'x',
+      upperNodeIds: [],
+      garmentPhasePromptNode: 'x',
+      workflowType: 'saree_step1',
+      tryonPersonNodeId: opts.withPersonNode ? '1' : null,
+      tryonGarmentNodeId: '31',
+      tryonOutputNodeId: '134',
+      isActive: opts.templateIsActive ?? true,
+    })
+    .returning();
+  if (!wf) throw new Error('failed to create test dev saree step1 workflow template');
+
+  await app.db
+    .insert(schema.devSareeMannequinConfig)
+    .values({
+      id: '00000000-0000-0000-0000-000000000002',
+      workflowTemplateId: wf.id,
+      isActive: opts.isActive ?? true,
+    })
+    .onConflictDoUpdate({
+      target: schema.devSareeMannequinConfig.id,
+      set: { workflowTemplateId: wf.id, isActive: opts.isActive ?? true, updatedAt: new Date() },
+    });
+
+  return { workflowTemplateId: wf.id };
+}

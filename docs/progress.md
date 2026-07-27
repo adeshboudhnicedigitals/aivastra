@@ -180,6 +180,37 @@ Split dependency installation from source copying in all six service Dockerfiles
 ### Open Questions / Decisions
 - None. Frozen-lockfile enforcement, runtime pruning, CI, Compose, and application-source changes remain separate out-of-scope work.
 
+## 2026-07-22 - Developer API decoupled from internal catalog/tryon tables
+
+Final task (11/11) of `docs/superpowers/plans/2026-07-22-dev-api-decouple-from-internal-catalog.md`, executed on `feat/dev-api-decouple-catalog` (Tasks 1-10 already committed and individually reviewed). This pass ran the whole monorepo build/typecheck/lint/test suite once for branch-wide confidence and logs the result here per `CLAUDE.md`'s progress-tracking rule. No implementation changes made in this task — verification and docs only.
+
+The public `/v1/dev/*` endpoints previously resolved their ComfyUI workflow through the same `tryon_categories` / `garment_subcategories` rows the internal Studio, kiosk, and merchant flows use — so an admin renaming or deactivating an internal category silently changed what third-party API callers could request. This branch gives the dev API two dedicated, admin-owned tables (`dev_tryon_categories`, single-row `dev_saree_mannequin_config`), backfilled once from the active internal rows, and switches the dev job-creation code to resolve + snapshot the workflow from them.
+
+### Done
+- New tables + backfill migration (0122-0124; renumbered from the plan's original 0119-0121 to resolve a migration-index collision with `main` during rebase); dev tryon + saree-mannequin creation resolve off the dedicated tables and snapshot `workflowTemplateId` into `job_inputs.params`.
+- Dispatcher trusts the params snapshot (`processor.ts`); dev saree jobs now set `garmentTypeId: null` so no internal-table read happens at dispatch.
+- Admin CRUD (`/admin/dev-api/*`) + a Dev API admin-web management page.
+- Public endpoint contract confirmed unchanged (see verification below) — merchants change nothing.
+- **Scope expansion during Task 7 (approved, not part of the original plan):** the dispatcher's saree-mannequin-inputs guard in `apps/dispatcher/src/job/processor.ts` originally required a non-null `garmentTypeId` to consider mannequin inputs satisfied. Since dev saree-mannequin jobs now intentionally set `garmentTypeId: null` (to avoid touching `garment_subcategories`) and instead carry the workflow via a snapshotted `params.workflowTemplateId`, that guard would have marked every dev-API saree-mannequin job FAILED. This was caught as a **Critical bug during code review** in Task 7 and fixed with an approved, targeted change to let a snapshotted `workflowTemplateId` also satisfy the guard. Independently re-reviewed as correct. Covered by `apps/dispatcher/test/integration/saree-mannequin.test.ts`'s "processes a dev-API saree_mannequin job with garmentTypeId: null and a snapshotted workflowTemplateId to COMPLETED" test (its own comment: "Prior to the guard fix this job would have been marked FAILED").
+- Several **Minor, cosmetic findings** were logged during task reviews and deferred as non-blocking (naming/comment nits; nothing affecting correctness or the public contract).
+
+### Verification (this task)
+- `pnpm --filter @aivastra/db build`, `@aivastra/types build`, `@aivastra/storage build`: all clean (built first so typecheck doesn't hit stale-`dist` phantom errors).
+- `pnpm typecheck`: clean, 12 of 13 workspace projects (the two without a dedicated `typecheck` script, `admin-web` and `dispatcher`, are type-checked via their `build` script instead — `pnpm --filter @aivastra/dispatcher build` run separately and also clean, confirming Task 7's `processor.ts` change compiles).
+- `pnpm lint`: exit 0, 124 warnings / 3 infos, 0 errors — consistent with the repo's existing warn-only Biome baseline, nothing new blocking.
+- `pnpm --filter @aivastra/api test` (unit suite): **35 files / 239 tests, all passing**, including `dev-tryon-create` (16), `dev-read-routes` (13), `dev-saree-mannequin-create` (10), `admin-dev-api` (9), and `dev-openapi` (4).
+- `pnpm --filter @aivastra/dispatcher test` (unit suite): **3 files / 52 tests, all passing**.
+- Extra: ran the dispatcher's integration suite (`vitest run --config vitest.integration.config.ts`, not wired to any package.json script or CI job) for added confidence since Task 7 touched dispatcher code. Result: 7 files / 24 tests pass, 3 files / 3 tests fail — the exact same `catalog_items.type` NOT NULL pre-existing failures documented in the 2026-07-21 entry below (`happy-path.test.ts`, `recovery.test.ts`, `retry.test.ts`). Reconfirmed pre-existing by checking out `main` into a scratch worktree and reproducing the identical failure there verbatim. The integration file that actually exercises Task 7's guard fix, `saree-mannequin.test.ts`, is among the 7 passing files (4/4 tests).
+
+### Public contract stability
+`dev-openapi.test.ts` exists and passes (4/4) but only asserts path presence, that no non-dev routes leak into the public spec, and that bearer-key security is declared — it does not assert byte-level request/response shapes. Did a manual diff instead: `git diff main..HEAD` on `apps/api/src/modules/dev/routes.ts` is 8 lines (only the `/v1/dev/categories` handler's backing table swapped from `tryonCategories` to `devTryonCategories`, identical `{slug, name}` select shape); `create-job.ts` and `create-saree-mannequin-job.ts` diffs are purely internal resolution-logic swaps (no exported Zod schema touched); `packages/types/src/dev.ts`'s 50 added lines are all *new* admin-only schemas (`CreateDevTryonCategoryBody` etc.) for `/admin/dev-api/*` — zero existing public schema changed. Conclusion: the `/v1/dev/tryon`, `/v1/dev/saree-mannequin`, and `/v1/dev/categories` wire formats are unchanged from `main`.
+
+### Failed / Not Done
+- Postman collection is intentionally NOT hand-maintained (the abandoned commit `9bf790a5` on `feat/saree-mannequin-face-url-workflow`); generate it from the live OpenAPI spec instead.
+
+### Open Questions / Decisions
+- Whether to eventually retire `tryon_categories` entirely once nothing but internal Studio uses it — out of scope here; the two catalogs now evolve independently.
+
 ## 2026-07-21 (later) - Saree two-step generation fix: full regression pass (Task 8/8)
 
 Final task of `docs/superpowers/plans/2026-07-21-saree-two-step-generation-fix.md`, executed on `fix/saree-two-step-generation` (Tasks 1-7 already committed and individually reviewed). This pass ran the whole monorepo build/typecheck/test suite once, reconciled every failure against the plan's documented pre-existing-failure list, and logs the fix here per `CLAUDE.md`'s progress-tracking rule. No implementation changes made in this task — regression verification only.

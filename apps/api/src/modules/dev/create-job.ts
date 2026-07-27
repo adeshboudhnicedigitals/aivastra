@@ -93,7 +93,9 @@ export async function createDevJobCore(
  * requires the garment to be a prior COMPLETED job of the caller (sourceJobId)
  * and resolves the workflow through a garment-type → tryon-category chain. A
  * third-party developer has neither, so this resolves the workflow straight off
- * tryon_categories.slug. Same reasoning merchant/create-job.ts documents at its top.
+ * dev_tryon_categories.slug — a dedicated table decoupled from the internal
+ * tryon_categories table used by Studio/kiosk/merchant flows. Same reasoning
+ * merchant/create-job.ts documents at its top.
  *
  * The job row is userId-owned (the merchant's user) so the dispatcher's existing
  * transactional refund-on-terminal-failure path applies with no changes.
@@ -111,23 +113,24 @@ export async function createDevTryonJob(
 ): Promise<{ jobId: string }> {
   const cost = await getTryonCreditCost(app);
 
-  // Kill-switch parity: a category an admin deactivated, or one whose workflow
-  // template is inactive, must not resolve. This runs before any credit
-  // movement, so a rejected request is always free.
+  // Resolve off the DEDICATED dev table, not tryon_categories — the public API
+  // surface is controlled independent of the internal Studio catalog. Kill-switch
+  // parity: an inactive dev category, or one whose workflow template is inactive,
+  // must not resolve. Runs before any credit movement, so a rejected request is free.
   const [category] = await app.db
     .select({
-      workflowTemplateId: schema.tryonCategories.workflowTemplateId,
+      workflowTemplateId: schema.devTryonCategories.workflowTemplateId,
       templateIsActive: schema.workflowTemplates.isActive,
     })
-    .from(schema.tryonCategories)
+    .from(schema.devTryonCategories)
     .leftJoin(
       schema.workflowTemplates,
-      eq(schema.workflowTemplates.id, schema.tryonCategories.workflowTemplateId),
+      eq(schema.workflowTemplates.id, schema.devTryonCategories.workflowTemplateId),
     )
     .where(
       and(
-        eq(schema.tryonCategories.slug, params.categorySlug),
-        eq(schema.tryonCategories.isActive, true),
+        eq(schema.devTryonCategories.slug, params.categorySlug),
+        eq(schema.devTryonCategories.isActive, true),
       ),
     )
     .limit(1);
