@@ -47,6 +47,7 @@ export default function BulkUploadScreen() {
 
   const [globalActual, setGlobalActual] = useState('');
   const [globalOffer, setGlobalOffer] = useState('');
+  const [saveError, setSaveError] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     return () => {
@@ -90,11 +91,16 @@ export default function BulkUploadScreen() {
     try {
       const item = await finalizeGeneratedProduct(jobId, subcategoryId);
       setItems((prev) =>
-        prev.map((p) =>
-          p.jobId === jobId
-            ? { ...p, status: 'generated', itemId: item.id, fileUrl: item.imageUrl ?? p.fileUrl }
-            : p,
-        ),
+        prev.map((p) => {
+          if (p.jobId !== jobId) return p;
+          if (item.imageUrl && item.imageUrl !== p.fileUrl) URL.revokeObjectURL(p.fileUrl);
+          return {
+            ...p,
+            status: 'generated',
+            itemId: item.id,
+            fileUrl: item.imageUrl ?? p.fileUrl,
+          };
+        }),
       );
     } catch (err) {
       setItems((prev) =>
@@ -276,6 +282,7 @@ export default function BulkUploadScreen() {
     if (ready.length === 0) return;
 
     setIsSaving(true);
+    setSaveError(undefined);
     try {
       await Promise.all(
         ready.map((item) =>
@@ -290,6 +297,10 @@ export default function BulkUploadScreen() {
       qc.invalidateQueries({ queryKey: ['merchant-catalog-products', subcategoryId] });
       qc.invalidateQueries({ queryKey: ['merchant-catalog-subcategories'] });
       goBackToProducts();
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : 'Failed to save some items. Please try again.',
+      );
     } finally {
       setIsSaving(false);
     }
@@ -594,6 +605,21 @@ export default function BulkUploadScreen() {
             </div>
           ))}
         </div>
+
+        {saveError && (
+          <div
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: 'rgba(245,92,122,0.06)',
+              border: `1px solid ${C.pink}`,
+              fontSize: 13,
+              color: C.pink,
+            }}
+          >
+            {saveError}
+          </div>
+        )}
       </div>
 
       <StickyBottomBar>
