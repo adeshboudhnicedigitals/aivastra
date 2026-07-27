@@ -883,6 +883,13 @@
       "when": 1785116400000,
       "tag": "0125_add_user_defaults",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1785154488135,
+      "tag": "0126_add_username_login",
+      "breakpoints": true
     }
   ]
 }
