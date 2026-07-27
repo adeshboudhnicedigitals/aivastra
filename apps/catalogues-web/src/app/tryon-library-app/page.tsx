@@ -173,7 +173,9 @@ function SubcategoriesScreenInner() {
       )}
 
       <Fab
-        onClick={() => router.push('/tryon-library-app/add-subcategory')}
+        onClick={() =>
+          router.push(`/tryon-library-app/add-subcategory?category=${selectedCategory}`)
+        }
         label="Add Subcategory"
       />
 
