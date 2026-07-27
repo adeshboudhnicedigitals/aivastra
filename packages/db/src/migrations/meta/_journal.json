@@ -890,6 +890,13 @@
       "when": 1785154488135,
       "tag": "0126_add_username_login",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1785161528228,
+      "tag": "0127_add_merchant_logo",
+      "breakpoints": true
     }
   ]
 }
