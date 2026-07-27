@@ -2,12 +2,14 @@
 import { ArrowLeft } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { LibraryUserMenu } from '../LibraryUserMenu';
+import { useLoggedOut } from '../logged-out-context';
 
 type ScreenHeaderProps =
-  | { variant: 'root'; title: string; onLoggedOut: () => void }
+  | { variant: 'root'; title: string }
   | { variant: 'back'; title: string; subtitle?: string; onBack: () => void };
 
 export function ScreenHeader(props: ScreenHeaderProps) {
+  const onLoggedOut = useLoggedOut();
   return (
     <div
       style={{
@@ -80,7 +82,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
           )}
         </div>
 
-        {props.variant === 'root' && <LibraryUserMenu onLoggedOut={props.onLoggedOut} />}
+        {props.variant === 'root' && <LibraryUserMenu onLoggedOut={onLoggedOut} />}
       </div>
     </div>
   );
