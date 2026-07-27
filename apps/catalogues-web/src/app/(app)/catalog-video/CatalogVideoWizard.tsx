@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, ChevronLeft, X } from 'lucide-react';
+import { useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
@@ -84,6 +84,7 @@ export function CatalogVideoWizard({
   const nextDisabled = (step === 1 && !sourceJobId) || (step === 2 && !sampleVideoId) || submitting;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; click outside dismisses
     <div
       role="presentation"
       onMouseDown={(event) => {
@@ -130,7 +131,9 @@ export function CatalogVideoWizard({
             <h2 id="catalog-video-wizard-title" style={{ margin: 0, color: C.text, fontSize: 18 }}>
               New Catalog Video
             </h2>
+            {/* biome-ignore lint/a11y/useSemanticElements: decorative step indicator, not a form control group — <fieldset> would misrepresent it */}
             <div
+              role="group"
               style={{ display: 'flex', gap: 6, marginTop: 10 }}
               aria-label={`Step ${step} of 3`}
             >
@@ -341,7 +344,7 @@ export function CatalogVideoWizard({
                     // biome-ignore lint/performance/noImgElement: presigned R2 URL
                     <img
                       src={selectedImage.thumbUrl}
-                      alt="Selected catalogue image"
+                      alt="Selected catalogue"
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   )}

@@ -37,12 +37,10 @@ describe('GET /v1/catalog-videos', () => {
       .insert(schema.jobs)
       .values({ userId: mine.userId, status: 'COMPLETED', creditsCharged: 20 })
       .returning();
-    await app.db
-      .insert(schema.jobInputs)
-      .values({
-        jobId: completed.id,
-        params: { kind: 'video', sourceJobId: 'x', sampleVideoId: 'y', prompt: 'p' },
-      });
+    await app.db.insert(schema.jobInputs).values({
+      jobId: completed.id,
+      params: { kind: 'video', sourceJobId: 'x', sampleVideoId: 'y', prompt: 'p' },
+    });
     await app.db
       .insert(schema.jobOutputs)
       .values({ jobId: completed.id, resultKey: `outputs/${completed.id}/result.mp4` });
@@ -50,12 +48,10 @@ describe('GET /v1/catalog-videos', () => {
       .insert(schema.jobs)
       .values({ userId: mine.userId, status: 'QUEUED', creditsCharged: 20 })
       .returning();
-    await app.db
-      .insert(schema.jobInputs)
-      .values({
-        jobId: queued.id,
-        params: { kind: 'video', sourceJobId: 'x', sampleVideoId: 'y', prompt: 'p' },
-      });
+    await app.db.insert(schema.jobInputs).values({
+      jobId: queued.id,
+      params: { kind: 'video', sourceJobId: 'x', sampleVideoId: 'y', prompt: 'p' },
+    });
     const [foreign] = await app.db
       .insert(schema.jobs)
       .values({ userId: other.userId, status: 'COMPLETED', creditsCharged: 20 })
