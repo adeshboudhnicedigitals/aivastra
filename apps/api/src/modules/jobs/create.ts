@@ -960,18 +960,16 @@ export async function createCatalogVideoJob(
       })
       .returning();
     await atomicDeduct(tx as unknown as DB, userId, cost, newJob.id);
-    await tx
-      .insert(schema.jobInputs)
-      .values({
-        jobId: newJob.id,
-        params: {
-          kind: 'video',
-          sourceJobId: body.sourceJobId,
-          sourceImageKey: keys.output(body.sourceJobId),
-          sampleVideoId: body.sampleVideoId,
-          prompt: sample.prompt,
-        },
-      });
+    await tx.insert(schema.jobInputs).values({
+      jobId: newJob.id,
+      params: {
+        kind: 'video',
+        sourceJobId: body.sourceJobId,
+        sourceImageKey: keys.output(body.sourceJobId),
+        sampleVideoId: body.sampleVideoId,
+        prompt: sample.prompt,
+      },
+    });
     return [newJob];
   });
   try {
