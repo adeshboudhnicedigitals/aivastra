@@ -1,0 +1,774 @@
+'use client';
+import type { MerchantCatalogItem } from '@aivastra/types';
+import { useEffect, useRef, useState } from 'react';
+import { SpinnerIcon, UploadIcon } from '@/components/icons';
+import { C } from '@/components/tokens';
+import { GradBtn } from '@/components/ui/grad-btn';
+import { catalogAppApi as api } from './catalog-app-api';
+import {
+  deleteProduct,
+  finalizeGeneratedProduct,
+  pollGenerateJob,
+  presignAndUpload,
+} from './catalog-app-helpers';
+
+interface ProductModalProps {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+  subcategoryId: string | null;
+  initialData?: MerchantCatalogItem;
+}
+
+export function ProductModal({
+  open,
+  onClose,
+  onSaved,
+  subcategoryId,
+  initialData,
+}: ProductModalProps) {
+  const [label, setLabel] = useState('');
+  const [sku, setSku] = useState('');
+  const [actualPrice, setActualPrice] = useState('');
+  const [offerPrice, setOfferPrice] = useState('');
+  const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined);
+
+  const [imageMode, setImageMode] = useState<'catalogue' | 'flat'>('catalogue');
+  const [selectedFile, setSelectedFile] = useState<File | undefined>(undefined);
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  // The product row created by the generate+import flow, still awaiting the
+  // user's SKU/price entry before the final Save PATCH. If the modal closes
+  // before that PATCH happens, it's a $0 orphan and gets best-effort deleted.
+  const [generatedItem, setGeneratedItem] = useState<MerchantCatalogItem | undefined>(undefined);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previewUrlRef = useRef<string | undefined>(undefined);
+  previewUrlRef.current = previewUrl;
+  const generatedItemRef = useRef<MerchantCatalogItem | undefined>(undefined);
+  generatedItemRef.current = generatedItem;
+
+  // Reset state
+  useEffect(() => {
+    if (open) {
+      if (initialData) {
+        setLabel(initialData.label);
+        setSku(initialData.sku ?? '');
+        setActualPrice(initialData.actualPrice.toString());
+        setOfferPrice(initialData.offerPrice.toString());
+      } else {
+        setLabel('');
+        setSku('');
+        setActualPrice('');
+        setOfferPrice('');
+        setImageMode('catalogue');
+      }
+      setSelectedFile(undefined);
+      setPreviewUrl(undefined);
+      setGeneratedItem(undefined);
+      setErrorMsg(undefined);
+      setIsGenerating(false);
+      setIsSaving(false);
+    }
+  }, [open, initialData]);
+
+  // Revoke the object URL and clean up an unsaved generated product on close.
+  useEffect(() => {
+    if (open) return;
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    if (generatedItemRef.current) void deleteProduct(generatedItemRef.current.id);
+  }, [open]);
+
+  // Escape to close
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  // Focus trap
+  useEffect(() => {
+    if (!open) return;
+    const el = dialogRef.current;
+    if (!el) return;
+    const FOCUSABLE =
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusable = el.querySelectorAll<HTMLElement>(FOCUSABLE);
+    if (focusable.length > 0) {
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      first?.focus();
+
+      const trap = (e: KeyboardEvent) => {
+        if (e.key !== 'Tab') return;
+        if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
+          e.preventDefault();
+          (e.shiftKey ? last : first)?.focus();
+        }
+      };
+      document.addEventListener('keydown', trap);
+      return () => document.removeEventListener('keydown', trap);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const isEditing = !!initialData;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+    setErrorMsg(undefined);
+    if (imageMode === 'flat' && generatedItem) {
+      void deleteProduct(generatedItem.id);
+      setGeneratedItem(undefined);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!selectedFile || !subcategoryId) return;
+    setIsGenerating(true);
+    setErrorMsg(undefined);
+    try {
+      if (generatedItem) {
+        await deleteProduct(generatedItem.id);
+        setGeneratedItem(undefined);
+      }
+      const { r2Key: flatImageKey } = await presignAndUpload(selectedFile, 'flat');
+      const { jobId } = await api.post<{ jobId: string }>('/v1/merchant/catalog/generate', {
+        subcategoryId,
+        flatImageKey,
+      });
+      const status = await pollGenerateJob(jobId);
+      if (status.status !== 'COMPLETED') {
+        throw new Error(
+          status.errorCode
+            ? `Generation failed (${status.errorCode})`
+            : 'Generation failed. Please try again.',
+        );
+      }
+      const item = await finalizeGeneratedProduct(jobId, subcategoryId);
+      setGeneratedItem(item);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Generation failed.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const actualPriceNum = actualPrice ? parseInt(actualPrice, 10) : 0;
+  const offerPriceNum = offerPrice ? parseInt(offerPrice, 10) : 0;
+  const hasPriceError = offerPriceNum > actualPriceNum;
+  const missingImage =
+    !isEditing &&
+    ((imageMode === 'catalogue' && !selectedFile) || (imageMode === 'flat' && !generatedItem));
+  const isSaveDisabled = hasPriceError || isGenerating || isSaving || missingImage;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!label.trim() || !sku.trim() || !actualPrice || !offerPrice) return;
+    if (isSaveDisabled || !subcategoryId) return;
+
+    setIsSaving(true);
+    setErrorMsg(undefined);
+    try {
+      const priceFields = {
+        label: label.trim(),
+        sku: sku.trim(),
+        actualPrice: actualPriceNum,
+        offerPrice: offerPriceNum,
+      };
+
+      if (isEditing && initialData) {
+        await api.patch(`/v1/merchant/catalog/${initialData.id}`, priceFields);
+      } else if (imageMode === 'flat') {
+        if (!generatedItem) throw new Error('Generate the catalogue image first.');
+        await api.patch(`/v1/merchant/catalog/${generatedItem.id}`, priceFields);
+      } else {
+        if (!selectedFile) throw new Error('Upload a product image first.');
+        const [{ r2Key }, { r2Key: thumbnailKey }] = await Promise.all([
+          presignAndUpload(selectedFile, 'image'),
+          presignAndUpload(selectedFile, 'thumbnail'),
+        ]);
+        await api.post('/v1/merchant/catalog', {
+          subcategoryId,
+          r2Key,
+          thumbnailKey,
+          ...priceFields,
+        });
+      }
+
+      setGeneratedItem(undefined); // saved — don't clean it up on unmount
+      onSaved();
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to save product.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const busy = isGenerating || isSaving;
+  const displayImageUrl = previewUrl ?? initialData?.imageUrl ?? undefined;
+
+  return (
+    <div
+      role="presentation"
+      onClick={busy ? undefined : onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.45)',
+        zIndex: 1100,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: C.white,
+          borderRadius: 14,
+          padding: 24,
+          width: 480,
+          maxWidth: '100%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          boxShadow: '0 12px 48px rgba(0,0,0,0.18)',
+        }}
+      >
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
+            {isEditing ? 'Edit Product' : 'Add Product'}
+          </h3>
+
+          {isEditing ? (
+            <div
+              style={{
+                height: 140,
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                background: C.field,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+              }}
+            >
+              {displayImageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                // biome-ignore lint/performance/noImgElement: presigned R2 preview
+                <img
+                  src={displayImageUrl}
+                  alt={label || 'Product'}
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                />
+              ) : (
+                <UploadIcon size={28} />
+              )}
+            </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  borderRadius: 8,
+                  border: `1px solid ${C.border2}`,
+                  overflow: 'hidden',
+                  background: C.white,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setImageMode('catalogue')}
+                  disabled={busy}
+                  style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    border: 'none',
+                    background:
+                      imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                    color: imageMode === 'catalogue' ? C.pink : C.text,
+                    fontWeight: imageMode === 'catalogue' ? 600 : 500,
+                    fontSize: 14,
+                    cursor: busy ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    borderRight: `1px solid ${C.border2}`,
+                  }}
+                >
+                  Catalogue Image
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImageMode('flat')}
+                  disabled={busy}
+                  style={{
+                    flex: 1,
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
+                    color: imageMode === 'flat' ? C.pink : C.text,
+                    fontWeight: imageMode === 'flat' ? 600 : 500,
+                    fontSize: 14,
+                    cursor: busy ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  Flat Image
+                </button>
+              </div>
+
+              {imageMode === 'catalogue' ? (
+                <div
+                  // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
+                  onClick={() => !busy && fileInputRef.current?.click()}
+                  style={{
+                    height: 140,
+                    borderRadius: 8,
+                    border: `1px dashed ${C.border2}`,
+                    background: 'transparent',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: busy ? 'not-allowed' : 'pointer',
+                    overflow: 'hidden',
+                    position: 'relative',
+                    gap: 8,
+                  }}
+                  className="hover-surface"
+                >
+                  {previewUrl ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {/* biome-ignore lint/performance/noImgElement: local preview */}
+                      <img
+                        src={previewUrl}
+                        alt="Preview"
+                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                      />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          background: 'rgba(0,0,0,0.6)',
+                          color: '#fff',
+                          fontSize: 12,
+                          textAlign: 'center',
+                          padding: '6px 0',
+                          fontWeight: 500,
+                        }}
+                      >
+                        Click to change image
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ color: C.mid }}>
+                        <UploadIcon size={28} />
+                      </div>
+                      <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                        Click to upload product image
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {!previewUrl ? (
+                    <div
+                      // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
+                      onClick={() => !busy && fileInputRef.current?.click()}
+                      style={{
+                        height: 140,
+                        borderRadius: 8,
+                        border: `1px dashed ${C.border2}`,
+                        background: 'transparent',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: busy ? 'not-allowed' : 'pointer',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        gap: 8,
+                      }}
+                      className="hover-surface"
+                    >
+                      <div style={{ color: C.mid }}>
+                        <UploadIcon size={28} />
+                      </div>
+                      <div style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+                        Upload flat garment photo
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 20,
+                        alignItems: 'center',
+                        padding: 16,
+                        borderRadius: 8,
+                        border: `1px solid ${C.border2}`,
+                        background: 'transparent',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 104,
+                          height: 130,
+                          borderRadius: 8,
+                          border: `1px solid ${C.border2}`,
+                          background: C.field,
+                          position: 'relative',
+                          overflow: 'hidden',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {/* biome-ignore lint/performance/noImgElement: local/generated preview */}
+                        <img
+                          src={generatedItem?.imageUrl ?? previewUrl}
+                          alt="Flat Garment"
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        />
+                        {generatedItem && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: 6,
+                              right: 6,
+                              background: C.pink,
+                              color: C.white,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            Generated
+                          </div>
+                        )}
+                      </div>
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 12,
+                        }}
+                      >
+                        {!generatedItem ? (
+                          <>
+                            <GradBtn type="button" onClick={handleGenerate} disabled={isGenerating}>
+                              {isGenerating && <SpinnerIcon size={14} />}
+                              {isGenerating ? 'Generating...' : 'Generate Catalogue Image'}
+                            </GradBtn>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (previewUrl) URL.revokeObjectURL(previewUrl);
+                                setSelectedFile(undefined);
+                                setPreviewUrl(undefined);
+                              }}
+                              disabled={isGenerating}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                padding: 0,
+                                color: C.mid,
+                                fontSize: 13,
+                                fontWeight: 500,
+                                cursor: isGenerating ? 'not-allowed' : 'pointer',
+                                textDecoration: 'underline',
+                              }}
+                            >
+                              Choose a different image
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 13, color: C.text, fontWeight: 500 }}>
+                              Ready to use!
+                            </div>
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={handleGenerate}
+                                disabled={busy}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  color: C.text,
+                                  fontSize: 13,
+                                  fontWeight: 600,
+                                  cursor: busy ? 'not-allowed' : 'pointer',
+                                  textDecoration: 'underline',
+                                }}
+                              >
+                                Regenerate
+                              </button>
+                              <span style={{ color: C.border2 }}>|</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (previewUrl) URL.revokeObjectURL(previewUrl);
+                                  if (generatedItem) void deleteProduct(generatedItem.id);
+                                  setSelectedFile(undefined);
+                                  setPreviewUrl(undefined);
+                                  setGeneratedItem(undefined);
+                                }}
+                                disabled={busy}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  color: C.mid,
+                                  fontSize: 13,
+                                  fontWeight: 500,
+                                  cursor: busy ? 'not-allowed' : 'pointer',
+                                  textDecoration: 'underline',
+                                }}
+                              >
+                                Change image
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept="image/jpeg,image/png,image/webp"
+            style={{ display: 'none' }}
+            tabIndex={-1}
+          />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+              Product Name <span style={{ color: C.pink }}>*</span>
+            </label>
+            <input
+              required
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Slim Fit Cotton Shirt"
+              style={{
+                width: '100%',
+                height: 40,
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                padding: '0 14px',
+                fontSize: 14,
+                fontFamily: 'inherit',
+                outline: 'none',
+                background: C.field,
+                color: C.text,
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+              SKU <span style={{ color: C.pink }}>*</span>
+            </label>
+            <input
+              required
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              placeholder="e.g. SH-COT-BLU-S"
+              style={{
+                width: '100%',
+                height: 40,
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                padding: '0 14px',
+                fontSize: 14,
+                fontFamily: 'inherit',
+                outline: 'none',
+                background: C.field,
+                color: C.text,
+              }}
+            />
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              gap: 16,
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+                Actual Price <span style={{ color: C.pink }}>*</span>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: 14,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: 14,
+                    color: C.mid,
+                    fontWeight: 600,
+                  }}
+                >
+                  ₹
+                </span>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={actualPrice}
+                  onChange={(e) => setActualPrice(e.target.value)}
+                  placeholder="0"
+                  style={{
+                    width: '100%',
+                    height: 40,
+                    borderRadius: 8,
+                    border: `1px solid ${C.border2}`,
+                    padding: '0 14px 0 28px',
+                    fontSize: 14,
+                    fontFamily: 'inherit',
+                    outline: 'none',
+                    background: C.field,
+                    color: C.text,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+                Offer Price <span style={{ color: C.pink }}>*</span>
+              </label>
+              <div style={{ position: 'relative' }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: 14,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: 14,
+                    color: C.mid,
+                    fontWeight: 600,
+                  }}
+                >
+                  ₹
+                </span>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={offerPrice}
+                  onChange={(e) => setOfferPrice(e.target.value)}
+                  placeholder="0"
+                  style={{
+                    width: '100%',
+                    height: 40,
+                    borderRadius: 8,
+                    border: `1px solid ${hasPriceError ? C.pink : C.border2}`,
+                    padding: '0 14px 0 28px',
+                    fontSize: 14,
+                    fontFamily: 'inherit',
+                    outline: 'none',
+                    background: C.field,
+                    color: C.text,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {hasPriceError && (
+            <div
+              style={{
+                padding: '8px 12px',
+                borderRadius: 8,
+                background: 'rgba(245,92,122,0.06)',
+                border: `1px solid ${C.pink}`,
+                fontSize: 13,
+                color: C.pink,
+              }}
+            >
+              Offer price cannot be greater than the actual price.
+            </div>
+          )}
+
+          {errorMsg && (
+            <div
+              style={{
+                padding: '8px 12px',
+                borderRadius: 8,
+                background: 'rgba(245,92,122,0.06)',
+                border: `1px solid ${C.pink}`,
+                fontSize: 13,
+                color: C.pink,
+              }}
+            >
+              {errorMsg}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              style={{
+                height: 40,
+                padding: '0 18px',
+                borderRadius: 8,
+                border: `1px solid ${C.border2}`,
+                background: C.white,
+                color: C.text,
+                fontFamily: 'inherit',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: busy ? 'not-allowed' : 'pointer',
+                opacity: busy ? 0.7 : 1,
+              }}
+            >
+              Cancel
+            </button>
+            <GradBtn type="submit" disabled={isSaveDisabled}>
+              {isSaving ? 'Saving...' : 'Save'}
+            </GradBtn>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

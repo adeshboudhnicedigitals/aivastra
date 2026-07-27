@@ -9,7 +9,7 @@ export async function modelsRoutes(app: FastifyInstance) {
   app.get(
     '/v1/models/garment-types',
     {
-      preHandler: app.requireUser,
+      preHandler: app.requireUserOrCatalogApp,
       schema: { querystring: z.object({ gender: z.enum(['men', 'women', 'boys', 'girls']) }) },
     },
     async (req) => {
