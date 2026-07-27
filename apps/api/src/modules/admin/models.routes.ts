@@ -391,11 +391,20 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .where(isNull(schema.sampleVideos.deletedAt))
       .orderBy(schema.sampleVideos.sortOrder);
     return {
-      items: rows.map((row) => ({
-        ...row,
-        videoUrl: app.storage.publicUrl(row.videoR2Key),
-        thumbnailUrl: app.storage.publicUrl(row.thumbnailR2Key),
-      })),
+      items: await Promise.all(
+        rows.map(async (row) => {
+          const [video, thumbnail] = await Promise.all([
+            app.storage.presignGet(row.videoR2Key, 3_600),
+            app.storage.presignGet(row.thumbnailR2Key, 3_600),
+          ]);
+
+          return {
+            ...row,
+            videoUrl: video.url,
+            thumbnailUrl: thumbnail.url,
+          };
+        }),
+      ),
     };
   });
 
@@ -444,7 +453,16 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
           sortOrder: body.sortOrder,
         })
         .returning();
-      return row;
+      const [video, thumbnail] = await Promise.all([
+        app.storage.presignGet(row.videoR2Key, 3_600),
+        app.storage.presignGet(row.thumbnailR2Key, 3_600),
+      ]);
+
+      return {
+        ...row,
+        videoUrl: video.url,
+        thumbnailUrl: thumbnail.url,
+      };
     },
   );
 

@@ -26,7 +26,10 @@ describe('admin sample videos CRUD', () => {
       method: 'POST',
       url: '/admin/assets/sample-videos/presign',
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ videoContentType: 'video/mp4', thumbnailContentType: 'image/jpeg' }),
+      payload: JSON.stringify({
+        videoContentType: 'video/mp4',
+        thumbnailContentType: 'image/jpeg',
+      }),
     });
     expect(presignRes.statusCode).toBe(200);
     const presign = presignRes.json();
@@ -51,10 +54,24 @@ describe('admin sample videos CRUD', () => {
     const created = confirmRes.json();
     expect(created.id).toBeTruthy();
     expect(created.isActive).toBe(true);
+    expect(created.videoUrl).toContain('X-Amz-Signature');
+    expect(created.thumbnailUrl).toContain('X-Amz-Signature');
 
-    const listRes = await app.inject({ method: 'GET', url: '/admin/assets/sample-videos', headers: adminAuth });
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/admin/assets/sample-videos',
+      headers: adminAuth,
+    });
     expect(listRes.statusCode).toBe(200);
-    expect(listRes.json().items.map((r: { id: string }) => r.id)).toContain(created.id);
+    const listed = listRes.json().items as Array<{
+      id: string;
+      videoUrl: string;
+      thumbnailUrl: string;
+    }>;
+    const listedCreated = listed.find((row) => row.id === created.id);
+    expect(listedCreated).toBeDefined();
+    expect(listedCreated?.videoUrl).toContain('X-Amz-Signature');
+    expect(listedCreated?.thumbnailUrl).toContain('X-Amz-Signature');
 
     const patchRes = await app.inject({
       method: 'PATCH',
@@ -63,15 +80,29 @@ describe('admin sample videos CRUD', () => {
       payload: JSON.stringify({ isActive: false }),
     });
     expect(patchRes.statusCode).toBe(200);
-    const [afterPatch] = await app.db.select().from(schema.sampleVideos).where(eq(schema.sampleVideos.id, created.id));
+    const [afterPatch] = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(eq(schema.sampleVideos.id, created.id));
     expect(afterPatch.isActive).toBe(false);
 
-    const deleteRes = await app.inject({ method: 'DELETE', url: `/admin/assets/sample-videos/${created.id}`, headers: adminAuth });
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/admin/assets/sample-videos/${created.id}`,
+      headers: adminAuth,
+    });
     expect(deleteRes.statusCode).toBe(200);
-    const [afterDelete] = await app.db.select().from(schema.sampleVideos).where(eq(schema.sampleVideos.id, created.id));
+    const [afterDelete] = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(eq(schema.sampleVideos.id, created.id));
     expect(afterDelete.deletedAt).not.toBeNull();
 
-    const listRes2 = await app.inject({ method: 'GET', url: '/admin/assets/sample-videos', headers: adminAuth });
+    const listRes2 = await app.inject({
+      method: 'GET',
+      url: '/admin/assets/sample-videos',
+      headers: adminAuth,
+    });
     expect(listRes2.json().items.map((r: { id: string }) => r.id)).not.toContain(created.id);
   });
 
@@ -80,7 +111,10 @@ describe('admin sample videos CRUD', () => {
       method: 'POST',
       url: '/admin/assets/sample-videos/presign',
       headers: { ...adminAuth, 'content-type': 'application/json' },
-      payload: JSON.stringify({ videoContentType: 'video/webm', thumbnailContentType: 'image/jpeg' }),
+      payload: JSON.stringify({
+        videoContentType: 'video/webm',
+        thumbnailContentType: 'image/jpeg',
+      }),
     });
     expect(res.statusCode).toBe(400);
   });
