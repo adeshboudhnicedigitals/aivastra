@@ -58,6 +58,10 @@ const Env = z.object({
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
+  // Comma-separated email allowlist for the Catalog Video (PixVerse) feature.
+  // Unset = open to everyone (dev default). Set in production to restrict the
+  // feature to a soft-launch cohort without a code change.
+  CATALOG_VIDEO_ALLOWED_EMAILS: z.string().optional(),
 });
 export type Env = z.infer<typeof Env>;
 export function loadEnv(): Env {

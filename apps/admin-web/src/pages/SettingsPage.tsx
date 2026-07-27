@@ -393,6 +393,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   >([]);
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
+  const [pixverseCreditCost, setPixverseCreditCost] = useState(20);
   const [uploadLimitsMb, setUploadLimitsMb] = useState({
     merchantCatalogMaxBytes: 20,
     webGarmentMaxBytes: 20,
@@ -429,6 +430,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
       merchantCatalogAspectRatio?: string;
       tryon?: { creditCost: number };
       sareeMannequinDev?: { creditCost: number };
+      pixverse?: { creditCost: number };
       uploadLimits?: Record<string, number>;
     }>('/admin/config')
       .then((cfg) => {
@@ -439,6 +441,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           setMerchantCatalogAspectRatio(cfg.merchantCatalogAspectRatio);
         if (cfg.tryon) setTryonCreditCost(cfg.tryon.creditCost);
         if (cfg.sareeMannequinDev) setSareeMannequinDevCreditCost(cfg.sareeMannequinDev.creditCost);
+        if (cfg.pixverse) setPixverseCreditCost(cfg.pixverse.creditCost);
         if (cfg.uploadLimits) {
           const bytesToMb = (b: number) => Math.round((b / (1024 * 1024)) * 100) / 100;
           setUploadLimitsMb({
@@ -521,6 +524,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
           merchantCatalogAspectRatio,
           tryon: { creditCost: tryonCreditCost },
           sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
+          pixverse: { creditCost: pixverseCreditCost },
           uploadLimits: {
             merchantCatalogMaxBytes: mbToBytes(uploadLimitsMb.merchantCatalogMaxBytes),
             webGarmentMaxBytes: mbToBytes(uploadLimitsMb.webGarmentMaxBytes),
@@ -1249,6 +1253,45 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                       />
                       <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                         credits / job
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 24, marginBottom: 8 }}>
+                  <div className="setting-lbl" style={{ marginBottom: 4 }}>
+                    Catalog Video (PixVerse)
+                  </div>
+                  <div className="setting-desc" style={{ marginBottom: 12 }}>
+                    Credit cost per catalog-video generation (image-to-video via PixVerse).
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 12px',
+                      border: '1px solid var(--border)',
+                      borderRadius: 'var(--r)',
+                      background: 'var(--surface-2)',
+                    }}
+                  >
+                    <span className="setting-lbl">Catalog Video</span>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                    >
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        max={1000}
+                        style={{ width: 80, textAlign: 'right' }}
+                        value={pixverseCreditCost}
+                        disabled={sysSaving}
+                        onChange={(e) => setPixverseCreditCost(Number(e.target.value))}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        credits / video
                       </span>
                     </div>
                   </div>

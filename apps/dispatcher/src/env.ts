@@ -16,6 +16,10 @@ const Env = z.object({
   XPENDING_CLAIM_THRESHOLD_MS: z.coerce.number().default(60_000),
   SENTRY_DSN: z.string().url().optional(),
   ENABLE_WATERMARKING: z.coerce.boolean().default(true),
+  PIXVERSE_API_KEY: z.string().optional(),
+  PIXVERSE_API_BASE_URL: z.string().url().default('https://app-api.pixverse.ai'),
+  PIXVERSE_POLL_INTERVAL_MS: z.coerce.number().default(5_000),
+  PIXVERSE_POLL_TIMEOUT_MS: z.coerce.number().default(180_000),
 });
 
 export type Env = z.infer<typeof Env>;
