@@ -1,3 +1,21 @@
+## 2026-07-27 - Merchant logo delivery on Android login
+
+### Done
+- Added nullable `merchants.logo_key` via migration `0127_add_merchant_logo` and the deterministic `merchant-logo/{merchantId}/logo.jpg` storage key; the migration was applied and the live PostgreSQL column was verified.
+- Added the super-admin merchant-logo presign endpoint (PNG/JPEG, 2 MB maximum, 300-second expiry), persisted/cleared `logoKey` through the existing merchant PATCH route, and exposed `logoKey` plus its resolved public `logoUrl` in admin user detail.
+- Added the logo upload/preview control to the existing admin Edit Merchant modal using the planned presign, direct storage PUT, PATCH, and detail-refresh sequence.
+- Added `logoUrl: string | null` to successful `POST /v1/auth/device-login` responses, resolved by the authenticated user's merchant row. No merchant row or no configured logo returns `null`.
+- Verified `pnpm typecheck`, both new integration suites together (4/4 tests), `pnpm --filter @aivastra/admin build`, and a targeted Biome check across all 10 touched source/test files.
+
+### Failed / Not Done
+- No live browser click-through was performed because this session has no browser automation tool; the admin UI was verified by typecheck, targeted Biome checks, and the production build.
+- The actual Android application integration is outside this repository and was not implemented here; this work provides the backend contract and admin upload UI for the Android developer.
+- Root `pnpm lint` remains non-zero only because of CRLF formatting in the unrelated, untracked personal `.vscode/settings.json`; every file touched by this plan passes the targeted Biome check.
+
+### Open Questions / Decisions
+- Decision retained: `logoUrl: null` tells Android to keep its already-bundled default logo; the backend does not host or return a default-logo URL.
+- Decision retained: only `/v1/auth/device-login` returns the logo. `/v1/auth/device-refresh` and `/v1/kiosk/auth/*` remain unchanged, so logo changes are picked up at the next login.
+
 ## 2026-07-27 - Admin-created users and username login
 
 ### Done
