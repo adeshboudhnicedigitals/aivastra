@@ -85,7 +85,12 @@ export const SystemConfigBody = z.object({
   merchantCatalogDefaults: z
     .record(
       z.enum(['men', 'women', 'boys', 'girls']),
-      z.object({ faceId: z.string().uuid(), backgroundId: z.string().uuid() }),
+      z.object({
+        faceId: z.string().uuid(),
+        backgroundId: z.string().uuid(),
+        lowerCatalogId: z.string().uuid().optional(),
+        shoeCatalogId: z.string().uuid().optional(),
+      }),
     )
     .optional(),
   merchantCatalogAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
