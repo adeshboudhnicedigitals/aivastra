@@ -146,6 +146,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           isActive: schema.merchants.isActive,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
+          logoKey: schema.merchants.logoKey,
           creditBalance: schema.merchantCredits.balance,
         })
         .from(schema.merchants)
@@ -177,7 +178,12 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         balance: credits?.balance ?? 0,
         totalJobs: jobsCount?.total ?? 0,
         recentJobs: jobs,
-        merchant: merchantRow ?? null,
+        merchant: merchantRow
+          ? {
+              ...merchantRow,
+              logoUrl: merchantRow.logoKey ? app.storage.publicUrl(merchantRow.logoKey) : null,
+            }
+          : null,
       };
     },
   );
