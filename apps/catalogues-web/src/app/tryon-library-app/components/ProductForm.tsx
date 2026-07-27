@@ -193,7 +193,16 @@ export function ProductForm({
             >
               <button
                 type="button"
-                onClick={() => setImageMode('catalogue')}
+                onClick={() => {
+                  if (imageMode !== 'catalogue') {
+                    if (previewUrl) URL.revokeObjectURL(previewUrl);
+                    if (generatedItem) void deleteProduct(generatedItem.id);
+                    setSelectedFile(undefined);
+                    setPreviewUrl(undefined);
+                    setGeneratedItem(undefined);
+                  }
+                  setImageMode('catalogue');
+                }}
                 disabled={busy}
                 style={{
                   flex: 1,
@@ -212,7 +221,16 @@ export function ProductForm({
               </button>
               <button
                 type="button"
-                onClick={() => setImageMode('flat')}
+                onClick={() => {
+                  if (imageMode !== 'flat') {
+                    if (previewUrl) URL.revokeObjectURL(previewUrl);
+                    if (generatedItem) void deleteProduct(generatedItem.id);
+                    setSelectedFile(undefined);
+                    setPreviewUrl(undefined);
+                    setGeneratedItem(undefined);
+                  }
+                  setImageMode('flat');
+                }}
                 disabled={busy}
                 style={{
                   flex: 1,
@@ -343,7 +361,7 @@ export function ProductForm({
                     </div>
                     {!generatedItem ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <GradBtn type="button" onClick={handleGenerate} disabled={isGenerating}>
+                        <GradBtn type="button" onClick={handleGenerate} disabled={busy}>
                           {isGenerating && <SpinnerIcon size={14} />}
                           {isGenerating ? 'Generating…' : 'Generate Catalogue Image'}
                         </GradBtn>
