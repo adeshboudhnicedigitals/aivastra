@@ -224,6 +224,7 @@ export async function createMerchantCatalogJob(
       watermark: false,
       queueStream: 'normal',
       creditsCharged: cost,
+      source: 'merchant_catalog',
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({
@@ -333,6 +334,7 @@ export async function createMerchantSareeMannequinJob(
       watermark: false,
       queueStream: 'normal',
       creditsCharged: cost,
+      source: 'merchant_catalog_saree_mannequin',
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({

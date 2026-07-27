@@ -30,6 +30,7 @@ export async function createKioskJob(
       customerPhotoKey: input.customerPhotoKey,
       status: 'QUEUED',
       creditsCharged: input.cost,
+      source: 'kiosk',
     });
 
     // biome-ignore lint/suspicious/noExplicitAny: same - face/bg/pose are nullable in SQL but Drizzle types them non-null.

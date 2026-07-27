@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { requireAdmin } from './guard.js';
+import { jobTypeSql } from './job-type.js';
 
 const PaginatedSearch = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -159,9 +160,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
             startedAt: schema.jobs.startedAt,
             completedAt: schema.jobs.completedAt,
             creditsCharged: schema.jobs.creditsCharged,
-            jobType: sql<
-              'catalogue' | 'tryon' | 'widget' | 'api'
-            >`CASE WHEN ${schema.jobs.merchantId} IS NOT NULL THEN 'widget' WHEN ${schema.jobs.apiKeyId} IS NOT NULL THEN 'api' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
+            jobType: jobTypeSql(),
           })
           .from(schema.jobs)
           .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))

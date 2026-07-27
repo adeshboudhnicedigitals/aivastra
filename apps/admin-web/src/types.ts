@@ -224,10 +224,22 @@ export interface User {
     startedAt?: string | null;
     completedAt?: string | null;
     creditsCharged: number;
-    jobType: 'catalogue' | 'tryon' | 'widget' | 'api';
+    jobType: string;
   }[];
   merchant?: UserMerchant | null;
 }
+
+export type JobType =
+  | 'catalog'
+  | 'tryon'
+  | 'saree'
+  | 'saree_mannequin'
+  | 'shopify'
+  | 'merchant_tryon'
+  | 'kiosk'
+  | 'merchant_catalog'
+  | 'merchant_catalog_saree_mannequin'
+  | 'api';
 
 export type JobStatus =
   | 'QUEUED'
@@ -258,7 +270,7 @@ export interface Job {
   poseLabel?: string | null;
   hasLower: boolean;
   hasShoe: boolean;
-  jobType?: 'catalogue' | 'tryon' | 'widget' | 'api';
+  jobType?: string;
   outputUrl?: string;
   userHint?: string;
 }
