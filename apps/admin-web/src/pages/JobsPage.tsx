@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { JobTypeBadge } from '../components/JobTypeBadge';
 import { Pager } from '../components/Pager';
 import { StatusBadge } from '../components/StatusBadge';
 import type { SortDir } from '../components/Th';
@@ -417,6 +418,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
               style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}
             >
               <KV k="User" v={j.userEmail ?? '—'} />
+              <KV k="Job Type" v={<JobTypeBadge jobType={j.jobType} />} />
               <KV k="Status" v={<StatusBadge status={j.status} />} />
               <KV k="Credits charged" v={String(j.creditsCharged)} />
               <KV k="Priority" v={j.priority ? 'Priority' : 'Normal'} />
@@ -724,33 +726,7 @@ export default function JobsPage({ onNav: _onNav, toast }: Props) {
                       <span className="semi">{j.userEmail ?? '—'}</span>
                     </td>
                     <td>
-                      {j.jobType === 'api' ? (
-                        <span
-                          className="badge dot"
-                          style={{
-                            background: 'rgba(16,185,129,0.12)',
-                            color: 'rgb(16,185,129)',
-                            borderColor: 'rgba(16,185,129,0.3)',
-                          }}
-                        >
-                          API
-                        </span>
-                      ) : j.jobType === 'tryon' ? (
-                        <span
-                          className="badge dot"
-                          style={{
-                            background: 'rgba(124,58,237,0.12)',
-                            color: 'rgb(124,58,237)',
-                            borderColor: 'rgba(124,58,237,0.3)',
-                          }}
-                        >
-                          Tryon
-                        </span>
-                      ) : j.jobType === 'widget' ? (
-                        <span className="badge dot accent">Widget</span>
-                      ) : (
-                        <span className="badge dot">Catalog</span>
-                      )}
+                      <JobTypeBadge jobType={j.jobType} />
                     </td>
                     <td>
                       <StatusBadge status={j.status} />

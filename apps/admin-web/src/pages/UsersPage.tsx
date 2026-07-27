@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Icon } from '../components/Icons';
+import { JobTypeBadge } from '../components/JobTypeBadge';
 import { KV } from '../components/KV';
 import { NameAvatar } from '../components/NameAvatar';
 import { Pager } from '../components/Pager';
@@ -683,25 +684,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                         >
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span
-                                className={`badge ${
-                                  j.jobType === 'widget'
-                                    ? 'accent'
-                                    : j.jobType === 'api'
-                                      ? 'success'
-                                      : j.jobType === 'tryon'
-                                        ? 'info'
-                                        : ''
-                                }`}
-                              >
-                                {j.jobType === 'widget'
-                                  ? 'Merchant'
-                                  : j.jobType === 'api'
-                                    ? 'API'
-                                    : j.jobType === 'tryon'
-                                      ? 'Try-On'
-                                      : 'Studio'}
-                              </span>
+                              <JobTypeBadge jobType={j.jobType} />
                               <span className="mono sub">{j.id.slice(0, 8)}&hellip;</span>
                             </div>
                           </td>
