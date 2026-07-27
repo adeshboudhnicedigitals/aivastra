@@ -7,9 +7,17 @@ export async function createSessionTokens(
   userId: string,
   reply: FastifyReply,
   status: number,
+  portal: 'web' | 'catalog-app' = 'web',
 ) {
   const secret = new TextEncoder().encode(app.env.JWT_SECRET);
-  const accessToken = await signAccess(secret, userId, { kind: 'access' }, app.env.JWT_EXPIRY);
+  const audience = portal === 'catalog-app' ? 'catalog-app' : undefined;
+  const accessToken = await signAccess(
+    secret,
+    userId,
+    { kind: 'access' },
+    app.env.JWT_EXPIRY,
+    audience,
+  );
   const r = newRefreshToken();
   const expiresAt = new Date(Date.now() + parseDuration(app.env.REFRESH_TOKEN_EXPIRY));
   await app.db.insert(schema.refreshTokens).values({
@@ -18,9 +26,10 @@ export async function createSessionTokens(
     generation: 1,
     tokenHash: r.hash,
     expiresAt,
-    portal: 'web',
+    portal,
   });
-  reply.setCookie('refresh', r.plain, {
+  const cookieName = portal === 'catalog-app' ? 'catalog_app_refresh' : 'refresh';
+  reply.setCookie(cookieName, r.plain, {
     httpOnly: true,
     secure: app.env.NODE_ENV === 'production',
     sameSite: 'lax',
