@@ -1,3 +1,76 @@
+## 2026-07-27 - Hide the Sellio preview page and route (not removed)
+
+### Done
+- Removed the "Sellio" nav item from `apps/catalogues-web/src/components/sidebar.tsx` (commented out, matching the existing `saree` precedent in the same file — page code stays intact, just not linked from the sidebar) and dropped it from the "BUSINESS" group's id filter list.
+- Added `ALWAYS_BLOCKED_PATHS` to `apps/catalogues-web/src/middleware.ts` (`['/sellio']`), redirecting to `/studio` regardless of `NODE_ENV` — unlike the existing `DEV_ONLY_PATHS` mechanism, which only blocks in production and leaves the route open in dev. This blocks direct URL navigation in both dev and production while leaving `app/(app)/sellio/*` untouched on disk.
+- Verified live against the running dev server: `curl http://localhost:3000/sellio` now 307-redirects to `/studio`.
+- Scope note: only the `(app)/sellio` main-nav preview page was touched. `apps/catalogues-web/src/app/embed/sellio-studio` is a separate embed route under a different path and was left alone since it wasn't what was asked about.
+
+### Failed / Not Done
+- No live browser click-through of the sidebar itself (no browser automation tool available) — verified via the middleware curl check and reading the sidebar filter logic.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Fix admin Job Type classification to use jobs.source
+
+### Done
+- Root cause: the admin "Job Type" badge (list, job detail, and the per-user recent-jobs table) was computed via a duplicated ad-hoc SQL `CASE` on `merchantId`/`apiKeyId`/`faceId`-nullity, which only ever produced 4 buckets (`widget`/`api`/`tryon`/`catalogue`) and completely ignored `jobs.source` — a column every job-creation path already writes with a specific value (`catalog`, `tryon`, `saree`, `saree_mannequin`, `shopify`, `merchant_tryon`, `api`). Verified against local dev data: `jobs.source` had 3 distinct real values but the admin badge only ever showed 2 (`tryon`=31, `catalogue`=19) — e.g. the one real `saree_mannequin`-sourced job displayed as generic "Catalog".
+- `/admin/jobs/:id` (job detail) never returned a `jobType`/`source` field at all — the detail drawer had no "Job Type" row to show one.
+- Two job-creation paths never wrote `jobs.source`: `apps/api/src/modules/merchant/create-job.ts` (the "Try On Library" bulk-catalogue feature, and its saree-mannequin-prep variant) and `apps/api/src/modules/kiosk/create-job.ts` (physical kiosk hardware). Added `source: 'merchant_catalog'`, `source: 'merchant_catalog_saree_mannequin'`, and `source: 'kiosk'` respectively.
+- New shared helper `apps/api/src/modules/admin/job-type.ts` (`jobTypeSql()`) reads `jobs.source` directly, falling back to the old faceId-nullity heuristic only for legacy null-source rows (confirmed via data that no null-source row ever has merchantId/apiKeyId set, so the simpler two-way fallback is safe). Used in both `admin/jobs.routes.ts` (list + detail) and `admin/users.routes.ts` (recent jobs), replacing the 3 duplicated CASE expressions.
+- Frontend: added `JobType` union + widened `jobType` to `string` in `apps/admin-web/src/types.ts`; added `jobTypeBadge()` label/color map to `apps/admin-web/src/lib/data.ts` (10 specific labels: Catalog, Try On, Saree, Saree Prep, Shopify, Merchant Try-On, Kiosk, Try On Library, Try On Library Prep, API); new shared `<JobTypeBadge>` component replacing 3 separately-duplicated inline ternary chains in `JobsPage.tsx` (list column + newly-added "Job Type" row in the detail drawer) and `UsersPage.tsx` (recent jobs). Per explicit decision, mannequin-prep steps get their own distinct badge rather than folding into their parent flow's label.
+- New test `apps/api/test/integration/admin-jobs-type.test.ts` (3 tests, all passing): every distinct `source` value round-trips verbatim through both `/admin/jobs` and `/admin/jobs/:id`; legacy null-source rows still fall back correctly.
+- Verified: `pnpm --filter @aivastra/api exec tsc --noEmit`, `pnpm --filter @aivastra/admin build`, targeted Biome checks, and the new integration test all clean/passing.
+
+### Failed / Not Done
+- Ran the broader `merchant-kiosk-admin.test.ts` suite for regression-checking; one pre-existing failure found (`allows admin device creation...` calls `/v1/admin/merchants/:id/kiosk-devices`, a stale URL — the real route has no `/v1` prefix). Confirmed via `git stash` that this fails identically without this change, so it's unrelated and untouched.
+- Did not change `createSareeMannequin.ts`'s step-2 job, which intentionally sets `source: 'catalog'` (not `'saree'`) once it hands off to the standard catalog pipeline — left as-is since that looked like a deliberate choice, not investigated further.
+- No live browser click-through of the admin panel in this environment (no browser automation tool available) — verified via the new integration test plus `pnpm --filter @aivastra/admin build`.
+
+### Open Questions / Decisions
+- If `createSareeMannequin.ts`'s step-2 `source: 'catalog'` (see above) should instead be `'saree'` for admin-visibility purposes, that's a follow-up — flagging rather than changing without confirmation since it affects billing/refund code paths that key off `source` elsewhere.
+
+## 2026-07-27 - Hide Default Resolution from Account Preferences (no consumer yet)
+
+### Done
+- Confirmed Studio's output resolution is fully derived (`resolutionFromOutputDims` off each aspect ratio's fixed `ASPECT_PX` dims, or custom width/height) — there is no resolution *picker* anywhere in the product, so a saved "Default Resolution" preference had nothing to feed into.
+- Hid the "Default Resolution" field from the Account Preferences section on the Settings page (`apps/catalogues-web/src/app/(app)/settings/page.tsx`). The backend (`users.default_resolution` column, `GET`/`PATCH /v1/me`) and the page's own state/save-payload wiring for it are left in place untouched, so the stored value round-trips unchanged and no migration/rollback is needed.
+- Removed the now-unused `RESOLUTIONS` options constant from the Settings page.
+
+### Failed / Not Done
+- N/A — straightforward UI hide, no blockers.
+
+### Open Questions / Decisions
+- **Re-enable trigger:** when Studio gains an actual resolution picker (a user-facing HD/2K/4K choice that changes the requested output dimensions, as opposed to the current auto-derived display), re-add the `SelectField` for "Default Resolution" in `SettingsPage` (`Section title="Account Preferences"`) and prefill that picker's initial state from `me.defaultResolution`, the same way Studio already prefills `platform`/`aspect` from `me.defaultPlatform`/`me.defaultAspectRatio`.
+
+## 2026-07-27 - Fix PremiumSelect popup clipping inside overflow-hidden cards
+
+### Done
+- Root cause: `PremiumSelect`'s option popup was `position: absolute` inside a `position: relative` wrapper nested in the Settings page's `cardWrap` (`overflow: 'hidden'`, used for its rounded corners). The popup got clipped at the card boundary, producing the broken screenshot — partial row dividers and a sibling field's border bleeding through where the popup was cut off.
+- Fixed generally in the shared component rather than patching one page: `apps/catalogues-web/src/components/ui/premium-select.tsx` now renders the popup through `createPortal(..., document.body)`, positioned with `position: fixed` from the trigger's `getBoundingClientRect()`, recomputed on open and on scroll/resize while open. Click-outside detection now also checks the portaled popup node (previously only checked the wrapper, which no longer contains the popup in the DOM).
+- This is a general fix for every `PremiumSelect` usage (also used in `SubcategoryModal.tsx` and `premium-date-range.tsx`), not just the Account Preferences fields.
+- Verified: `pnpm --filter @aivastra/web exec tsc --noEmit` and Biome check both clean.
+
+### Failed / Not Done
+- No live browser click-through in this environment (no browser automation tool available).
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Account Preferences dropdowns use the premium select
+
+### Done
+- Replaced the raw native `<select>` on the Account Preferences fields with the existing `PremiumSelect` component (`apps/catalogues-web/src/components/ui/premium-select.tsx`), matching the styling convention already used in `SubcategoryModal.tsx` (bordered wrapper + `fullWidth`/`height` props).
+- Added a `disabled` prop to `PremiumSelect` itself (it previously had no way to be non-interactive) — closes the popover if it becomes disabled while open, dims the trigger, and disables the underlying button.
+- Verified: `pnpm --filter @aivastra/web exec tsc --noEmit` and targeted Biome check both clean.
+
+### Failed / Not Done
+- No live browser click-through in this environment (no browser automation tool available) — verified via typecheck/lint and by matching the existing proven `PremiumSelect` usage pattern elsewhere in the app.
+
+### Open Questions / Decisions
+- None.
+
 ## 2026-07-27 - Account Preferences settings now persist
 
 ### Done
