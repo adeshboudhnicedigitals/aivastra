@@ -1,10 +1,12 @@
 import { schema } from '@aivastra/db';
-import { UpdateUserBody } from '@aivastra/types';
+import { CreateUserBody, ResetPasswordBody, UpdateUserBody } from '@aivastra/types';
 import { and, count, desc, eq, exists, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { hashPassword } from '../auth/service.js';
 import { requireAdmin } from './guard.js';
+import { jobTypeSql } from './job-type.js';
 
 const PaginatedSearch = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -27,6 +29,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         ? or(
             ilike(schema.users.email, `%${search}%`),
             ilike(schema.users.displayName, `%${search}%`),
+            ilike(schema.users.username, `%${search}%`),
           )
         : undefined;
       const where =
@@ -42,6 +45,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .select({
           id: schema.users.id,
           email: schema.users.email,
+          username: schema.users.username,
           displayName: schema.users.displayName,
           phone: schema.users.phone,
           tier: schema.users.tier,
@@ -101,6 +105,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .select({
           id: schema.users.id,
           email: schema.users.email,
+          username: schema.users.username,
           displayName: schema.users.displayName,
           phone: schema.users.phone,
           tier: schema.users.tier,
@@ -141,6 +146,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           isActive: schema.merchants.isActive,
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
+          logoKey: schema.merchants.logoKey,
           creditBalance: schema.merchantCredits.balance,
         })
         .from(schema.merchants)
@@ -159,9 +165,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
             startedAt: schema.jobs.startedAt,
             completedAt: schema.jobs.completedAt,
             creditsCharged: schema.jobs.creditsCharged,
-            jobType: sql<
-              'catalogue' | 'tryon' | 'widget' | 'api'
-            >`CASE WHEN ${schema.jobs.merchantId} IS NOT NULL THEN 'widget' WHEN ${schema.jobs.apiKeyId} IS NOT NULL THEN 'api' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
+            jobType: jobTypeSql(),
           })
           .from(schema.jobs)
           .leftJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
@@ -174,7 +178,12 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         balance: credits?.balance ?? 0,
         totalJobs: jobsCount?.total ?? 0,
         recentJobs: jobs,
-        merchant: merchantRow ?? null,
+        merchant: merchantRow
+          ? {
+              ...merchantRow,
+              logoUrl: merchantRow.logoKey ? app.storage.publicUrl(merchantRow.logoKey) : null,
+            }
+          : null,
       };
     },
   );
@@ -219,6 +228,89 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           .update(schema.refreshTokens)
           .set({ revokedAt: new Date() })
           .where(eq(schema.refreshTokens.userId, id));
+      return { ok: true };
+    },
+  );
+  app.post(
+    '/admin/users',
+    { preHandler: WRITE, schema: { body: CreateUserBody } },
+    async (req, reply) => {
+      const { username, password, displayName, email, phone, companyName } = req.body as z.infer<
+        typeof CreateUserBody
+      >;
+      const normalizedUsername = username.toLowerCase();
+
+      const [usernameConflict] = await app.db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.username, normalizedUsername))
+        .limit(1);
+      if (usernameConflict) throw new AppError('USERNAME_TAKEN', 409, 'username already taken');
+
+      if (email) {
+        const [emailConflict] = await app.db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.email, email))
+          .limit(1);
+        if (emailConflict) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
+      }
+
+      if (phone) {
+        const [phoneConflict] = await app.db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.phone, phone))
+          .limit(1);
+        if (phoneConflict) {
+          throw new AppError('PHONE_TAKEN', 409, 'phone already assigned to another account');
+        }
+      }
+
+      const passwordHash = await hashPassword(password);
+      const [user] = await app.db
+        .insert(schema.users)
+        .values({
+          username: normalizedUsername,
+          passwordHash,
+          displayName,
+          email: email ?? null,
+          phone: phone ?? null,
+          companyName: companyName ?? null,
+          tier: 'free',
+          // Admin is vouching for this account directly -- there is no inbox to
+          // verify (may not even have an email), so verification doesn't apply.
+          emailVerified: true,
+        })
+        .returning({ id: schema.users.id });
+      if (!user) throw new AppError('INTERNAL', 500, 'failed to create user');
+      await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+
+      reply.code(201);
+      return { ok: true, userId: user.id };
+    },
+  );
+
+  app.post(
+    '/admin/users/:id/reset-password',
+    {
+      preHandler: WRITE,
+      schema: { params: z.object({ id: z.string().uuid() }), body: ResetPasswordBody },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { newPassword } = req.body as z.infer<typeof ResetPasswordBody>;
+      const passwordHash = await hashPassword(newPassword);
+      const [updated] = await app.db
+        .update(schema.users)
+        .set({ passwordHash, updatedAt: new Date() })
+        .where(eq(schema.users.id, id))
+        .returning({ id: schema.users.id });
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
+      await app.db
+        .update(schema.refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(schema.refreshTokens.userId, id));
       return { ok: true };
     },
   );

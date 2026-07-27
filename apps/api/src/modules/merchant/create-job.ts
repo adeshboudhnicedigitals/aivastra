@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { ASPECT_DIMENSIONS, type Resolution, resolutionFromDims } from '@aivastra/types';
-import { and, eq, ilike } from 'drizzle-orm';
+import { aliasedTable, and, eq, ilike } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
 import {
@@ -16,7 +16,10 @@ const CONFIG_KEY = 'config:system';
 
 interface MerchantCatalogDefaults {
   merchantCatalogDefaults?: Partial<
-    Record<'men' | 'women' | 'boys' | 'girls', { faceId: string; backgroundId: string }>
+    Record<
+      'men' | 'women' | 'boys' | 'girls',
+      { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
+    >
   >;
   merchantCatalogAspectRatio?: string;
 }
@@ -76,6 +79,59 @@ export async function createMerchantCatalogJob(
   }
   const aspectRatio = cfg.merchantCatalogAspectRatio ?? '2:3';
 
+  // Determine whether the fixed pose's workflow (honoring any per-garment-type
+  // override in pose_garment_configs) actually needs a lower garment / shoe --
+  // mirrors the pose-workflow resolution in jobs/create.ts so both paths agree
+  // on what a given pose+garment-type combo requires.
+  const defaultWorkflow = aliasedTable(schema.workflowTemplates, 'default_workflow');
+  const overrideWorkflow = aliasedTable(schema.workflowTemplates, 'override_workflow');
+  const [poseWorkflow] = await app.db
+    .select({
+      defaultLowerNodeId: defaultWorkflow.lowerNodeId,
+      defaultShoeNodeId: defaultWorkflow.shoeNodeId,
+      configWorkflowTemplateId: schema.poseGarmentConfigs.workflowTemplateId,
+      overrideLowerNodeId: overrideWorkflow.lowerNodeId,
+      overrideShoeNodeId: overrideWorkflow.shoeNodeId,
+    })
+    .from(schema.modelPoseAssets)
+    .leftJoin(defaultWorkflow, eq(schema.modelPoseAssets.workflowTemplateId, defaultWorkflow.id))
+    .leftJoin(
+      schema.poseGarmentConfigs,
+      and(
+        eq(schema.poseGarmentConfigs.poseAssetId, schema.modelPoseAssets.id),
+        eq(schema.poseGarmentConfigs.subcategoryId, params.garmentSubcategoryId),
+      ),
+    )
+    .leftJoin(
+      overrideWorkflow,
+      eq(schema.poseGarmentConfigs.workflowTemplateId, overrideWorkflow.id),
+    )
+    .where(eq(schema.modelPoseAssets.id, garmentType.defaultPoseId))
+    .limit(1);
+  const needsLower =
+    (poseWorkflow?.configWorkflowTemplateId != null
+      ? poseWorkflow.overrideLowerNodeId
+      : poseWorkflow?.defaultLowerNodeId) != null;
+  const needsShoes =
+    (poseWorkflow?.configWorkflowTemplateId != null
+      ? poseWorkflow.overrideShoeNodeId
+      : poseWorkflow?.defaultShoeNodeId) != null;
+
+  if (needsLower && !categoryDefaults.lowerCatalogId) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      `admin has not configured a default lower garment for category "${params.category}"`,
+    );
+  }
+  if (needsShoes && !categoryDefaults.shoeCatalogId) {
+    throw new AppError(
+      'VALIDATION',
+      400,
+      `admin has not configured a default shoe for category "${params.category}"`,
+    );
+  }
+
   const [face] = await app.db
     .select({ id: schema.modelFaces.id })
     .from(schema.modelFaces)
@@ -100,12 +156,42 @@ export async function createMerchantCatalogJob(
         eq(schema.modelPoseAssets.isActive, true),
       ),
     );
+  const [lowerItem] = needsLower
+    ? await app.db
+        .select({ id: schema.catalogItems.id })
+        .from(schema.catalogItems)
+        .where(
+          and(
+            eq(schema.catalogItems.id, categoryDefaults.lowerCatalogId!),
+            eq(schema.catalogItems.isActive, true),
+          ),
+        )
+    : [];
+  const [shoeItem] = needsShoes
+    ? await app.db
+        .select({ id: schema.catalogItems.id })
+        .from(schema.catalogItems)
+        .where(
+          and(
+            eq(schema.catalogItems.id, categoryDefaults.shoeCatalogId!),
+            eq(schema.catalogItems.isActive, true),
+          ),
+        )
+    : [];
   if (!face)
     throw new AppError('BAD_CATALOG', 400, 'configured default face not found or inactive');
   if (!background)
     throw new AppError('BAD_CATALOG', 400, 'configured default background not found or inactive');
   if (!pose)
     throw new AppError('BAD_CATALOG', 400, 'configured default pose not found or inactive');
+  if (needsLower && !lowerItem)
+    throw new AppError(
+      'BAD_CATALOG',
+      400,
+      'configured default lower garment not found or inactive',
+    );
+  if (needsShoes && !shoeItem)
+    throw new AppError('BAD_CATALOG', 400, 'configured default shoe not found or inactive');
 
   await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
 
@@ -138,6 +224,7 @@ export async function createMerchantCatalogJob(
       watermark: false,
       queueStream: 'normal',
       creditsCharged: cost,
+      source: 'merchant_catalog',
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({
@@ -147,6 +234,8 @@ export async function createMerchantCatalogJob(
       backgroundId: background.id,
       poseId: pose.id,
       garmentTypeId: params.garmentSubcategoryId,
+      lowerCatalogId: lowerItem?.id ?? null,
+      shoeCatalogId: shoeItem?.id ?? null,
       params: {
         kind: 'merchant_catalog',
         subcategoryId: params.subcategoryId,
@@ -245,6 +334,7 @@ export async function createMerchantSareeMannequinJob(
       watermark: false,
       queueStream: 'normal',
       creditsCharged: cost,
+      source: 'merchant_catalog_saree_mannequin',
     });
     await atomicDeduct(tx as unknown as typeof app.db, params.userId, cost, jobId);
     await tx.insert(schema.jobInputs).values({

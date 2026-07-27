@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { C } from '../tokens';
 
 export type PremiumSelectOption = {
@@ -18,6 +19,7 @@ type Props = {
   height?: number;
   fontSize?: number;
   placeholder?: string;
+  disabled?: boolean;
 };
 
 export function PremiumSelect({
@@ -31,11 +33,16 @@ export function PremiumSelect({
   height = 28,
   fontSize = 12.5,
   placeholder,
+  disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [hoverIdx, setHoverIdx] = useState<number>(-1);
+  const [popupRect, setPopupRect] = useState<{ top: number; left: number; width: number } | null>(
+    null,
+  );
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const popupRef = useRef<HTMLDivElement | null>(null);
 
   const current = options.find((o) => o.value === value);
   const currentIdx = Math.max(
@@ -46,14 +53,42 @@ export function PremiumSelect({
   const listboxId = `listbox-${baseId}`;
 
   useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      if (wrapRef.current?.contains(target)) return;
+      if (popupRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Portal the popup to document.body so it isn't clipped by scrollable/overflow-hidden
+  // ancestors (e.g. the rounded card wrapper on the Settings page), and keep it anchored
+  // to the trigger as the page scrolls or resizes while open.
+  useEffect(() => {
+    if (!open) {
+      setPopupRect(null);
+      return;
+    }
+    const updateRect = () => {
+      const el = wrapRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setPopupRect({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    };
+    updateRect();
+    window.addEventListener('scroll', updateRect, true);
+    window.addEventListener('resize', updateRect);
+    return () => {
+      window.removeEventListener('scroll', updateRect, true);
+      window.removeEventListener('resize', updateRect);
+    };
   }, [open]);
 
   useEffect(() => {
@@ -108,13 +143,15 @@ export function PremiumSelect({
       <button
         type="button"
         role="combobox"
-        className="focus-ring hover-surface"
+        className={disabled ? undefined : 'focus-ring hover-surface'}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
         aria-controls={open ? listboxId : undefined}
         aria-activedescendant={open && hoverIdx >= 0 ? `${listboxId}-opt-${hoverIdx}` : undefined}
-        onClick={() => setOpen((v) => !v)}
+        aria-disabled={disabled}
+        disabled={disabled}
+        onClick={() => !disabled && setOpen((v) => !v)}
         style={{
           appearance: 'none',
           WebkitAppearance: 'none',
@@ -133,8 +170,9 @@ export function PremiumSelect({
           fontFamily: 'inherit',
           fontSize,
           fontWeight: 600,
-          color: C.text,
-          cursor: 'pointer',
+          color: disabled ? C.light : C.text,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+          opacity: disabled ? 0.7 : 1,
           transition: 'background-color .12s',
         }}
       >
@@ -172,80 +210,88 @@ export function PremiumSelect({
         </svg>
       </button>
 
-      {open && (
-        <div
-          id={listboxId}
-          ref={listRef}
-          role="listbox"
-          style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            [align === 'right' ? 'right' : 'left']: 0,
-            minWidth: '100%',
-            maxHeight: 240,
-            overflowY: 'auto',
-            background: C.card,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-            boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
-            zIndex: 60,
-            padding: 4,
-          }}
-        >
-          {options.map((opt, i) => {
-            const isSelected = opt.value === value;
-            const isHovered = i === hoverIdx;
-            return (
-              // biome-ignore lint/a11y/useFocusableInteractive: listbox managed focus via keyboard handler on container
-              // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard navigation handled by onKeyDown on trigger
-              <div
-                key={opt.value}
-                id={`${listboxId}-opt-${i}`}
-                data-idx={i}
-                role="option"
-                aria-selected={isSelected}
-                onMouseEnter={() => setHoverIdx(i)}
-                onClick={() => {
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  padding: '7px 10px',
-                  borderRadius: 5,
-                  fontSize: 12.5,
-                  fontWeight: isSelected ? 600 : 500,
-                  color: isSelected ? C.pink : C.text,
-                  background: isHovered ? 'var(--c-merchant-hover)' : 'transparent',
-                  cursor: 'pointer',
-                  transition: 'background-color .08s, color .08s',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                <span>{opt.label}</span>
-                {isSelected && (
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {open &&
+        popupRect &&
+        createPortal(
+          <div
+            id={listboxId}
+            ref={(node) => {
+              listRef.current = node;
+              popupRef.current = node;
+            }}
+            role="listbox"
+            style={{
+              position: 'fixed',
+              top: popupRect.top,
+              ...(align === 'right'
+                ? { right: window.innerWidth - (popupRect.left + popupRect.width) }
+                : { left: popupRect.left }),
+              minWidth: popupRect.width,
+              maxHeight: 240,
+              overflowY: 'auto',
+              background: C.card,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
+              zIndex: 1000,
+              padding: 4,
+            }}
+          >
+            {options.map((opt, i) => {
+              const isSelected = opt.value === value;
+              const isHovered = i === hoverIdx;
+              return (
+                // biome-ignore lint/a11y/useFocusableInteractive: listbox managed focus via keyboard handler on container
+                // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard navigation handled by onKeyDown on trigger
+                <div
+                  key={opt.value}
+                  id={`${listboxId}-opt-${i}`}
+                  data-idx={i}
+                  role="option"
+                  aria-selected={isSelected}
+                  onMouseEnter={() => setHoverIdx(i)}
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    padding: '7px 10px',
+                    borderRadius: 5,
+                    fontSize: 12.5,
+                    fontWeight: isSelected ? 600 : 500,
+                    color: isSelected ? C.pink : C.text,
+                    background: isHovered ? 'var(--c-merchant-hover)' : 'transparent',
+                    cursor: 'pointer',
+                    transition: 'background-color .08s, color .08s',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span>{opt.label}</span>
+                  {isSelected && (
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </div>
+              );
+            })}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -376,8 +376,14 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   });
   const [maxOutputPx, setMaxOutputPx] = useState(2048);
   const [merchantCatalogDefaults, setMerchantCatalogDefaults] = useState<
-    Record<string, { faceId: string; backgroundId: string }>
+    Record<
+      string,
+      { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
+    >
   >({});
+  const [catalogItemsList, setCatalogItemsList] = useState<
+    Array<{ id: string; label: string; type: 'lower' | 'shoe'; genderSlug: string | null }>
+  >([]);
   const [merchantCatalogAspectRatio, setMerchantCatalogAspectRatio] = useState('2:3');
   const [modelFacesList, setModelFacesList] = useState<
     Array<{ id: string; label: string; gender: string }>
@@ -417,7 +423,10 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     apiFetch<{
       resolutions?: Record<string, { enabled: boolean; creditCost: number }>;
       maxOutputPx?: number;
-      merchantCatalogDefaults?: Record<string, { faceId: string; backgroundId: string }>;
+      merchantCatalogDefaults?: Record<
+        string,
+        { faceId: string; backgroundId: string; lowerCatalogId?: string; shoeCatalogId?: string }
+      >;
       merchantCatalogAspectRatio?: string;
       tryon?: { creditCost: number };
       sareeMannequinDev?: { creditCost: number };
@@ -483,6 +492,11 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     apiFetch<{ items: Array<{ id: string; label: string }> }>('/admin/assets/backgrounds')
       .then((res) => setModelBackgroundsList(res.items))
       .catch(() => {});
+    apiFetch<
+      Array<{ id: string; label: string; type: 'lower' | 'shoe'; genderSlug: string | null }>
+    >('/admin/catalog/items')
+      .then(setCatalogItemsList)
+      .catch(() => {});
   }, []);
 
   const saveSysConfig = async () => {
@@ -490,12 +504,23 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
     try {
       const mbToBytes = (mb: number) => Math.round(mb * 1024 * 1024);
       const gbToBytes = (gb: number) => Math.round(gb * 1024 * 1024 * 1024);
+      const sanitizedMerchantCatalogDefaults = Object.fromEntries(
+        Object.entries(merchantCatalogDefaults).map(([cat, v]) => [
+          cat,
+          {
+            faceId: v.faceId,
+            backgroundId: v.backgroundId,
+            ...(v.lowerCatalogId ? { lowerCatalogId: v.lowerCatalogId } : {}),
+            ...(v.shoeCatalogId ? { shoeCatalogId: v.shoeCatalogId } : {}),
+          },
+        ]),
+      );
       await apiFetch('/admin/config', {
         method: 'PATCH',
         body: JSON.stringify({
           resolutions,
           maxOutputPx,
-          merchantCatalogDefaults,
+          merchantCatalogDefaults: sanitizedMerchantCatalogDefaults,
           merchantCatalogAspectRatio,
           tryon: { creditCost: tryonCreditCost },
           sareeMannequinDev: { creditCost: sareeMannequinDevCreditCost },
@@ -1407,13 +1432,36 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                   <div className="setting-desc" style={{ marginBottom: 12 }}>
                     Fixed model/background used when a merchant generates a catalogue image from a
                     flat garment photo — guarantees every generated image is try-on-suitable.
+                    <br />
+                    Lower garment and shoe defaults are only applied when the assigned pose's
+                    workflow needs one.
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '80px 1fr 1fr 1fr 1fr',
+                      gap: 12,
+                      alignItems: 'end',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span aria-hidden="true" />
+                    {['Face', 'Background', 'Lower garment', 'Shoe'].map((heading) => (
+                      <div
+                        key={heading}
+                        className="setting-lbl"
+                        style={{ marginBottom: 0, paddingInline: 2 }}
+                      >
+                        {heading}
+                      </div>
+                    ))}
                   </div>
                   {(['men', 'women', 'boys', 'girls'] as const).map((cat) => (
                     <div
                       key={cat}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '80px 1fr 1fr',
+                        gridTemplateColumns: '80px 1fr 1fr 1fr 1fr',
                         gap: 12,
                         alignItems: 'center',
                         marginBottom: 10,
@@ -1444,7 +1492,53 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                         onChange={(backgroundId) =>
                           setMerchantCatalogDefaults((prev) => ({
                             ...prev,
-                            [cat]: { faceId: prev[cat]?.faceId ?? '', backgroundId },
+                            [cat]: {
+                              ...prev[cat],
+                              faceId: prev[cat]?.faceId ?? '',
+                              backgroundId,
+                            },
+                          }))
+                        }
+                      />
+                      <SearchableSelect
+                        options={catalogItemsList.filter(
+                          (c) =>
+                            c.type === 'lower' && (c.genderSlug == null || c.genderSlug === cat),
+                        )}
+                        value={merchantCatalogDefaults[cat]?.lowerCatalogId ?? ''}
+                        disabled={sysSaving}
+                        placeholder={'\u2014 search lower garment \u2014'}
+                        emptyLabel={'\u2014 none / not needed \u2014'}
+                        onChange={(lowerCatalogId) =>
+                          setMerchantCatalogDefaults((prev) => ({
+                            ...prev,
+                            [cat]: {
+                              ...prev[cat],
+                              faceId: prev[cat]?.faceId ?? '',
+                              backgroundId: prev[cat]?.backgroundId ?? '',
+                              lowerCatalogId,
+                            },
+                          }))
+                        }
+                      />
+                      <SearchableSelect
+                        options={catalogItemsList.filter(
+                          (c) =>
+                            c.type === 'shoe' && (c.genderSlug == null || c.genderSlug === cat),
+                        )}
+                        value={merchantCatalogDefaults[cat]?.shoeCatalogId ?? ''}
+                        disabled={sysSaving}
+                        placeholder={'\u2014 search shoe \u2014'}
+                        emptyLabel={'\u2014 none / not needed \u2014'}
+                        onChange={(shoeCatalogId) =>
+                          setMerchantCatalogDefaults((prev) => ({
+                            ...prev,
+                            [cat]: {
+                              ...prev[cat],
+                              faceId: prev[cat]?.faceId ?? '',
+                              backgroundId: prev[cat]?.backgroundId ?? '',
+                              shoeCatalogId,
+                            },
                           }))
                         }
                       />

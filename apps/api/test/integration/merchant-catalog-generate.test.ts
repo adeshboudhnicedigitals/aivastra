@@ -63,6 +63,50 @@ async function seedWorkflowTemplate(app: TestApp) {
   return wf;
 }
 
+async function seedWorkflowTemplateWithLowerShoe(
+  app: TestApp,
+  lowerNodeId: string | null,
+  shoeNodeId: string | null,
+) {
+  const [wf] = await app.db
+    .insert(schema.workflowTemplates)
+    .values({
+      slug: `regular-wf-lowershoe-${randomUUID()}`,
+      label: 'Regular workflow with lower/shoe',
+      jsonContent: {},
+      faceNodeId: '1',
+      poseNodeId: '1',
+      bgNodeId: '1',
+      upperNodeIds: ['2'],
+      lowerNodeId,
+      shoeNodeId,
+      facePhasePromptNode: '1',
+      garmentPhasePromptNode: '1',
+    })
+    .returning();
+  return wf;
+}
+
+async function seedCatalogItem(
+  app: TestApp,
+  type: 'lower' | 'shoe',
+  genderSlug: string,
+  isActive = true,
+) {
+  const [item] = await app.db
+    .insert(schema.catalogItems)
+    .values({
+      type,
+      genderSlug,
+      label: `${type} ${randomUUID()}`,
+      r2Key: `catalog/${type}/${randomUUID()}.jpg`,
+      thumbnailKey: `catalog/${type}/${randomUUID()}.thumb.jpg`,
+      isActive,
+    })
+    .returning();
+  return item;
+}
+
 async function seedPose(app: TestApp, genderSlug: string, workflowTemplateId: string) {
   const [pose] = await app.db
     .insert(schema.modelPoseAssets)
@@ -376,6 +420,209 @@ describe('merchant catalog generate (single, Path B)', () => {
       payload: { subcategoryId, flatImageKey: 'merchant-catalog/x/flat/y/garment.jpg' },
     });
     expect(generate.statusCode).toBe(400);
+  });
+
+  it("applies configured default lower garment and shoe when the pose's workflow needs them", async () => {
+    const { userId } = await createMerchant(app, 'lower-shoe-happy@example.com');
+    await grantUserCredits(app, userId, 100);
+    const auth = await authHeader(userId);
+    const wf = await seedWorkflowTemplateWithLowerShoe(app, '3', '4');
+    const pose = await seedPose(app, 'men', wf.id);
+    const face = await seedFace(app, 'men');
+    const bg = await seedBackground(app);
+    const garmentType = await seedGarmentType(app, 'men', pose.id);
+    const lowerItem = await seedCatalogItem(app, 'lower', 'men');
+    const shoeItem = await seedCatalogItem(app, 'shoe', 'men');
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        merchantCatalogDefaults: {
+          men: {
+            faceId: face.id,
+            backgroundId: bg.id,
+            lowerCatalogId: lowerItem.id,
+            shoeCatalogId: shoeItem.id,
+          },
+        },
+        merchantCatalogAspectRatio: '2:3',
+      }),
+    );
+
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'men', name: 'Shirts', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const presign = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/presign',
+      headers: auth,
+      payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+    });
+    const { r2Key: flatImageKey, uploadUrl } = presign.json() as {
+      r2Key: string;
+      uploadUrl: string;
+    };
+    await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: Buffer.from('flat'),
+    });
+
+    const generate = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey },
+    });
+    expect(generate.statusCode).toBe(201);
+    const { jobId } = generate.json() as { jobId: string };
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect(inputs.lowerCatalogId).toBe(lowerItem.id);
+    expect(inputs.shoeCatalogId).toBe(shoeItem.id);
+  });
+
+  it('rejects with 400 when the pose needs a lower garment but no default lower catalog item is configured', async () => {
+    const { userId } = await createMerchant(app, 'lower-shoe-missing@example.com');
+    await grantUserCredits(app, userId, 100);
+    const auth = await authHeader(userId);
+    const wf = await seedWorkflowTemplateWithLowerShoe(app, '3', null);
+    const pose = await seedPose(app, 'men', wf.id);
+    const face = await seedFace(app, 'men');
+    const bg = await seedBackground(app);
+    const garmentType = await seedGarmentType(app, 'men', pose.id);
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        merchantCatalogDefaults: { men: { faceId: face.id, backgroundId: bg.id } },
+        merchantCatalogAspectRatio: '2:3',
+      }),
+    );
+
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'men', name: 'Shirts', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const generate = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey: 'merchant-catalog/x/flat/y/garment.jpg' },
+    });
+    expect(generate.statusCode).toBe(400);
+    expect(generate.json().error.message).toContain('default lower garment');
+  });
+
+  it("does not apply configured lower/shoe defaults when the pose's workflow does not need them", async () => {
+    const { userId } = await createMerchant(app, 'lower-shoe-unneeded@example.com');
+    await grantUserCredits(app, userId, 100);
+    const auth = await authHeader(userId);
+    const { garmentType, face, bg } = await seedFullDefaults('women');
+    const lowerItem = await seedCatalogItem(app, 'lower', 'women');
+    const shoeItem = await seedCatalogItem(app, 'shoe', 'women');
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        merchantCatalogDefaults: {
+          women: {
+            faceId: face.id,
+            backgroundId: bg.id,
+            lowerCatalogId: lowerItem.id,
+            shoeCatalogId: shoeItem.id,
+          },
+        },
+        merchantCatalogAspectRatio: '2:3',
+      }),
+    );
+
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const presign = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/presign',
+      headers: auth,
+      payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+    });
+    const { r2Key: flatImageKey, uploadUrl } = presign.json() as {
+      r2Key: string;
+      uploadUrl: string;
+    };
+    await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/jpeg' },
+      body: Buffer.from('flat'),
+    });
+
+    const generate = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey },
+    });
+    expect(generate.statusCode).toBe(201);
+    const { jobId } = generate.json() as { jobId: string };
+
+    const [inputs] = await app.db
+      .select()
+      .from(schema.jobInputs)
+      .where(eq(schema.jobInputs.jobId, jobId));
+    expect(inputs.lowerCatalogId).toBeNull();
+    expect(inputs.shoeCatalogId).toBeNull();
+  });
+
+  it('rejects with 400 when the configured default lower catalog item is inactive', async () => {
+    const { userId } = await createMerchant(app, 'lower-shoe-inactive@example.com');
+    await grantUserCredits(app, userId, 100);
+    const auth = await authHeader(userId);
+    const wf = await seedWorkflowTemplateWithLowerShoe(app, '3', null);
+    const pose = await seedPose(app, 'men', wf.id);
+    const face = await seedFace(app, 'men');
+    const bg = await seedBackground(app);
+    const garmentType = await seedGarmentType(app, 'men', pose.id);
+    const inactiveLower = await seedCatalogItem(app, 'lower', 'men', false);
+    await app.redis.set(
+      CONFIG_KEY,
+      JSON.stringify({
+        merchantCatalogDefaults: {
+          men: { faceId: face.id, backgroundId: bg.id, lowerCatalogId: inactiveLower.id },
+        },
+        merchantCatalogAspectRatio: '2:3',
+      }),
+    );
+
+    const subcatRes = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: auth,
+      payload: { category: 'men', name: 'Shirts', garmentSubcategoryId: garmentType.id },
+    });
+    const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+    const generate = await app.inject({
+      method: 'POST',
+      url: '/v1/merchant/catalog/generate',
+      headers: auth,
+      payload: { subcategoryId, flatImageKey: 'merchant-catalog/x/flat/y/garment.jpg' },
+    });
+    expect(generate.statusCode).toBe(400);
+    expect(generate.json().error.message).toContain('lower garment not found or inactive');
   });
 
   it('marks a completed job COMPLETED via the status poll and creates a product on client confirmation', async () => {

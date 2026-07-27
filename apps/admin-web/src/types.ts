@@ -195,12 +195,15 @@ export interface UserMerchant {
   isActive: boolean;
   kioskEnabled: boolean;
   maxKioskDevices: number;
+  logoKey: string | null;
+  logoUrl: string | null;
   creditBalance: number | null;
 }
 
 export interface User {
   id: string;
-  email: string;
+  email: string | null;
+  username: string | null;
   displayName: string | null;
   phone: string | null;
   tier: string;
@@ -224,10 +227,22 @@ export interface User {
     startedAt?: string | null;
     completedAt?: string | null;
     creditsCharged: number;
-    jobType: 'catalogue' | 'tryon' | 'widget' | 'api';
+    jobType: string;
   }[];
   merchant?: UserMerchant | null;
 }
+
+export type JobType =
+  | 'catalog'
+  | 'tryon'
+  | 'saree'
+  | 'saree_mannequin'
+  | 'shopify'
+  | 'merchant_tryon'
+  | 'kiosk'
+  | 'merchant_catalog'
+  | 'merchant_catalog_saree_mannequin'
+  | 'api';
 
 export type JobStatus =
   | 'QUEUED'
@@ -258,7 +273,7 @@ export interface Job {
   poseLabel?: string | null;
   hasLower: boolean;
   hasShoe: boolean;
-  jobType?: 'catalogue' | 'tryon' | 'widget' | 'api';
+  jobType?: string;
   outputUrl?: string;
   userHint?: string;
 }

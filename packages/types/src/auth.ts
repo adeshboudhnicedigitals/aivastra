@@ -9,8 +9,12 @@ export const RegisterBody = z.object({
     .regex(/[0-9]/, 'Password must contain at least one number'),
   displayName: z.string().min(1).max(80),
 });
+// Field is still named `email` on the wire for backward compatibility with
+// existing clients (web, the saree catalogue Android app) that already POST
+// `{ email, password }` -- but the value may now be an email OR a username
+// (admin-created accounts, see CreateUserBody). Do not rename this field.
 export const LoginBody = z.object({
-  email: z.string().email(),
+  email: z.string().min(1).max(254),
   password: z.string().min(1).max(128),
 });
 export const TokenPair = z.object({

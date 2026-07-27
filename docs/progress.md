@@ -15,7 +15,220 @@
 - Catalog Video uses one flat, configurable credit cost rather than per-template pricing.
 - Generated catalog videos do not receive per-job watermarking.
 - Admin-uploaded sample videos do not receive ffmpeg-generated thumbnails; admins provide the thumbnail asset directly.
-- `pnpm db:generate` remains blocked by a pre-existing Drizzle snapshot-parent collision. Task 1 correctly used the manual `0125_sample_videos.sql` migration and journal entry instead; no further schema changes are required for Catalog Video.
+- `pnpm db:generate` remains blocked by a pre-existing Drizzle snapshot-parent collision. Task 1 correctly used a manually-authored migration and journal entry instead (renumbered to `0128_sample_videos.sql` during merge with `origin/main`, which independently landed `0125`-`0127` first); no further schema changes are required for Catalog Video.
+
+## 2026-07-27 - Merchant logo delivery on Android login
+
+### Done
+- Added nullable `merchants.logo_key` via migration `0127_add_merchant_logo` and the deterministic `merchant-logo/{merchantId}/logo.jpg` storage key; the migration was applied and the live PostgreSQL column was verified.
+- Added the super-admin merchant-logo presign endpoint (PNG/JPEG, 2 MB maximum, 300-second expiry), persisted/cleared `logoKey` through the existing merchant PATCH route, and exposed `logoKey` plus its resolved public `logoUrl` in admin user detail.
+- Added the logo upload/preview control to the existing admin Edit Merchant modal using the planned presign, direct storage PUT, PATCH, and detail-refresh sequence.
+- Added `logoUrl: string | null` to successful `POST /v1/auth/device-login` responses, resolved by the authenticated user's merchant row. No merchant row or no configured logo returns `null`.
+- Verified `pnpm typecheck`, both new integration suites together (4/4 tests), `pnpm --filter @aivastra/admin build`, and a targeted Biome check across all 10 touched source/test files.
+
+### Failed / Not Done
+- No live browser click-through was performed because this session has no browser automation tool; the admin UI was verified by typecheck, targeted Biome checks, and the production build.
+- The actual Android application integration is outside this repository and was not implemented here; this work provides the backend contract and admin upload UI for the Android developer.
+- Root `pnpm lint` remains non-zero only because of CRLF formatting in the unrelated, untracked personal `.vscode/settings.json`; every file touched by this plan passes the targeted Biome check.
+
+### Open Questions / Decisions
+- Decision retained: `logoUrl: null` tells Android to keep its already-bundled default logo; the backend does not host or return a default-logo URL.
+- Decision retained: only `/v1/auth/device-login` returns the logo. `/v1/auth/device-refresh` and `/v1/kiosk/auth/*` remain unchanged, so logo changes are picked up at the next login.
+
+## 2026-07-27 - Admin-created users and username login
+
+### Done
+- Added the nullable, unique `users.username` column with the locked `[a-zA-Z0-9_.]` validation rules, made `users.email` nullable, generated/applied migration `0126_add_username_login`, and extended the shared auth/admin/profile schemas.
+- Added shared username-or-email account resolution for both `/v1/auth/login` and `/v1/auth/device-login`; username matching is case-insensitive and email/username namespaces cannot collide.
+- Added admin create-user and reset-password endpoints with integration coverage, nullable-email-safe user/admin responses and search, and the planned free-credit/profile-completion behavior.
+- Added the admin Create User and Reset Password interfaces with username-aware labels, search, and nullable-email handling.
+- Updated catalogues-web login to accept either identifier and extended the app-wide profile gate/modal to require both email and phone, while preserving the one-time settings email flow.
+- Added the symmetric `if (!user.email) return;` receipt guard so username-only accounts without an email do not affect payment or credit-grant outcomes.
+- Completed all eight scoped implementation commits. Verification passed for `pnpm typecheck`, the combined 10-test API integration run (`admin-create-user`, `me-email`, and `admin-jobs-type`), and `pnpm --filter @aivastra/admin build`.
+
+### Failed / Not Done
+- `pnpm lint` is not fully green: its only error is CRLF formatting in the unrelated, untracked `.vscode/settings.json`; the feature's touched files passed their targeted Biome checks. Per final review, this personal editor configuration remains untracked and unchanged.
+- No live browser click-through was performed because this session has no browser automation tool; the customer/admin UI changes were verified by typecheck, targeted Biome checks, and the admin production build.
+- Granting merchant access to a username-only account without an email remains intentionally unsupported and continues to fail the existing `/admin/merchants` validation, as specified by the plan's follow-ups.
+
+### Open Questions / Decisions
+- Decision: leave the unrelated personal `.vscode/settings.json` untracked and unchanged rather than taking ownership of it solely to make the root lint command exit successfully.
+- Email ownership verification remains out of scope by the plan's locked decision; the profile gate records a syntactically valid email without adding a verification flow.
+
+## 2026-07-27 - Hide the Sellio preview page and route (not removed)
+
+### Done
+- Removed the "Sellio" nav item from `apps/catalogues-web/src/components/sidebar.tsx` (commented out, matching the existing `saree` precedent in the same file — page code stays intact, just not linked from the sidebar) and dropped it from the "BUSINESS" group's id filter list.
+- Added `ALWAYS_BLOCKED_PATHS` to `apps/catalogues-web/src/middleware.ts` (`['/sellio']`), redirecting to `/studio` regardless of `NODE_ENV` — unlike the existing `DEV_ONLY_PATHS` mechanism, which only blocks in production and leaves the route open in dev. This blocks direct URL navigation in both dev and production while leaving `app/(app)/sellio/*` untouched on disk.
+- Verified live against the running dev server: `curl http://localhost:3000/sellio` now 307-redirects to `/studio`.
+- Scope note: only the `(app)/sellio` main-nav preview page was touched. `apps/catalogues-web/src/app/embed/sellio-studio` is a separate embed route under a different path and was left alone since it wasn't what was asked about.
+
+### Failed / Not Done
+- No live browser click-through of the sidebar itself (no browser automation tool available) — verified via the middleware curl check and reading the sidebar filter logic.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Fix admin Job Type classification to use jobs.source
+
+### Done
+- Root cause: the admin "Job Type" badge (list, job detail, and the per-user recent-jobs table) was computed via a duplicated ad-hoc SQL `CASE` on `merchantId`/`apiKeyId`/`faceId`-nullity, which only ever produced 4 buckets (`widget`/`api`/`tryon`/`catalogue`) and completely ignored `jobs.source` — a column every job-creation path already writes with a specific value (`catalog`, `tryon`, `saree`, `saree_mannequin`, `shopify`, `merchant_tryon`, `api`). Verified against local dev data: `jobs.source` had 3 distinct real values but the admin badge only ever showed 2 (`tryon`=31, `catalogue`=19) — e.g. the one real `saree_mannequin`-sourced job displayed as generic "Catalog".
+- `/admin/jobs/:id` (job detail) never returned a `jobType`/`source` field at all — the detail drawer had no "Job Type" row to show one.
+- Two job-creation paths never wrote `jobs.source`: `apps/api/src/modules/merchant/create-job.ts` (the "Try On Library" bulk-catalogue feature, and its saree-mannequin-prep variant) and `apps/api/src/modules/kiosk/create-job.ts` (physical kiosk hardware). Added `source: 'merchant_catalog'`, `source: 'merchant_catalog_saree_mannequin'`, and `source: 'kiosk'` respectively.
+- New shared helper `apps/api/src/modules/admin/job-type.ts` (`jobTypeSql()`) reads `jobs.source` directly, falling back to the old faceId-nullity heuristic only for legacy null-source rows (confirmed via data that no null-source row ever has merchantId/apiKeyId set, so the simpler two-way fallback is safe). Used in both `admin/jobs.routes.ts` (list + detail) and `admin/users.routes.ts` (recent jobs), replacing the 3 duplicated CASE expressions.
+- Frontend: added `JobType` union + widened `jobType` to `string` in `apps/admin-web/src/types.ts`; added `jobTypeBadge()` label/color map to `apps/admin-web/src/lib/data.ts` (10 specific labels: Catalog, Try On, Saree, Saree Prep, Shopify, Merchant Try-On, Kiosk, Try On Library, Try On Library Prep, API); new shared `<JobTypeBadge>` component replacing 3 separately-duplicated inline ternary chains in `JobsPage.tsx` (list column + newly-added "Job Type" row in the detail drawer) and `UsersPage.tsx` (recent jobs). Per explicit decision, mannequin-prep steps get their own distinct badge rather than folding into their parent flow's label.
+- New test `apps/api/test/integration/admin-jobs-type.test.ts` (3 tests, all passing): every distinct `source` value round-trips verbatim through both `/admin/jobs` and `/admin/jobs/:id`; legacy null-source rows still fall back correctly.
+- Verified: `pnpm --filter @aivastra/api exec tsc --noEmit`, `pnpm --filter @aivastra/admin build`, targeted Biome checks, and the new integration test all clean/passing.
+
+### Failed / Not Done
+- Ran the broader `merchant-kiosk-admin.test.ts` suite for regression-checking; one pre-existing failure found (`allows admin device creation...` calls `/v1/admin/merchants/:id/kiosk-devices`, a stale URL — the real route has no `/v1` prefix). Confirmed via `git stash` that this fails identically without this change, so it's unrelated and untouched.
+- Did not change `createSareeMannequin.ts`'s step-2 job, which intentionally sets `source: 'catalog'` (not `'saree'`) once it hands off to the standard catalog pipeline — left as-is since that looked like a deliberate choice, not investigated further.
+- No live browser click-through of the admin panel in this environment (no browser automation tool available) — verified via the new integration test plus `pnpm --filter @aivastra/admin build`.
+
+### Open Questions / Decisions
+- If `createSareeMannequin.ts`'s step-2 `source: 'catalog'` (see above) should instead be `'saree'` for admin-visibility purposes, that's a follow-up — flagging rather than changing without confirmation since it affects billing/refund code paths that key off `source` elsewhere.
+
+## 2026-07-27 - Hide Default Resolution from Account Preferences (no consumer yet)
+
+### Done
+- Confirmed Studio's output resolution is fully derived (`resolutionFromOutputDims` off each aspect ratio's fixed `ASPECT_PX` dims, or custom width/height) — there is no resolution *picker* anywhere in the product, so a saved "Default Resolution" preference had nothing to feed into.
+- Hid the "Default Resolution" field from the Account Preferences section on the Settings page (`apps/catalogues-web/src/app/(app)/settings/page.tsx`). The backend (`users.default_resolution` column, `GET`/`PATCH /v1/me`) and the page's own state/save-payload wiring for it are left in place untouched, so the stored value round-trips unchanged and no migration/rollback is needed.
+- Removed the now-unused `RESOLUTIONS` options constant from the Settings page.
+
+### Failed / Not Done
+- N/A — straightforward UI hide, no blockers.
+
+### Open Questions / Decisions
+- **Re-enable trigger:** when Studio gains an actual resolution picker (a user-facing HD/2K/4K choice that changes the requested output dimensions, as opposed to the current auto-derived display), re-add the `SelectField` for "Default Resolution" in `SettingsPage` (`Section title="Account Preferences"`) and prefill that picker's initial state from `me.defaultResolution`, the same way Studio already prefills `platform`/`aspect` from `me.defaultPlatform`/`me.defaultAspectRatio`.
+
+## 2026-07-27 - Fix PremiumSelect popup clipping inside overflow-hidden cards
+
+### Done
+- Root cause: `PremiumSelect`'s option popup was `position: absolute` inside a `position: relative` wrapper nested in the Settings page's `cardWrap` (`overflow: 'hidden'`, used for its rounded corners). The popup got clipped at the card boundary, producing the broken screenshot — partial row dividers and a sibling field's border bleeding through where the popup was cut off.
+- Fixed generally in the shared component rather than patching one page: `apps/catalogues-web/src/components/ui/premium-select.tsx` now renders the popup through `createPortal(..., document.body)`, positioned with `position: fixed` from the trigger's `getBoundingClientRect()`, recomputed on open and on scroll/resize while open. Click-outside detection now also checks the portaled popup node (previously only checked the wrapper, which no longer contains the popup in the DOM).
+- This is a general fix for every `PremiumSelect` usage (also used in `SubcategoryModal.tsx` and `premium-date-range.tsx`), not just the Account Preferences fields.
+- Verified: `pnpm --filter @aivastra/web exec tsc --noEmit` and Biome check both clean.
+
+### Failed / Not Done
+- No live browser click-through in this environment (no browser automation tool available).
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Account Preferences dropdowns use the premium select
+
+### Done
+- Replaced the raw native `<select>` on the Account Preferences fields with the existing `PremiumSelect` component (`apps/catalogues-web/src/components/ui/premium-select.tsx`), matching the styling convention already used in `SubcategoryModal.tsx` (bordered wrapper + `fullWidth`/`height` props).
+- Added a `disabled` prop to `PremiumSelect` itself (it previously had no way to be non-interactive) — closes the popover if it becomes disabled while open, dims the trigger, and disables the underlying button.
+- Verified: `pnpm --filter @aivastra/web exec tsc --noEmit` and targeted Biome check both clean.
+
+### Failed / Not Done
+- No live browser click-through in this environment (no browser automation tool available) — verified via typecheck/lint and by matching the existing proven `PremiumSelect` usage pattern elsewhere in the app.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Account Preferences settings now persist
+
+### Done
+- Added `default_resolution`, `default_aspect_ratio`, `default_platform` columns to `users` (migration `0125_add_user_defaults.sql`, default `HD` / `1:1` / `Amazon`).
+- `GET /v1/me` returns the three fields; `PATCH /v1/me` accepts and validates them (`z.enum` for resolution/aspect ratio, free-text platform capped at 60 chars) and persists them alongside the existing profile fields.
+- Replaced the disabled placeholder "Account Preferences" row on the Settings page with real `<select>` dropdowns wired to state, editable in the existing edit/save/cancel flow, and saved via the existing `saveProfile` PATCH call.
+- Verified: `pnpm --filter @aivastra/api exec tsc --noEmit`, `pnpm --filter @aivastra/web exec tsc --noEmit`, targeted Biome check, and `pnpm db:migrate` applied cleanly against the local dev database.
+
+- Studio (`apps/catalogues-web/src/app/(app)/studio/page.tsx`) now fetches `/v1/me` (shared `['me']` query key, so it stays in sync with edits made on the Settings page) and prefills `platform`/`aspect` from the user's saved defaults exactly once on load, falling back to the platform's own default ratio if the saved aspect isn't valid for that platform.
+
+### Failed / Not Done
+- `defaultResolution` is not wired into Studio: the wizard's "Output Resolution" step is read-only/auto-derived from the aspect ratio's fixed max output dimensions (capped by admin config) — there is no resolution *input* in Studio to prefill, so the saved preference currently has no effect there.
+- No live browser click-through in this environment.
+
+### Open Questions / Decisions
+- Encountered and repaired a pre-existing Drizzle migration-snapshot chain break: `0124_backfill_dev_api_tables` (a data-only migration) had no corresponding snapshot file, and `0119`/`0122` both forked from `0118`'s snapshot, so `drizzle-kit generate` refused to run. Fixed by hand-authoring `0125_add_user_defaults`'s SQL and snapshot (cloned from `0123`, the last schema-affecting snapshot, with the three new columns added) rather than attempting to rewrite the historical chain.
+
+## 2026-07-27 - Merchant Catalogue Defaults column headings
+
+### Done
+- Added aligned column headings for Face, Background, Lower garment, and Shoe above the per-category merchant catalogue default selectors.
+- Reused the selector rows' exact grid columns and gaps so each heading remains aligned with its field.
+- Verified the targeted Biome check and `pnpm --filter @aivastra/admin build` pass; the build reports only the existing Vite bundle-size warning.
+
+### Failed / Not Done
+- No live browser screenshot was captured in this environment.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Merchant Catalogue Defaults: lower garments and shoes
+
+### Done
+- Extended the shared merchant-catalogue defaults schema with optional `lowerCatalogId` and `shoeCatalogId` values for each gender category; no database migration was required because the config is stored in the existing JSON field.
+- Updated merchant catalogue job creation to resolve the assigned pose's effective workflow through `poseGarmentConfigs` and `workflowTemplates`, apply lower-garment/shoe defaults only when that workflow requires them, and reject missing or inactive required defaults before creating a job.
+- Added admin Settings selectors for optional lower garments and shoes, filtered by category and catalogue type, with empty values omitted from the save payload.
+- Added schema persistence coverage and four merchant-generation integration cases covering required defaults, inactive defaults, and workflows that do not need lower garments or shoes.
+- Verification passed: workspace `pnpm typecheck`; default API test command; targeted integration suites (`admin-config`: 2/2, `merchant-catalog-generate`: 18/18); admin production build; and `pnpm lint` (exit 0, warning-only).
+
+### Failed / Not Done
+- The dedicated full API integration configuration is not globally green: unrelated suites collide on shared Redis rate limits/test isolation and expose existing contract/fixture failures. The two integration suites changed by this plan pass independently.
+- Live browser save/clear click-through was not run because no browser automation runtime is available in this environment; the admin production build validates the UI implementation.
+
+### Open Questions / Decisions
+- The root API test command currently excludes `test/integration/**`; the dedicated integration config should be serialized or given isolated Redis rate-limit state before it can serve as a reliable single-command full-suite gate.
+
+## 2026-07-27 - Try On result download and sharing
+
+### Done
+- Wired the Try On result `Download` button to fetch the generated image, preserve its actual image format, and save it with a stable job-based filename.
+- Wired `Share` to send the generated image through the native Web Share API when file sharing is supported, fall back to sharing the result URL, and copy the URL to the clipboard when native sharing is unavailable.
+- Added disabled/loading states plus inline success and failure feedback; result actions reset cleanly when the person image, garment, or generation changes.
+- Verified `pnpm --filter @aivastra/web typecheck` passes. Targeted Biome format/check completed without errors; the page retains its pre-existing warning set. `git diff --check` also passes.
+
+### Failed / Not Done
+- A live native-share/download click-through was not run because the repository dev stack remains intentionally stopped.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Try On preview fullscreen
+
+### Done
+- Wired the previously inert Try On `Full Screen` button to the preview card using the browser Fullscreen API, with the same control exiting fullscreen when clicked again.
+- Added `fullscreenchange` synchronization so pressing Escape restores the normal card size and button state; the button now exposes its pressed state and changes to `Exit Full Screen` while active.
+- Made the fullscreen preview fill the viewport with a square-cornered, box-sized layout while retaining the existing preview content and controls.
+- Verified `pnpm --filter @aivastra/web typecheck` passes. Targeted Biome format/check completed without errors; the file still reports its pre-existing warning set.
+
+### Failed / Not Done
+- A live browser click-through was not run because the repository dev stack was intentionally stopped before this task.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Catalogues web dev cache recovery
+
+### Done
+- Identified the repeated `.next/prerender-manifest.json` `ENOENT` failures as a cache collision caused by running `next build` while the `catalogues-web` Next dev server was active; both commands write to the same `.next` directory.
+- Stopped only the affected `catalogues-web` process tree, quarantined the broken cache, restarted a clean web-only dev process, and removed the stale generated cache after recovery was confirmed. Dispatcher and other services were not interrupted.
+- Verified the regenerated manifest exists, `/` returns the expected `307` redirect to `/login`, `/studio` compiled and returned `200`, and the restarted process logs contain no recurrence of the missing-manifest error.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Do not run `next build` and `next dev` concurrently for `catalogues-web`; stop the dev server before production builds unless separate Next output directories are configured.
+
+## 2026-07-27 - Studio audience card responsiveness
+
+### Done
+- Fixed the `Women` audience-card label being truncated at laptop widths by tightening the card's internal padding/gap and reducing the four-card grid gap.
+- Made the audience grid respond to the Studio section's actual width (including browser scaling and sidebar/pane constraints): four columns by default, two columns below 600px, and one column below 340px.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified targeted Biome checks pass for the two changed Studio files; the command reports only the two pre-existing warnings in `page.tsx` (`dangerouslySetInnerHTML` and the platform-logo `<img>`).
+
+### Failed / Not Done
+- The production build compiled and completed type validation, but did not finish: static prerendering of `/studio` failed inside the generated Next.js webpack runtime with `TypeError: a[d] is not a function`.
+- No live browser screenshot was captured in this environment.
+
+### Open Questions / Decisions
+- Resolved by the cache recovery above: the prerender/dev failures came from concurrent Next commands sharing `.next`, not from the responsive card CSS.
 
 ## 2026-07-25 - Custom background upload (personal library)
 

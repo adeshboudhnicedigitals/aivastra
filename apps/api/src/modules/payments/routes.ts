@@ -51,6 +51,7 @@ async function maybeSendReceipt(
       .from(schema.users)
       .where(eq(schema.users.id, userId));
     if (!user) return;
+    if (!user.email) return;
 
     const [plan] = await app.db
       .select({ name: schema.creditPlans.name })

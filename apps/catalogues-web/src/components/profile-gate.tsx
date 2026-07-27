@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { ProfileCompletionModal } from './profile-completion-modal';
 
 interface MeResponse {
+  email: string | null;
   phone: string | null;
   companyName: string | null;
 }
@@ -17,7 +18,7 @@ export function ProfileGate({ children }: { children: ReactNode }) {
     retry: false,
   });
 
-  const complete = Boolean(data?.phone && /^\d{10}$/.test(data.phone));
+  const complete = Boolean(data?.phone && /^\d{10}$/.test(data.phone) && data?.email);
 
   if (isLoading && !data) {
     return <div style={{ flex: 1, background: '#fff' }} />;
@@ -28,6 +29,7 @@ export function ProfileGate({ children }: { children: ReactNode }) {
       {children}
       <ProfileCompletionModal
         open={Boolean(data && !complete)}
+        email={data?.email ?? null}
         phone={data?.phone ?? null}
         companyName={data?.companyName ?? null}
       />
