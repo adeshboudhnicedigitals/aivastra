@@ -11,6 +11,7 @@ import {
   pollGenerateJob,
   presignAndUpload,
 } from '../catalog-app-helpers';
+import { useSessionExpiryMessage } from '../use-session-expiry-message';
 import { StickyBottomBar } from './StickyBottomBar';
 
 export function ProductForm({
@@ -25,6 +26,7 @@ export function ProductForm({
   onCancel: () => void;
 }) {
   const isEditing = !!initialData;
+  const getErrorMessage = useSessionExpiryMessage();
 
   const [label, setLabel] = useState(initialData?.label ?? '');
   const [sku, setSku] = useState(initialData?.sku ?? '');
@@ -93,7 +95,7 @@ export function ProductForm({
       const item = await finalizeGeneratedProduct(jobId, subcategoryId);
       setGeneratedItem(item);
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Generation failed.');
+      setErrorMsg(getErrorMessage(err, 'Generation failed.'));
     } finally {
       setIsGenerating(false);
     }
@@ -143,7 +145,7 @@ export function ProductForm({
       setGeneratedItem(undefined); // saved — don't clean it up on unmount
       onSaved();
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Failed to save product.');
+      setErrorMsg(getErrorMessage(err, 'Failed to save product.'));
     } finally {
       setIsSaving(false);
     }

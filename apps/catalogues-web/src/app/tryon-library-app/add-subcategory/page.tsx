@@ -9,6 +9,7 @@ import { PremiumSelect } from '@/components/ui/premium-select';
 import { catalogAppApi as api } from '../catalog-app-api';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { StickyBottomBar } from '../components/StickyBottomBar';
+import { useSessionExpiryMessage } from '../use-session-expiry-message';
 
 function AddSubcategoryScreenInner() {
   const router = useRouter();
@@ -19,6 +20,7 @@ function AddSubcategoryScreenInner() {
   const [name, setName] = useState('');
   const [garmentSubcategoryId, setGarmentSubcategoryId] = useState('');
   const [error, setError] = useState('');
+  const getErrorMessage = useSessionExpiryMessage();
 
   const garmentTypesQuery = useQuery({
     queryKey: ['garment-types', category],
@@ -42,7 +44,7 @@ function AddSubcategoryScreenInner() {
       router.back();
     },
     onError: (err: unknown) => {
-      setError(err instanceof Error ? err.message : 'Failed to save subcategory.');
+      setError(getErrorMessage(err, 'Failed to save subcategory.'));
     },
   });
 

@@ -72,7 +72,13 @@ export default function ProductsScreen() {
         variant="back"
         title={subcategory?.name ?? 'Products'}
         subtitle={garmentTypeLabel}
-        onBack={() => router.push('/tryon-library-app')}
+        onBack={() =>
+          router.push(
+            subcategory
+              ? `/tryon-library-app?category=${subcategory.category}`
+              : '/tryon-library-app',
+          )
+        }
       />
 
       <div style={{ padding: '12px 16px 0', display: 'flex', justifyContent: 'flex-end' }}>
