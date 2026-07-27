@@ -9,5 +9,7 @@ export function makeStorage(env: Env) {
     bucket: env.R2_BUCKET,
     publicUrl: env.R2_PUBLIC_URL,
     forcePathStyle: env.R2_FORCE_PATH_STYLE,
+    presignBaseUrl: env.R2_PUBLIC_PRESIGN_BASE,
+    signEndpoint: env.R2_SIGN_ENDPOINT,
   });
 }

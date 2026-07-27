@@ -4,6 +4,7 @@ import { jobsCreatedTotal } from '@aivastra/observability';
 import { keys } from '@aivastra/storage';
 import {
   ASPECT_DIMENSIONS,
+  type CreateCatalogVideoJobRequest,
   type CreateSimpleTryonRequest,
   type CreateTryOnJobRequest,
   type Resolution,
@@ -13,9 +14,11 @@ import {
 import { aliasedTable, and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
+import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import {
   getMaxOutputPx,
+  getPixverseCreditCost,
   getResolutionCreditCost,
   getTryonCreditCost,
 } from '../../lib/resolution-config.js';
@@ -907,4 +910,89 @@ export async function createSimpleTryonJob(
   }
 
   return { jobId: job.id, catalogueId };
+}
+
+export async function createCatalogVideoJob(
+  app: FastifyInstance,
+  userId: string,
+  body: z.infer<typeof CreateCatalogVideoJobRequest>,
+) {
+  const cost = await getPixverseCreditCost(app);
+  const [source] = await app.db
+    .select({ userId: schema.jobs.userId, status: schema.jobs.status })
+    .from(schema.jobs)
+    .where(eq(schema.jobs.id, body.sourceJobId));
+  if (!source) throw new AppError('NOT_FOUND', 404, 'source image not found');
+  if (source.userId !== userId)
+    throw new AppError('FORBIDDEN', 403, 'source image not owned by caller');
+  if (source.status !== 'COMPLETED')
+    throw new AppError('VALIDATION', 400, 'source image is not a completed job');
+  const [sample] = await app.db
+    .select()
+    .from(schema.sampleVideos)
+    .where(eq(schema.sampleVideos.id, body.sampleVideoId));
+  if (!sample || sample.deletedAt) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+  if (!sample.isActive) throw new AppError('VALIDATION', 400, 'sample video is not active');
+  const [[user], [plan]] = await Promise.all([
+    app.db.select().from(schema.users).where(eq(schema.users.id, userId)),
+    app.db
+      .select({ queueStream: schema.creditPlans.queueStream })
+      .from(schema.users)
+      .innerJoin(schema.creditPlans, eq(schema.users.tier, schema.creditPlans.slug))
+      .where(eq(schema.users.id, userId)),
+  ]);
+  if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
+  if (!isCatalogVideoAllowed(app.env, user.email)) {
+    throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
+  }
+  const queueStream = plan?.queueStream ?? 'normal';
+  const [job] = await app.db.transaction(async (tx) => {
+    const [newJob] = await tx
+      .insert(schema.jobs)
+      .values({
+        userId,
+        status: 'QUEUED',
+        priority: queueStream === 'priority',
+        queueStream,
+        watermark: false,
+        creditsCharged: cost,
+        source: 'catalog_video',
+      })
+      .returning();
+    await atomicDeduct(tx as unknown as DB, userId, cost, newJob.id);
+    await tx.insert(schema.jobInputs).values({
+      jobId: newJob.id,
+      params: {
+        kind: 'video',
+        sourceJobId: body.sourceJobId,
+        sourceImageKey: keys.output(body.sourceJobId),
+        sampleVideoId: body.sampleVideoId,
+        prompt: sample.prompt,
+      },
+    });
+    return [newJob];
+  });
+  try {
+    await app.redis.xadd(
+      `jobs:${queueStream}`,
+      'MAXLEN',
+      '~',
+      10000,
+      '*',
+      'jobId',
+      job.id,
+      'userId',
+      userId,
+    );
+    jobsCreatedTotal.inc({ priority: queueStream, kind: 'catalog_video' });
+  } catch (err) {
+    app.log.error({ err, jobId: job.id }, 'redis xadd failed');
+    await refund(app.db, userId, cost, job.id, 'REFUND_ENQUEUE_FAIL');
+    await app.db
+      .update(schema.jobs)
+      .set({ status: 'FAILED', errorCode: 'ENQUEUE_FAIL' })
+      .where(eq(schema.jobs.id, job.id));
+    throw new AppError('ENQUEUE_FAIL', 503, 'queue unavailable');
+  }
+  return { jobId: job.id };
 }

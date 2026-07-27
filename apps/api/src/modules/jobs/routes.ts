@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  CreateCatalogVideoJobRequest,
   CreateSareeJobRequest,
   CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
@@ -10,10 +11,11 @@ import {
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
-import { createJob, createSimpleTryonJob } from './create.js';
+import { createCatalogVideoJob, createJob, createSimpleTryonJob } from './create.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
@@ -38,6 +40,65 @@ async function withIdempotency<T>(
 }
 
 export async function jobsRoutes(app: FastifyInstance) {
+  app.get('/v1/catalog-videos', { preHandler: app.requireUser }, async (req) => {
+    const [caller] = await app.db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.userId));
+    if (!isCatalogVideoAllowed(app.env, caller?.email ?? null)) {
+      throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
+    }
+    const rows = await app.db
+      .select({
+        id: schema.jobs.id,
+        status: schema.jobs.status,
+        createdAt: schema.jobs.createdAt,
+        params: schema.jobInputs.params,
+      })
+      .from(schema.jobs)
+      .innerJoin(schema.jobInputs, eq(schema.jobInputs.jobId, schema.jobs.id))
+      .where(
+        and(eq(schema.jobs.userId, req.userId), sql`${schema.jobInputs.params}->>'kind' = 'video'`),
+      )
+      .orderBy(desc(schema.jobs.createdAt))
+      .limit(200);
+
+    return Promise.all(
+      rows.map(async (row) => {
+        const [output] = await app.db
+          .select({
+            resultKey: schema.jobOutputs.resultKey,
+            thumbnailKey: schema.jobOutputs.thumbnailKey,
+          })
+          .from(schema.jobOutputs)
+          .where(eq(schema.jobOutputs.jobId, row.id));
+        let videoUrl: string | null = null;
+        let thumbnailUrl: string | null = null;
+        if (output?.resultKey) {
+          try {
+            const [video, thumb] = await Promise.all([
+              app.storage.presignGet(output.resultKey, 3600),
+              output.thumbnailKey ? app.storage.presignGet(output.thumbnailKey, 3600) : null,
+            ]);
+            videoUrl = video.url;
+            thumbnailUrl = thumb?.url ?? null;
+          } catch {
+            // Missing result object: leave URLs null so the UI shows its placeholder.
+          }
+        }
+        const params = row.params as Record<string, unknown> | null;
+        return {
+          id: row.id,
+          status: row.status,
+          createdAt: row.createdAt,
+          sampleVideoId: params?.sampleVideoId ?? null,
+          videoUrl,
+          thumbnailUrl,
+        };
+      }),
+    );
+  });
+
   app.post(
     '/v1/jobs/tryon',
     { preHandler: app.requireUser, schema: { body: CreateTryOnJobRequest } },
@@ -47,6 +108,26 @@ export async function jobsRoutes(app: FastifyInstance) {
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.post(
+    '/v1/jobs/catalog-video',
+    { preHandler: app.requireUser, schema: { body: CreateCatalogVideoJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () =>
+          createCatalogVideoJob(
+            app,
+            req.userId,
+            req.body as z.infer<typeof CreateCatalogVideoJobRequest>,
+          ),
       );
       reply.code(201);
       return result;

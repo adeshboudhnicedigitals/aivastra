@@ -44,5 +44,8 @@ export const keys = {
   sareeSampleImage: () => `saree/global/sample.jpg`,
   sareeSampleImageThumb: () => `saree/global/sample.thumb.jpg`,
   sareeStyle: (id: string) => `saree-styles/${id}.jpg`,
+  sampleVideo: (id: string) => `sample-videos/${id}.mp4`,
+  sampleVideoThumb: (id: string) => `sample-videos/${id}.thumb.jpg`,
+  videoOutput: (jobId: string) => `outputs/${jobId}/result.mp4`,
   supportAttachment: (id: string, ext: string) => `support/${id}.${ext}`,
 };

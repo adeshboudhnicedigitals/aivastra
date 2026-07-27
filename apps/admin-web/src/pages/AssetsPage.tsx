@@ -6,6 +6,7 @@ import { CatalogueTemplatesTab } from './assets/CatalogueTemplatesTab';
 import { FacesTab } from './assets/FacesTab';
 import { GarmentTypesTab } from './assets/GarmentTypesTab';
 import { PoseAssetsTab } from './assets/PoseAssetsTab';
+import { SampleVideosTab } from './assets/SampleVideosTab';
 import { SareeStylesTab } from './assets/SareeStylesTab';
 
 interface Props {
@@ -22,6 +23,7 @@ const TABS = [
   { k: 'shoe' as const, l: 'Shoes' },
   { k: 'catalogue-templates' as const, l: 'Templates' },
   { k: 'saree-styles' as const, l: 'Saree Styles' },
+  { k: 'sample-videos' as const, l: 'Sample Videos' },
 ];
 
 function AssetsShell() {
@@ -52,6 +54,7 @@ function AssetsShell() {
       {(activeTab === 'lower' || activeTab === 'shoe') && <CatalogTab />}
       {activeTab === 'catalogue-templates' && <CatalogueTemplatesTab />}
       {activeTab === 'saree-styles' && <SareeStylesTab />}
+      {activeTab === 'sample-videos' && <SampleVideosTab />}
 
       {previewUrl && (
         <div

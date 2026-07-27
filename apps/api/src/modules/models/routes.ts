@@ -2,6 +2,8 @@ import { schema } from '@aivastra/db';
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
+import { AppError } from '../../lib/errors.js';
 
 export async function modelsRoutes(app: FastifyInstance) {
   app.get(
@@ -51,6 +53,43 @@ export async function modelsRoutes(app: FastifyInstance) {
       };
     },
   );
+
+  app.get('/v1/models/sample-videos', { preHandler: app.requireUser }, async (req) => {
+    const [caller] = await app.db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.userId));
+    if (!isCatalogVideoAllowed(app.env, caller?.email ?? null)) {
+      throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
+    }
+    const rows = await app.db
+      .select({
+        id: schema.sampleVideos.id,
+        title: schema.sampleVideos.title,
+        thumbnailR2Key: schema.sampleVideos.thumbnailR2Key,
+        videoR2Key: schema.sampleVideos.videoR2Key,
+      })
+      .from(schema.sampleVideos)
+      .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
+      .orderBy(asc(schema.sampleVideos.sortOrder));
+    return {
+      items: await Promise.all(
+        rows.map(async (row) => {
+          const [thumbnail, video] = await Promise.all([
+            app.storage.presignGet(row.thumbnailR2Key, 3_600),
+            app.storage.presignGet(row.videoR2Key, 3_600),
+          ]);
+
+          return {
+            id: row.id,
+            title: row.title,
+            thumbnailUrl: thumbnail.url,
+            previewVideoUrl: video.url,
+          };
+        }),
+      ),
+    };
+  });
 
   app.get(
     '/v1/models/faces',

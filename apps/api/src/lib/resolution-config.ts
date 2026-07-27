@@ -1,4 +1,5 @@
 import {
+  PIXVERSE_VIDEO_COST,
   RESOLUTION_COSTS,
   type Resolution,
   SAREE_MANNEQUIN_DEV_COST,
@@ -26,6 +27,8 @@ export const DEFAULT_TRYON_CONFIG: { creditCost: number } = {
 export const DEFAULT_SAREE_MANNEQUIN_DEV_CONFIG: { creditCost: number } = {
   creditCost: SAREE_MANNEQUIN_DEV_COST,
 };
+
+export const DEFAULT_PIXVERSE_CONFIG: { creditCost: number } = { creditCost: PIXVERSE_VIDEO_COST };
 
 /**
  * Reads the admin-configured credit cost for a resolution from the same
@@ -97,5 +100,16 @@ export async function getSareeMannequinDevCreditCost(app: FastifyInstance): Prom
     return typeof cost === 'number' ? cost : SAREE_MANNEQUIN_DEV_COST;
   } catch {
     return SAREE_MANNEQUIN_DEV_COST;
+  }
+}
+
+export async function getPixverseCreditCost(app: FastifyInstance): Promise<number> {
+  try {
+    const raw = await app.redis.get(CONFIG_KEY);
+    const cfg = raw ? JSON.parse(raw) : {};
+    const cost = cfg.pixverse?.creditCost;
+    return typeof cost === 'number' ? cost : PIXVERSE_VIDEO_COST;
+  } catch {
+    return PIXVERSE_VIDEO_COST;
   }
 }
