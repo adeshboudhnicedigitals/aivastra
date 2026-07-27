@@ -1,8 +1,5 @@
 'use client';
-import type {
-  MerchantCatalogCategory as Category,
-  MerchantCatalogSubcategory,
-} from '@aivastra/types';
+import { MerchantCatalogCategory, type MerchantCatalogSubcategory } from '@aivastra/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
@@ -17,7 +14,7 @@ function AddSubcategoryScreenInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const qc = useQueryClient();
-  const category = (searchParams.get('category') as Category | null) ?? 'men';
+  const category = MerchantCatalogCategory.safeParse(searchParams.get('category')).data ?? 'men';
 
   const [name, setName] = useState('');
   const [garmentSubcategoryId, setGarmentSubcategoryId] = useState('');
@@ -58,7 +55,12 @@ function AddSubcategoryScreenInner() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <ScreenHeader variant="back" title="Add Subcategory" onBack={() => router.back()} />
+      <ScreenHeader
+        variant="back"
+        title="Add Subcategory"
+        subtitle={`Category: ${category.charAt(0).toUpperCase()}${category.slice(1)}`}
+        onBack={() => router.back()}
+      />
 
       <form
         onSubmit={handleSubmit}
