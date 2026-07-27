@@ -44,6 +44,19 @@ describe('catalog-app portal — Google OAuth exchange', () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it('rejects an inactive merchant account exchanging an OTP with portal: catalog-app', async () => {
+    const { userId } = await createTestMerchant(app, { isActive: false });
+    const otp = 'test-otp-inactive-merchant';
+    await app.redis.set(`oauth:otp:${otp}`, userId, 'EX', 60);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/google/exchange',
+      payload: { code: otp, portal: 'catalog-app' },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
   it('accepts a merchant account exchanging an OTP with portal: catalog-app, issuing a catalog-app-audience session', async () => {
     const { userId } = await createTestMerchant(app);
     const otp = 'test-otp-merchant';

@@ -247,7 +247,7 @@ export async function googleAuthRoutes(app: FastifyInstance) {
           .where(eq(schema.merchants.userId, userId))
           .limit(1);
         if (!merchant?.isActive) {
-          throw new AppError('NOT_A_MERCHANT', 403, 'not a merchant account');
+          throw new AppError('NOT_A_MERCHANT', 403, 'This account has no Try On Library access.');
         }
       }
       return createSessionTokens(app, userId, reply, 200, portal ?? 'web');
