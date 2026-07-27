@@ -9,6 +9,7 @@ export const keys = {
     `merchant-catalog/${merchantId}/${id}/thumb.jpg`,
   merchantCatalogFlatGarment: (merchantId: string, id: string) =>
     `merchant-catalog/${merchantId}/flat/${id}/garment.jpg`,
+  merchantLogo: (merchantId: string) => `merchant-logo/${merchantId}/logo.jpg`,
   devUpload: (merchantId: string, id: string, ext: string) => `dev/${merchantId}/${id}.${ext}`,
   catalogItem: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.jpg`,
   catalogThumb: (typeSlug: string, id: string) => `catalog/${typeSlug}/${id}.thumb.jpg`,
