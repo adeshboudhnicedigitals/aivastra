@@ -480,6 +480,7 @@ export async function authRoutes(app: FastifyInstance) {
         email: schema.users.email,
         displayName: schema.users.displayName,
         phone: schema.users.phone,
+        username: schema.users.username,
         companyName: schema.users.companyName,
         tier: schema.users.tier,
         passwordHash: schema.users.passwordHash,
@@ -528,6 +529,7 @@ export async function authRoutes(app: FastifyInstance) {
       schema: {
         body: z.object({
           displayName: z.string().min(1).max(60).optional(),
+          email: z.string().email().max(254).optional(),
           phone: z
             .string()
             .regex(/^\d{10}$/, 'phone must be a 10-digit number')
@@ -543,6 +545,7 @@ export async function authRoutes(app: FastifyInstance) {
     async (req) => {
       const {
         displayName,
+        email,
         phone,
         companyName,
         defaultResolution,
@@ -550,6 +553,7 @@ export async function authRoutes(app: FastifyInstance) {
         defaultPlatform,
       } = req.body as {
         displayName?: string;
+        email?: string;
         phone?: string | null;
         companyName?: string | null;
         defaultResolution?: string;
@@ -572,10 +576,26 @@ export async function authRoutes(app: FastifyInstance) {
           }
         }
 
+        if (email) {
+          const [conflict] = await tx
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(and(eq(schema.users.email, email), sql`${schema.users.id} <> ${req.userId}`))
+            .limit(1);
+          if (conflict) {
+            throw new AppError(
+              'EMAIL_TAKEN',
+              409,
+              'This email is already registered to another account.',
+            );
+          }
+        }
+
         const [updated] = await tx
           .update(schema.users)
           .set({
             ...(displayName !== undefined ? { displayName } : {}),
+            ...(email !== undefined ? { email } : {}),
             ...(phone !== undefined ? { phone: phone ?? null } : {}),
             ...(companyName !== undefined ? { companyName: companyName?.trim() || null } : {}),
             ...(defaultResolution !== undefined ? { defaultResolution } : {}),
@@ -596,7 +616,7 @@ export async function authRoutes(app: FastifyInstance) {
           });
         if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
 
-        const complete = Boolean(updated.phone && /^\d{10}$/.test(updated.phone));
+        const complete = Boolean(updated.phone && /^\d{10}$/.test(updated.phone) && updated.email);
         if (!complete) return updated;
 
         const [freePlan] = await tx
