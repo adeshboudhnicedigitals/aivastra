@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
-import { LoginBody, RegisterBody } from '@aivastra/types';
+import { LoginBody, RegisterBody, WebLoginBody } from '@aivastra/types';
 import { and, desc, eq, exists, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -347,13 +347,13 @@ export async function authRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/login',
     {
-      schema: { body: LoginBody },
+      schema: { body: WebLoginBody },
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (req, reply) => {
       // Field is named `email` on the wire (see LoginBody) but may hold a
       // username for admin-created accounts -- see findUserByIdentifier.
-      const { email: identifier, password } = req.body as z.infer<typeof LoginBody>;
+      const { email: identifier, password, portal } = req.body as z.infer<typeof WebLoginBody>;
       const user = await findUserByIdentifier(app, identifier);
       if (!user || user.isBanned) {
         await verifyPassword(dummyHash, password); // constant-time: prevent user enumeration via timing
@@ -364,6 +364,16 @@ export async function authRoutes(app: FastifyInstance) {
         throw new AppError('INVALID', 401, 'invalid credentials');
       if (user.email && !user.emailVerified) {
         throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+      }
+      if (portal === 'catalog-app') {
+        const [merchantRow] = await app.db
+          .select({ isActive: schema.merchants.isActive })
+          .from(schema.merchants)
+          .where(eq(schema.merchants.userId, user.id));
+        if (!merchantRow?.isActive) {
+          throw new AppError('NOT_A_MERCHANT', 403, 'This account has no Try On Library access.');
+        }
+        return createSessionTokens(app, user.id, reply, 200, 'catalog-app');
       }
       const [adminRow] = await app.db
         .select({ role: schema.adminUsers.role, status: schema.adminUsers.status })
