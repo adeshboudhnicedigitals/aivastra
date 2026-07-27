@@ -1,3 +1,20 @@
+## 2026-07-27 - Account Preferences settings now persist
+
+### Done
+- Added `default_resolution`, `default_aspect_ratio`, `default_platform` columns to `users` (migration `0125_add_user_defaults.sql`, default `HD` / `1:1` / `Amazon`).
+- `GET /v1/me` returns the three fields; `PATCH /v1/me` accepts and validates them (`z.enum` for resolution/aspect ratio, free-text platform capped at 60 chars) and persists them alongside the existing profile fields.
+- Replaced the disabled placeholder "Account Preferences" row on the Settings page with real `<select>` dropdowns wired to state, editable in the existing edit/save/cancel flow, and saved via the existing `saveProfile` PATCH call.
+- Verified: `pnpm --filter @aivastra/api exec tsc --noEmit`, `pnpm --filter @aivastra/web exec tsc --noEmit`, targeted Biome check, and `pnpm db:migrate` applied cleanly against the local dev database.
+
+- Studio (`apps/catalogues-web/src/app/(app)/studio/page.tsx`) now fetches `/v1/me` (shared `['me']` query key, so it stays in sync with edits made on the Settings page) and prefills `platform`/`aspect` from the user's saved defaults exactly once on load, falling back to the platform's own default ratio if the saved aspect isn't valid for that platform.
+
+### Failed / Not Done
+- `defaultResolution` is not wired into Studio: the wizard's "Output Resolution" step is read-only/auto-derived from the aspect ratio's fixed max output dimensions (capped by admin config) — there is no resolution *input* in Studio to prefill, so the saved preference currently has no effect there.
+- No live browser click-through in this environment.
+
+### Open Questions / Decisions
+- Encountered and repaired a pre-existing Drizzle migration-snapshot chain break: `0124_backfill_dev_api_tables` (a data-only migration) had no corresponding snapshot file, and `0119`/`0122` both forked from `0118`'s snapshot, so `drizzle-kit generate` refused to run. Fixed by hand-authoring `0125_add_user_defaults`'s SQL and snapshot (cloned from `0123`, the last schema-affecting snapshot, with the three new columns added) rather than attempting to rewrite the historical chain.
+
 ## 2026-07-27 - Merchant Catalogue Defaults column headings
 
 ### Done

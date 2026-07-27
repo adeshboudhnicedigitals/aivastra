@@ -458,6 +458,9 @@ export async function authRoutes(app: FastifyInstance) {
         companyName: schema.users.companyName,
         tier: schema.users.tier,
         passwordHash: schema.users.passwordHash,
+        defaultResolution: schema.users.defaultResolution,
+        defaultAspectRatio: schema.users.defaultAspectRatio,
+        defaultPlatform: schema.users.defaultPlatform,
       })
       .from(schema.users)
       .where(eq(schema.users.id, req.userId));
@@ -506,14 +509,27 @@ export async function authRoutes(app: FastifyInstance) {
             .nullable()
             .optional(),
           companyName: z.string().max(160).nullable().optional(),
+          defaultResolution: z.enum(['HD', '2K', '4K']).optional(),
+          defaultAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
+          defaultPlatform: z.string().max(60).optional(),
         }),
       },
     },
     async (req) => {
-      const { displayName, phone, companyName } = req.body as {
+      const {
+        displayName,
+        phone,
+        companyName,
+        defaultResolution,
+        defaultAspectRatio,
+        defaultPlatform,
+      } = req.body as {
         displayName?: string;
         phone?: string | null;
         companyName?: string | null;
+        defaultResolution?: string;
+        defaultAspectRatio?: string;
+        defaultPlatform?: string;
       };
       return app.db.transaction(async (tx) => {
         if (phone) {
@@ -537,6 +553,9 @@ export async function authRoutes(app: FastifyInstance) {
             ...(displayName !== undefined ? { displayName } : {}),
             ...(phone !== undefined ? { phone: phone ?? null } : {}),
             ...(companyName !== undefined ? { companyName: companyName?.trim() || null } : {}),
+            ...(defaultResolution !== undefined ? { defaultResolution } : {}),
+            ...(defaultAspectRatio !== undefined ? { defaultAspectRatio } : {}),
+            ...(defaultPlatform !== undefined ? { defaultPlatform } : {}),
           })
           .where(eq(schema.users.id, req.userId))
           .returning({
@@ -546,6 +565,9 @@ export async function authRoutes(app: FastifyInstance) {
             phone: schema.users.phone,
             companyName: schema.users.companyName,
             tier: schema.users.tier,
+            defaultResolution: schema.users.defaultResolution,
+            defaultAspectRatio: schema.users.defaultAspectRatio,
+            defaultPlatform: schema.users.defaultPlatform,
           });
         if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
 

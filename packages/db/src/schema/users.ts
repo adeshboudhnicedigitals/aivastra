@@ -26,6 +26,9 @@ export const users = pgTable('users', {
   isBanned: boolean('is_banned').notNull().default(false),
   maxActiveDevices: integer('max_active_devices').notNull().default(1),
   banReason: text('ban_reason'),
+  defaultResolution: text('default_resolution').notNull().default('HD'),
+  defaultAspectRatio: text('default_aspect_ratio').notNull().default('1:1'),
+  defaultPlatform: text('default_platform').notNull().default('Amazon'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

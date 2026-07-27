@@ -394,6 +394,28 @@ export default function StudioPage(): React.ReactElement {
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
   const effectiveAspect = aspect === 'custom' && customRatio ? customRatio : aspect;
 
+  // Prefill platform/aspect from the user's saved Account Preferences (Settings page),
+  // once, so switching platforms later doesn't keep re-applying the saved default.
+  const appliedUserDefaults = useRef(false);
+  const { data: meDefaults } = useQuery<{ defaultPlatform: string; defaultAspectRatio: string }>({
+    queryKey: ['me'],
+    queryFn: () => api.get('/v1/me'),
+  });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: apply saved defaults exactly once when they arrive, not on every platform/aspect change
+  useEffect(() => {
+    if (appliedUserDefaults.current || !meDefaults) return;
+    appliedUserDefaults.current = true;
+    const nextPlatform = BRAND_CONFIG[meDefaults.defaultPlatform]
+      ? meDefaults.defaultPlatform
+      : platform;
+    const ratios = BRAND_CONFIG[nextPlatform]?.ratios ?? ALL_ASPECTS;
+    const nextAspect = ratios.includes(meDefaults.defaultAspectRatio)
+      ? meDefaults.defaultAspectRatio
+      : (BRAND_CONFIG[nextPlatform]?.default ?? aspect);
+    setPlatform(nextPlatform);
+    setAspect(nextAspect);
+  }, [meDefaults]);
+
   const { data: resolutionConfigData } = useQuery<{
     resolutions: Record<string, { enabled: boolean; creditCost: number }>;
     maxOutputPx: number;

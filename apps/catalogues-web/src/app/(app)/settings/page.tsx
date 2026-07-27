@@ -19,6 +19,9 @@ interface MeResponse {
   companyName: string | null;
   tier: string;
   hasPassword: boolean;
+  defaultResolution: string;
+  defaultAspectRatio: string;
+  defaultPlatform: string;
 }
 interface CreditsResponse {
   balance: number;
@@ -152,6 +155,73 @@ function Field({
   );
 }
 
+const RESOLUTIONS = ['HD', '2K', '4K'];
+const ASPECT_RATIOS = ['1:1', '2:3', '3:4', '4:5'];
+const PLATFORMS = ['Amazon', 'Flipkart', 'Myntra', 'AJIO', 'Meesho', 'Nykaa Fashion', 'Shopify'];
+
+// ── SelectField ──────────────────────────────────────────
+function SelectField({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  disabled?: boolean;
+  onChange: (v: string) => void;
+}) {
+  const inputId = `field-${label.toLowerCase().replace(/\s+/g, '-')}`;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}>
+      <label htmlFor={inputId} style={{ fontWeight: 500, fontSize: 14, color: C.text }}>
+        {label}
+      </label>
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <select
+          id={inputId}
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            width: '100%',
+            height: 44,
+            borderRadius: 8,
+            background: C.field,
+            border: `1px solid ${C.border}`,
+            fontFamily: 'inherit',
+            fontSize: 14,
+            color: disabled ? C.light : C.mid,
+            padding: '0 36px 0 14px',
+            outline: 'none',
+            appearance: 'none',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {options.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+        <span
+          style={{
+            position: 'absolute',
+            right: 12,
+            pointerEvents: 'none',
+            color: C.mid,
+            display: 'flex',
+          }}
+        >
+          <ChevronDown />
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const Row = ({ children }: { children: React.ReactNode }) => (
   <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>{children}</div>
 );
@@ -212,6 +282,9 @@ export default function SettingsPage(): React.ReactElement {
   const [name, setName] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
+  const [defaultResolution, setDefaultResolution] = useState<string | null>(null);
+  const [defaultAspectRatio, setDefaultAspectRatio] = useState<string | null>(null);
+  const [defaultPlatform, setDefaultPlatform] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -245,6 +318,9 @@ export default function SettingsPage(): React.ReactElement {
   const nameVal = name ?? me?.displayName ?? '';
   const phoneVal = sanitizePhone(phone ?? me?.phone ?? '');
   const companyNameVal = companyName ?? me?.companyName ?? '';
+  const defaultResolutionVal = defaultResolution ?? me?.defaultResolution ?? 'HD';
+  const defaultAspectRatioVal = defaultAspectRatio ?? me?.defaultAspectRatio ?? '1:1';
+  const defaultPlatformVal = defaultPlatform ?? me?.defaultPlatform ?? 'Amazon';
   const phoneValid = PHONE_REGEX.test(phoneVal);
   const profileComplete = phoneValid;
 
@@ -260,6 +336,9 @@ export default function SettingsPage(): React.ReactElement {
         displayName: nameVal.trim() || undefined,
         phone: phoneVal || null,
         companyName: companyNameVal.trim() || null,
+        defaultResolution: defaultResolutionVal,
+        defaultAspectRatio: defaultAspectRatioVal,
+        defaultPlatform: defaultPlatformVal,
       });
       void qc.invalidateQueries({ queryKey: ['me'] });
       setSaved(true);
@@ -465,9 +544,27 @@ export default function SettingsPage(): React.ReactElement {
             </Section>
             <Section title="Account Preferences">
               <Row>
-                <Field label="Default Resolution" value="HD" dropdown disabled />
-                <Field label="Default Aspect Ratio" value="1:1" dropdown disabled />
-                <Field label="Default Platform" value="Amazon" dropdown disabled />
+                <SelectField
+                  label="Default Resolution"
+                  value={defaultResolutionVal}
+                  options={RESOLUTIONS}
+                  disabled={!editingProfile}
+                  onChange={setDefaultResolution}
+                />
+                <SelectField
+                  label="Default Aspect Ratio"
+                  value={defaultAspectRatioVal}
+                  options={ASPECT_RATIOS}
+                  disabled={!editingProfile}
+                  onChange={setDefaultAspectRatio}
+                />
+                <SelectField
+                  label="Default Platform"
+                  value={defaultPlatformVal}
+                  options={PLATFORMS}
+                  disabled={!editingProfile}
+                  onChange={setDefaultPlatform}
+                />
               </Row>
             </Section>
             {editingProfile && (
@@ -489,6 +586,9 @@ export default function SettingsPage(): React.ReactElement {
                     setName(null);
                     setPhone(null);
                     setCompanyName(null);
+                    setDefaultResolution(null);
+                    setDefaultAspectRatio(null);
+                    setDefaultPlatform(null);
                   }}
                   style={{
                     padding: '10px 24px',
