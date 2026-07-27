@@ -1393,6 +1393,26 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
                     Lower garment and shoe defaults are only applied when the assigned pose's
                     workflow needs one.
                   </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '80px 1fr 1fr 1fr 1fr',
+                      gap: 12,
+                      alignItems: 'end',
+                      marginBottom: 6,
+                    }}
+                  >
+                    <span aria-hidden="true" />
+                    {['Face', 'Background', 'Lower garment', 'Shoe'].map((heading) => (
+                      <div
+                        key={heading}
+                        className="setting-lbl"
+                        style={{ marginBottom: 0, paddingInline: 2 }}
+                      >
+                        {heading}
+                      </div>
+                    ))}
+                  </div>
                   {(['men', 'women', 'boys', 'girls'] as const).map((cat) => (
                     <div
                       key={cat}
