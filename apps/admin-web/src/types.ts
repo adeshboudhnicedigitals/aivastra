@@ -200,7 +200,8 @@ export interface UserMerchant {
 
 export interface User {
   id: string;
-  email: string;
+  email: string | null;
+  username: string | null;
   displayName: string | null;
   phone: string | null;
   tier: string;
