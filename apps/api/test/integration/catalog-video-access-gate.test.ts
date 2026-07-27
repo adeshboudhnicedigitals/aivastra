@@ -45,7 +45,9 @@ describe('catalog video — CATALOG_VIDEO_ALLOWED_EMAILS gate', () => {
       .values({ userId, status: 'COMPLETED', creditsCharged: 25 })
       .returning();
     await app.db.insert(schema.jobInputs).values({ jobId: job.id });
-    await app.db.insert(schema.jobOutputs).values({ jobId: job.id, resultKey: keys.output(job.id) });
+    await app.db
+      .insert(schema.jobOutputs)
+      .values({ jobId: job.id, resultKey: keys.output(job.id) });
     return job.id;
   }
 

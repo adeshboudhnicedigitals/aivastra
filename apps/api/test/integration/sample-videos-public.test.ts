@@ -49,15 +49,13 @@ describe('GET /v1/models/sample-videos', () => {
         sortOrder: 1,
       })
       .returning();
-    await app.db
-      .insert(schema.sampleVideos)
-      .values({
-        title: 'Inactive',
-        videoR2Key: 'sample-videos/c.mp4',
-        thumbnailR2Key: 'sample-videos/c.thumb.jpg',
-        prompt: 'p',
-        isActive: false,
-      });
+    await app.db.insert(schema.sampleVideos).values({
+      title: 'Inactive',
+      videoR2Key: 'sample-videos/c.mp4',
+      thumbnailR2Key: 'sample-videos/c.thumb.jpg',
+      prompt: 'p',
+      isActive: false,
+    });
     const res = await app.inject({
       method: 'GET',
       url: '/v1/models/sample-videos',

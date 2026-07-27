@@ -6,8 +6,8 @@ import { CatalogueTemplatesTab } from './assets/CatalogueTemplatesTab';
 import { FacesTab } from './assets/FacesTab';
 import { GarmentTypesTab } from './assets/GarmentTypesTab';
 import { PoseAssetsTab } from './assets/PoseAssetsTab';
-import { SareeStylesTab } from './assets/SareeStylesTab';
 import { SampleVideosTab } from './assets/SampleVideosTab';
+import { SareeStylesTab } from './assets/SareeStylesTab';
 
 interface Props {
   onNav: (_page: string, _filter?: { page: string; filter?: string }) => void;

@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Film, Plus } from 'lucide-react';
+import { useCallback, useState } from 'react';
 
 import { C } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
@@ -142,6 +142,7 @@ export default function CatalogVideoPage(): React.ReactElement {
                     }}
                   >
                     {item.status === 'COMPLETED' && item.videoUrl ? (
+                      // biome-ignore lint/a11y/useMediaCaption: silent garment-preview clip, no dialogue/narration
                       <video
                         src={item.videoUrl}
                         poster={item.thumbnailUrl ?? undefined}
