@@ -5,10 +5,13 @@ import {
   AssetContentType,
   ConfirmModelBackgroundBody,
   ConfirmModelFaceBody,
+  ConfirmSampleVideoBody,
   PatchModelBackgroundBody,
   PatchModelFaceBody,
+  PatchSampleVideoBody,
   PresignModelBackgroundBody,
   PresignModelFaceBody,
+  PresignSampleVideoBody,
 } from '@aivastra/types';
 import AdmZip from 'adm-zip';
 import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
@@ -376,6 +379,100 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
         .set(patch)
         .where(inArray(schema.modelBackgrounds.id, ids));
       return { updated: ids.length };
+    },
+  );
+
+  // ── Sample Videos (PixVerse catalog-video templates) ─────────────────────
+
+  app.get('/admin/assets/sample-videos', { preHandler: RW }, async () => {
+    const rows = await app.db
+      .select()
+      .from(schema.sampleVideos)
+      .where(isNull(schema.sampleVideos.deletedAt))
+      .orderBy(schema.sampleVideos.sortOrder);
+    return { items: rows };
+  });
+
+  app.post(
+    '/admin/assets/sample-videos/presign',
+    { preHandler: RW, schema: { body: PresignSampleVideoBody } },
+    async (req) => {
+      const { videoContentType, thumbnailContentType } = req.body as {
+        videoContentType: string;
+        thumbnailContentType: string;
+      };
+      const newId = randomUUID();
+      const videoR2Key = keys.sampleVideo(newId);
+      const thumbnailR2Key = keys.sampleVideoThumb(newId);
+      const [video, thumbnail] = await Promise.all([
+        app.storage.presignPut(videoR2Key, videoContentType, 50_000_000, 300),
+        app.storage.presignPut(thumbnailR2Key, thumbnailContentType, 5_000_000, 300),
+      ]);
+      return {
+        videoUploadUrl: video.url,
+        videoR2Key,
+        thumbnailUploadUrl: thumbnail.url,
+        thumbnailR2Key,
+      };
+    },
+  );
+
+  app.post(
+    '/admin/assets/sample-videos',
+    { preHandler: RW, schema: { body: ConfirmSampleVideoBody } },
+    async (req) => {
+      const body = req.body as {
+        title: string;
+        videoR2Key: string;
+        thumbnailR2Key: string;
+        prompt: string;
+        sortOrder: number;
+      };
+      const [row] = await app.db
+        .insert(schema.sampleVideos)
+        .values({
+          title: body.title,
+          videoR2Key: body.videoR2Key,
+          thumbnailR2Key: body.thumbnailR2Key,
+          prompt: body.prompt,
+          sortOrder: body.sortOrder,
+        })
+        .returning();
+      return row;
+    },
+  );
+
+  app.patch(
+    '/admin/assets/sample-videos/:id',
+    { preHandler: RW, schema: { params: uuidParam, body: PatchSampleVideoBody } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as Record<string, unknown>;
+      const [updated] = await app.db
+        .update(schema.sampleVideos)
+        .set({ ...(body as object), updatedAt: new Date() })
+        .where(eq(schema.sampleVideos.id, id))
+        .returning({ id: schema.sampleVideos.id });
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+      return { ok: true };
+    },
+  );
+
+  app.delete(
+    '/admin/assets/sample-videos/:id',
+    { preHandler: D, schema: { params: uuidParam } },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const [row] = await app.db
+        .select()
+        .from(schema.sampleVideos)
+        .where(eq(schema.sampleVideos.id, id));
+      if (!row) throw new AppError('NOT_FOUND', 404, 'sample video not found');
+      await app.db
+        .update(schema.sampleVideos)
+        .set({ deletedAt: new Date() })
+        .where(eq(schema.sampleVideos.id, id));
+      return { ok: true };
     },
   );
 
