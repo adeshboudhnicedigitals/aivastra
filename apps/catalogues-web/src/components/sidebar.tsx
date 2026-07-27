@@ -42,6 +42,12 @@ const NAV: {
     label: 'Catalogues',
     icon: `${BASE}/assets/catalog-icon.svg`,
   },
+  {
+    id: 'catalog-video',
+    href: '/catalog-video',
+    label: 'Catalog Video',
+    icon: `${BASE}/assets/catalog-video-icon.svg`,
+  },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
   {
     id: 'catalogue-manager',
@@ -105,6 +111,11 @@ export function Sidebar() {
   function prefetchRoute(id: string) {
     if (id === 'catalogues') {
       qc.prefetchQuery({ queryKey: ['catalogues'], queryFn: () => api.get('/v1/catalogues') });
+    } else if (id === 'catalog-video') {
+      qc.prefetchQuery({
+        queryKey: ['catalog-videos'],
+        queryFn: () => api.get('/v1/catalog-videos'),
+      });
     } else if (id === 'pricing') {
       qc.prefetchQuery({
         queryKey: ['credit-plans'],
@@ -136,7 +147,15 @@ export function Sidebar() {
     {
       title: 'CREATE',
       items: visibleNav.filter((item) =>
-        ['studio', 'tryon', 'saree', 'catalogues', 'assets', 'catalogue-manager'].includes(item.id),
+        [
+          'studio',
+          'tryon',
+          'saree',
+          'catalogues',
+          'catalog-video',
+          'assets',
+          'catalogue-manager',
+        ].includes(item.id),
       ),
     },
     {
