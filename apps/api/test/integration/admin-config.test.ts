@@ -52,4 +52,21 @@ describe('admin config', () => {
     // Untouched fields still default-fill correctly alongside the override.
     expect(getRes2.json().uploadLimits.merchantCatalogMaxBytes).toBe(20 * 1024 * 1024);
   });
+
+  it('GET /admin/config default-fills pixverse cost, and PATCH persists an override', async () => {
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.statusCode).toBe(200);
+    expect(getRes.json().pixverse.creditCost).toBe(20);
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({ pixverse: { creditCost: 35 } }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes2 = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes2.json().pixverse.creditCost).toBe(35);
+  });
 });
