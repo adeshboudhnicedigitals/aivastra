@@ -187,7 +187,7 @@ async function createForceLogoutToken(
   return token;
 }
 
-// The Android app (kiosk + merchant staff mobile login ? same app, same login,
+// The Android app (kiosk + merchant staff mobile login -- same app, same login,
 // no separate kiosk backend) shows this in place of its bundled default logo.
 // null means "no merchant logo configured, use your bundled default" -- see
 // docs/superpowers/specs/2026-07-27-merchant-logo-android-login-design.md.

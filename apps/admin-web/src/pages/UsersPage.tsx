@@ -1160,7 +1160,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                       />
                     )}
                     <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
-                      {uploadingLogo ? 'Uploading?' : 'Upload logo'}
+                      {uploadingLogo ? 'Uploading…' : 'Upload logo'}
                       <input
                         type="file"
                         accept="image/png,image/jpeg,image/webp"
