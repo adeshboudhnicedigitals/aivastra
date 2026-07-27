@@ -216,7 +216,16 @@ export function LibraryContent({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   // --- Views ---
   const renderCategoryTabs = () => (
-    <div style={{ display: 'flex', gap: 10, marginBottom: 24, padding: '0 28px', marginTop: 24 }}>
+    <div
+      className="library-content-padding"
+      style={{
+        display: 'flex',
+        gap: 10,
+        marginBottom: 24,
+        marginTop: 24,
+        overflowX: 'auto',
+      }}
+    >
       {CATEGORIES.map((cat) => {
         const isSelected = selectedCategory === cat.id;
         return (
@@ -281,11 +290,12 @@ export function LibraryContent({ onLoggedOut }: { onLoggedOut: () => void }) {
 
     return (
       <div
+        className="library-content-padding"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
           gap: 16,
-          padding: '0 28px 40px',
+          paddingBottom: 40,
         }}
       >
         {visibleSubs.map((sub) => {
@@ -446,11 +456,13 @@ export function LibraryContent({ onLoggedOut }: { onLoggedOut: () => void }) {
 
     return (
       <div
+        className="library-content-padding"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
           gap: 16,
-          padding: '24px 28px 40px',
+          paddingTop: 24,
+          paddingBottom: 40,
         }}
       >
         {products.map((product) => (
@@ -694,7 +706,7 @@ export function LibraryContent({ onLoggedOut }: { onLoggedOut: () => void }) {
               </div>
             }
             right={
-              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={() => setBulkModalOpen(true)}

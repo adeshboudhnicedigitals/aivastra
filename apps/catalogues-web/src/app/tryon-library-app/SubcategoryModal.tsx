@@ -121,6 +121,8 @@ export function SubcategoryModal({
           padding: 24,
           width: 420,
           maxWidth: '100%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
           boxShadow: '0 12px 48px rgba(0,0,0,0.18)',
         }}
       >

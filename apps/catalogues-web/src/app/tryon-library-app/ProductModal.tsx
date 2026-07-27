@@ -245,6 +245,8 @@ export function ProductModal({
           padding: 24,
           width: 480,
           maxWidth: '100%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
           boxShadow: '0 12px 48px rgba(0,0,0,0.18)',
         }}
       >
@@ -419,6 +421,7 @@ export function ProductModal({
                     <div
                       style={{
                         display: 'flex',
+                        flexWrap: 'wrap',
                         gap: 20,
                         alignItems: 'center',
                         padding: 16,
@@ -617,7 +620,13 @@ export function ProductModal({
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+              gap: 16,
+            }}
+          >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
                 Actual Price <span style={{ color: C.pink }}>*</span>

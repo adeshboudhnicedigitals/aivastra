@@ -466,6 +466,8 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
               padding: '12px 16px',
               borderRadius: 8,
               border: `1px solid ${C.border}`,
+              flexWrap: 'wrap',
+              rowGap: 12,
             }}
           >
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
