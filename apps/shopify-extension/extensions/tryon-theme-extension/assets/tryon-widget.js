@@ -208,18 +208,12 @@
         const card = document.createElement('div');
         card.className = 'aivastra-tryon__history-card';
 
-        const media = document.createElement('button');
-        media.type = 'button';
+        const media = document.createElement('div');
         media.className = 'aivastra-tryon__history-media';
         const img = document.createElement('img');
         img.src = entry.resultUrl;
         img.alt = '';
         media.appendChild(img);
-        media.addEventListener('click', () => {
-          resultImage.src = entry.resultUrl;
-          showStep('result');
-          showPage('main');
-        });
         card.appendChild(media);
 
         const meta = document.createElement('div');
