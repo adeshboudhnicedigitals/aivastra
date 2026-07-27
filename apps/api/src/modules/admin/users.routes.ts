@@ -29,6 +29,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         ? or(
             ilike(schema.users.email, `%${search}%`),
             ilike(schema.users.displayName, `%${search}%`),
+            ilike(schema.users.username, `%${search}%`),
           )
         : undefined;
       const where =
@@ -44,6 +45,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .select({
           id: schema.users.id,
           email: schema.users.email,
+          username: schema.users.username,
           displayName: schema.users.displayName,
           phone: schema.users.phone,
           tier: schema.users.tier,
@@ -103,6 +105,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         .select({
           id: schema.users.id,
           email: schema.users.email,
+          username: schema.users.username,
           displayName: schema.users.displayName,
           phone: schema.users.phone,
           tier: schema.users.tier,
