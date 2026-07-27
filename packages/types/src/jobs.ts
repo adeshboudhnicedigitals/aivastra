@@ -113,10 +113,16 @@ export const SIMPLE_TRYON_COST = 5;
 
 /** Fallback default — the actual charged cost is admin-configurable, see getSareeMannequinDevCreditCost(). */
 export const SAREE_MANNEQUIN_DEV_COST = 10;
+export const PIXVERSE_VIDEO_COST = 20;
 
 export const CreateSimpleTryonRequest = z.object({
   personKey: z.string().regex(INPUT_GARMENT_KEY),
   sourceJobId: z.string().uuid(),
+});
+
+export const CreateCatalogVideoJobRequest = z.object({
+  sourceJobId: z.string().uuid(),
+  sampleVideoId: z.string().uuid(),
 });
 
 export const CreateSareeMannequinJobRequest = z.object({
