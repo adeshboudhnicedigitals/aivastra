@@ -8,13 +8,13 @@ import type {
   MerchantCatalogSubcategoryListResponse,
 } from '@aivastra/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, GarmentIcon, TrashIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { BulkUploadModal } from './BulkUploadModal';
-import { catalogAppApi as api } from './catalog-app-api';
+import { catalogAppApi as api, CatalogAppSessionExpiredError } from './catalog-app-api';
 import { LibraryTopBar } from './LibraryTopBar';
 import { ProductModal } from './ProductModal';
 import { SubcategoryModal } from './SubcategoryModal';
@@ -53,6 +53,13 @@ export function LibraryContent({ onLoggedOut }: { onLoggedOut: () => void }) {
     queryFn: () =>
       api.get<MerchantCatalogSubcategoryListResponse>('/v1/merchant/catalog/subcategories'),
   });
+
+  useEffect(() => {
+    if (subcategoriesQuery.error instanceof CatalogAppSessionExpiredError) {
+      onLoggedOut();
+    }
+  }, [subcategoriesQuery.error, onLoggedOut]);
+
   const subcategories = subcategoriesQuery.data?.items ?? [];
 
   const garmentTypesQuery = useQuery({
