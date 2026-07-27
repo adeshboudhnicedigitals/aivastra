@@ -5,8 +5,8 @@ import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import {
   createTestApiKey,
+  createTestDevSareeMannequinConfig,
   createTestMerchant,
-  createTestSareeMannequinGarmentType,
 } from './helpers/merchant.js';
 
 let c: Containers;
@@ -54,7 +54,7 @@ beforeAll(async () => {
   setCredits = m.credits;
   ({ key } = await createTestApiKey(app, m.merchantId));
 
-  await createTestSareeMannequinGarmentType(app);
+  await createTestDevSareeMannequinConfig(app);
 });
 
 afterAll(async () => {
@@ -89,12 +89,13 @@ describe('POST /v1/dev/saree-mannequin', () => {
       .from(schema.jobInputs)
       .where(eq(schema.jobInputs.jobId, body.jobId));
     expect(inputs!.upperGarmentKey).toBeTruthy();
-    expect(inputs!.garmentTypeId).toBeTruthy();
+    expect(inputs!.garmentTypeId).toBeNull();
     expect(inputs!.faceId).toBeNull();
     expect(inputs!.backgroundId).toBeNull();
     expect(inputs!.poseId).toBeNull();
     const params = inputs!.params as Record<string, unknown>;
     expect(params.kind).toBe('saree_mannequin');
+    expect(params.workflowTemplateId).toBeTruthy();
   });
 
   it('enqueues the job on jobs:normal', async () => {
@@ -174,8 +175,8 @@ describe('POST /v1/dev/saree-mannequin (JSON/base64 body)', () => {
 });
 
 describe('POST /v1/dev/saree-mannequin (unconfigured)', () => {
-  it('rejects with 400 and does not move credits when no mannequin garment type is active', async () => {
-    // Fresh merchant/app instance with no createTestSareeMannequinGarmentType call.
+  it('rejects with 400 and does not move credits when no dev saree mannequin config is active', async () => {
+    // Fresh merchant/app instance with no createTestDevSareeMannequinConfig call.
     const c2 = await startContainers();
     const app2 = await buildTestApp(c2);
     try {
