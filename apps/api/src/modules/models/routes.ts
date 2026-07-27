@@ -52,6 +52,27 @@ export async function modelsRoutes(app: FastifyInstance) {
     },
   );
 
+  app.get('/v1/models/sample-videos', { preHandler: app.requireUser }, async () => {
+    const rows = await app.db
+      .select({
+        id: schema.sampleVideos.id,
+        title: schema.sampleVideos.title,
+        thumbnailR2Key: schema.sampleVideos.thumbnailR2Key,
+        videoR2Key: schema.sampleVideos.videoR2Key,
+      })
+      .from(schema.sampleVideos)
+      .where(and(eq(schema.sampleVideos.isActive, true), isNull(schema.sampleVideos.deletedAt)))
+      .orderBy(asc(schema.sampleVideos.sortOrder));
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        thumbnailUrl: app.storage.publicUrl(row.thumbnailR2Key),
+        previewVideoUrl: app.storage.publicUrl(row.videoR2Key),
+      })),
+    };
+  });
+
   app.get(
     '/v1/models/faces',
     {
