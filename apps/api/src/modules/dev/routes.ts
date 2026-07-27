@@ -54,10 +54,10 @@ export async function devRoutes(app: FastifyInstance) {
     },
     async () => {
       const rows = await app.db
-        .select({ slug: schema.tryonCategories.slug, name: schema.tryonCategories.name })
-        .from(schema.tryonCategories)
-        .where(eq(schema.tryonCategories.isActive, true))
-        .orderBy(asc(schema.tryonCategories.sortOrder));
+        .select({ slug: schema.devTryonCategories.slug, name: schema.devTryonCategories.name })
+        .from(schema.devTryonCategories)
+        .where(eq(schema.devTryonCategories.isActive, true))
+        .orderBy(asc(schema.devTryonCategories.sortOrder));
       return { categories: rows };
     },
   );

@@ -11,6 +11,7 @@ import ChatInboxPage from './pages/ChatInboxPage';
 import ContactRequestsPage from './pages/ContactRequestsPage';
 import CreditAnalysisPage from './pages/CreditAnalysisPage';
 import DashboardPage from './pages/DashboardPage';
+import DevApiPage from './pages/DevApiPage';
 import JobsPage from './pages/JobsPage';
 import LoginPage from './pages/LoginPage';
 import RecycleBinPage from './pages/RecycleBinPage';
@@ -31,6 +32,7 @@ const PATH_LABELS: Record<string, string> = {
   users: 'Users',
   jobs: 'Jobs',
   workflows: 'Workflows',
+  'dev-api': 'Dev API',
   'chat-inbox': 'Chat Inbox',
   'chatbot-qna': 'Chatbot Q&A',
   'recycle-bin': 'Recycle bin',
@@ -214,6 +216,7 @@ export default function App() {
             <Route path="/shopify-funnels" element={<ShopifyFunnelsPage {...pageProps} />} />
             <Route path="/credit-analysis" element={<CreditAnalysisPage {...pageProps} />} />
             <Route path="/tryon" element={<TryonPage {...pageProps} />} />
+            <Route path="/dev-api" element={<DevApiPage {...pageProps} />} />
             <Route path="/saree" element={<SareePage {...pageProps} />} />
             <Route path="/chat-inbox" element={<ChatInboxPage {...pageProps} />} />
             <Route path="/chatbot-qna" element={<ChatbotQnaPage {...pageProps} />} />
