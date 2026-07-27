@@ -6,7 +6,7 @@ import type {
 } from '@aivastra/types';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { GarmentIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -48,9 +48,11 @@ function SubcategoriesScreenInner() {
 
   const merchantGated = isMerchantGateError(subcategoriesQuery.error);
 
-  if (subcategoriesQuery.error instanceof CatalogAppSessionExpiredError) {
-    onLoggedOut();
-  }
+  useEffect(() => {
+    if (subcategoriesQuery.error instanceof CatalogAppSessionExpiredError) {
+      onLoggedOut();
+    }
+  }, [subcategoriesQuery.error, onLoggedOut]);
 
   const subcategories = subcategoriesQuery.data?.items ?? [];
 
