@@ -390,7 +390,13 @@ export async function adminAssetsRoutes(app: FastifyInstance) {
       .from(schema.sampleVideos)
       .where(isNull(schema.sampleVideos.deletedAt))
       .orderBy(schema.sampleVideos.sortOrder);
-    return { items: rows };
+    return {
+      items: rows.map((row) => ({
+        ...row,
+        videoUrl: app.storage.publicUrl(row.videoR2Key),
+        thumbnailUrl: app.storage.publicUrl(row.thumbnailR2Key),
+      })),
+    };
   });
 
   app.post(

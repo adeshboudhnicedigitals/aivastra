@@ -1,0 +1,13 @@
+import { useCallback, useEffect, useState } from 'react';
+import { SampleVideoUploadModal, type SampleVideo } from '../../components/SampleVideoUploadModal';
+import { apiErrorMessage, apiFetch } from '../../lib/data';
+import { useAssetsContext } from './AssetsContext';
+
+export function SampleVideosTab() {
+  const { toast } = useAssetsContext(); const [items, setItems] = useState<SampleVideo[]>([]); const [loading, setLoading] = useState(true); const [modalOpen, setModalOpen] = useState(false);
+  const load = useCallback(async () => { setLoading(true); try { setItems((await apiFetch<{ items: SampleVideo[] }>('/admin/assets/sample-videos')).items); } catch (e) { toast({ kind: 'error', title: 'Failed to load sample videos', body: apiErrorMessage(e, 'Please try again.') }); } finally { setLoading(false); } }, [toast]);
+  useEffect(() => { load(); }, [load]);
+  const toggle = async (item: SampleVideo) => { const isActive = !item.isActive; setItems((v) => v.map((x) => x.id === item.id ? { ...x, isActive } : x)); try { await apiFetch(`/admin/assets/sample-videos/${item.id}`, { method: 'PATCH', body: JSON.stringify({ isActive }) }); } catch (e) { setItems((v) => v.map((x) => x.id === item.id ? item : x)); toast({ kind: 'error', title: 'Failed to update', body: apiErrorMessage(e, 'Please try again.') }); } };
+  const remove = async (id: string) => { try { await apiFetch(`/admin/assets/sample-videos/${id}`, { method: 'DELETE' }); setItems((v) => v.filter((x) => x.id !== id)); } catch (e) { toast({ kind: 'error', title: 'Failed to delete', body: apiErrorMessage(e, 'Please try again.') }); } };
+  return <div><div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}><h3>Sample Videos</h3><button onClick={() => setModalOpen(true)}>Add Sample Video</button></div>{loading ? <p>Loading...</p> : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>{items.map((item) => <div key={item.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 8 }}><video src={item.videoUrl} poster={item.thumbnailUrl} controls style={{ width: '100%' }} /><div>{item.title}</div><div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.prompt}</div><div style={{ display: 'flex', gap: 8, marginTop: 8 }}><button onClick={() => toggle(item)}>{item.isActive ? 'Deactivate' : 'Activate'}</button><button onClick={() => remove(item.id)}>Delete</button></div></div>)}</div>}{modalOpen && <SampleVideoUploadModal toast={toast} onClose={() => setModalOpen(false)} onDone={(created) => { setItems((v) => [...v, created]); setModalOpen(false); }} />}</div>;
+}
