@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { LoginBody, RegisterBody } from '@aivastra/types';
-import { and, desc, eq, exists, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -213,22 +213,43 @@ async function issueDeviceSession(
   return { accessToken, refreshToken: r.plain };
 }
 
+// A user logs in with either their email or their username (username is only
+// ever set on admin-created accounts -- see POST /admin/users). Usernames are
+// stored lowercase and restricted to [a-z0-9_.] (enforced by the DB CHECK
+// constraint and CreateUserBody's regex) so they can never contain '@' -- that
+// guarantee is what makes this single OR-lookup unambiguous: a value typed at
+// login can match at most one of the two columns, never both/either-of-two-rows.
+async function findUserByIdentifier(app: FastifyInstance, identifier: string) {
+  const [user] = await app.db
+    .select()
+    .from(schema.users)
+    .where(
+      or(eq(schema.users.email, identifier), eq(schema.users.username, identifier.toLowerCase())),
+    );
+  return user ?? null;
+}
+
 async function authenticateDeviceUser(
   app: FastifyInstance,
   dummyHash: string,
-  email: string,
+  identifier: string,
   password: string,
 ) {
-  const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+  const user = await findUserByIdentifier(app, identifier);
   if (!user || user.isBanned) {
-    await verifyPassword(dummyHash, password);
+    await verifyPassword(dummyHash, password); // constant-time: prevent user enumeration via timing
     throw new AppError('INVALID', 401, 'invalid credentials');
   }
   if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
   if (!(await verifyPassword(user.passwordHash, password))) {
     throw new AppError('INVALID', 401, 'invalid credentials');
   }
-  if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+  // Only accounts that actually have an email need it verified. Admin-created
+  // username-only accounts are created with emailVerified=true regardless (see
+  // POST /admin/users) so this branch is defensive, not the primary gate.
+  if (user.email && !user.emailVerified) {
+    throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+  }
   return user;
 }
 
@@ -257,7 +278,7 @@ async function activeDeviceSessions(app: FastifyInstance, userId: string) {
 
 function deviceLoginUserPayload(user: {
   id: string;
-  email: string;
+  email: string | null;
   displayName: string | null;
   tier: string;
   maxActiveDevices: number;
@@ -315,8 +336,10 @@ export async function authRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (req, reply) => {
-      const { email, password } = req.body as z.infer<typeof LoginBody>;
-      const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+      // Field is named `email` on the wire (see LoginBody) but may hold a
+      // username for admin-created accounts -- see findUserByIdentifier.
+      const { email: identifier, password } = req.body as z.infer<typeof LoginBody>;
+      const user = await findUserByIdentifier(app, identifier);
       if (!user || user.isBanned) {
         await verifyPassword(dummyHash, password); // constant-time: prevent user enumeration via timing
         throw new AppError('INVALID', 401, 'invalid credentials');
@@ -324,7 +347,9 @@ export async function authRoutes(app: FastifyInstance) {
       if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
       if (!(await verifyPassword(user.passwordHash, password)))
         throw new AppError('INVALID', 401, 'invalid credentials');
-      if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+      if (user.email && !user.emailVerified) {
+        throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+      }
       const [adminRow] = await app.db
         .select({ role: schema.adminUsers.role, status: schema.adminUsers.status })
         .from(schema.adminUsers)
