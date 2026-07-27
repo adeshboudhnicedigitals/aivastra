@@ -7,7 +7,7 @@ import {
   jobProcessingDuration,
   jobsProcessedTotal,
 } from '@aivastra/observability';
-import type { StorageProvider } from '@aivastra/storage';
+import { keys, type StorageProvider } from '@aivastra/storage';
 import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
@@ -19,6 +19,8 @@ import {
   submitPrompt,
   uploadImageToComfy,
 } from '../comfyui/client.js';
+import { loadEnv } from '../env.js';
+import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
 import { waitForCompletion } from '../comfyui/progress.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
@@ -129,6 +131,12 @@ export async function processJob(
     typeof inputs.params === 'string'
       ? (JSON.parse(inputs.params) as Record<string, unknown>)
       : ((inputs.params ?? {}) as Record<string, unknown>);
+
+  // Catalog-video jobs use PixVerse image-to-video and never require a ComfyUI worker.
+  if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.kind === 'video') {
+    await processVideoJob(cfg, jobId, rawParams, userId, stream, messageId, jobLog, startedAt);
+    return;
+  }
 
   if (!inputs.faceId && !inputs.backgroundId && !inputs.poseId && rawParams.personKey) {
     await processTryonDirectJob(
@@ -637,6 +645,72 @@ export async function processJob(
 }
 
 // ── Tryon direct job processor ────────────────────────────────────────────
+
+async function processVideoJob(
+  cfg: ProcessorConfig,
+  jobId: string,
+  rawParams: Record<string, unknown>,
+  userId: string,
+  stream: string,
+  messageId: string,
+  jobLog: Logger,
+  startedAt: number,
+): Promise<void> {
+  const { db, redis, pub, storage, s3, r2Bucket } = cfg;
+  const sourceImageKey = rawParams.sourceImageKey as string;
+  const prompt = rawParams.prompt as string;
+
+  await transitionJob(db, pub, jobId, userId, 'PREPROCESSING', {}, jobLog);
+
+  try {
+    const env = loadEnv();
+    const { url: imageUrl } = await storage.presignGet(sourceImageKey, 900);
+
+    await transitionJob(db, pub, jobId, userId, 'GENERATING', {}, jobLog);
+    const { taskId } = await createVideoTask(
+      env.PIXVERSE_API_BASE_URL,
+      env.PIXVERSE_API_KEY ?? '',
+      imageUrl,
+      prompt,
+      jobLog,
+    );
+    await db.insert(schema.jobEvents).values({
+      jobId,
+      eventType: 'PIXVERSE_DISPATCH',
+      payload: { taskId },
+    });
+
+    const videoUrl = await pollVideoTask(
+      env.PIXVERSE_API_BASE_URL,
+      env.PIXVERSE_API_KEY ?? '',
+      taskId,
+      env.PIXVERSE_POLL_INTERVAL_MS,
+      env.PIXVERSE_POLL_TIMEOUT_MS,
+    );
+
+    await transitionJob(db, pub, jobId, userId, 'UPLOADING', {}, jobLog);
+    const videoRes = await fetch(videoUrl, { signal: AbortSignal.timeout(120_000) });
+    if (!videoRes.ok) throw new Error(`failed to download PixVerse video: ${videoRes.status}`);
+    const videoBytes = new Uint8Array(await videoRes.arrayBuffer());
+
+    const resultKey = keys.videoOutput(jobId);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: r2Bucket,
+        Key: resultKey,
+        Body: videoBytes,
+        ContentType: 'video/mp4',
+      }),
+    );
+
+    await transitionJob(db, pub, jobId, userId, 'COMPLETED', { resultKey }, jobLog);
+    await redis.xack(stream, 'dispatcher-cg', messageId);
+    recordJobOutcome('success', startedAt);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    await handleFailure(cfg, jobId, userId, stream, messageId, jobLog, startedAt, errMsg);
+  }
+}
 
 type TryonDirectJob = {
   id: string;
