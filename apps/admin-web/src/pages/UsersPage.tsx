@@ -26,12 +26,29 @@ const EMPTY_EDIT_MERCHANT_FORM = {
   phone: '',
   businessAddress: '',
 };
+const EMPTY_CREATE_USER_FORM = {
+  username: '',
+  password: '',
+  displayName: '',
+  email: '',
+  phone: '',
+};
 
 function adminRoleLabel(role: string | null) {
   if (role === 'SUPER_ADMIN') return 'Super Admin';
   if (role === 'MODERATOR') return 'Moderator';
   if (role === 'SUPPORT') return 'Support';
   return 'Admin';
+}
+function userLabel(u: {
+  displayName: string | null;
+  email: string | null;
+  username: string | null;
+}) {
+  return u.displayName ?? u.email ?? u.username ?? 'User';
+}
+function userContact(u: { email: string | null; username: string | null }) {
+  return u.email ?? (u.username ? `@${u.username}` : '\u2014');
 }
 
 interface Props {
@@ -75,6 +92,12 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [merchantEditForm, setMerchantEditForm] = useState(EMPTY_EDIT_MERCHANT_FORM);
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [createUserForm, setCreateUserForm] = useState(EMPTY_CREATE_USER_FORM);
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserError, setCreateUserError] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -389,6 +412,53 @@ export default function UsersPage({ onNav, toast }: Props) {
       setTogglingMerchant(false);
     }
   }
+  function openCreateUser() {
+    setCreateUserForm(EMPTY_CREATE_USER_FORM);
+    setCreateUserError('');
+    setShowCreateUser(true);
+  }
+
+  async function handleCreateUser() {
+    setCreateUserError('');
+    if (
+      !createUserForm.username.trim() ||
+      !createUserForm.password ||
+      !createUserForm.displayName.trim()
+    ) {
+      setCreateUserError('Username, password, and name are required.');
+      return;
+    }
+    setCreatingUser(true);
+    try {
+      await apiFetch('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: createUserForm.username.trim(),
+          password: createUserForm.password,
+          displayName: createUserForm.displayName.trim(),
+          email: createUserForm.email.trim() || undefined,
+          phone: createUserForm.phone.trim() || undefined,
+        }),
+      });
+      toast({ title: `Account created for ${createUserForm.displayName.trim()}` });
+      setShowCreateUser(false);
+      setPage(0);
+      await load();
+    } catch (err) {
+      setCreateUserError(apiErrorMessage(err, 'Failed to create user'));
+    } finally {
+      setCreatingUser(false);
+    }
+  }
+
+  async function handleResetPassword(newPassword: string) {
+    if (!detail) return;
+    await apiFetch(`/admin/users/${detail.id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword }),
+    });
+    toast({ title: 'Password reset \u2014 share the new password with the customer' });
+  }
 
   if (detail) {
     const u = detail;
@@ -405,11 +475,11 @@ export default function UsersPage({ onNav, toast }: Props) {
               <Icon.Back /> Back to users
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 12 }}>
-              <NameAvatar name={u.displayName ?? u.email} email={u.email} size={44} />
+              <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={44} />
               <div>
-                <h1 style={{ marginBottom: 2 }}>{u.displayName ?? u.email}</h1>
+                <h1 style={{ marginBottom: 2 }}>{userLabel(u)}</h1>
                 <p className="lede" style={{ margin: 0 }}>
-                  {u.email}
+                  {userContact(u)}
                 </p>
               </div>
             </div>
@@ -426,6 +496,15 @@ export default function UsersPage({ onNav, toast }: Props) {
             </div>
           </div>
           <div className="head-tools">
+            <button
+              className="btn ghost"
+              onClick={() => {
+                setNewPasswordInput('');
+                setResettingPassword(true);
+              }}
+            >
+              <Icon.Refresh /> Reset Password
+            </button>
             {isSuperAdmin && !u.isAdmin && u.hasPassword && (
               <button
                 className="btn ghost"
@@ -441,7 +520,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     setUsers((prev) =>
                       prev.map((x) => (x.id === u.id ? { ...x, isAdmin: true } : x)),
                     );
-                    toast({ title: `${u.displayName ?? u.email} granted admin access` });
+                    toast({ title: `${userLabel(u)} granted admin access` });
                   } catch (e) {
                     toast({
                       kind: 'error',
@@ -468,7 +547,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                     setUsers((prev) =>
                       prev.map((x) => (x.id === u.id ? { ...x, isAdmin: false } : x)),
                     );
-                    toast({ title: `${u.displayName ?? u.email} admin access revoked` });
+                    toast({ title: `${userLabel(u)} admin access revoked` });
                   } catch (e) {
                     toast({
                       kind: 'error',
@@ -520,7 +599,7 @@ export default function UsersPage({ onNav, toast }: Props) {
               </button>
               <button
                 className="stat"
-                onClick={() => onNav('jobs', { page: 'jobs', search: u.email })}
+                onClick={() => onNav('jobs', { page: 'jobs', search: u.email ?? u.username ?? '' })}
                 title="View this user's jobs"
               >
                 <div className="lbl">
@@ -656,7 +735,9 @@ export default function UsersPage({ onNav, toast }: Props) {
                 </div>
                 <button
                   className="btn sm ghost"
-                  onClick={() => onNav('jobs', { page: 'jobs', search: u.email })}
+                  onClick={() =>
+                    onNav('jobs', { page: 'jobs', search: u.email ?? u.username ?? '' })
+                  }
                 >
                   View all jobs <Icon.Chevron />
                 </button>
@@ -733,6 +814,43 @@ export default function UsersPage({ onNav, toast }: Props) {
           </>
         )}
 
+        {resettingPassword && (
+          <div className="modal-overlay" onClick={() => setResettingPassword(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-head">
+                <h3>Reset Password</h3>
+              </div>
+              <div className="modal-body">
+                <div className="field">
+                  <label>New password</label>
+                  <input
+                    className="input"
+                    type="password"
+                    value={newPasswordInput}
+                    onChange={(e) => setNewPasswordInput(e.target.value)}
+                    placeholder="At least 8 characters with a letter and number"
+                  />
+                </div>
+              </div>
+              <div className="modal-foot">
+                <button className="btn ghost" onClick={() => setResettingPassword(false)}>
+                  Cancel
+                </button>
+                <button
+                  className="btn primary"
+                  onClick={async () => {
+                    await handleResetPassword(newPasswordInput);
+                    setResettingPassword(false);
+                  }}
+                  disabled={!newPasswordInput}
+                >
+                  Reset Password
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {confirmSuspend && (
           <div className="modal-overlay" onClick={() => setConfirmSuspend(null)}>
             <div className="modal confirm" onClick={(e) => e.stopPropagation()}>
@@ -742,7 +860,7 @@ export default function UsersPage({ onNav, toast }: Props) {
               <div className="modal-body">
                 <p>
                   Are you sure you want to {u.isBanned ? 'unsuspend' : 'suspend'}{' '}
-                  <strong>{u.displayName ?? u.email}</strong>?
+                  <strong>{userLabel(u)}</strong>?
                 </p>
               </div>
               <div className="modal-foot">
@@ -828,7 +946,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div className="modal-overlay" onClick={closeAdjustCredits}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
-                <h3>Adjust credits — {u.displayName ?? u.email}</h3>
+                <h3>Adjust credits — {userLabel(u)}</h3>
               </div>
               <div
                 className="modal-body"
@@ -915,7 +1033,7 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div className="modal-overlay" onClick={() => setShowGrantMerchant(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-head">
-                <h3>Grant merchant access — {u.displayName ?? u.email}</h3>
+                <h3>Grant merchant access — {userLabel(u)}</h3>
               </div>
               <div
                 className="modal-body"
@@ -1070,11 +1188,14 @@ export default function UsersPage({ onNav, toast }: Props) {
           <div className="search">
             <Icon.Search />
             <input
-              placeholder="Search by name or email…"
+              placeholder="Search by name, email, or username…"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
             />
           </div>
+          <button className="btn" onClick={openCreateUser}>
+            <Icon.Plus /> Create User
+          </button>
         </div>
       </div>
 
@@ -1145,7 +1266,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                       <div
                         style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 220 }}
                       >
-                        <NameAvatar name={u.displayName ?? u.email} email={u.email} size={32} />
+                        <NameAvatar name={userLabel(u)} email={u.email ?? undefined} size={32} />
                         <div style={{ minWidth: 0 }}>
                           <div
                             className="semi"
@@ -1155,7 +1276,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                               whiteSpace: 'nowrap',
                             }}
                           >
-                            {u.displayName ?? u.email}
+                            {userLabel(u)}
                           </div>
                           {u.displayName && (
                             <div
@@ -1166,7 +1287,7 @@ export default function UsersPage({ onNav, toast }: Props) {
                                 whiteSpace: 'nowrap',
                               }}
                             >
-                              {u.email}
+                              {userContact(u)}
                             </div>
                           )}
                         </div>
@@ -1246,6 +1367,93 @@ export default function UsersPage({ onNav, toast }: Props) {
             pageSize={PAGE_SIZE}
           />
         </>
+      )}
+      {showCreateUser && (
+        <div className="modal-overlay" onClick={() => setShowCreateUser(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Create User</h3>
+            </div>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+            >
+              <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
+                Give the account a username and password now. Email and phone are optional here —
+                the customer will be prompted to add them the first time they log in.
+              </p>
+              {createUserError && (
+                <div className="banner warn">
+                  <p style={{ margin: 0, fontSize: 13 }}>{createUserError}</p>
+                </div>
+              )}
+              <div className="field">
+                <label>Username</label>
+                <input
+                  className="input"
+                  value={createUserForm.username}
+                  onChange={(e) => setCreateUserForm((f) => ({ ...f, username: e.target.value }))}
+                  placeholder="e.g. priya_shop1"
+                />
+              </div>
+              <div className="field">
+                <label>Password</label>
+                <input
+                  className="input"
+                  value={createUserForm.password}
+                  onChange={(e) => setCreateUserForm((f) => ({ ...f, password: e.target.value }))}
+                  placeholder="Share this with the customer directly"
+                />
+              </div>
+              <div className="field">
+                <label>Full name</label>
+                <input
+                  className="input"
+                  value={createUserForm.displayName}
+                  onChange={(e) =>
+                    setCreateUserForm((f) => ({ ...f, displayName: e.target.value }))
+                  }
+                />
+              </div>
+              <div className="field-row">
+                <div className="field">
+                  <label>Email</label>
+                  <input
+                    className="input"
+                    value={createUserForm.email}
+                    onChange={(e) => setCreateUserForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="field">
+                  <label>Phone</label>
+                  <input
+                    className="input"
+                    value={createUserForm.phone}
+                    onChange={(e) => setCreateUserForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="Optional — 10-digit mobile number"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button
+                className="btn ghost"
+                onClick={() => setShowCreateUser(false)}
+                disabled={creatingUser}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn"
+                onClick={() => void handleCreateUser()}
+                disabled={creatingUser}
+              >
+                {creatingUser ? 'Creating…' : 'Create User'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
