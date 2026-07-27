@@ -30,6 +30,10 @@ export const authPlugin = fp(async (app) => {
       // Reject tokens not issued for the user portal (kind must be 'access')
       if ((payload as Record<string, unknown>).kind !== 'access')
         throw new AppError('UNAUTH', 401, 'invalid token');
+      // catalog-app tokens are deliberately restricted to requireMerchant routes.
+      // This is the actual security boundary for the installable Try On Library.
+      if ((payload as Record<string, unknown>).aud === 'catalog-app')
+        throw new AppError('UNAUTH', 401, 'invalid token');
       userId = String(payload.sub);
     } catch (err) {
       if (err instanceof AppError) throw err;
