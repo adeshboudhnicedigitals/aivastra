@@ -797,7 +797,7 @@ export default function CataloguePage({
             </Link>
             <div>
               <div style={{ fontWeight: 700, fontSize: 18, color: C.text }}>
-                Catalogue{' '}
+                Catalog{' '}
                 <span style={{ color: C.mid, fontWeight: 500, fontSize: 14 }}>
                   #{id.slice(0, 8)}
                 </span>

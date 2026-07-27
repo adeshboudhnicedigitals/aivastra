@@ -39,14 +39,14 @@ const NAV: {
   {
     id: 'catalogues',
     href: '/catalogues',
-    label: 'Catalogues',
+    label: 'Catalogs',
     icon: `${BASE}/assets/catalog-icon.svg`,
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
   {
     id: 'catalogue-manager',
     href: '/catalogue-manager',
-    label: 'My Catalogue',
+    label: 'Try On Library',
     icon: 'package',
     merchantOnly: true,
   },
@@ -214,14 +214,14 @@ export function Sidebar() {
           <img
             src={`${BASE}/assets/logo.svg`}
             alt="Ai Vastra"
-            style={{ height: 28, width: 'auto', flexShrink: 0 }}
+            style={{ height: 24, width: 'auto', flexShrink: 0 }}
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: logo */}
           <img
             src={`${BASE}/assets/logo-text.svg`}
             alt="Ai Vastra"
-            style={{ height: 20, width: 'auto', flexShrink: 0 }}
+            style={{ height: 28, width: 'auto', flexShrink: 0 }}
           />
         </Link>
       </div>
