@@ -379,6 +379,7 @@ export const AdminMerchantUpdateBody = z
     webhookSecret: z.string().max(512).nullable().optional(),
     kioskEnabled: z.boolean().optional(),
     maxKioskDevices: z.number().int().min(1).max(100).optional(),
+    logoKey: z.string().max(500).nullable().optional(),
   })
   .refine((body) => Object.values(body).some((v) => v !== undefined), {
     message: 'at least one field is required',
