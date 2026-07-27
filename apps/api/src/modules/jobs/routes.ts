@@ -1,6 +1,7 @@
 import { schema } from '@aivastra/db';
 import { keys } from '@aivastra/storage';
 import {
+  CreateCatalogVideoJobRequest,
   CreateSareeJobRequest,
   CreateSareeMannequinJobRequest,
   CreateSimpleTryonRequest,
@@ -13,7 +14,7 @@ import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
-import { createJob, createSimpleTryonJob } from './create.js';
+import { createCatalogVideoJob, createJob, createSimpleTryonJob } from './create.js';
 import { createSareeJob } from './createSaree.js';
 import { createSareeMannequinJob } from './createSareeMannequin.js';
 import { regenerateJob } from './regenerate.js';
@@ -47,6 +48,26 @@ export async function jobsRoutes(app: FastifyInstance) {
         req.userId,
         req.headers['idempotency-key'] as string | undefined,
         () => createJob(app, req.userId, req.body as z.infer<typeof CreateTryOnJobRequest>),
+      );
+      reply.code(201);
+      return result;
+    },
+  );
+
+  app.post(
+    '/v1/jobs/catalog-video',
+    { preHandler: app.requireUser, schema: { body: CreateCatalogVideoJobRequest } },
+    async (req, reply) => {
+      const result = await withIdempotency(
+        app,
+        req.userId,
+        req.headers['idempotency-key'] as string | undefined,
+        () =>
+          createCatalogVideoJob(
+            app,
+            req.userId,
+            req.body as z.infer<typeof CreateCatalogVideoJobRequest>,
+          ),
       );
       reply.code(201);
       return result;
