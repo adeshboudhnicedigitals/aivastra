@@ -675,7 +675,7 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   app.post('/v1/auth/logout', async (req) => {
-    const plain = req.cookies.refresh;
+    const plain = req.cookies.refresh ?? req.cookies.catalog_app_refresh;
     if (plain) {
       const tokenHash = hashRefresh(plain);
       const [row] = await app.db
