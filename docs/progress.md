@@ -1,3 +1,23 @@
+## 2026-07-27 - Admin-created users and username login
+
+### Done
+- Added the nullable, unique `users.username` column with the locked `[a-zA-Z0-9_.]` validation rules, made `users.email` nullable, generated/applied migration `0126_add_username_login`, and extended the shared auth/admin/profile schemas.
+- Added shared username-or-email account resolution for both `/v1/auth/login` and `/v1/auth/device-login`; username matching is case-insensitive and email/username namespaces cannot collide.
+- Added admin create-user and reset-password endpoints with integration coverage, nullable-email-safe user/admin responses and search, and the planned free-credit/profile-completion behavior.
+- Added the admin Create User and Reset Password interfaces with username-aware labels, search, and nullable-email handling.
+- Updated catalogues-web login to accept either identifier and extended the app-wide profile gate/modal to require both email and phone, while preserving the one-time settings email flow.
+- Added the symmetric `if (!user.email) return;` receipt guard so username-only accounts without an email do not affect payment or credit-grant outcomes.
+- Completed all eight scoped implementation commits. Verification passed for `pnpm typecheck`, the combined 10-test API integration run (`admin-create-user`, `me-email`, and `admin-jobs-type`), and `pnpm --filter @aivastra/admin build`.
+
+### Failed / Not Done
+- `pnpm lint` is not fully green: its only error is CRLF formatting in the unrelated, untracked `.vscode/settings.json`; the feature's touched files passed their targeted Biome checks. Per final review, this personal editor configuration remains untracked and unchanged.
+- No live browser click-through was performed because this session has no browser automation tool; the customer/admin UI changes were verified by typecheck, targeted Biome checks, and the admin production build.
+- Granting merchant access to a username-only account without an email remains intentionally unsupported and continues to fail the existing `/admin/merchants` validation, as specified by the plan's follow-ups.
+
+### Open Questions / Decisions
+- Decision: leave the unrelated personal `.vscode/settings.json` untracked and unchanged rather than taking ownership of it solely to make the root lint command exit successfully.
+- Email ownership verification remains out of scope by the plan's locked decision; the profile gate records a syntactically valid email without adding a verification flow.
+
 ## 2026-07-27 - Hide the Sellio preview page and route (not removed)
 
 ### Done
