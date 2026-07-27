@@ -1,3 +1,22 @@
+## 2026-07-27 - Catalog Video (PixVerse)
+
+### Done
+- Implemented all ten Catalog Video plan tasks: sample-video persistence and storage keys, configurable credit cost, admin CRUD and management UI, public active-template API, catalog-video job creation, history listing, PixVerse dispatcher processing, and the Catalog Video navigation/history/create UI.
+- Catalog-video job creation validates source-job ownership and completion, validates active sample-video templates, deducts credits and inserts the job atomically, and refunds on enqueue failure. The dispatcher retries external PixVerse failures and refunds terminal failures through the existing idempotent refund path.
+- PixVerse integration now follows the documented image-to-video contract: upload the presigned image URL to obtain `img_id`, create a task with `img_id`, poll `video_id` status, and download the completed `Resp.url` video to R2.
+- Added focused API and dispatcher integration coverage for job creation, history listing, successful PixVerse processing, and failed-generation refunds. Catalogues-web typechecking passes after both the sidebar and page/wizard changes.
+
+### Failed / Not Done
+- Real PixVerse generation requires a production `PIXVERSE_API_KEY` and funded PixVerse account. The dispatcher defaults to `https://app-api.pixverse.ai`; credentials and production endpoint access still need deployment configuration and a live smoke test.
+- The authenticated Catalog Video browser walkthrough could not be completed in this environment because no browser session was available. The local Next server responded for `/catalog-video`, and the page typechecks, but a signed-in click-through should verify selecting an image and template, submitting, and receiving the SSE completion update.
+- The full dispatcher integration suite still has three unrelated legacy fixture failures (`happy-path`, `recovery`, and `retry`) because they insert `catalog_items` without the now-required `type` column. The dedicated catalog-video integration test passes.
+
+### Open Questions / Decisions
+- Catalog Video uses one flat, configurable credit cost rather than per-template pricing.
+- Generated catalog videos do not receive per-job watermarking.
+- Admin-uploaded sample videos do not receive ffmpeg-generated thumbnails; admins provide the thumbnail asset directly.
+- `pnpm db:generate` remains blocked by a pre-existing Drizzle snapshot-parent collision. Task 1 correctly used the manual `0125_sample_videos.sql` migration and journal entry instead; no further schema changes are required for Catalog Video.
+
 ## 2026-07-25 - Custom background upload (personal library)
 
 ### Done
@@ -4020,4 +4039,3 @@ Spec: `docs/superpowers/specs/2026-05-26-frontend-rebuild-vastra-3-design.md`. R
 ---
 
 <!-- Add new entries above this line, newest first -->
-
