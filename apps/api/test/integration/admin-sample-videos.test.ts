@@ -28,7 +28,7 @@ describe('admin sample videos CRUD', () => {
       headers: { ...adminAuth, 'content-type': 'application/json' },
       payload: JSON.stringify({
         videoContentType: 'video/mp4',
-        thumbnailContentType: 'image/jpeg',
+        thumbnailContentType: 'image/gif',
       }),
     });
     expect(presignRes.statusCode).toBe(200);
@@ -36,7 +36,7 @@ describe('admin sample videos CRUD', () => {
     expect(presign.videoUploadUrl).toBeTruthy();
     expect(presign.thumbnailUploadUrl).toBeTruthy();
     expect(presign.videoR2Key).toMatch(/^sample-videos\/.+\.mp4$/);
-    expect(presign.thumbnailR2Key).toMatch(/^sample-videos\/.+\.thumb\.jpg$/);
+    expect(presign.thumbnailR2Key).toMatch(/^sample-videos\/.+\.thumb\.gif$/);
 
     const confirmRes = await app.inject({
       method: 'POST',
@@ -113,7 +113,7 @@ describe('admin sample videos CRUD', () => {
       headers: { ...adminAuth, 'content-type': 'application/json' },
       payload: JSON.stringify({
         videoContentType: 'video/webm',
-        thumbnailContentType: 'image/jpeg',
+        thumbnailContentType: 'image/gif',
       }),
     });
     expect(res.statusCode).toBe(400);
