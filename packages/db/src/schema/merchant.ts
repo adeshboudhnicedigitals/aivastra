@@ -24,6 +24,11 @@ export const merchants = pgTable('merchants', {
   maxKioskDevices: integer('max_kiosk_devices').notNull().default(5),
   webhookUrl: text('webhook_url'),
   webhookSecret: text('webhook_secret'),
+  // Nullable -- R2 object key for the merchant's uploaded logo, shown by the
+  // Android app (kiosk + mobile, same app, same login) in place of its bundled
+  // Aivastra default. Null means "no merchant logo, app uses its own default" --
+  // see /v1/auth/device-login's logoUrl field in apps/api/src/modules/auth/routes.ts.
+  logoKey: text('logo_key'),
   // Login credentials live on `users` — a merchant IS a user with a merchants
   // profile attached (same pattern as admin_users). One merchant account per user.
   userId: uuid('user_id')

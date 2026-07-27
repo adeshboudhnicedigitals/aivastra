@@ -6,6 +6,7 @@ import { AppError } from '../../lib/errors.js';
 import { refund } from '../credits/ledger.js';
 import { adminStreamHandler } from '../jobs/sse.js';
 import { requireAdmin } from './guard.js';
+import { jobTypeSql } from './job-type.js';
 
 const JobsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -45,6 +46,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         or(
           ilike(sql`${schema.jobs.id}::text`, `%${search}%`),
           ilike(schema.users.email, `%${search}%`),
+          ilike(schema.users.username, `%${search}%`),
         ) as ReturnType<typeof eq>,
       );
     }
@@ -77,9 +79,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
         hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
         hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
         outputKey: schema.jobOutputs.resultKey,
-        jobType: sql<
-          'catalogue' | 'tryon' | 'widget' | 'api'
-        >`CASE WHEN ${schema.jobs.merchantId} IS NOT NULL THEN 'widget' WHEN ${schema.jobs.apiKeyId} IS NOT NULL THEN 'api' WHEN ${schema.jobInputs.faceId} IS NULL THEN 'tryon' ELSE 'catalogue' END`,
+        jobType: jobTypeSql(),
       })
       .from(schema.jobs)
       .leftJoin(schema.users, eq(schema.users.id, schema.jobs.userId))
@@ -142,6 +142,7 @@ export async function adminJobsRoutes(app: FastifyInstance) {
           poseLabel: schema.modelPoseAssets.displayName,
           hasLower: sql<boolean>`(${schema.jobInputs.lowerCatalogId} IS NOT NULL)`,
           hasShoe: sql<boolean>`(${schema.jobInputs.shoeCatalogId} IS NOT NULL)`,
+          jobType: jobTypeSql(),
           userHint: schema.jobInputs.userHint,
           outputKey: schema.jobOutputs.resultKey,
           // ComfyUI-actual inputs — mirrors dispatcher's key resolution exactly

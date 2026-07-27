@@ -18,6 +18,34 @@ export const UpdateUserBody = z.object({
   banReason: z.string().max(500).nullable().optional(),
   forceLogout: z.boolean().optional(),
 });
+export const CreateUserBody = z.object({
+  username: z
+    .string()
+    .min(3)
+    .max(32)
+    .regex(/^[a-zA-Z0-9_.]+$/, 'Username may only contain letters, numbers, underscores, and dots'),
+  password: z
+    .string()
+    .min(8)
+    .max(128)
+    .regex(/[a-zA-Z]/, 'Password must contain at least one letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+  displayName: z.string().min(1).max(80),
+  email: z.string().email().max(254).optional(),
+  phone: z
+    .string()
+    .regex(/^\d{10}$/, 'phone must be a 10-digit number')
+    .optional(),
+  companyName: z.string().max(160).optional(),
+});
+export const ResetPasswordBody = z.object({
+  newPassword: z
+    .string()
+    .min(8)
+    .max(128)
+    .regex(/[a-zA-Z]/, 'Password must contain at least one letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+});
 export const CategoryTag = z.enum(['featured', 'trending', 'popular']);
 export const CreateCategoryBody = z.object({
   typeId: z.number().int().positive(),

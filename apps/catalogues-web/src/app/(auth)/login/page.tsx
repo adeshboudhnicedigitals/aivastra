@@ -206,7 +206,7 @@ function LoginFormInner() {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label htmlFor="email" style={{ fontWeight: 700, fontSize: 14, color: C.text }}>
-                Email*
+                Email or Username*
               </label>
               <div style={fieldWrap}>
                 <span style={{ position: 'absolute', left: 12, color: C.mid, display: 'flex' }}>
@@ -214,9 +214,9 @@ function LoginFormInner() {
                 </span>
                 <input
                   id="email"
-                  type="email"
-                  placeholder="Enter your email"
-                  autoComplete="email"
+                  type="text"
+                  placeholder="Enter your email or username"
+                  autoComplete="username"
                   style={inputStyle}
                   {...register('email')}
                 />

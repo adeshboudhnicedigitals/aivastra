@@ -40,6 +40,22 @@ export function statusBadge(s: string): [string, string] {
   return m[s] || ['', s];
 }
 
+export function jobTypeBadge(t: string): [string, string] {
+  const m: Record<string, [string, string]> = {
+    catalog: ['', 'Catalog'],
+    tryon: ['info', 'Try On'],
+    saree: ['accent', 'Saree'],
+    saree_mannequin: ['warn', 'Saree Prep'],
+    shopify: ['success', 'Shopify'],
+    merchant_tryon: ['accent', 'Merchant Try-On'],
+    kiosk: ['accent', 'Kiosk'],
+    merchant_catalog: ['accent', 'Try On Library'],
+    merchant_catalog_saree_mannequin: ['warn', 'Try On Library Prep'],
+    api: ['success', 'API'],
+  };
+  return m[t] || ['', t];
+}
+
 export const MOCK_STATS: Stats = {
   jobsToday: 1247,
   jobsTodayDelta: 12.4,
