@@ -14,7 +14,8 @@ const TABS: Tab[] = ['Profile Details', 'Billing', 'Credit History', 'Invoices']
 
 interface MeResponse {
   id: string;
-  email: string;
+  email: string | null;
+  username: string | null;
   displayName: string | null;
   phone: string | null;
   companyName: string | null;
@@ -257,6 +258,7 @@ export default function SettingsPage(): React.ReactElement {
   const [tab, setTab] = useState<Tab>('Profile Details');
   const [name, setName] = useState<string | null>(null);
   const [phone, setPhone] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
   const [defaultResolution, setDefaultResolution] = useState<string | null>(null);
   const [defaultAspectRatio, setDefaultAspectRatio] = useState<string | null>(null);
@@ -290,7 +292,8 @@ export default function SettingsPage(): React.ReactElement {
     queryFn: () => api.get('/v1/payments/history'),
   });
 
-  const email = me?.email ?? '';
+  const emailVal = email ?? me?.email ?? '';
+  const canEditEmail = !me?.email; // once an email is on file, it isn't editable here
   const nameVal = name ?? me?.displayName ?? '';
   const phoneVal = sanitizePhone(phone ?? me?.phone ?? '');
   const companyNameVal = companyName ?? me?.companyName ?? '';
@@ -310,6 +313,7 @@ export default function SettingsPage(): React.ReactElement {
     try {
       await api.patch('/v1/me', {
         displayName: nameVal.trim() || undefined,
+        email: canEditEmail && emailVal.trim() ? emailVal.trim() : undefined,
         phone: phoneVal || null,
         companyName: companyNameVal.trim() || null,
         defaultResolution: defaultResolutionVal,
@@ -484,7 +488,14 @@ export default function SettingsPage(): React.ReactElement {
             >
               <Row>
                 <Field label="Full Name" value={nameVal} onChange={setName} />
-                <Field label="Email Address" value={email} disabled />
+                <Field
+                  label="Email Address"
+                  value={emailVal}
+                  placeholder="you@example.com"
+                  disabled={!editingProfile || !canEditEmail}
+                  onChange={canEditEmail ? setEmail : undefined}
+                />
+                {me?.username && <Field label="Username" value={me.username} disabled />}
                 <Field
                   label="Phone Number"
                   value={phoneVal}
@@ -556,6 +567,7 @@ export default function SettingsPage(): React.ReactElement {
                   onClick={() => {
                     setEditingProfile(false);
                     setName(null);
+                    setEmail(null);
                     setPhone(null);
                     setCompanyName(null);
                     setDefaultResolution(null);
