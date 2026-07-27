@@ -57,13 +57,16 @@ const NAV: {
     icon: 'key',
     merchantOnly: true,
   },
-  {
-    id: 'sellio',
-    href: '/sellio',
-    label: 'Sellio',
-    icon: 'store',
-    merchantOnly: true,
-  },
+  // Sellio preview — not ready for real users. Not removed (page still fully
+  // functional), just hidden from the sidebar; the route itself is also
+  // blocked in every environment, see middleware.ts's ALWAYS_BLOCKED_PATHS.
+  // {
+  //   id: 'sellio',
+  //   href: '/sellio',
+  //   label: 'Sellio',
+  //   icon: 'store',
+  //   merchantOnly: true,
+  // },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
   {
     id: 'tutorials',
@@ -141,7 +144,7 @@ export function Sidebar() {
     },
     {
       title: 'BUSINESS',
-      items: visibleNav.filter((item) => ['pricing', 'developers', 'sellio'].includes(item.id)),
+      items: visibleNav.filter((item) => ['pricing', 'developers'].includes(item.id)),
     },
     {
       title: 'HELP',

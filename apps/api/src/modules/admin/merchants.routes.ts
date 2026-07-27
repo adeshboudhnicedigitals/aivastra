@@ -1,5 +1,6 @@
 import { schema } from '@aivastra/db';
-import { AdminMerchantUpdateBody } from '@aivastra/types';
+import { keys } from '@aivastra/storage';
+import { AdminMerchantUpdateBody, AssetContentType } from '@aivastra/types';
 import { and, count, desc, eq, ilike, or as orOp } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -312,6 +313,9 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       if (body.webhookSecret !== undefined) {
         updates.webhookSecret = body.webhookSecret || null;
       }
+      if (body.logoKey !== undefined) {
+        updates.logoKey = body.logoKey;
+      }
 
       const [updated] = await app.db
         .update(schema.merchants)
@@ -321,6 +325,21 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
 
       if (!updated) throw new AppError('NOT_FOUND', 404, 'Merchant not found');
       return updated;
+    },
+  );
+
+  app.post(
+    '/admin/merchants/:id/logo/presign',
+    {
+      preHandler: requireAdmin(['SUPER_ADMIN']),
+      schema: { body: z.object({ contentType: AssetContentType }) },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { contentType } = req.body as { contentType: string };
+      const logoKey = keys.merchantLogo(id);
+      const presign = await app.storage.presignPut(logoKey, contentType, 2_000_000, 300);
+      return { uploadUrl: presign.url, logoKey };
     },
   );
 
