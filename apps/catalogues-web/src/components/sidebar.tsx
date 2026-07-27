@@ -17,6 +17,7 @@ const NAV: {
   badge?: string;
   devOnly?: boolean;
   merchantOnly?: boolean;
+  catalogVideoOnly?: boolean;
 }[] = [
   { id: 'studio', href: '/studio', label: 'Studio', icon: `${BASE}/assets/studio-icon.svg` },
   {
@@ -47,6 +48,7 @@ const NAV: {
     href: '/catalog-video',
     label: 'Catalog Video',
     icon: `${BASE}/assets/catalog-video-icon.svg`,
+    catalogVideoOnly: true,
   },
   { id: 'assets', href: '/assets', label: 'My Products', icon: `${BASE}/assets/asset-icon.svg` },
   {
@@ -93,12 +95,16 @@ export function Sidebar() {
   // shared 'me' key, so this doesn't add an extra network request. Default to
   // not-a-merchant while loading so merchant-only links never flash for
   // non-merchants before the check resolves.
-  const { data: me } = useQuery<{ isMerchant?: boolean }>({
+  const { data: me } = useQuery<{ isMerchant?: boolean; catalogVideoEnabled?: boolean }>({
     queryKey: ['me'],
     queryFn: () => api.get('/v1/me'),
     retry: false,
   });
   const isMerchant = me?.isMerchant ?? false;
+  // Same default-hidden-until-confirmed pattern as isMerchant above — the
+  // server may restrict this feature to a soft-launch cohort, so don't flash
+  // the nav item before the check resolves.
+  const catalogVideoEnabled = me?.catalogVideoEnabled ?? false;
 
   useEffect(() => {
     setDarkMode(document.documentElement.classList.contains('dark'));
@@ -143,6 +149,7 @@ export function Sidebar() {
   const visibleNav = NAV.filter((item) => {
     if (item.devOnly && process.env.NODE_ENV === 'production') return false;
     if (item.merchantOnly && !isMerchant) return false;
+    if (item.catalogVideoOnly && !catalogVideoEnabled) return false;
     return true;
   });
 
