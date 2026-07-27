@@ -116,7 +116,7 @@ function Cover({
       // biome-ignore lint/performance/noImgElement: presigned R2 URL, Next/Image incompatible
       <img
         src={displayUrl}
-        alt="Catalogue preview"
+        alt="Catalog preview"
         width={768}
         height={1024}
         loading="lazy"
@@ -647,8 +647,8 @@ export default function CataloguesPage(): React.ReactElement {
   return (
     <>
       <TopBar
-        title="Catalogues"
-        subtitle="View, manage, and download your previously generated catalogue images."
+        title="Catalogs"
+        subtitle="View, manage, and download your previously generated catalog images."
         right={undefined}
       />
 
@@ -690,7 +690,7 @@ export default function CataloguesPage(): React.ReactElement {
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search Catalogues"
+                placeholder="Search Catalogs"
                 style={{
                   width: '100%',
                   height: 40,
