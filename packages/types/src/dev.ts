@@ -83,3 +83,53 @@ export const ApiUsageResponse = z.object({
 });
 export type ApiUsageResponse = z.infer<typeof ApiUsageResponse>;
 export type ApiUsageRow = ApiUsageResponse['usage'][number];
+
+// ---- Admin management of the developer-API catalog (see /admin/dev-api/*) ----
+
+const slugRule = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9-]+$/, 'slug must be lowercase letters, numbers, and hyphens');
+
+export const CreateDevTryonCategoryBody = z.object({
+  name: z.string().min(1).max(120),
+  slug: slugRule,
+  workflowTemplateId: z.string().uuid().nullable().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
+export type CreateDevTryonCategoryBody = z.infer<typeof CreateDevTryonCategoryBody>;
+
+export const UpdateDevTryonCategoryBody = z.object({
+  name: z.string().min(1).max(120).optional(),
+  workflowTemplateId: z.string().uuid().nullable().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+  isActive: z.boolean().optional(),
+});
+export type UpdateDevTryonCategoryBody = z.infer<typeof UpdateDevTryonCategoryBody>;
+
+export const UpdateDevSareeConfigBody = z.object({
+  workflowTemplateId: z.string().uuid().nullable().optional(),
+  isActive: z.boolean().optional(),
+});
+export type UpdateDevSareeConfigBody = z.infer<typeof UpdateDevSareeConfigBody>;
+
+export const DevTryonCategoryRow = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: z.string(),
+  workflowTemplateId: z.string().uuid().nullable(),
+  sortOrder: z.number().int(),
+  isActive: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type DevTryonCategoryRow = z.infer<typeof DevTryonCategoryRow>;
+
+export const DevSareeConfigRow = z.object({
+  workflowTemplateId: z.string().uuid().nullable(),
+  isActive: z.boolean(),
+  updatedAt: z.string(),
+});
+export type DevSareeConfigRow = z.infer<typeof DevSareeConfigRow>;
