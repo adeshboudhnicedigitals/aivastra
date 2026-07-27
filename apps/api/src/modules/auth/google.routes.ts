@@ -229,13 +229,28 @@ export async function googleAuthRoutes(app: FastifyInstance) {
   app.post(
     '/v1/auth/google/exchange',
     {
-      schema: { body: z.object({ code: z.string().min(1) }) },
+      schema: {
+        body: z.object({
+          code: z.string().min(1),
+          portal: z.enum(['web', 'catalog-app']).optional(),
+        }),
+      },
     },
     async (req, reply) => {
-      const { code } = req.body as { code: string };
+      const { code, portal } = req.body as { code: string; portal?: 'web' | 'catalog-app' };
       const userId = await app.redis.getdel(`oauth:otp:${code}`);
       if (!userId) throw new AppError('INVALID_OTP', 400, 'invalid or expired OTP');
-      return createSessionTokens(app, userId, reply, 200);
+      if (portal === 'catalog-app') {
+        const [merchant] = await app.db
+          .select({ id: schema.merchants.id, isActive: schema.merchants.isActive })
+          .from(schema.merchants)
+          .where(eq(schema.merchants.userId, userId))
+          .limit(1);
+        if (!merchant?.isActive) {
+          throw new AppError('NOT_A_MERCHANT', 403, 'not a merchant account');
+        }
+      }
+      return createSessionTokens(app, userId, reply, 200, portal ?? 'web');
     },
   );
 }
