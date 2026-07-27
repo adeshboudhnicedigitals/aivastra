@@ -1,3 +1,34 @@
+## 2026-07-28 - Try On Library mini-app: mobile responsiveness + garment-types access fix
+
+### Done
+- Fixed a real access-control gap found during manual mobile testing: `/v1/models/garment-types` (used by the mini-app's Add Subcategory modal, and also by the regular Studio wizard) was still guarded by plain `requireUser`, which correctly rejects catalog-app tokens — so the Garment Type dropdown silently had zero options for mini-app users. Added `requireUserOrCatalogApp` (`apps/api/src/plugins/auth.ts`) — same checks as `requireUser` minus the catalog-app audience rejection, safe here because this route has no per-user filtering — and pointed the route at it. Verified with an isolated integration test (`apps/api/test/integration/catalog-app-garment-types.test.ts`, kept in its own file so its login call doesn't push `catalog-app-auth.test.ts` over the shared Redis-backed login rate limit).
+- Reworked `/tryon-library-app`'s mobile layout after review found the initial flex-wrap patch produced an inconsistent, messy header (identity block floating on its own line, order swapping between the default and product-detail header variants). Restructured `LibraryTopBar` into a single, consistent two-row layout at every viewport width: title/back-button + credits/avatar always on row 1 (title truncates with ellipsis; identity block never shrinks), contextual action buttons always on row 2 below. Phone number hides below 640px.
+- Fixed modal overflow issues: `SubcategoryModal` and `ProductModal` dialogs now cap at `90vh` with internal scroll (previously uncapped, so tall content could be clipped off-screen with no way to reach Save); the Flat Image "ready" row in `ProductModal` now wraps instead of clipping the "Generate Catalogue Image" button past the modal edge; the bulk-upload queue-actions bar and category-tab/grid padding now reflow on narrow screens.
+
+### Open Questions / Decisions
+- No browser automation available in this environment — all responsive fixes were verified by reading rendered layout logic and cross-checked against real screenshots the user supplied at 375x608, not by taking screenshots directly. Further visual iteration depends on the user continuing to share screenshots.
+
+## 2026-07-27 - Installable Try On Library mini-app
+
+### Done
+- Added the fifth JWT portal, `catalog-app`, with the security boundary enforced in `requireUser`: catalog-app access tokens cannot call normal customer routes such as `/v1/me`, while merchant catalogue endpoints continue to accept them through `requireMerchant`.
+- Extended web login to issue merchant-only catalog-app sessions, added isolated catalog-app refresh/logout cookie rotation, and added `GET /v1/merchant/me` for the mini-app's display name, email, credits chip, and avatar.
+- Added isolated catalog-app BFF auth routes and an in-memory API client that never reads or writes the main site's access token or refresh cookie.
+- Added the standalone `/tryon-library-app` route outside `AppShell` and `ProfileGate`, including its own login/session lifecycle and duplicated catalogue-management UI.
+- Added restricted `LibraryTopBar`/`LibraryUserMenu` variants with no sidebar, Settings/Pricing links, or Support API dependency; the menu keeps only the credits display, avatar, and catalog-app-scoped logout.
+- Added a dynamic PWA manifest, scoped minimal service worker, and visually verified 192x192 and 512x512 centered, unstretched PNG icons generated from the existing logo.
+- Final automated verification passed: `pnpm typecheck` across all 11 participating packages; both new backend suites together (2 files, 8/8 tests); `pnpm --filter @aivastra/admin build`; and `pnpm lint` (exit 0, 146 existing warnings and no errors).
+
+### Failed / Not Done
+- No live browser or Chrome install-eligibility verification was possible in this non-interactive environment. The following manual checks remain: logged-out page rendering without `/login` redirect; merchant and non-merchant login behavior; no-sidebar content/header rendering; Chrome install prompt/manifest eligibility; catalog-app denial on `/studio` and `/settings`; simultaneous main-site and catalog-app sessions; and catalog-app logout isolation.
+- No development server was left running solely for those checks because this session has no browser automation or interactive Chrome surface with which to complete them reliably.
+
+### Open Questions / Decisions
+- Planning correction implemented: `GET /v1/merchant/me` was added because the existing `/v1/me` and `/v1/credits` routes are intentionally behind `requireUser` and therefore unavailable to catalog-app tokens.
+- Planning correction implemented: `TopBar` and `UserMenu` were duplicated as restricted variants because the shared components expose Settings/Pricing navigation and Support API behavior outside this mini-app's scope.
+- Implementation correction approved during Task 4: refresh rotation uses `RotationResult.ownerId` after one combined `invalid`/non-user-owner guard, matching the established device-refresh idiom; the plan's `userId` field did not exist on the live type.
+- Test caveat: the final cross-portal refresh case in `catalog-app-auth.test.ts` currently reaches the login rate limit (429) before presenting a web refresh cookie, then passes on `NO_REFRESH` (401). The production route has the explicit portal/owner guard, but that individual test should be isolated from the rate limiter in a follow-up if direct cross-portal-token coverage is required.
+
 ## 2026-07-27 - Merchant logo delivery on Android login
 
 ### Done
