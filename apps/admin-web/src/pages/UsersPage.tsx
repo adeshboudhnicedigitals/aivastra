@@ -90,6 +90,7 @@ export default function UsersPage({ onNav, toast }: Props) {
   const [grantingMerchant, setGrantingMerchant] = useState(false);
   const [showEditMerchant, setShowEditMerchant] = useState(false);
   const [merchantEditForm, setMerchantEditForm] = useState(EMPTY_EDIT_MERCHANT_FORM);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [savingMerchantEdit, setSavingMerchantEdit] = useState(false);
   const [togglingMerchant, setTogglingMerchant] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false);
@@ -393,6 +394,31 @@ export default function UsersPage({ onNav, toast }: Props) {
       toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to update merchant') });
     } finally {
       setSavingMerchantEdit(false);
+    }
+  }
+  async function handleLogoUpload(file: File) {
+    if (!detail?.merchant) return;
+    setUploadingLogo(true);
+    try {
+      const presign = await apiFetch<{ uploadUrl: string; logoKey: string }>(
+        `/admin/merchants/${detail.merchant.id}/logo/presign`,
+        { method: 'POST', body: JSON.stringify({ contentType: file.type }) },
+      );
+      await fetch(presign.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      await apiFetch(`/admin/merchants/${detail.merchant.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ logoKey: presign.logoKey }),
+      });
+      toast({ title: 'Merchant logo updated' });
+      await openDetail(detail);
+    } catch (err) {
+      toast({ kind: 'error', title: apiErrorMessage(err, 'Failed to upload logo') });
+    } finally {
+      setUploadingLogo(false);
     }
   }
 
@@ -1116,6 +1142,39 @@ export default function UsersPage({ onNav, toast }: Props) {
                 className="modal-body"
                 style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
               >
+                <div className="field">
+                  <label>Logo</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {detail.merchant?.logoUrl && (
+                      // biome-ignore lint/performance/noImgElement: admin SPA, not Next.js
+                      <img
+                        src={detail.merchant.logoUrl}
+                        alt="Merchant logo"
+                        style={{
+                          width: 48,
+                          height: 48,
+                          objectFit: 'contain',
+                          borderRadius: 6,
+                          border: '1px solid var(--border)',
+                        }}
+                      />
+                    )}
+                    <label className="btn sm ghost" style={{ cursor: 'pointer' }}>
+                      {uploadingLogo ? 'Uploading?' : 'Upload logo'}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        style={{ display: 'none' }}
+                        disabled={uploadingLogo}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) void handleLogoUpload(file);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                </div>
                 <div className="field">
                   <label>Company name</label>
                   <input

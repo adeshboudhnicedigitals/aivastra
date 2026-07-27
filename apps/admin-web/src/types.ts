@@ -195,6 +195,8 @@ export interface UserMerchant {
   isActive: boolean;
   kioskEnabled: boolean;
   maxKioskDevices: number;
+  logoKey: string | null;
+  logoUrl: string | null;
   creditBalance: number | null;
 }
 
