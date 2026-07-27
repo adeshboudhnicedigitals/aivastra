@@ -12,6 +12,7 @@ const PUBLIC_PATHS = [
   '/forgot-password',
   '/reset-password',
   '/kiosk-upload',
+  '/tryon-library-app',
 ];
 // Features not ready for real users — hidden from the sidebar (see sidebar.tsx
 // devOnly) and blocked here so direct navigation can't reach them either.
@@ -32,6 +33,7 @@ export async function middleware(request: NextRequest) {
       : pathname;
 
   if (path.startsWith('/api/auth')) return NextResponse.next();
+  if (path.startsWith('/api/catalog-app')) return NextResponse.next();
 
   if (
     process.env.NODE_ENV === 'production' &&
