@@ -14,6 +14,7 @@ import {
 } from '../../../catalog-app-helpers';
 import { ScreenHeader } from '../../../components/ScreenHeader';
 import { StickyBottomBar } from '../../../components/StickyBottomBar';
+import { useSessionExpiryMessage } from '../../../use-session-expiry-message';
 
 interface QueueItem {
   id: string;
@@ -37,6 +38,7 @@ export default function BulkUploadScreen() {
   const router = useRouter();
   const qc = useQueryClient();
 
+  const getErrorMessage = useSessionExpiryMessage();
   const [items, setItems] = useState<QueueItem[]>([]);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -110,7 +112,7 @@ export default function BulkUploadScreen() {
                 ...p,
                 status: 'failed',
                 hasError: true,
-                errorMessage: err instanceof Error ? err.message : 'Import failed',
+                errorMessage: getErrorMessage(err, 'Import failed'),
               }
             : p,
         ),
@@ -139,7 +141,7 @@ export default function BulkUploadScreen() {
                   ...p,
                   status: 'failed',
                   hasError: true,
-                  errorMessage: err instanceof Error ? err.message : 'Upload failed',
+                  errorMessage: getErrorMessage(err, 'Upload failed'),
                 }
               : p,
           ),
@@ -176,7 +178,7 @@ export default function BulkUploadScreen() {
                 ...p,
                 status: 'failed',
                 hasError: true,
-                errorMessage: err instanceof Error ? err.message : 'Failed to enqueue',
+                errorMessage: getErrorMessage(err, 'Failed to enqueue'),
               }
             : p,
         ),
@@ -298,9 +300,7 @@ export default function BulkUploadScreen() {
       qc.invalidateQueries({ queryKey: ['merchant-catalog-subcategories'] });
       goBackToProducts();
     } catch (err) {
-      setSaveError(
-        err instanceof Error ? err.message : 'Failed to save some items. Please try again.',
-      );
+      setSaveError(getErrorMessage(err, 'Failed to save some items. Please try again.'));
     } finally {
       setIsSaving(false);
     }
