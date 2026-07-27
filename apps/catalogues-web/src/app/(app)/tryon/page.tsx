@@ -6,6 +6,7 @@ import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
 import { useJobStream } from '@/hooks/use-job-stream';
 import { api } from '@/lib/api';
+import { downloadErrorMessage } from '@/lib/errors';
 
 type TryonCategory = { id: string; name: string; slug: string };
 type TryonCategoriesResponse = {
@@ -582,6 +583,13 @@ export default function TryOnPage() {
   const [personProgress, setPersonProgress] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [resultJobId, setResultJobId] = useState<string | null>(null);
+  const [downloadingResult, setDownloadingResult] = useState(false);
+  const [sharingResult, setSharingResult] = useState(false);
+  const [resultActionFeedback, setResultActionFeedback] = useState<{
+    tone: 'success' | 'error';
+    message: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingJobId, setPendingJobId] = useState<string | null>(null);
   const [selectedGarmentJob, setSelectedGarmentJob] = useState<{
@@ -590,6 +598,8 @@ export default function TryOnPage() {
     garmentTypeName: string;
   } | null>(null);
   const [showGarmentPicker, setShowGarmentPicker] = useState(false);
+  const previewPanelRef = useRef<HTMLDivElement>(null);
+  const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
 
   // Contact form
   const [showContact, setShowContact] = useState(false);
@@ -600,6 +610,29 @@ export default function TryOnPage() {
   const [contactMessage, setContactMessage] = useState('');
   const [contactSubmitting, setContactSubmitting] = useState(false);
   const [contactDone, setContactDone] = useState(false);
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      setIsPreviewFullscreen(document.fullscreenElement === previewPanelRef.current);
+    };
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen);
+  }, []);
+
+  const togglePreviewFullscreen = async () => {
+    const previewPanel = previewPanelRef.current;
+    if (!previewPanel) return;
+
+    try {
+      if (document.fullscreenElement === previewPanel) {
+        await document.exitFullscreen();
+      } else {
+        await previewPanel.requestFullscreen();
+      }
+    } catch {
+      setError('Full screen is not available in this browser.');
+    }
+  };
 
   const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -646,6 +679,7 @@ export default function TryOnPage() {
       (evt) => {
         if (!pendingJobId || evt.jobId !== pendingJobId) return;
         if (evt.status === 'COMPLETED') {
+          setResultJobId(pendingJobId);
           setPendingJobId(null);
           api
             .get<{ url: string }>(`/v1/jobs/${pendingJobId}/result`)
@@ -683,6 +717,8 @@ export default function TryOnPage() {
     reader.readAsDataURL(file);
     setError(null);
     setResultUrl(null);
+    setResultJobId(null);
+    setResultActionFeedback(null);
   };
 
   const handleGenerate = async () => {
@@ -693,6 +729,8 @@ export default function TryOnPage() {
     setGenerating(true);
     setError(null);
     setResultUrl(null);
+    setResultJobId(null);
+    setResultActionFeedback(null);
     setPersonProgress(1);
     try {
       const personPresign = await api.post<{ uploadUrl: string; r2Key: string }>(
@@ -729,9 +767,115 @@ export default function TryOnPage() {
     setShowGarmentPicker(false);
     setError(null);
     setResultUrl(null);
+    setResultJobId(null);
+    setResultActionFeedback(null);
+  };
+
+  const fetchResultBlob = async () => {
+    if (!resultUrl) throw new Error('Generate a Try On result first.');
+    const response = await fetch(resultUrl);
+    if (!response.ok) throw new Error(downloadErrorMessage(response.status));
+    return response.blob();
+  };
+
+  const resultFile = (blob: Blob) => {
+    const extension =
+      blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+    const suffix = resultJobId?.slice(0, 8) ?? 'result';
+    return new File([blob], `aivastra-tryon-${suffix}.${extension}`, {
+      type: blob.type || 'image/jpeg',
+    });
+  };
+
+  const handleDownloadResult = async () => {
+    if (!resultUrl || downloadingResult) return;
+
+    setDownloadingResult(true);
+    setResultActionFeedback(null);
+    try {
+      const file = resultFile(await fetchResultBlob());
+      const objectUrl = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      setResultActionFeedback({ tone: 'success', message: 'Image downloaded.' });
+    } catch (downloadError) {
+      setResultActionFeedback({
+        tone: 'error',
+        message:
+          downloadError instanceof Error
+            ? downloadError.message
+            : 'The image could not be downloaded. Try again.',
+      });
+    } finally {
+      setDownloadingResult(false);
+    }
+  };
+
+  const handleShareResult = async () => {
+    if (!resultUrl || sharingResult) return;
+
+    setSharingResult(true);
+    setResultActionFeedback(null);
+    const shareData = {
+      title: 'Ai Vastra Try On',
+      text: 'My AI-generated Try On from Ai Vastra.',
+    };
+
+    try {
+      if (navigator.share) {
+        let fileShareAttempted = false;
+        try {
+          const file = resultFile(await fetchResultBlob());
+          if (navigator.canShare?.({ files: [file] })) {
+            fileShareAttempted = true;
+            await navigator.share({ ...shareData, files: [file] });
+            setResultActionFeedback({ tone: 'success', message: 'Image shared.' });
+            return;
+          }
+        } catch (shareError) {
+          if (shareError instanceof DOMException && shareError.name === 'AbortError') return;
+          if (fileShareAttempted) throw shareError;
+        }
+
+        try {
+          await navigator.share({ ...shareData, url: resultUrl });
+          setResultActionFeedback({ tone: 'success', message: 'Result shared.' });
+          return;
+        } catch (shareError) {
+          if (shareError instanceof DOMException && shareError.name === 'AbortError') return;
+        }
+      }
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(resultUrl);
+        setResultActionFeedback({
+          tone: 'success',
+          message: 'Result link copied to the clipboard.',
+        });
+        return;
+      }
+
+      throw new Error('Sharing is not available in this browser.');
+    } catch (shareError) {
+      setResultActionFeedback({
+        tone: 'error',
+        message:
+          shareError instanceof Error
+            ? shareError.message
+            : 'The image could not be shared. Try again.',
+      });
+    } finally {
+      setSharingResult(false);
+    }
   };
 
   const canGenerate = !generating && !!personFile && !!selectedGarmentJob;
+  const canUseResultActions = !!resultUrl && !downloadingResult && !sharingResult;
 
   return (
     <>
@@ -895,7 +1039,6 @@ export default function TryOnPage() {
                     <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
                       1. Select Image from Catalogues
                     </span>
-                    <InfoIcon size={16} color={C.mid} />
                   </div>
 
                   <button
@@ -1024,7 +1167,6 @@ export default function TryOnPage() {
                     <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>
                       2. Upload Person Image
                     </span>
-                    <InfoIcon size={16} color={C.mid} />
                   </div>
 
                   {/* Dashed border wraps upload zone + tips + badges */}
@@ -1172,7 +1314,7 @@ export default function TryOnPage() {
                 }}
               >
                 {/* Settings header + dropdowns */}
-                <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 16 }}>
+                {/* <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginBottom: 16 }}>
                   Try On Settings
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 16 }}>
@@ -1196,7 +1338,7 @@ export default function TryOnPage() {
                     defaultValue="Clean (Auto)"
                     options={['Clean (Auto)', 'Studio', 'Street', 'Original']}
                   />
-                </div>
+                </div> */}
 
                 {/* Tips row */}
                 <div
@@ -1339,15 +1481,19 @@ export default function TryOnPage() {
             {/* Right Column (Preview) */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               <div
+                ref={previewPanelRef}
                 style={{
                   flex: 1,
                   background: C.white,
-                  borderRadius: 16,
+                  borderRadius: isPreviewFullscreen ? 0 : 16,
                   border: 'none',
                   display: 'flex',
                   flexDirection: 'column',
                   padding: 20,
-                  minHeight: 500,
+                  minHeight: isPreviewFullscreen ? '100vh' : 500,
+                  height: isPreviewFullscreen ? '100vh' : undefined,
+                  width: '100%',
+                  boxSizing: 'border-box',
                   boxShadow: '0 8px 30px rgba(0,0,0,0.05)',
                 }}
               >
@@ -1395,6 +1541,10 @@ export default function TryOnPage() {
                       Compare
                     </button>
                     <button
+                      type="button"
+                      onClick={() => void togglePreviewFullscreen()}
+                      aria-pressed={isPreviewFullscreen}
+                      title={isPreviewFullscreen ? 'Exit full screen' : 'Enter full screen'}
                       style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1424,7 +1574,7 @@ export default function TryOnPage() {
                         <path d="M3 16v3a2 2 0 0 0 2 2h3" />
                         <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
                       </svg>
-                      Full Screen
+                      {isPreviewFullscreen ? 'Exit Full Screen' : 'Full Screen'}
                     </button>
                   </div>
                 </div>
@@ -1585,6 +1735,9 @@ export default function TryOnPage() {
                   }}
                 >
                   <button
+                    type="button"
+                    onClick={handleDownloadResult}
+                    disabled={!canUseResultActions}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -1597,7 +1750,8 @@ export default function TryOnPage() {
                       fontSize: 13,
                       fontWeight: 600,
                       color: C.text,
-                      cursor: 'pointer',
+                      cursor: canUseResultActions ? 'pointer' : 'not-allowed',
+                      opacity: canUseResultActions ? 1 : 0.55,
                     }}
                   >
                     <svg
@@ -1614,9 +1768,12 @@ export default function TryOnPage() {
                       <polyline points="7 10 12 15 17 10" />
                       <line x1="12" y1="15" x2="12" y2="3" />
                     </svg>
-                    Download
+                    {downloadingResult ? 'Downloading...' : 'Download'}
                   </button>
                   <button
+                    type="button"
+                    onClick={handleShareResult}
+                    disabled={!canUseResultActions}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -1629,7 +1786,8 @@ export default function TryOnPage() {
                       fontSize: 13,
                       fontWeight: 600,
                       color: C.text,
-                      cursor: 'pointer',
+                      cursor: canUseResultActions ? 'pointer' : 'not-allowed',
+                      opacity: canUseResultActions ? 1 : 0.55,
                     }}
                   >
                     <svg
@@ -1646,9 +1804,23 @@ export default function TryOnPage() {
                       <polyline points="16 6 12 2 8 6" />
                       <line x1="12" y1="2" x2="12" y2="15" />
                     </svg>
-                    Share
+                    {sharingResult ? 'Sharing...' : 'Share'}
                   </button>
                 </div>
+                {resultActionFeedback && (
+                  <div
+                    role={resultActionFeedback.tone === 'error' ? 'alert' : 'status'}
+                    style={{
+                      marginTop: 8,
+                      color: resultActionFeedback.tone === 'error' ? '#DC2626' : '#059669',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {resultActionFeedback.message}
+                  </div>
+                )}
 
                 {/* Badges */}
                 <div
