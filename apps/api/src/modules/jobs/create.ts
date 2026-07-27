@@ -14,6 +14,7 @@ import {
 import { aliasedTable, and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
+import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import {
   getMaxOutputPx,
@@ -941,6 +942,9 @@ export async function createCatalogVideoJob(
       .where(eq(schema.users.id, userId)),
   ]);
   if (!user || user.isBanned) throw new AppError('FORBIDDEN', 403, 'banned');
+  if (!isCatalogVideoAllowed(app.env, user.email)) {
+    throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
+  }
   const queueStream = plan?.queueStream ?? 'normal';
   const [job] = await app.db.transaction(async (tx) => {
     const [newJob] = await tx

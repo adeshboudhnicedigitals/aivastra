@@ -11,6 +11,7 @@ import {
 import { and, asc, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { isCatalogVideoAllowed } from '../../lib/catalog-video-access.js';
 import { AppError } from '../../lib/errors.js';
 import { getTryonCreditCost } from '../../lib/resolution-config.js';
 import { getSareeSettings } from '../saree/settings.js';
@@ -40,6 +41,13 @@ async function withIdempotency<T>(
 
 export async function jobsRoutes(app: FastifyInstance) {
   app.get('/v1/catalog-videos', { preHandler: app.requireUser }, async (req) => {
+    const [caller] = await app.db
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, req.userId));
+    if (!isCatalogVideoAllowed(app.env, caller?.email ?? null)) {
+      throw new AppError('FORBIDDEN', 403, 'catalog video is not enabled for this account');
+    }
     const rows = await app.db
       .select({
         id: schema.jobs.id,
