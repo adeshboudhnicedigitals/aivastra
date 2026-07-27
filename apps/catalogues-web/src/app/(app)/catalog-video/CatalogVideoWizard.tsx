@@ -106,8 +106,8 @@ export function CatalogVideoWizard({
         aria-modal="true"
         aria-labelledby="catalog-video-wizard-title"
         style={{
-          width: 'min(760px, 100%)',
-          maxHeight: 'calc(100vh - 40px)',
+          width: 'min(960px, calc(100vw - 40px))',
+          height: 'min(800px, calc(100vh - 40px))',
           overflow: 'hidden',
           border: `1px solid ${C.border}`,
           borderRadius: 8,
@@ -171,7 +171,7 @@ export function CatalogVideoWizard({
           </button>
         </header>
 
-        <div style={{ padding: 20, overflowY: 'auto' }}>
+        <div style={{ padding: 20, overflowY: 'auto', flex: 1, minHeight: 0 }}>
           {step === 1 && (
             <>
               <p style={{ margin: '0 0 16px', color: C.mid, fontSize: 13 }}>
@@ -187,7 +187,7 @@ export function CatalogVideoWizard({
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
                     gap: 12,
                   }}
                 >
@@ -260,8 +260,8 @@ export function CatalogVideoWizard({
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(176px, 1fr))',
-                    gap: 12,
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                    gap: 16,
                   }}
                 >
                   {(sampleVideos?.items ?? []).map((option) => {
@@ -274,31 +274,57 @@ export function CatalogVideoWizard({
                         onClick={() => setSampleVideoId(option.id)}
                         style={{
                           position: 'relative',
-                          padding: 8,
+                          padding: 0,
                           textAlign: 'left',
                           overflow: 'hidden',
                           border: selected ? `2px solid ${C.pink}` : `1px solid ${C.border}`,
-                          borderRadius: 6,
-                          background: C.field,
+                          borderRadius: 8,
+                          background: C.card,
                           cursor: 'pointer',
                         }}
                       >
-                        <video
-                          src={option.previewVideoUrl}
-                          poster={option.thumbnailUrl}
-                          muted
-                          preload="metadata"
+                        <div
                           style={{
-                            width: '100%',
-                            aspectRatio: '16 / 9',
-                            objectFit: 'cover',
-                            display: 'block',
+                            position: 'relative',
+                            aspectRatio: '9 / 16',
+                            background: C.lighter,
                           }}
-                        />
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          {/* biome-ignore lint/performance/noImgElement: animated GIF preview, presigned R2 URL */}
+                          <img
+                            src={option.thumbnailUrl}
+                            alt={option.title}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                              display: 'block',
+                            }}
+                          />
+                          {selected && (
+                            <span
+                              style={{
+                                position: 'absolute',
+                                top: 10,
+                                right: 10,
+                                width: 22,
+                                height: 22,
+                                borderRadius: 999,
+                                background: C.pink,
+                                color: C.white,
+                                display: 'grid',
+                                placeItems: 'center',
+                              }}
+                            >
+                              <Check size={14} />
+                            </span>
+                          )}
+                        </div>
                         <span
                           style={{
                             display: 'block',
-                            marginTop: 8,
+                            padding: '10px 12px',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
@@ -309,24 +335,6 @@ export function CatalogVideoWizard({
                         >
                           {option.title}
                         </span>
-                        {selected && (
-                          <span
-                            style={{
-                              position: 'absolute',
-                              top: 14,
-                              right: 14,
-                              width: 22,
-                              height: 22,
-                              borderRadius: 999,
-                              background: C.pink,
-                              color: C.white,
-                              display: 'grid',
-                              placeItems: 'center',
-                            }}
-                          >
-                            <Check size={14} />
-                          </span>
-                        )}
                       </button>
                     );
                   })}
@@ -352,20 +360,22 @@ export function CatalogVideoWizard({
                 <div style={{ padding: 10, color: C.mid, fontSize: 12 }}>Catalogue image</div>
               </div>
               <div style={{ border: `1px solid ${C.border}`, borderRadius: 6, overflow: 'hidden' }}>
-                {selectedSample && (
-                  <video
-                    src={selectedSample.previewVideoUrl}
-                    poster={selectedSample.thumbnailUrl}
-                    muted
-                    controls
-                    style={{
-                      width: '100%',
-                      aspectRatio: '16 / 9',
-                      objectFit: 'cover',
-                      display: 'block',
-                    }}
-                  />
-                )}
+                <div style={{ aspectRatio: '3 / 4', background: C.lighter }}>
+                  {selectedSample && (
+                    <video
+                      src={selectedSample.previewVideoUrl}
+                      poster={selectedSample.thumbnailUrl}
+                      muted
+                      controls
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        display: 'block',
+                      }}
+                    />
+                  )}
+                </div>
                 <div style={{ padding: 10, color: C.mid, fontSize: 12 }}>
                   {selectedSample?.title ?? 'Motion template'}
                 </div>
