@@ -187,6 +187,21 @@ async function createForceLogoutToken(
   return token;
 }
 
+// The Android app (kiosk + merchant staff mobile login ? same app, same login,
+// no separate kiosk backend) shows this in place of its bundled default logo.
+// null means "no merchant logo configured, use your bundled default" -- see
+// docs/superpowers/specs/2026-07-27-merchant-logo-android-login-design.md.
+async function resolveMerchantLogoUrl(
+  app: FastifyInstance,
+  userId: string,
+): Promise<string | null> {
+  const [row] = await app.db
+    .select({ logoKey: schema.merchants.logoKey })
+    .from(schema.merchants)
+    .where(eq(schema.merchants.userId, userId));
+  return row?.logoKey ? app.storage.publicUrl(row.logoKey) : null;
+}
+
 async function issueDeviceSession(
   app: FastifyInstance,
   input: { userId: string; deviceId: string; deviceName?: string; platform: 'mobile' | 'kiosk' },
@@ -723,7 +738,8 @@ export async function authRoutes(app: FastifyInstance) {
         deviceName,
         platform,
       });
-      return { ...tokens, user: deviceLoginUserPayload(user) };
+      const logoUrl = await resolveMerchantLogoUrl(app, user.id);
+      return { ...tokens, user: deviceLoginUserPayload(user), logoUrl };
     },
   );
 
