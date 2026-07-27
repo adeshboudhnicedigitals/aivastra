@@ -52,4 +52,31 @@ describe('admin config', () => {
     // Untouched fields still default-fill correctly alongside the override.
     expect(getRes2.json().uploadLimits.merchantCatalogMaxBytes).toBe(20 * 1024 * 1024);
   });
+
+  it('PATCH accepts merchantCatalogDefaults with lowerCatalogId and shoeCatalogId', async () => {
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: '/admin/config',
+      headers: { ...adminAuth, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        merchantCatalogDefaults: {
+          men: {
+            faceId: '11111111-1111-1111-1111-111111111111',
+            backgroundId: '22222222-2222-2222-2222-222222222222',
+            lowerCatalogId: '33333333-3333-3333-3333-333333333333',
+            shoeCatalogId: '44444444-4444-4444-4444-444444444444',
+          },
+        },
+      }),
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
+    expect(getRes.json().merchantCatalogDefaults.men.lowerCatalogId).toBe(
+      '33333333-3333-3333-3333-333333333333',
+    );
+    expect(getRes.json().merchantCatalogDefaults.men.shoeCatalogId).toBe(
+      '44444444-4444-4444-4444-444444444444',
+    );
+  });
 });

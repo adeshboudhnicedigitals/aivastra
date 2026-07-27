@@ -1355,6 +1355,25 @@ export default function StudioPage(): React.ReactElement {
           box-shadow: 0 4px 12px rgba(189, 37, 135, 0.1) !important;
         }
 
+        .studio-audience-section {
+          container: studio-audience / inline-size;
+        }
+        .gender-card-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+        }
+        @container studio-audience (max-width: 600px) {
+          .gender-card-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @container studio-audience (max-width: 340px) {
+          .gender-card-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+
         *:focus,
         *:focus-visible,
         button:focus,
@@ -1403,13 +1422,16 @@ export default function StudioPage(): React.ReactElement {
             }}
           >
             {/* ── Setup ── */}
-            <section className="studio-section-card" style={sectionCardStyle}>
+            <section
+              className="studio-section-card studio-audience-section"
+              style={sectionCardStyle}
+            >
               <SectionHead
                 title="Create Catalogue For"
                 subtitle="Choose your target audience"
                 stepNumber={1}
               />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
+              <div className="gender-card-grid">
                 {GENDERS.map((g) => (
                   <GenderCard
                     key={g.value}
