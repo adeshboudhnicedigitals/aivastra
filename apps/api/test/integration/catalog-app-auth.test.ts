@@ -108,4 +108,53 @@ describe('catalog-app portal login', () => {
     expect(cookies).toContain('refresh');
     expect(cookies).not.toContain('catalog_app_refresh');
   });
+
+  it('catalog-app-refresh rotates the catalog_app_refresh cookie and reissues a catalog-app-audience token', async () => {
+    const { userId } = await createTestMerchant(app);
+    await setPassword(userId, 'password123');
+    const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: user?.email, password: 'password123', portal: 'catalog-app' },
+    });
+    const refreshCookie = loginRes.cookies.find((c) => c.name === 'catalog_app_refresh');
+    expect(refreshCookie).toBeTruthy();
+
+    const refreshRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/catalog-app-refresh',
+      cookies: { catalog_app_refresh: refreshCookie?.value ?? '' },
+    });
+    expect(refreshRes.statusCode).toBe(200);
+    expect(refreshRes.json().accessToken).toBeTruthy();
+
+    const merchantRes = await app.inject({
+      method: 'GET',
+      url: '/v1/merchant/catalog/subcategories',
+      headers: { authorization: `Bearer ${refreshRes.json().accessToken}` },
+    });
+    expect(merchantRes.statusCode).toBe(200);
+  });
+
+  it('rejects a plain web refresh token presented at catalog-app-refresh', async () => {
+    const { userId } = await createTestMerchant(app);
+    await setPassword(userId, 'password123');
+    const [user] = await app.db.select().from(schema.users).where(eq(schema.users.id, userId));
+
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: user?.email, password: 'password123' },
+    });
+    const refreshCookie = loginRes.cookies.find((c) => c.name === 'refresh');
+
+    const refreshRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/catalog-app-refresh',
+      cookies: { catalog_app_refresh: refreshCookie?.value ?? '' },
+    });
+    expect(refreshRes.statusCode).toBe(401);
+  });
 });

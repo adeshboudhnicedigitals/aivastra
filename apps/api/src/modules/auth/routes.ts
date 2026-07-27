@@ -693,6 +693,44 @@ export async function authRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  app.post('/v1/auth/catalog-app-refresh', async (req, reply) => {
+    const plain = req.cookies.catalog_app_refresh;
+    if (!plain) throw new AppError('NO_REFRESH', 401, 'no refresh token');
+    const result = await rotateTokenFamily(app, plain, 'catalog-app');
+    if (result.kind === 'invalid' || result.ownerType !== 'user') {
+      throw new AppError('INVALID_REFRESH', 401, 'refresh invalid');
+    }
+    const secret = new TextEncoder().encode(app.env.JWT_SECRET);
+    if (result.kind === 'reissue') {
+      return {
+        accessToken: await signAccess(
+          secret,
+          result.ownerId,
+          { kind: 'access' },
+          app.env.JWT_EXPIRY,
+          'catalog-app',
+        ),
+      };
+    }
+    reply.setCookie('catalog_app_refresh', result.refreshPlain, {
+      httpOnly: true,
+      secure: app.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/v1/auth',
+      expires: result.expiresAt,
+      signed: false,
+    });
+    return {
+      accessToken: await signAccess(
+        secret,
+        result.ownerId,
+        { kind: 'access' },
+        app.env.JWT_EXPIRY,
+        'catalog-app',
+      ),
+    };
+  });
+
   // ── Mobile auth (body-based tokens, no cookies) ──────────────────────────
 
   app.post(
