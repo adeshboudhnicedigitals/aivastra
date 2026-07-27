@@ -59,6 +59,11 @@ export function classify(input: ClassifyInput): DetectResult {
 
   if (input.fallbackReason) {
     result.fallbackToAll = true;
+    // No diff range means no visibility into whether a migration was added —
+    // mirrors the force_all and detector-crash fallbacks in detect-affected.mts,
+    // which both already force this for the same reason: a deploy must never
+    // skip `db:migrate` just because the detector couldn't compute a diff.
+    result.migrationChanged = true;
     addReason('ALL', input.fallbackReason);
   }
 

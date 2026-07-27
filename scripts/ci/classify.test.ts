@@ -91,6 +91,23 @@ describe('shared packages', () => {
   });
 });
 
+describe('unresolvable diff range (resolveRange fallback)', () => {
+  // resolveRange() hits this when it can't compute a base SHA at all (initial
+  // push, force-push, or an unresolvable merge-base) — classify() then gets an
+  // empty changedFiles list plus a fallbackReason. It already forces
+  // fallbackToAll (rebuild every service, since we don't know what changed) —
+  // migrationChanged must get the same treatment for the same reason: a
+  // production deploy must never skip `db:migrate` just because the detector
+  // couldn't compute a diff. This mirrors the two other fallback paths in
+  // detect-affected.mts (manual force_all override, and the top-level
+  // detector-crash fail-safe), which both already force migrationChanged=true.
+  it('forces migrationChanged=true when no diff range could be resolved', () => {
+    const result = run([], 'no usable base SHA (initial push or force-push)');
+    expect(result.fallbackToAll).toBe(true);
+    expect(result.migrationChanged).toBe(true);
+  });
+});
+
 describe('global and infrastructure paths', () => {
   it('falls back to all services on a lockfile change', () => {
     const result = run(['pnpm-lock.yaml']);
