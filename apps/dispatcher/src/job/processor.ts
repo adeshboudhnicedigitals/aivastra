@@ -19,9 +19,9 @@ import {
   submitPrompt,
   uploadImageToComfy,
 } from '../comfyui/client.js';
+import { waitForCompletion } from '../comfyui/progress.js';
 import { loadEnv } from '../env.js';
 import { createVideoTask, pollVideoTask } from '../pixverse/client.js';
-import { waitForCompletion } from '../comfyui/progress.js';
 import { setWorkerStatus } from '../worker/registry.js';
 import { selectWorker } from '../worker/selector.js';
 import { finalizeOutput } from '../workflow/finalize.js';
