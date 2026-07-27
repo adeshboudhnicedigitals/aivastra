@@ -1,9 +1,10 @@
 import { schema } from '@aivastra/db';
-import { UpdateUserBody } from '@aivastra/types';
+import { CreateUserBody, ResetPasswordBody, UpdateUserBody } from '@aivastra/types';
 import { and, count, desc, eq, exists, ilike, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
+import { hashPassword } from '../auth/service.js';
 import { requireAdmin } from './guard.js';
 import { jobTypeSql } from './job-type.js';
 
@@ -218,6 +219,89 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           .update(schema.refreshTokens)
           .set({ revokedAt: new Date() })
           .where(eq(schema.refreshTokens.userId, id));
+      return { ok: true };
+    },
+  );
+  app.post(
+    '/admin/users',
+    { preHandler: WRITE, schema: { body: CreateUserBody } },
+    async (req, reply) => {
+      const { username, password, displayName, email, phone, companyName } = req.body as z.infer<
+        typeof CreateUserBody
+      >;
+      const normalizedUsername = username.toLowerCase();
+
+      const [usernameConflict] = await app.db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.username, normalizedUsername))
+        .limit(1);
+      if (usernameConflict) throw new AppError('USERNAME_TAKEN', 409, 'username already taken');
+
+      if (email) {
+        const [emailConflict] = await app.db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.email, email))
+          .limit(1);
+        if (emailConflict) throw new AppError('EMAIL_TAKEN', 409, 'email already registered');
+      }
+
+      if (phone) {
+        const [phoneConflict] = await app.db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(eq(schema.users.phone, phone))
+          .limit(1);
+        if (phoneConflict) {
+          throw new AppError('PHONE_TAKEN', 409, 'phone already assigned to another account');
+        }
+      }
+
+      const passwordHash = await hashPassword(password);
+      const [user] = await app.db
+        .insert(schema.users)
+        .values({
+          username: normalizedUsername,
+          passwordHash,
+          displayName,
+          email: email ?? null,
+          phone: phone ?? null,
+          companyName: companyName ?? null,
+          tier: 'free',
+          // Admin is vouching for this account directly -- there is no inbox to
+          // verify (may not even have an email), so verification doesn't apply.
+          emailVerified: true,
+        })
+        .returning({ id: schema.users.id });
+      if (!user) throw new AppError('INTERNAL', 500, 'failed to create user');
+      await app.db.insert(schema.userCredits).values({ userId: user.id, balance: 0 });
+
+      reply.code(201);
+      return { ok: true, userId: user.id };
+    },
+  );
+
+  app.post(
+    '/admin/users/:id/reset-password',
+    {
+      preHandler: WRITE,
+      schema: { params: z.object({ id: z.string().uuid() }), body: ResetPasswordBody },
+    },
+    async (req) => {
+      const { id } = req.params as { id: string };
+      const { newPassword } = req.body as z.infer<typeof ResetPasswordBody>;
+      const passwordHash = await hashPassword(newPassword);
+      const [updated] = await app.db
+        .update(schema.users)
+        .set({ passwordHash, updatedAt: new Date() })
+        .where(eq(schema.users.id, id))
+        .returning({ id: schema.users.id });
+      if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
+      await app.db
+        .update(schema.refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(schema.refreshTokens.userId, id));
       return { ok: true };
     },
   );
