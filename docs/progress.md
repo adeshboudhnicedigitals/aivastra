@@ -1,3 +1,88 @@
+## 2026-07-27 - Merchant Catalogue Defaults column headings
+
+### Done
+- Added aligned column headings for Face, Background, Lower garment, and Shoe above the per-category merchant catalogue default selectors.
+- Reused the selector rows' exact grid columns and gaps so each heading remains aligned with its field.
+- Verified the targeted Biome check and `pnpm --filter @aivastra/admin build` pass; the build reports only the existing Vite bundle-size warning.
+
+### Failed / Not Done
+- No live browser screenshot was captured in this environment.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Merchant Catalogue Defaults: lower garments and shoes
+
+### Done
+- Extended the shared merchant-catalogue defaults schema with optional `lowerCatalogId` and `shoeCatalogId` values for each gender category; no database migration was required because the config is stored in the existing JSON field.
+- Updated merchant catalogue job creation to resolve the assigned pose's effective workflow through `poseGarmentConfigs` and `workflowTemplates`, apply lower-garment/shoe defaults only when that workflow requires them, and reject missing or inactive required defaults before creating a job.
+- Added admin Settings selectors for optional lower garments and shoes, filtered by category and catalogue type, with empty values omitted from the save payload.
+- Added schema persistence coverage and four merchant-generation integration cases covering required defaults, inactive defaults, and workflows that do not need lower garments or shoes.
+- Verification passed: workspace `pnpm typecheck`; default API test command; targeted integration suites (`admin-config`: 2/2, `merchant-catalog-generate`: 18/18); admin production build; and `pnpm lint` (exit 0, warning-only).
+
+### Failed / Not Done
+- The dedicated full API integration configuration is not globally green: unrelated suites collide on shared Redis rate limits/test isolation and expose existing contract/fixture failures. The two integration suites changed by this plan pass independently.
+- Live browser save/clear click-through was not run because no browser automation runtime is available in this environment; the admin production build validates the UI implementation.
+
+### Open Questions / Decisions
+- The root API test command currently excludes `test/integration/**`; the dedicated integration config should be serialized or given isolated Redis rate-limit state before it can serve as a reliable single-command full-suite gate.
+
+## 2026-07-27 - Try On result download and sharing
+
+### Done
+- Wired the Try On result `Download` button to fetch the generated image, preserve its actual image format, and save it with a stable job-based filename.
+- Wired `Share` to send the generated image through the native Web Share API when file sharing is supported, fall back to sharing the result URL, and copy the URL to the clipboard when native sharing is unavailable.
+- Added disabled/loading states plus inline success and failure feedback; result actions reset cleanly when the person image, garment, or generation changes.
+- Verified `pnpm --filter @aivastra/web typecheck` passes. Targeted Biome format/check completed without errors; the page retains its pre-existing warning set. `git diff --check` also passes.
+
+### Failed / Not Done
+- A live native-share/download click-through was not run because the repository dev stack remains intentionally stopped.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Try On preview fullscreen
+
+### Done
+- Wired the previously inert Try On `Full Screen` button to the preview card using the browser Fullscreen API, with the same control exiting fullscreen when clicked again.
+- Added `fullscreenchange` synchronization so pressing Escape restores the normal card size and button state; the button now exposes its pressed state and changes to `Exit Full Screen` while active.
+- Made the fullscreen preview fill the viewport with a square-cornered, box-sized layout while retaining the existing preview content and controls.
+- Verified `pnpm --filter @aivastra/web typecheck` passes. Targeted Biome format/check completed without errors; the file still reports its pre-existing warning set.
+
+### Failed / Not Done
+- A live browser click-through was not run because the repository dev stack was intentionally stopped before this task.
+
+### Open Questions / Decisions
+- None.
+
+## 2026-07-27 - Catalogues web dev cache recovery
+
+### Done
+- Identified the repeated `.next/prerender-manifest.json` `ENOENT` failures as a cache collision caused by running `next build` while the `catalogues-web` Next dev server was active; both commands write to the same `.next` directory.
+- Stopped only the affected `catalogues-web` process tree, quarantined the broken cache, restarted a clean web-only dev process, and removed the stale generated cache after recovery was confirmed. Dispatcher and other services were not interrupted.
+- Verified the regenerated manifest exists, `/` returns the expected `307` redirect to `/login`, `/studio` compiled and returned `200`, and the restarted process logs contain no recurrence of the missing-manifest error.
+
+### Failed / Not Done
+- None.
+
+### Open Questions / Decisions
+- Do not run `next build` and `next dev` concurrently for `catalogues-web`; stop the dev server before production builds unless separate Next output directories are configured.
+
+## 2026-07-27 - Studio audience card responsiveness
+
+### Done
+- Fixed the `Women` audience-card label being truncated at laptop widths by tightening the card's internal padding/gap and reducing the four-card grid gap.
+- Made the audience grid respond to the Studio section's actual width (including browser scaling and sidebar/pane constraints): four columns by default, two columns below 600px, and one column below 340px.
+- Verified `pnpm --filter @aivastra/web typecheck` passes.
+- Verified targeted Biome checks pass for the two changed Studio files; the command reports only the two pre-existing warnings in `page.tsx` (`dangerouslySetInnerHTML` and the platform-logo `<img>`).
+
+### Failed / Not Done
+- The production build compiled and completed type validation, but did not finish: static prerendering of `/studio` failed inside the generated Next.js webpack runtime with `TypeError: a[d] is not a function`.
+- No live browser screenshot was captured in this environment.
+
+### Open Questions / Decisions
+- Resolved by the cache recovery above: the prerender/dev failures came from concurrent Next commands sharing `.next`, not from the responsive card CSS.
+
 ## 2026-07-25 - Custom background upload (personal library)
 
 ### Done

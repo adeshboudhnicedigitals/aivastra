@@ -281,6 +281,7 @@ export function ProductModal({
                   borderRadius: 8,
                   border: `1px solid ${C.border2}`,
                   overflow: 'hidden',
+                  background: C.white,
                 }}
               >
                 <button
@@ -289,12 +290,13 @@ export function ProductModal({
                   disabled={busy}
                   style={{
                     flex: 1,
-                    padding: '8px 12px',
+                    padding: '12px 16px',
                     border: 'none',
-                    background: imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : C.field,
+                    background:
+                      imageMode === 'catalogue' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
                     color: imageMode === 'catalogue' ? C.pink : C.text,
                     fontWeight: imageMode === 'catalogue' ? 600 : 500,
-                    fontSize: 13,
+                    fontSize: 14,
                     cursor: busy ? 'not-allowed' : 'pointer',
                     transition: 'all 0.15s ease',
                     borderRight: `1px solid ${C.border2}`,
@@ -308,12 +310,12 @@ export function ProductModal({
                   disabled={busy}
                   style={{
                     flex: 1,
-                    padding: '8px 12px',
+                    padding: '12px 16px',
                     border: 'none',
-                    background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : C.field,
+                    background: imageMode === 'flat' ? 'rgba(245, 92, 122, 0.08)' : 'transparent',
                     color: imageMode === 'flat' ? C.pink : C.text,
                     fontWeight: imageMode === 'flat' ? 600 : 500,
-                    fontSize: 13,
+                    fontSize: 14,
                     cursor: busy ? 'not-allowed' : 'pointer',
                     transition: 'all 0.15s ease',
                   }}
@@ -329,8 +331,8 @@ export function ProductModal({
                   style={{
                     height: 140,
                     borderRadius: 8,
-                    border: `2px dashed ${C.border2}`,
-                    background: C.field,
+                    border: `1px dashed ${C.border2}`,
+                    background: 'transparent',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
@@ -388,8 +390,8 @@ export function ProductModal({
                       style={{
                         height: 140,
                         borderRadius: 8,
-                        border: `2px dashed ${C.border2}`,
-                        background: C.field,
+                        border: `1px dashed ${C.border2}`,
+                        background: 'transparent',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
@@ -409,14 +411,24 @@ export function ProductModal({
                       </div>
                     </div>
                   ) : (
-                    <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 20,
+                        alignItems: 'center',
+                        padding: 16,
+                        borderRadius: 8,
+                        border: `1px solid ${C.border2}`,
+                        background: 'transparent',
+                      }}
+                    >
                       <div
                         style={{
-                          width: 100,
-                          height: 140,
+                          width: 104,
+                          height: 130,
                           borderRadius: 8,
                           border: `1px solid ${C.border2}`,
-                          background: C.lighter,
+                          background: C.field,
                           position: 'relative',
                           overflow: 'hidden',
                           flexShrink: 0,
@@ -448,7 +460,15 @@ export function ProductModal({
                           </div>
                         )}
                       </div>
-                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 12,
+                        }}
+                      >
                         {!generatedItem ? (
                           <>
                             <GradBtn type="button" onClick={handleGenerate} disabled={isGenerating}>
@@ -466,12 +486,12 @@ export function ProductModal({
                               style={{
                                 background: 'none',
                                 border: 'none',
+                                padding: 0,
                                 color: C.mid,
                                 fontSize: 13,
                                 fontWeight: 500,
                                 cursor: isGenerating ? 'not-allowed' : 'pointer',
                                 textDecoration: 'underline',
-                                alignSelf: 'flex-start',
                               }}
                             >
                               Choose a different image
@@ -490,6 +510,7 @@ export function ProductModal({
                                 style={{
                                   background: 'none',
                                   border: 'none',
+                                  padding: 0,
                                   color: C.text,
                                   fontSize: 13,
                                   fontWeight: 600,
@@ -513,6 +534,7 @@ export function ProductModal({
                                 style={{
                                   background: 'none',
                                   border: 'none',
+                                  padding: 0,
                                   color: C.mid,
                                   fontSize: 13,
                                   fontWeight: 500,

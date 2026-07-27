@@ -16,7 +16,6 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { GradBtn } from '@/components/ui/grad-btn';
 import { api } from '@/lib/api';
 import { BulkUploadModal } from './BulkUploadModal';
-import { GenerateApiKeyButton } from './GenerateApiKeyButton';
 import { ProductModal } from './ProductModal';
 import { SubcategoryModal } from './SubcategoryModal';
 
@@ -178,7 +177,7 @@ export function CatalogueManagerContent() {
     return (
       <>
         <TopBar
-          title="Catalogue Manager"
+          title="Try On Library"
           subtitle="Organize your products by category and garment type."
         />
         <div
@@ -631,14 +630,9 @@ export function CatalogueManagerContent() {
       {!selectedSub ? (
         <>
           <TopBar
-            title="Catalogue Manager"
+            title="Try On Library"
             subtitle="Organize your products by category and garment type."
-            right={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <GenerateApiKeyButton />
-                <GradBtn onClick={openAddSubcategory}>Add Subcategory</GradBtn>
-              </div>
-            }
+            right={<GradBtn onClick={openAddSubcategory}>Add Subcategory</GradBtn>}
           />
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {renderCategoryTabs()}
