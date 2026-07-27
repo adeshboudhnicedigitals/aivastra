@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, Eye, EyeOff, LogOutIcon } from '@/components/icons';
 import { C, grad } from '@/components/tokens';
 import { TopBar } from '@/components/topbar';
+import { PremiumSelect } from '@/components/ui/premium-select';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 
@@ -155,7 +156,6 @@ function Field({
   );
 }
 
-const RESOLUTIONS = ['HD', '2K', '4K'];
 const ASPECT_RATIOS = ['1:1', '2:3', '3:4', '4:5'];
 const PLATFORMS = ['Amazon', 'Flipkart', 'Myntra', 'AJIO', 'Meesho', 'Nykaa Fashion', 'Shopify'];
 
@@ -173,50 +173,26 @@ function SelectField({
   disabled?: boolean;
   onChange: (v: string) => void;
 }) {
-  const inputId = `field-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 280 }}>
-      <label htmlFor={inputId} style={{ fontWeight: 500, fontSize: 14, color: C.text }}>
-        {label}
-      </label>
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-        <select
-          id={inputId}
+      <span style={{ fontWeight: 500, fontSize: 14, color: C.text }}>{label}</span>
+      <div
+        style={{
+          border: `1px solid ${C.border}`,
+          borderRadius: 8,
+          background: C.field,
+        }}
+      >
+        <PremiumSelect
+          ariaLabel={label}
           value={value}
+          options={options.map((o) => ({ value: o, label: o }))}
           disabled={disabled}
-          onChange={(e) => onChange(e.target.value)}
-          style={{
-            width: '100%',
-            height: 44,
-            borderRadius: 8,
-            background: C.field,
-            border: `1px solid ${C.border}`,
-            fontFamily: 'inherit',
-            fontSize: 14,
-            color: disabled ? C.light : C.mid,
-            padding: '0 36px 0 14px',
-            outline: 'none',
-            appearance: 'none',
-            cursor: disabled ? 'not-allowed' : 'pointer',
-          }}
-        >
-          {options.map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-        <span
-          style={{
-            position: 'absolute',
-            right: 12,
-            pointerEvents: 'none',
-            color: C.mid,
-            display: 'flex',
-          }}
-        >
-          <ChevronDown />
-        </span>
+          onChange={(v) => onChange(String(v))}
+          fullWidth
+          height={44}
+          fontSize={14}
+        />
       </div>
     </div>
   );
@@ -543,14 +519,10 @@ export default function SettingsPage(): React.ReactElement {
               )}
             </Section>
             <Section title="Account Preferences">
+              {/* Default Resolution field hidden until Studio has an actual resolution
+                  picker to feed it into — see docs/progress.md. State/save payload for
+                  it are kept so the stored value round-trips unchanged. */}
               <Row>
-                <SelectField
-                  label="Default Resolution"
-                  value={defaultResolutionVal}
-                  options={RESOLUTIONS}
-                  disabled={!editingProfile}
-                  onChange={setDefaultResolution}
-                />
                 <SelectField
                   label="Default Aspect Ratio"
                   value={defaultAspectRatioVal}
