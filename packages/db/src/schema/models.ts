@@ -65,6 +65,21 @@ export const modelBackgrounds = pgTable(
   }),
 );
 
+// Admin-curated PixVerse video templates. Each row is a sample clip shown to
+// the user as a picker option; its prompt is what gets sent to PixVerse.
+export const sampleVideos = pgTable('sample_videos', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  title: text('title').notNull(),
+  videoR2Key: text('video_r2_key').notNull(),
+  thumbnailR2Key: text('thumbnail_r2_key').notNull(),
+  prompt: text('prompt').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // e.g. { genderSlug: 'men', slug: 'fullsleeveshirt', label: 'Full Sleeve Shirt' }
 export const garmentSubcategories = pgTable('garment_subcategories', {
   id: uuid('id').primaryKey().defaultRandom(),

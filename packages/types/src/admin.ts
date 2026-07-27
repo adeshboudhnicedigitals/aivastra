@@ -99,6 +99,7 @@ export const SystemConfigBody = z.object({
       creditCost: z.number().int().positive().max(1_000),
     })
     .optional(),
+  pixverse: z.object({ creditCost: z.number().int().positive().max(1_000) }).optional(),
   // Admin-configurable per-surface upload size ceilings. Each replaces a previously
   // hardcoded byte constant (see apps/api/src/lib/upload-limits-config.ts for
   // defaults/readers). Omitted = fall back to the hardcoded default. No minimum
@@ -176,6 +177,24 @@ export const PatchModelBackgroundBody = z.object({
   categoryId: CoercedPositiveInt.nullable().optional(),
   specialTag: CategoryTag.nullable().optional(),
   tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+});
+
+export const PresignSampleVideoBody = z.object({
+  videoContentType: z.literal('video/mp4'),
+  thumbnailContentType: AssetContentType,
+});
+export const ConfirmSampleVideoBody = z.object({
+  title: z.string().min(1).max(120),
+  videoR2Key: z.string().min(1),
+  thumbnailR2Key: z.string().min(1),
+  prompt: z.string().min(1).max(500),
+  sortOrder: z.number().int().default(0),
+});
+export const PatchSampleVideoBody = z.object({
+  title: z.string().min(1).max(120).optional(),
+  prompt: z.string().min(1).max(500).optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().optional(),
 });
 
 // ── Workflow template schemas ─────────────────────────────────────────────
