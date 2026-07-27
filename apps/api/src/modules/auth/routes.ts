@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { schema } from '@aivastra/db';
 import { LoginBody, RegisterBody } from '@aivastra/types';
-import { and, desc, eq, exists, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, exists, gt, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AppError } from '../../lib/errors.js';
@@ -187,6 +187,21 @@ async function createForceLogoutToken(
   return token;
 }
 
+// The Android app (kiosk + merchant staff mobile login -- same app, same login,
+// no separate kiosk backend) shows this in place of its bundled default logo.
+// null means "no merchant logo configured, use your bundled default" -- see
+// docs/superpowers/specs/2026-07-27-merchant-logo-android-login-design.md.
+async function resolveMerchantLogoUrl(
+  app: FastifyInstance,
+  userId: string,
+): Promise<string | null> {
+  const [row] = await app.db
+    .select({ logoKey: schema.merchants.logoKey })
+    .from(schema.merchants)
+    .where(eq(schema.merchants.userId, userId));
+  return row?.logoKey ? app.storage.publicUrl(row.logoKey) : null;
+}
+
 async function issueDeviceSession(
   app: FastifyInstance,
   input: { userId: string; deviceId: string; deviceName?: string; platform: 'mobile' | 'kiosk' },
@@ -213,22 +228,43 @@ async function issueDeviceSession(
   return { accessToken, refreshToken: r.plain };
 }
 
+// A user logs in with either their email or their username (username is only
+// ever set on admin-created accounts -- see POST /admin/users). Usernames are
+// stored lowercase and restricted to [a-z0-9_.] (enforced by the DB CHECK
+// constraint and CreateUserBody's regex) so they can never contain '@' -- that
+// guarantee is what makes this single OR-lookup unambiguous: a value typed at
+// login can match at most one of the two columns, never both/either-of-two-rows.
+async function findUserByIdentifier(app: FastifyInstance, identifier: string) {
+  const [user] = await app.db
+    .select()
+    .from(schema.users)
+    .where(
+      or(eq(schema.users.email, identifier), eq(schema.users.username, identifier.toLowerCase())),
+    );
+  return user ?? null;
+}
+
 async function authenticateDeviceUser(
   app: FastifyInstance,
   dummyHash: string,
-  email: string,
+  identifier: string,
   password: string,
 ) {
-  const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+  const user = await findUserByIdentifier(app, identifier);
   if (!user || user.isBanned) {
-    await verifyPassword(dummyHash, password);
+    await verifyPassword(dummyHash, password); // constant-time: prevent user enumeration via timing
     throw new AppError('INVALID', 401, 'invalid credentials');
   }
   if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
   if (!(await verifyPassword(user.passwordHash, password))) {
     throw new AppError('INVALID', 401, 'invalid credentials');
   }
-  if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+  // Only accounts that actually have an email need it verified. Admin-created
+  // username-only accounts are created with emailVerified=true regardless (see
+  // POST /admin/users) so this branch is defensive, not the primary gate.
+  if (user.email && !user.emailVerified) {
+    throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+  }
   return user;
 }
 
@@ -257,7 +293,7 @@ async function activeDeviceSessions(app: FastifyInstance, userId: string) {
 
 function deviceLoginUserPayload(user: {
   id: string;
-  email: string;
+  email: string | null;
   displayName: string | null;
   tier: string;
   maxActiveDevices: number;
@@ -315,8 +351,10 @@ export async function authRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (req, reply) => {
-      const { email, password } = req.body as z.infer<typeof LoginBody>;
-      const [user] = await app.db.select().from(schema.users).where(eq(schema.users.email, email));
+      // Field is named `email` on the wire (see LoginBody) but may hold a
+      // username for admin-created accounts -- see findUserByIdentifier.
+      const { email: identifier, password } = req.body as z.infer<typeof LoginBody>;
+      const user = await findUserByIdentifier(app, identifier);
       if (!user || user.isBanned) {
         await verifyPassword(dummyHash, password); // constant-time: prevent user enumeration via timing
         throw new AppError('INVALID', 401, 'invalid credentials');
@@ -324,7 +362,9 @@ export async function authRoutes(app: FastifyInstance) {
       if (!user.passwordHash) throw new AppError('INVALID', 401, 'invalid credentials');
       if (!(await verifyPassword(user.passwordHash, password)))
         throw new AppError('INVALID', 401, 'invalid credentials');
-      if (!user.emailVerified) throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+      if (user.email && !user.emailVerified) {
+        throw new AppError('EMAIL_NOT_VERIFIED', 403, 'email not verified');
+      }
       const [adminRow] = await app.db
         .select({ role: schema.adminUsers.role, status: schema.adminUsers.status })
         .from(schema.adminUsers)
@@ -455,9 +495,13 @@ export async function authRoutes(app: FastifyInstance) {
         email: schema.users.email,
         displayName: schema.users.displayName,
         phone: schema.users.phone,
+        username: schema.users.username,
         companyName: schema.users.companyName,
         tier: schema.users.tier,
         passwordHash: schema.users.passwordHash,
+        defaultResolution: schema.users.defaultResolution,
+        defaultAspectRatio: schema.users.defaultAspectRatio,
+        defaultPlatform: schema.users.defaultPlatform,
       })
       .from(schema.users)
       .where(eq(schema.users.id, req.userId));
@@ -500,20 +544,36 @@ export async function authRoutes(app: FastifyInstance) {
       schema: {
         body: z.object({
           displayName: z.string().min(1).max(60).optional(),
+          email: z.string().email().max(254).optional(),
           phone: z
             .string()
             .regex(/^\d{10}$/, 'phone must be a 10-digit number')
             .nullable()
             .optional(),
           companyName: z.string().max(160).nullable().optional(),
+          defaultResolution: z.enum(['HD', '2K', '4K']).optional(),
+          defaultAspectRatio: z.enum(['1:1', '2:3', '3:4', '4:5']).optional(),
+          defaultPlatform: z.string().max(60).optional(),
         }),
       },
     },
     async (req) => {
-      const { displayName, phone, companyName } = req.body as {
+      const {
+        displayName,
+        email,
+        phone,
+        companyName,
+        defaultResolution,
+        defaultAspectRatio,
+        defaultPlatform,
+      } = req.body as {
         displayName?: string;
+        email?: string;
         phone?: string | null;
         companyName?: string | null;
+        defaultResolution?: string;
+        defaultAspectRatio?: string;
+        defaultPlatform?: string;
       };
       return app.db.transaction(async (tx) => {
         if (phone) {
@@ -531,12 +591,31 @@ export async function authRoutes(app: FastifyInstance) {
           }
         }
 
+        if (email) {
+          const [conflict] = await tx
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(and(eq(schema.users.email, email), sql`${schema.users.id} <> ${req.userId}`))
+            .limit(1);
+          if (conflict) {
+            throw new AppError(
+              'EMAIL_TAKEN',
+              409,
+              'This email is already registered to another account.',
+            );
+          }
+        }
+
         const [updated] = await tx
           .update(schema.users)
           .set({
             ...(displayName !== undefined ? { displayName } : {}),
+            ...(email !== undefined ? { email } : {}),
             ...(phone !== undefined ? { phone: phone ?? null } : {}),
             ...(companyName !== undefined ? { companyName: companyName?.trim() || null } : {}),
+            ...(defaultResolution !== undefined ? { defaultResolution } : {}),
+            ...(defaultAspectRatio !== undefined ? { defaultAspectRatio } : {}),
+            ...(defaultPlatform !== undefined ? { defaultPlatform } : {}),
           })
           .where(eq(schema.users.id, req.userId))
           .returning({
@@ -546,10 +625,13 @@ export async function authRoutes(app: FastifyInstance) {
             phone: schema.users.phone,
             companyName: schema.users.companyName,
             tier: schema.users.tier,
+            defaultResolution: schema.users.defaultResolution,
+            defaultAspectRatio: schema.users.defaultAspectRatio,
+            defaultPlatform: schema.users.defaultPlatform,
           });
         if (!updated) throw new AppError('NOT_FOUND', 404, 'user not found');
 
-        const complete = Boolean(updated.phone && /^\d{10}$/.test(updated.phone));
+        const complete = Boolean(updated.phone && /^\d{10}$/.test(updated.phone) && updated.email);
         if (!complete) return updated;
 
         const [freePlan] = await tx
@@ -656,7 +738,8 @@ export async function authRoutes(app: FastifyInstance) {
         deviceName,
         platform,
       });
-      return { ...tokens, user: deviceLoginUserPayload(user) };
+      const logoUrl = await resolveMerchantLogoUrl(app, user.id);
+      return { ...tokens, user: deviceLoginUserPayload(user), logoUrl };
     },
   );
 

@@ -40,15 +40,16 @@ export function GenderCard({
       }}
     >
       <div
+        className="gender-card-content"
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: 8,
           background: selected
             ? 'linear-gradient(135deg, rgba(189,37,135,0.06) 0%, rgba(255,91,148,0.04) 100%)'
             : C.card,
           borderRadius: 10,
-          padding: '0 12px',
+          padding: '0 10px',
           position: 'relative',
           height: '100%',
           width: '100%',

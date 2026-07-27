@@ -16,6 +16,10 @@ const PUBLIC_PATHS = [
 // Features not ready for real users — hidden from the sidebar (see sidebar.tsx
 // devOnly) and blocked here so direct navigation can't reach them either.
 const DEV_ONLY_PATHS: string[] = [];
+// Features hidden in every environment (not just production) — still fully
+// present in the codebase, just not reachable via nav or direct URL. See
+// sidebar.tsx for the matching nav-item removal.
+const ALWAYS_BLOCKED_PATHS: string[] = ['/sellio'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -33,6 +37,10 @@ export async function middleware(request: NextRequest) {
     process.env.NODE_ENV === 'production' &&
     DEV_ONLY_PATHS.some((p) => path === p || path.startsWith(`${p}/`))
   ) {
+    return NextResponse.redirect(new URL(`${BASE_PATH}/studio`, request.url));
+  }
+
+  if (ALWAYS_BLOCKED_PATHS.some((p) => path === p || path.startsWith(`${p}/`))) {
     return NextResponse.redirect(new URL(`${BASE_PATH}/studio`, request.url));
   }
 

@@ -394,6 +394,28 @@ export default function StudioPage(): React.ReactElement {
   const brandAspects = BRAND_CONFIG[platform]?.ratios ?? ALL_ASPECTS;
   const effectiveAspect = aspect === 'custom' && customRatio ? customRatio : aspect;
 
+  // Prefill platform/aspect from the user's saved Account Preferences (Settings page),
+  // once, so switching platforms later doesn't keep re-applying the saved default.
+  const appliedUserDefaults = useRef(false);
+  const { data: meDefaults } = useQuery<{ defaultPlatform: string; defaultAspectRatio: string }>({
+    queryKey: ['me'],
+    queryFn: () => api.get('/v1/me'),
+  });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: apply saved defaults exactly once when they arrive, not on every platform/aspect change
+  useEffect(() => {
+    if (appliedUserDefaults.current || !meDefaults) return;
+    appliedUserDefaults.current = true;
+    const nextPlatform = BRAND_CONFIG[meDefaults.defaultPlatform]
+      ? meDefaults.defaultPlatform
+      : platform;
+    const ratios = BRAND_CONFIG[nextPlatform]?.ratios ?? ALL_ASPECTS;
+    const nextAspect = ratios.includes(meDefaults.defaultAspectRatio)
+      ? meDefaults.defaultAspectRatio
+      : (BRAND_CONFIG[nextPlatform]?.default ?? aspect);
+    setPlatform(nextPlatform);
+    setAspect(nextAspect);
+  }, [meDefaults]);
+
   const { data: resolutionConfigData } = useQuery<{
     resolutions: Record<string, { enabled: boolean; creditCost: number }>;
     maxOutputPx: number;
@@ -1355,6 +1377,25 @@ export default function StudioPage(): React.ReactElement {
           box-shadow: 0 4px 12px rgba(189, 37, 135, 0.1) !important;
         }
 
+        .studio-audience-section {
+          container: studio-audience / inline-size;
+        }
+        .gender-card-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 12px;
+        }
+        @container studio-audience (max-width: 600px) {
+          .gender-card-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @container studio-audience (max-width: 340px) {
+          .gender-card-grid {
+            grid-template-columns: minmax(0, 1fr);
+          }
+        }
+
         *:focus,
         *:focus-visible,
         button:focus,
@@ -1403,13 +1444,16 @@ export default function StudioPage(): React.ReactElement {
             }}
           >
             {/* ── Setup ── */}
-            <section className="studio-section-card" style={sectionCardStyle}>
+            <section
+              className="studio-section-card studio-audience-section"
+              style={sectionCardStyle}
+            >
               <SectionHead
                 title="Create Catalogue For"
                 subtitle="Choose your target audience"
                 stepNumber={1}
               />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20 }}>
+              <div className="gender-card-grid">
                 {GENDERS.map((g) => (
                   <GenderCard
                     key={g.value}

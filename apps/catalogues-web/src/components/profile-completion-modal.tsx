@@ -6,14 +6,17 @@ import { api } from '@/lib/api';
 import { C, grad } from './tokens';
 
 const PHONE_REGEX = /^\d{10}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const sanitizePhone = (v: string) => v.replace(/\D/g, '').slice(0, 10);
 
 export function ProfileCompletionModal({
   open,
+  email,
   phone,
   companyName,
 }: {
   open: boolean;
+  email: string | null;
   phone: string | null;
   companyName: string | null;
 }): React.ReactElement | null {
@@ -21,6 +24,7 @@ export function ProfileCompletionModal({
   const modalRef = useRef<HTMLDivElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
   const [phoneValue, setPhoneValue] = useState('');
+  const [emailValue, setEmailValue] = useState('');
   const [companyValue, setCompanyValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -28,9 +32,10 @@ export function ProfileCompletionModal({
   useEffect(() => {
     if (!open) return;
     setPhoneValue(sanitizePhone(phone ?? ''));
+    setEmailValue(email ?? '');
     setCompanyValue(companyName ?? '');
     setError('');
-  }, [open, phone, companyName]);
+  }, [open, email, phone, companyName]);
 
   useEffect(() => {
     if (!open) return;
@@ -70,6 +75,11 @@ export function ProfileCompletionModal({
       setError('Enter a valid 10-digit mobile number.');
       return;
     }
+    const needsEmail = !email;
+    if (needsEmail && !EMAIL_REGEX.test(emailValue.trim())) {
+      setError('Enter a valid email address.');
+      return;
+    }
 
     setSaving(true);
     setError('');
@@ -77,6 +87,7 @@ export function ProfileCompletionModal({
       await api.patch('/v1/me', {
         phone: nextPhone,
         companyName: companyValue.trim() || null,
+        ...(needsEmail ? { email: emailValue.trim() } : {}),
       });
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['me'] }),
@@ -87,6 +98,9 @@ export function ProfileCompletionModal({
       if (msg.includes('already assigned')) {
         setPhoneValue('');
       }
+      if (msg.includes('already registered')) {
+        setEmailValue('');
+      }
       setError(msg);
     } finally {
       setSaving(false);
@@ -94,6 +108,7 @@ export function ProfileCompletionModal({
   }
 
   const phoneValid = PHONE_REGEX.test(phoneValue);
+  const emailValid = Boolean(email) || EMAIL_REGEX.test(emailValue.trim());
 
   return (
     <>
@@ -165,6 +180,34 @@ export function ProfileCompletionModal({
           )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {!email && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label
+                  htmlFor="profile-email"
+                  style={{ fontSize: 14, fontWeight: 600, color: C.text }}
+                >
+                  Email Address *
+                </label>
+                <input
+                  id="profile-email"
+                  type="email"
+                  value={emailValue}
+                  onChange={(e) => setEmailValue(e.target.value)}
+                  placeholder="you@example.com"
+                  style={{
+                    height: 44,
+                    borderRadius: 10,
+                    border: `1px solid ${error ? C.pink : C.border}`,
+                    background: C.field,
+                    color: C.text,
+                    fontFamily: 'inherit',
+                    fontSize: 14,
+                    padding: '0 14px',
+                    outline: 'none',
+                  }}
+                />
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <label
                 htmlFor="profile-phone"
@@ -237,7 +280,7 @@ export function ProfileCompletionModal({
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={saving || !phoneValid}
+              disabled={saving || !phoneValid || !emailValid}
               style={{
                 height: 44,
                 padding: '0 20px',

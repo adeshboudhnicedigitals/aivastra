@@ -39,7 +39,7 @@ const NAV: {
   {
     id: 'catalogues',
     href: '/catalogues',
-    label: 'Catalogues',
+    label: 'Catalogs',
     icon: `${BASE}/assets/catalog-icon.svg`,
   },
   {
@@ -52,7 +52,7 @@ const NAV: {
   {
     id: 'catalogue-manager',
     href: '/catalogue-manager',
-    label: 'My Catalogue',
+    label: 'Try On Library',
     icon: 'package',
     merchantOnly: true,
   },
@@ -63,13 +63,16 @@ const NAV: {
     icon: 'key',
     merchantOnly: true,
   },
-  {
-    id: 'sellio',
-    href: '/sellio',
-    label: 'Sellio',
-    icon: 'store',
-    merchantOnly: true,
-  },
+  // Sellio preview — not ready for real users. Not removed (page still fully
+  // functional), just hidden from the sidebar; the route itself is also
+  // blocked in every environment, see middleware.ts's ALWAYS_BLOCKED_PATHS.
+  // {
+  //   id: 'sellio',
+  //   href: '/sellio',
+  //   label: 'Sellio',
+  //   icon: 'store',
+  //   merchantOnly: true,
+  // },
   { id: 'pricing', href: '/pricing', label: 'Pricing', icon: `${BASE}/assets/pricing-icon.svg` },
   {
     id: 'tutorials',
@@ -160,7 +163,7 @@ export function Sidebar() {
     },
     {
       title: 'BUSINESS',
-      items: visibleNav.filter((item) => ['pricing', 'developers', 'sellio'].includes(item.id)),
+      items: visibleNav.filter((item) => ['pricing', 'developers'].includes(item.id)),
     },
     {
       title: 'HELP',
@@ -233,14 +236,14 @@ export function Sidebar() {
           <img
             src={`${BASE}/assets/logo.svg`}
             alt="Ai Vastra"
-            style={{ height: 28, width: 'auto', flexShrink: 0 }}
+            style={{ height: 24, width: 'auto', flexShrink: 0 }}
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           {/* biome-ignore lint/performance/noImgElement: logo */}
           <img
             src={`${BASE}/assets/logo-text.svg`}
             alt="Ai Vastra"
-            style={{ height: 20, width: 'auto', flexShrink: 0 }}
+            style={{ height: 28, width: 'auto', flexShrink: 0 }}
           />
         </Link>
       </div>
