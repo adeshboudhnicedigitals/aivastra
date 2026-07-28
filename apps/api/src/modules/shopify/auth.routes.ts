@@ -70,6 +70,22 @@ export async function upsertShopifyStore(
   });
 }
 
+/**
+ * Where to send the merchant once OAuth completes.
+ *
+ * This must hand control back to Shopify rather than point at our own SPA. Only
+ * Shopify can mint the `host` and `id_token` query params that App Bridge needs
+ * to reach the parent admin frame, and it only supplies them when it opens the
+ * app itself. Redirecting straight at the SPA leaves App Bridge with no parent
+ * coordinates, and every call into it — `idToken()` included — then hangs
+ * forever: no resolve, no reject, no console error, just a permanent loading
+ * spinner for the merchant.
+ */
+export function buildPostInstallRedirect(shop: string, apiKey: string): string {
+  const storeHandle = shop.replace(/\.myshopify\.com$/, '');
+  return `https://admin.shopify.com/store/${storeHandle}/apps/${apiKey}`;
+}
+
 export async function shopifyAuthRoutes(app: FastifyInstance) {
   app.get('/v1/shopify/auth', async (req, reply) => {
     const shop = (req.query as { shop?: string }).shop;
@@ -94,6 +110,13 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     const savedShop = await app.redis.get(`shopify:nonce:${q.state}`);
     if (!savedShop || savedShop !== q.shop) throw new AppError('FORBIDDEN', 403, 'bad state');
     await app.redis.del(`shopify:nonce:${q.state}`);
+    // q.shop is already pinned to the value /v1/shopify/auth validated and stored
+    // under this nonce, but it is interpolated into Shopify API URLs and the
+    // return-to-admin redirect below — assert the format here so that safety is
+    // local rather than inferred through a Redis round-trip.
+    if (!/^[a-z0-9-]+\.myshopify\.com$/.test(q.shop)) {
+      throw new AppError('BAD_REQUEST', 400, 'invalid shop');
+    }
 
     // Exchange code → token
     const tokenRes = await fetch(`https://${q.shop}/admin/oauth/access_token`, {
@@ -149,8 +172,10 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
     await app.shopifyRegisterWebhooks?.(q.shop, access_token);
 
     req.log.info({ storeId: store.id, shop: q.shop }, 'shopify store installed');
-    const adminUrl = app.env.SHOPIFY_ADMIN_URL ?? app.env.SHOPIFY_APP_URL;
-    return reply.redirect(`${adminUrl}/embedded?shop=${q.shop}`);
+    // Not `?? ''`: a missing key would build a silently malformed redirect, which
+    // is the exact failure mode this redirect exists to avoid.
+    if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
+    return reply.redirect(buildPostInstallRedirect(q.shop, app.env.SHOPIFY_API_KEY));
   });
 
   app.post(
