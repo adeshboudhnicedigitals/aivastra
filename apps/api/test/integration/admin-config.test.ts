@@ -56,7 +56,7 @@ describe('admin config', () => {
   it('GET /admin/config default-fills pixverse cost, and PATCH persists an override', async () => {
     const getRes = await app.inject({ method: 'GET', url: '/admin/config', headers: adminAuth });
     expect(getRes.statusCode).toBe(200);
-    expect(getRes.json().pixverse.creditCost).toBe(20);
+    expect(getRes.json().pixverse.creditCost).toBe(150);
 
     const patchRes = await app.inject({
       method: 'PATCH',

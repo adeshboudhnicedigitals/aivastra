@@ -63,9 +63,9 @@ describe('POST /v1/jobs/catalog-video', () => {
       .returning();
     return row.id;
   }
-  it('happy path: deducts default 20 credits, sets params.kind=video, enqueues', async () => {
+  it('happy path: deducts default 150 credits, sets params.kind=video, enqueues', async () => {
     const { token, userId } = await registerUser('cv-happy@x.com');
-    await grantCredits(userId, 100);
+    await grantCredits(userId, 200);
     const sourceJobId = await sourceJob(userId);
     const sampleVideoId = await activeSample();
     const res = await app.inject({
@@ -78,13 +78,13 @@ describe('POST /v1/jobs/catalog-video', () => {
     const { jobId } = res.json();
     const [job] = await app.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId));
     expect(job.status).toBe('QUEUED');
-    expect(job.creditsCharged).toBe(20);
+    expect(job.creditsCharged).toBe(150);
     expect(job.source).toBe('catalog_video');
     const [bal] = await app.db
       .select()
       .from(schema.userCredits)
       .where(eq(schema.userCredits.userId, userId));
-    expect(bal.balance).toBe(80);
+    expect(bal.balance).toBe(50);
     const [inputs] = await app.db
       .select()
       .from(schema.jobInputs)
@@ -152,7 +152,7 @@ describe('POST /v1/jobs/catalog-video', () => {
   });
   it('refunds credits and marks FAILED on enqueue failure', async () => {
     const { token, userId } = await registerUser('cv-enqfail@x.com');
-    await grantCredits(userId, 100);
+    await grantCredits(userId, 200);
     const sourceJobId = await sourceJob(userId);
     const realXadd = app.redis.xadd.bind(app.redis);
     app.redis.xadd = (async () => {
@@ -170,7 +170,7 @@ describe('POST /v1/jobs/catalog-video', () => {
         .select()
         .from(schema.userCredits)
         .where(eq(schema.userCredits.userId, userId));
-      expect(bal.balance).toBe(100);
+      expect(bal.balance).toBe(200);
       const [job] = await app.db
         .select()
         .from(schema.jobs)
