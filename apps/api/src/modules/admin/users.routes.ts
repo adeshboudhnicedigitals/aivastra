@@ -147,6 +147,7 @@ export async function adminUsersRoutes(app: FastifyInstance) {
           kioskEnabled: schema.merchants.kioskEnabled,
           maxKioskDevices: schema.merchants.maxKioskDevices,
           logoKey: schema.merchants.logoKey,
+          logoUpdatedAt: schema.merchants.updatedAt,
           creditBalance: schema.merchantCredits.balance,
         })
         .from(schema.merchants)
@@ -181,7 +182,12 @@ export async function adminUsersRoutes(app: FastifyInstance) {
         merchant: merchantRow
           ? {
               ...merchantRow,
-              logoUrl: merchantRow.logoKey ? app.storage.publicUrl(merchantRow.logoKey) : null,
+              // Cache-bust: logoKey is a fixed path (merchant-logo/{id}/logo.jpg) that never
+              // changes across re-uploads, so without a query param keyed to updatedAt the
+              // browser/CDN keeps serving the previous image after the admin replaces it.
+              logoUrl: merchantRow.logoKey
+                ? `${app.storage.publicUrl(merchantRow.logoKey)}?v=${merchantRow.logoUpdatedAt.getTime()}`
+                : null,
             }
           : null,
       };
