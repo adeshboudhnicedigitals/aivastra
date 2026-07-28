@@ -233,7 +233,7 @@ export function PremiumSelect({
               border: `1px solid ${C.border}`,
               borderRadius: 8,
               boxShadow: '0 6px 20px rgba(0,0,0,0.12)',
-              zIndex: 1000,
+              zIndex: 1200,
               padding: 4,
             }}
           >

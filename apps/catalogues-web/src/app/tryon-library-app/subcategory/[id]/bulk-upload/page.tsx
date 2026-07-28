@@ -1,15 +1,20 @@
 'use client';
+import { useQueryClient } from '@tanstack/react-query';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { SpinnerIcon, TrashIcon, UploadIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { GradBtn } from '@/components/ui/grad-btn';
-import { catalogAppApi as api } from './catalog-app-api';
+import { catalogAppApi as api } from '../../../catalog-app-api';
 import {
   deleteProduct,
   finalizeGeneratedProduct,
   pollGenerateBatch,
   presignAndUpload,
-} from './catalog-app-helpers';
+} from '../../../catalog-app-helpers';
+import { ScreenHeader } from '../../../components/ScreenHeader';
+import { StickyBottomBar } from '../../../components/StickyBottomBar';
+import { useSessionExpiryMessage } from '../../../use-session-expiry-message';
 
 interface QueueItem {
   id: string;
@@ -25,89 +30,41 @@ interface QueueItem {
   errorMessage?: string;
 }
 
-interface BulkUploadModalProps {
-  open: boolean;
-  onClose: () => void;
-  onSaved: () => void;
-  subcategoryId: string | null;
-}
-
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkUploadModalProps) {
+export default function BulkUploadScreen() {
+  const params = useParams<{ id: string }>();
+  const subcategoryId = params.id;
+  const router = useRouter();
+  const qc = useQueryClient();
+
+  const getErrorMessage = useSessionExpiryMessage();
   const [items, setItems] = useState<QueueItem[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
   const [isGeneratingAll, setIsGeneratingAll] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<QueueItem[]>([]);
   itemsRef.current = items;
   const finalizingJobIds = useRef<Set<string>>(new Set());
 
   const [globalActual, setGlobalActual] = useState('');
   const [globalOffer, setGlobalOffer] = useState('');
+  const [saveError, setSaveError] = useState<string | undefined>(undefined);
 
-  // Reset state
   useEffect(() => {
-    if (open) {
-      setItems([]);
-      setGlobalActual('');
-      setGlobalOffer('');
-      setIsDragging(false);
-      setIsGeneratingAll(false);
-      setIsSaving(false);
-      finalizingJobIds.current = new Set();
-    }
-  }, [open]);
-
-  // Clean up local previews + any generated-but-unsaved products on close.
-  useEffect(() => {
-    if (open) return;
-    for (const item of itemsRef.current) {
-      URL.revokeObjectURL(item.fileUrl);
-      if (item.status === 'generated' && item.itemId) void deleteProduct(item.itemId);
-    }
-  }, [open]);
-
-  // Escape to close
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+    return () => {
+      for (const item of itemsRef.current) {
+        URL.revokeObjectURL(item.fileUrl);
+        if (item.status === 'generated' && item.itemId) void deleteProduct(item.itemId);
+      }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  // Focus trap
-  useEffect(() => {
-    if (!open) return;
-    const el = dialogRef.current;
-    if (!el) return;
-    const FOCUSABLE =
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    const focusable = el.querySelectorAll<HTMLElement>(FOCUSABLE);
-    if (focusable.length > 0) {
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      first?.focus();
-
-      const trap = (e: KeyboardEvent) => {
-        if (e.key !== 'Tab') return;
-        if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
-          e.preventDefault();
-          (e.shiftKey ? last : first)?.focus();
-        }
-      };
-      document.addEventListener('keydown', trap);
-      return () => document.removeEventListener('keydown', trap);
-    }
-  }, [open]);
-
-  if (!open) return null;
+  }, []);
 
   const busy = isGeneratingAll || isSaving;
+
+  function goBackToProducts() {
+    router.push(`/tryon-library-app/subcategory/${subcategoryId}`);
+  }
 
   const processFiles = (files: FileList | File[]) => {
     const newItems: QueueItem[] = Array.from(files)
@@ -130,23 +87,22 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
     e.target.value = '';
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files) processFiles(e.dataTransfer.files);
-  };
-
   const finalizeCompletedJob = async (jobId: string) => {
-    if (finalizingJobIds.current.has(jobId) || !subcategoryId) return;
+    if (finalizingJobIds.current.has(jobId)) return;
     finalizingJobIds.current.add(jobId);
     try {
       const item = await finalizeGeneratedProduct(jobId, subcategoryId);
       setItems((prev) =>
-        prev.map((p) =>
-          p.jobId === jobId
-            ? { ...p, status: 'generated', itemId: item.id, fileUrl: item.imageUrl ?? p.fileUrl }
-            : p,
-        ),
+        prev.map((p) => {
+          if (p.jobId !== jobId) return p;
+          if (item.imageUrl && item.imageUrl !== p.fileUrl) URL.revokeObjectURL(p.fileUrl);
+          return {
+            ...p,
+            status: 'generated',
+            itemId: item.id,
+            fileUrl: item.imageUrl ?? p.fileUrl,
+          };
+        }),
       );
     } catch (err) {
       setItems((prev) =>
@@ -156,7 +112,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                 ...p,
                 status: 'failed',
                 hasError: true,
-                errorMessage: err instanceof Error ? err.message : 'Import failed',
+                errorMessage: getErrorMessage(err, 'Import failed'),
               }
             : p,
         ),
@@ -166,7 +122,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
 
   const handleGenerateAll = async () => {
     const queued = items.filter((i) => i.status === 'queued');
-    if (queued.length === 0 || !subcategoryId) return;
+    if (queued.length === 0) return;
     setIsGeneratingAll(true);
     setItems((prev) =>
       prev.map((i) => (i.status === 'queued' ? { ...i, status: 'uploading' } : i)),
@@ -185,7 +141,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                   ...p,
                   status: 'failed',
                   hasError: true,
-                  errorMessage: err instanceof Error ? err.message : 'Upload failed',
+                  errorMessage: getErrorMessage(err, 'Upload failed'),
                 }
               : p,
           ),
@@ -222,7 +178,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                 ...p,
                 status: 'failed',
                 hasError: true,
-                errorMessage: err instanceof Error ? err.message : 'Failed to enqueue',
+                errorMessage: getErrorMessage(err, 'Failed to enqueue'),
               }
             : p,
         ),
@@ -280,17 +236,16 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
   const handleApplyGlobalPrice = () => {
     if (!globalActual && !globalOffer) return;
     setItems((prev) =>
-      prev.map((item) => {
-        if (item.status === 'generated') {
-          return {
-            ...item,
-            actualPrice: globalActual || item.actualPrice,
-            offerPrice: globalOffer || item.offerPrice,
-            hasError: false,
-          };
-        }
-        return item;
-      }),
+      prev.map((item) =>
+        item.status === 'generated'
+          ? {
+              ...item,
+              actualPrice: globalActual || item.actualPrice,
+              offerPrice: globalOffer || item.offerPrice,
+              hasError: false,
+            }
+          : item,
+      ),
     );
   };
 
@@ -329,6 +284,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
     if (ready.length === 0) return;
 
     setIsSaving(true);
+    setSaveError(undefined);
     try {
       await Promise.all(
         ready.map((item) =>
@@ -340,7 +296,11 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
           }),
         ),
       );
-      onSaved();
+      qc.invalidateQueries({ queryKey: ['merchant-catalog-products', subcategoryId] });
+      qc.invalidateQueries({ queryKey: ['merchant-catalog-subcategories'] });
+      goBackToProducts();
+    } catch (err) {
+      setSaveError(getErrorMessage(err, 'Failed to save some items. Please try again.'));
     } finally {
       setIsSaving(false);
     }
@@ -352,98 +312,31 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
   const isAnyGenerating = items.some((i) => i.status === 'uploading' || i.status === 'generating');
 
   return (
-    <div
-      role="presentation"
-      onClick={busy ? undefined : onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.45)',
-        zIndex: 1100,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 20,
-      }}
-    >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: C.white,
-          borderRadius: 14,
-          padding: 24,
-          width: 920,
-          maxWidth: '90vw',
-          height: '85vh',
-          maxHeight: 800,
-          boxShadow: '0 12px 48px rgba(0,0,0,0.18)',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 20,
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: 0 }}>
-              Bulk Upload Flat Images
-            </h3>
-            <div style={{ fontSize: 13, color: C.mid, marginTop: 4 }}>
-              Upload multiple flat garment photos and process them into catalogue images.
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontSize: 24,
-              color: C.mid,
-              cursor: busy ? 'not-allowed' : 'pointer',
-              lineHeight: 1,
-            }}
-          >
-            &times;
-          </button>
-        </div>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <ScreenHeader variant="back" title="Bulk Upload" onBack={goBackToProducts} />
 
-        {/* Dropzone */}
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          // biome-ignore lint/a11y/useKeyWithClickEvents: simple click trigger
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, padding: 16 }}>
+        <button
+          type="button"
           onClick={() => fileInputRef.current?.click()}
+          className="hover-surface"
           style={{
-            height: 100,
+            height: 88,
             borderRadius: 8,
-            border: `2px dashed ${isDragging ? C.pink : C.border2}`,
-            background: isDragging ? 'rgba(245, 92, 122, 0.05)' : C.field,
+            border: `2px dashed ${C.border2}`,
+            background: C.field,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            flexShrink: 0,
-            transition: 'all 0.15s ease',
             gap: 8,
           }}
-          className="hover-surface"
         >
-          <div style={{ color: isDragging ? C.pink : C.mid }}>
-            <UploadIcon size={24} />
-          </div>
-          <div style={{ fontSize: 13, color: isDragging ? C.pink : C.mid, fontWeight: 500 }}>
-            Drop flat images here or click to browse
-          </div>
+          <UploadIcon size={22} />
+          <span style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
+            Tap to choose flat images
+          </span>
           <input
             type="file"
             multiple
@@ -453,27 +346,24 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
             style={{ display: 'none' }}
             tabIndex={-1}
           />
-        </div>
+        </button>
 
-        {/* Queue Actions */}
         {items.length > 0 && (
           <div
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'flex-end',
+              flexDirection: 'column',
+              gap: 12,
               background: C.lighter,
-              padding: '12px 16px',
+              padding: '12px 14px',
               borderRadius: 8,
               border: `1px solid ${C.border}`,
-              flexWrap: 'wrap',
-              rowGap: 12,
             }}
           >
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <GradBtn type="button" onClick={handleGenerateAll} disabled={!hasQueued || busy}>
                 {isGeneratingAll && <SpinnerIcon size={14} />}
-                {isGeneratingAll ? 'Generating...' : 'Generate All'}
+                {isGeneratingAll ? 'Generating…' : 'Generate All'}
               </GradBtn>
               <span style={{ fontSize: 13, color: C.mid, fontWeight: 500 }}>
                 {items.length} item{items.length !== 1 && 's'} ({generatedCount} ready)
@@ -481,17 +371,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
             </div>
 
             {hasGenerated && (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  alignItems: 'center',
-                  background: C.card,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  border: `1px solid ${C.border2}`,
-                }}
-              >
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
                   Set price for all:
                 </span>
@@ -501,8 +381,8 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                   value={globalActual}
                   onChange={(e) => setGlobalActual(e.target.value)}
                   style={{
-                    width: 70,
-                    height: 28,
+                    width: 80,
+                    height: 32,
                     fontSize: 12,
                     borderRadius: 4,
                     border: `1px solid ${C.border2}`,
@@ -515,8 +395,8 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                   value={globalOffer}
                   onChange={(e) => setGlobalOffer(e.target.value)}
                   style={{
-                    width: 70,
-                    height: 28,
+                    width: 80,
+                    height: 32,
                     fontSize: 12,
                     borderRadius: 4,
                     border: `1px solid ${C.border2}`,
@@ -534,8 +414,6 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                     fontWeight: 600,
                     cursor: 'pointer',
                     textDecoration: 'underline',
-                    padding: 0,
-                    marginLeft: 4,
                   }}
                 >
                   Apply
@@ -545,18 +423,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
           </div>
         )}
 
-        {/* Grid Area */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: 'auto',
-            padding: '4px',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-            gap: 16,
-            alignContent: 'start',
-          }}
-        >
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {items.map((item) => (
             <div
               key={item.id}
@@ -567,14 +434,13 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                   item.hasError || item.status === 'failed' ? 'rgba(245,92,122,0.03)' : C.card,
                 overflow: 'hidden',
                 position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
               }}
             >
               <button
                 type="button"
                 onClick={() => handleRemoveItem(item.id)}
                 disabled={item.status === 'uploading' || item.status === 'generating'}
+                aria-label="Remove item"
                 style={{
                   position: 'absolute',
                   top: 6,
@@ -583,15 +449,14 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                   color: C.white,
                   border: 'none',
                   borderRadius: 6,
-                  width: 24,
-                  height: 24,
+                  width: 28,
+                  height: 28,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  zIndex: 10,
+                  zIndex: 1,
                 }}
-                title="Remove item"
               >
                 <TrashIcon />
               </button>
@@ -604,11 +469,9 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                   alt="Upload preview"
                   style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                 />
-
-                {/* Status Badge overlay */}
                 <div style={{ position: 'absolute', bottom: 6, left: 6 }}>
                   {item.status === 'queued' && (
-                    <div
+                    <span
                       style={{
                         background: C.mid,
                         color: C.white,
@@ -620,10 +483,10 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                       }}
                     >
                       Queued
-                    </div>
+                    </span>
                   )}
                   {(item.status === 'uploading' || item.status === 'generating') && (
-                    <div
+                    <span
                       style={{
                         background: C.card,
                         color: C.pink,
@@ -632,19 +495,18 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                         padding: '2px 8px',
                         borderRadius: 4,
                         textTransform: 'uppercase',
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
                         gap: 4,
                         border: `1px solid ${C.border2}`,
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                       }}
                     >
                       <SpinnerIcon size={10} />{' '}
                       {item.status === 'uploading' ? 'Uploading' : 'Generating'}
-                    </div>
+                    </span>
                   )}
                   {item.status === 'generated' && (
-                    <div
+                    <span
                       style={{
                         background: '#10b981',
                         color: C.white,
@@ -653,16 +515,13 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                         padding: '2px 6px',
                         borderRadius: 4,
                         textTransform: 'uppercase',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
                       }}
                     >
                       ✓ Generated
-                    </div>
+                    </span>
                   )}
                   {item.status === 'failed' && (
-                    <div
+                    <span
                       style={{
                         background: C.pink,
                         color: C.white,
@@ -674,20 +533,20 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                       }}
                     >
                       Failed
-                    </div>
+                    </span>
                   )}
                 </div>
               </div>
 
               {item.status === 'generated' && (
-                <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <input
                     placeholder="SKU"
                     value={item.sku}
                     onChange={(e) => handleUpdateItem(item.id, { sku: e.target.value })}
                     style={{
                       width: '100%',
-                      height: 30,
+                      height: 32,
                       fontSize: 12,
                       borderRadius: 6,
                       border: `1px solid ${item.hasError && !item.sku ? C.pink : C.border2}`,
@@ -696,69 +555,39 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
                       color: C.text,
                     }}
                   />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <span
-                        style={{
-                          position: 'absolute',
-                          left: 8,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          fontSize: 11,
-                          color: C.mid,
-                          fontWeight: 600,
-                        }}
-                      >
-                        ₹
-                      </span>
-                      <input
-                        type="number"
-                        placeholder="Actual"
-                        value={item.actualPrice}
-                        onChange={(e) => handleUpdateItem(item.id, { actualPrice: e.target.value })}
-                        style={{
-                          width: '100%',
-                          height: 30,
-                          fontSize: 12,
-                          borderRadius: 6,
-                          border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
-                          padding: '0 6px 0 20px',
-                          background: C.field,
-                          color: C.text,
-                        }}
-                      />
-                    </div>
-                    <div style={{ position: 'relative', flex: 1 }}>
-                      <span
-                        style={{
-                          position: 'absolute',
-                          left: 8,
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          fontSize: 11,
-                          color: C.mid,
-                          fontWeight: 600,
-                        }}
-                      >
-                        ₹
-                      </span>
-                      <input
-                        type="number"
-                        placeholder="Offer"
-                        value={item.offerPrice}
-                        onChange={(e) => handleUpdateItem(item.id, { offerPrice: e.target.value })}
-                        style={{
-                          width: '100%',
-                          height: 30,
-                          fontSize: 12,
-                          borderRadius: 6,
-                          border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
-                          padding: '0 6px 0 20px',
-                          background: C.field,
-                          color: C.text,
-                        }}
-                      />
-                    </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      type="number"
+                      placeholder="₹ Actual"
+                      value={item.actualPrice}
+                      onChange={(e) => handleUpdateItem(item.id, { actualPrice: e.target.value })}
+                      style={{
+                        width: '100%',
+                        height: 32,
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: `1px solid ${item.hasError && (!item.actualPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
+                        padding: '0 8px',
+                        background: C.field,
+                        color: C.text,
+                      }}
+                    />
+                    <input
+                      type="number"
+                      placeholder="₹ Offer"
+                      value={item.offerPrice}
+                      onChange={(e) => handleUpdateItem(item.id, { offerPrice: e.target.value })}
+                      style={{
+                        width: '100%',
+                        height: 32,
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: `1px solid ${item.hasError && (!item.offerPrice || parseInt(item.offerPrice, 10) > parseInt(item.actualPrice, 10)) ? C.pink : C.border2}`,
+                        padding: '0 8px',
+                        background: C.field,
+                        color: C.text,
+                      }}
+                    />
                   </div>
                   {item.hasError && (
                     <div style={{ fontSize: 10, color: C.pink, lineHeight: 1.2 }}>
@@ -769,7 +598,7 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
               )}
 
               {item.status === 'failed' && item.errorMessage && (
-                <div style={{ padding: 12, fontSize: 10, color: C.pink, lineHeight: 1.3 }}>
+                <div style={{ padding: 10, fontSize: 10, color: C.pink, lineHeight: 1.3 }}>
                   {item.errorMessage}
                 </div>
               )}
@@ -777,45 +606,53 @@ export function BulkUploadModal({ open, onClose, onSaved, subcategoryId }: BulkU
           ))}
         </div>
 
-        {/* Footer */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 10,
-            paddingTop: 16,
-            borderTop: `1px solid ${C.border2}`,
-            flexShrink: 0,
-          }}
-        >
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
+        {saveError && (
+          <div
             style={{
-              height: 40,
-              padding: '0 18px',
+              padding: '8px 12px',
               borderRadius: 8,
-              border: `1px solid ${C.border2}`,
-              background: C.white,
-              color: C.text,
-              fontFamily: 'inherit',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: busy ? 'not-allowed' : 'pointer',
+              background: 'rgba(245,92,122,0.06)',
+              border: `1px solid ${C.pink}`,
+              fontSize: 13,
+              color: C.pink,
             }}
           >
-            Cancel
-          </button>
+            {saveError}
+          </div>
+        )}
+      </div>
+
+      <StickyBottomBar>
+        <button
+          type="button"
+          onClick={goBackToProducts}
+          disabled={busy}
+          style={{
+            flex: 1,
+            height: 48,
+            borderRadius: 8,
+            border: `1px solid ${C.border2}`,
+            background: C.white,
+            color: C.text,
+            fontFamily: 'inherit',
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: busy ? 'not-allowed' : 'pointer',
+          }}
+        >
+          Cancel
+        </button>
+        <div style={{ flex: 1 }}>
           <GradBtn
             type="button"
             disabled={generatedCount === 0 || isAnyGenerating || isSaving}
-            onClick={handleAddCatalogue}
+            onClick={() => void handleAddCatalogue()}
+            style={{ width: '100%', height: 48 }}
           >
-            {isSaving ? 'Saving...' : `Add ${generatedCount} to Catalogue`}
+            {isSaving ? 'Saving…' : `Add ${generatedCount} to Catalogue`}
           </GradBtn>
         </div>
-      </div>
+      </StickyBottomBar>
     </div>
   );
 }
