@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { assignFunnelFromRules } from './funnel-rules.js';
 import { shopifyAdminFetch } from './service.js';
+import { getValidAccessToken } from './token.js';
 
 interface ShopifyProduct {
   id: number;
@@ -276,9 +277,20 @@ export async function syncOneTask(
     .where(eq(schema.shopifyStores.id, task.storeId))
     .limit(1);
   if (!store || store.uninstalledAt) return;
-  const { decryptToken } = await import('../../lib/crypto.js');
-  const token = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
+  // Refreshed up front rather than decrypted: this runs unattended, so there is
+  // no merchant present to reauthorize if the stored token has aged out.
+  let token = await getValidAccessToken(app, store);
   const shop = store.shopDomain;
+  // A full sync of a large catalog outlives the one-hour token: 250 products a
+  // page, a collects call each, throttled. Re-reading through
+  // getValidAccessToken rather than forcing a rotation means a token another
+  // process already refreshed is reused, and only a genuinely stale one is
+  // rotated. Reassigning `token` also fixes up the helpers below, which read it
+  // at call time.
+  const onUnauthorized = async () => {
+    token = await getValidAccessToken(app, store);
+    return token;
+  };
 
   if (task.mode === 'product' && task.shopifyProductId) {
     const res = await shopifyAdminFetch(shop, token, `/products/${task.shopifyProductId}.json`);
@@ -312,7 +324,7 @@ export async function syncOneTask(
   const titleById = await fetchCollectionTitleMap(shop, token);
   let url: string | null = `/products.json?limit=250`;
   while (url) {
-    const res: Response = await shopifyAdminFetch(shop, token, url);
+    const res: Response = await shopifyAdminFetch(shop, token, url, {}, { onUnauthorized });
     if (!res.ok) {
       // Previously a silent `break` here: the whole catalog sync would stop
       // with zero rows written and zero log line — a bad/expired token made

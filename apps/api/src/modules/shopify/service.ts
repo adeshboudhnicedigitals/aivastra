@@ -14,20 +14,57 @@ export const SHOPIFY_API_VERSION = '2026-07';
 // to "token is just broken". Centralizing the call here means every route
 // gets the same SHOPIFY_REAUTH_REQUIRED signal instead of each callsite
 // reinventing (or forgetting) that distinction.
+//
+// The fifth argument accepts either a bare fetch (legacy callers, mostly tests)
+// or an options object. Passing `onUnauthorized` opts into one refresh-and-retry
+// on a 401, which is the backstop for expiring offline tokens: getValidAccessToken
+// refreshes ahead of expiry, but only this covers a token that lapses after the
+// check and before the call.
+export interface ShopifyAdminFetchOptions {
+  fetchImpl?: typeof fetch;
+  /**
+   * Called once on a 401 to obtain a fresh access token, after which the
+   * request is retried. Supply it wherever a store row is in hand — it is what
+   * saves a caller holding a token across a long run, where the hour can lapse
+   * between acquiring the token and this particular call going out.
+   *
+   * Only 401 triggers it. A 403 is an authorization verdict on a token Shopify
+   * accepted, so a newer token of the same scope would be refused identically.
+   */
+  onUnauthorized?: () => Promise<string>;
+}
+
 export async function shopifyAdminFetch(
   shopDomain: string,
   accessToken: string,
   path: string,
   init: RequestInit = {},
-  fetchImpl: typeof fetch = fetch,
+  fetchImplOrOptions: typeof fetch | ShopifyAdminFetchOptions = {},
 ): Promise<Response> {
+  const opts: ShopifyAdminFetchOptions =
+    typeof fetchImplOrOptions === 'function'
+      ? { fetchImpl: fetchImplOrOptions }
+      : fetchImplOrOptions;
+  const fetchImpl = opts.fetchImpl ?? fetch;
+
   const url = path.startsWith('http')
     ? path
     : `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}${path}`;
-  const res = await fetchImpl(url, {
-    ...init,
-    headers: { ...init.headers, 'X-Shopify-Access-Token': accessToken },
-  });
+  const send = (token: string) =>
+    fetchImpl(url, {
+      ...init,
+      headers: { ...init.headers, 'X-Shopify-Access-Token': token },
+    });
+
+  let res = await send(accessToken);
+
+  if (res.status === 401 && opts.onUnauthorized) {
+    const refreshed = await opts.onUnauthorized();
+    // Only retry on a genuinely different token. Re-sending the same one would
+    // burn a second call to reach the identical 401.
+    if (refreshed && refreshed !== accessToken) res = await send(refreshed);
+  }
+
   if (res.status === 401 || res.status === 403) {
     throw new AppError(
       'SHOPIFY_REAUTH_REQUIRED',

@@ -4,13 +4,13 @@ import { keys } from '@aivastra/storage';
 import { and, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { createJob } from '../jobs/create.js';
 import { createProductMedia } from './catalog-publish.js';
 import { fetchLiveProductImages } from './products.routes.js';
 import { assertShopifyCdn } from './products.sync.js';
+import { getValidAccessToken } from './token.js';
 
 const GenerateBody = z.object({
   shopifyProductId: z.number().int().positive(),
@@ -268,7 +268,7 @@ export async function shopifyCatalogRoutes(app: FastifyInstance) {
       }
 
       const signed = await app.storage.presignGet(keys.output(jobId), 300);
-      const accessToken = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
+      const accessToken = await getValidAccessToken(app, store);
       const mediaId = await createProductMedia(
         store.shopDomain,
         accessToken,
