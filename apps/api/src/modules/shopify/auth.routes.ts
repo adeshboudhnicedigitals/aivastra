@@ -7,6 +7,7 @@ import { AppError } from '../../lib/errors.js';
 import { resolveAccountLinkCode } from './customer-auth.js';
 import { writeWidgetKeyMetafield } from './metafields.js';
 import { SHOPIFY_API_VERSION, verifyQueryHmac } from './service.js';
+import { type TokenGrant, toTokenGrant } from './token.js';
 
 export interface ShopDetails {
   shopifyShopId: number;
@@ -25,10 +26,19 @@ export async function upsertShopifyStore(
   shop: ShopDetails,
   accessToken: string,
   scope: string,
+  grant?: TokenGrant,
 ) {
   const encKey = app.env.SHOPIFY_TOKEN_ENC_KEY;
   if (!encKey) throw new AppError('CONFIG', 500, 'SHOPIFY_TOKEN_ENC_KEY missing');
   const enc = encryptToken(accessToken, encKey);
+  // Absent grant means a caller that predates expiring tokens (tests, mostly).
+  // Null out the refresh half rather than leaving a previous install's values
+  // behind, where they would point at a rotated-away token.
+  const refreshCols = {
+    refreshToken: grant?.refreshToken ? encryptToken(grant.refreshToken, encKey) : null,
+    tokenExpiresAt: grant?.expiresAt ?? null,
+    refreshTokenExpiresAt: grant?.refreshTokenExpiresAt ?? null,
+  };
   const origins = [
     `https://${shop.myshopifyDomain}`,
     ...(shop.primaryDomain ? [`https://${shop.primaryDomain}`] : []),
@@ -46,6 +56,7 @@ export async function upsertShopifyStore(
         .update(schema.shopifyStores)
         .set({
           accessToken: enc,
+          ...refreshCols,
           scope,
           allowedOrigins: origins,
           uninstalledAt: null,
@@ -62,6 +73,7 @@ export async function upsertShopifyStore(
         shopDomain: shop.shopDomain,
         shopifyShopId: shop.shopifyShopId,
         accessToken: enc,
+        ...refreshCols,
         scope,
         allowedOrigins: origins,
       })
@@ -130,10 +142,18 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       }),
     });
     if (!tokenRes.ok) throw new AppError('SHOPIFY', 502, 'token exchange failed');
-    const { access_token, scope } = (await tokenRes.json()) as {
+    const tokenBody = (await tokenRes.json()) as {
       access_token: string;
       scope: string;
+      refresh_token?: string;
+      expires_in?: number;
+      refresh_token_expires_in?: number;
     };
+    const { access_token, scope } = tokenBody;
+    // `expiring: 1` above makes access_token die in ~1h; the refresh half is
+    // the only way back without sending the merchant through OAuth again, so
+    // it has to be captured here — this is the one place Shopify hands it over.
+    const grant = toTokenGrant(tokenBody);
 
     // Fetch shop details
     const shopRes = await fetch(`https://${q.shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`, {
@@ -166,7 +186,7 @@ export async function shopifyAuthRoutes(app: FastifyInstance) {
       address: [s.address1, s.city, s.country].filter(Boolean).join(', '),
     };
 
-    const store = await upsertShopifyStore(app, details, access_token, scope);
+    const store = await upsertShopifyStore(app, details, access_token, scope, grant);
     await writeWidgetKeyMetafield(q.shop, access_token, store.storeKey, req.log);
     // Webhook registration is Task 7; call registerWebhooks(app, q.shop, access_token) here once it exists.
     await app.shopifyRegisterWebhooks?.(q.shop, access_token);
