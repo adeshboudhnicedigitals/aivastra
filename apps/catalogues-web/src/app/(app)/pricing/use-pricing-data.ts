@@ -354,7 +354,12 @@ export function usePricingData() {
   const planCredits: number | null = isFreeTier
     ? freeTrialGrant
     : (currentPaidPlan?.credits ?? latestPaidForCurrentTier?.credits ?? null);
-  const pct = planCredits ? Math.min(100, Math.round((balance / planCredits) * 100)) : 100;
+  const pct =
+    planCredits === null
+      ? 100
+      : planCredits === 0
+        ? 0
+        : Math.min(100, Math.round((balance / planCredits) * 100));
   const activatedDate = latestPaidForCurrentTier?.paidAt
     ? new Date(latestPaidForCurrentTier.paidAt).toLocaleDateString('en-IN', {
         day: 'numeric',
