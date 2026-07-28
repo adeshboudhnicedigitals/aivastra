@@ -1,3 +1,19 @@
+## 2026-07-28 — App Shell: responsive sidebar (off-canvas drawer)
+
+### Done
+- Extracted a reusable `useMediaQuery(query)` primitive (`apps/catalogues-web/src/hooks/use-media-query.ts`) from `useBreakpoint()`'s existing matchMedia logic; `useBreakpoint()` refactored to build on it internally with zero external API change.
+- Added `SidebarProvider`/`SidebarContext` (`apps/catalogues-web/src/components/sidebar-context.tsx`) owning all drawer state: open/closed, route-change auto-close, `onNavigate` optimization, ESC-to-close, body-scroll-lock (exact-value preserve/restore), and rendering the rail/drawer/backdrop/`/sellio`-toggle markup.
+- `AppShell` now collapses the sidebar into a `min(320px, 85vw)` off-canvas drawer below 1024px (independently of pricing's own viewport tiers — no threshold coupling) or on `/sellio`, instead of a permanent 200px rail.
+- `TopBar` gained an optional hamburger button (shown only in drawer mode) with accessible unconditional focus-restore on close, matching the WAI-ARIA dialog/menu pattern.
+- Root cause of the original bug report ("pricing page's mobile/tablet layouts don't look responsive") confirmed and fixed: `AppShell`'s permanent 200px sidebar was squeezing every page's content area regardless of what that page's own layout did — this was never a bug in the pricing rebuild itself.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- `TopBar`'s own right-side content (Support button, phone link, `UserMenu`) collapsing into a mobile overflow menu, and renaming/expanding `useBreakpoint()` into a richer `useViewport()` API, were both explicitly deferred to their own future specs — not bundled into this change.
+- Next step in the sequence: continue rolling the `useBreakpoint()` + tier-layout pattern (established on the pricing page) out to other pages, now that the shell gives them the full viewport width to work with instead of fighting it.
+
 ## 2026-07-28 — Pricing page: viewport-tier responsive rebuild
 
 ### Done
