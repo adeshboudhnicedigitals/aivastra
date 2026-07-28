@@ -33,6 +33,13 @@ export const shopifyStores = pgTable('shopify_stores', {
   shopDomain: text('shop_domain').notNull().unique(),
   shopifyShopId: bigint('shopify_shop_id', { mode: 'number' }).notNull().unique(),
   accessToken: text('access_token').notNull(), // encrypted: iv:authTag:ciphertext
+  // All three are nullable because stores installed before expiring tokens
+  // shipped hold a perpetual access token with no refresh half. Null
+  // refreshToken is the marker for "legacy, never refresh" — see
+  // getValidAccessToken in apps/api/src/modules/shopify/token.ts.
+  refreshToken: text('refresh_token'), // encrypted: iv:authTag:ciphertext
+  tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
   scope: text('scope').notNull(),
   ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
   installedAt: timestamp('installed_at', { withTimezone: true }).notNull().defaultNow(),
