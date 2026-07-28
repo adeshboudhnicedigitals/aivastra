@@ -393,7 +393,7 @@ export default function SettingsPage({ onNav: _onNav, toast, theme, setTheme }: 
   >([]);
   const [tryonCreditCost, setTryonCreditCost] = useState(5);
   const [sareeMannequinDevCreditCost, setSareeMannequinDevCreditCost] = useState(10);
-  const [pixverseCreditCost, setPixverseCreditCost] = useState(20);
+  const [pixverseCreditCost, setPixverseCreditCost] = useState(150);
   const [uploadLimitsMb, setUploadLimitsMb] = useState({
     merchantCatalogMaxBytes: 20,
     webGarmentMaxBytes: 20,
