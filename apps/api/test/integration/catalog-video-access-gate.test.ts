@@ -103,7 +103,7 @@ describe('catalog video — CATALOG_VIDEO_ALLOWED_EMAILS gate', () => {
 
   it('allows access (case-insensitively) for an allowlisted user, and GET /v1/me reports catalogVideoEnabled accordingly', async () => {
     const { token, userId } = await registerUser('Gate-Allowed@X.com');
-    await grantCredits(userId, 100);
+    await grantCredits(userId, 200);
     const sourceJobId = await seedCompletedJob(userId);
     const sampleVideoId = await seedActiveSampleVideo();
     app.env.CATALOG_VIDEO_ALLOWED_EMAILS = 'gate-allowed@x.com, other@x.com';
