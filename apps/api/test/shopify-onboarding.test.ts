@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
+import { buildThemeEditorDeepLink } from '../src/modules/shopify/onboarding.routes.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 import { signSessionToken } from './helpers/shopify-session.js';
@@ -39,6 +40,36 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await c?.stop();
+});
+
+describe('buildThemeEditorDeepLink', () => {
+  it('targets themes/current and activates the app embed', () => {
+    expect(buildThemeEditorDeepLink('o.myshopify.com', 'abc123')).toBe(
+      'https://o.myshopify.com/admin/themes/current/editor?context=apps&activateAppId=abc123/tryon-block',
+    );
+  });
+
+  it('never needs a theme ID — that lookup requires the read_themes scope we do not hold', () => {
+    const url = buildThemeEditorDeepLink('o.myshopify.com', 'abc123');
+    expect(url).toContain('/themes/current/');
+    expect(url).not.toMatch(/\/themes\/\d+\//);
+  });
+});
+
+describe('GET /v1/shopify/onboarding/theme-editor-url', () => {
+  it('returns the deep link without calling the Shopify Admin API', async () => {
+    // A real fetch here would 403 for want of read_themes; the route is pure, so
+    // this passes with no network stub in place at all.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/shopify/onboarding/theme-editor-url',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().url).toBe(
+      `https://o.myshopify.com/admin/themes/current/editor?context=apps&activateAppId=${API_KEY}/tryon-block`,
+    );
+  });
 });
 
 describe('POST /v1/shopify/onboarding/confirm-theme-block', () => {
