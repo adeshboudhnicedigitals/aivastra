@@ -11,7 +11,6 @@ import { GarmentIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { catalogAppApi as api, CatalogAppSessionExpiredError } from '../../catalog-app-api';
-import { Fab } from '../../components/Fab';
 import { ProductCard } from '../../components/ProductCard';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { useLoggedOut } from '../../logged-out-context';
@@ -79,28 +78,11 @@ export default function ProductsScreen() {
               : '/tryon-library-app',
           )
         }
+        action={{
+          label: 'Add Product',
+          onClick: () => router.push(`/tryon-library-app/subcategory/${subcategoryId}/add-product`),
+        }}
       />
-
-      <div style={{ padding: '12px 16px 0', display: 'flex', justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={() => router.push(`/tryon-library-app/subcategory/${subcategoryId}/bulk-upload`)}
-          className="focus-ring hover-surface"
-          style={{
-            height: 36,
-            padding: '0 14px',
-            borderRadius: 8,
-            border: `1px solid ${C.border2}`,
-            background: C.card,
-            color: C.text,
-            fontWeight: 600,
-            fontSize: 13,
-            cursor: 'pointer',
-          }}
-        >
-          Bulk Upload
-        </button>
-      </div>
 
       {productsQuery.isLoading ? (
         <div
@@ -132,7 +114,7 @@ export default function ProductsScreen() {
             No products yet
           </h3>
           <p style={{ color: C.light, fontSize: 13, margin: 0, maxWidth: 280 }}>
-            Tap the + button to add your first product.
+            Tap "Add Product" above to add your first one.
           </p>
         </div>
       ) : (
@@ -158,11 +140,6 @@ export default function ProductsScreen() {
           ))}
         </div>
       )}
-
-      <Fab
-        onClick={() => router.push(`/tryon-library-app/subcategory/${subcategoryId}/add-product`)}
-        label="Add Product"
-      />
 
       <ConfirmDialog
         open={!!deleteTarget}

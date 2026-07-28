@@ -13,7 +13,13 @@ interface MerchantMeResponse {
   balance: number;
 }
 
-export function LibraryUserMenu({ onLoggedOut }: { onLoggedOut: () => void }) {
+export function LibraryUserMenu({
+  onLoggedOut,
+  compact,
+}: {
+  onLoggedOut: () => void;
+  compact?: boolean;
+}) {
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupRect, setPopupRect] = useState<{ bottom: number; right: number } | null>(null);
   const [profileHover, setProfileHover] = useState(false);
@@ -36,25 +42,27 @@ export function LibraryUserMenu({ onLoggedOut }: { onLoggedOut: () => void }) {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '0 14px',
-          height: 40,
-          boxSizing: 'border-box',
-          borderRadius: 8,
-          background: C.bg,
-          border: `1px solid ${C.border}`,
-        }}
-      >
-        <span style={{ display: 'flex' }}>
-          {/* biome-ignore lint/performance/noImgElement: credit icon, standalone page not using next/image */}
-          <img src={`${BASE}/assets/credit.png`} alt="" width={16} height={16} />
-        </span>
-        <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>{balance} Credits</span>
-      </div>
+      {!compact && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '0 14px',
+            height: 40,
+            boxSizing: 'border-box',
+            borderRadius: 8,
+            background: C.bg,
+            border: `1px solid ${C.border}`,
+          }}
+        >
+          <span style={{ display: 'flex' }}>
+            {/* biome-ignore lint/performance/noImgElement: credit icon, standalone page not using next/image */}
+            <img src={`${BASE}/assets/credit.png`} alt="" width={16} height={16} />
+          </span>
+          <span style={{ color: C.text, fontSize: 13, fontWeight: 500 }}>{balance} Credits</span>
+        </div>
+      )}
 
       <div ref={popupRef} style={{ position: 'relative' }}>
         {popupOpen && (
@@ -148,7 +156,7 @@ export function LibraryUserMenu({ onLoggedOut }: { onLoggedOut: () => void }) {
               height: 40,
               borderRadius: '50%',
               background:
-                'linear-gradient(rgba(0,0,0,0.15), rgba(0,0,0,0.15)), linear-gradient(91.84deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)',
+                'linear-gradient(rgba(0,0,0,0.15), rgba(0,0,0,0.15)), linear-gradient(135deg, #521D9C 0.33%, #BD2587 50.77%, #F96657 99.67%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
