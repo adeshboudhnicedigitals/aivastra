@@ -125,14 +125,16 @@ export default function CatalogVideoPage(): React.ReactElement {
               return (
                 <article
                   key={item.id}
+                  className="prod-card"
                   style={{
                     overflow: 'hidden',
                     border: `1px solid ${C.border}`,
-                    borderRadius: 8,
+                    borderRadius: 14,
                     background: C.card,
                   }}
                 >
                   <div
+                    className="prod-card-img"
                     style={{
                       position: 'relative',
                       aspectRatio: '9 / 16',
@@ -168,22 +170,22 @@ export default function CatalogVideoPage(): React.ReactElement {
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       gap: 8,
-                      padding: '10px 12px',
+                      padding: '10px 14px',
                     }}
                   >
                     <span
                       style={{
                         color,
-                        background: `color-mix(in srgb, ${color} 13%, transparent)`,
-                        borderRadius: 999,
-                        padding: '3px 8px',
+                        background: `color-mix(in srgb, ${color} 12%, transparent)`,
+                        borderRadius: 20,
+                        padding: '2px 7px',
                         fontSize: 11,
                         fontWeight: 600,
                       }}
                     >
                       {item.status}
                     </span>
-                    <time style={{ color: C.light, fontSize: 11 }} dateTime={item.createdAt}>
+                    <time style={{ color: C.light, fontSize: 12 }} dateTime={item.createdAt}>
                       {new Date(item.createdAt).toLocaleDateString('en-IN', {
                         day: 'numeric',
                         month: 'short',

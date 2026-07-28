@@ -44,6 +44,9 @@ importers:
 
   apps/admin-web:
     dependencies:
+      gifshot:
+        specifier: ^0.4.5
+        version: 0.4.5
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -822,11 +825,11 @@ packages:
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild-kit/esm-loader@2.6.5':
     resolution: {integrity: sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA==}
-    deprecated: 'Merged into tsx: https://tsx.is'
+    deprecated: 'Merged into tsx: https://tsx.hirok.io'
 
   '@esbuild/aix-ppc64@0.19.12':
     resolution: {integrity: sha512-bmoCYyWdEL3wDQIVbcyzRyeKLgk2WtWLTWz1ZIAZF/EGbNOwSA6ew3PftJ1PqMiOOGu0OyFMzG53L0zqIpPeNA==}
@@ -3682,6 +3685,9 @@ packages:
 
   get-tsconfig@4.14.0:
     resolution: {integrity: sha512-yTb+8DXzDREzgvYmh6s9vHsSVCHeC0G3PI5bEXNBHtmshPnO+S5O7qgLEOn0I5QvMy6kpZN8K1NKGyilLb93wA==}
+
+  gifshot@0.4.5:
+    resolution: {integrity: sha512-oaOTT7patjxFFv7ptR0R0NNhqy3ZAmcLUQCjM/sTsvsQaUAlB2fHirLajcNAKJ6ufoVhdP+ZkXYvmUycHP1FNg==}
 
   github-slugger@2.0.0:
     resolution: {integrity: sha512-IaOQ9puYtjrkq7Y0Ygl9KDZnrf/aiUJYUpVf89y8kyaxbRG7Y1SrX/jaumrv81vc61+kiMempujsM3Yw7w5qcw==}
@@ -7340,14 +7346,6 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@20.19.41)(lightningcss@1.27.0)(terser@5.48.0))':
-    dependencies:
-      '@vitest/spy': 2.1.9
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 5.4.21(@types/node@20.19.41)(lightningcss@1.27.0)(terser@5.48.0)
-
   '@vitest/mocker@2.1.9(vite@5.4.21(@types/node@22.19.19)(lightningcss@1.27.0)(terser@5.48.0))':
     dependencies:
       '@vitest/spy': 2.1.9
@@ -8283,6 +8281,8 @@ snapshots:
   get-tsconfig@4.14.0:
     dependencies:
       resolve-pkg-maps: 1.0.0
+
+  gifshot@0.4.5: {}
 
   github-slugger@2.0.0: {}
 
@@ -9621,7 +9621,7 @@ snapshots:
   vitest@2.1.9(@types/node@20.19.41)(lightningcss@1.27.0)(terser@5.48.0):
     dependencies:
       '@vitest/expect': 2.1.9
-      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@20.19.41)(lightningcss@1.27.0)(terser@5.48.0))
+      '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.19.19)(lightningcss@1.27.0)(terser@5.48.0))
       '@vitest/pretty-format': 2.1.9
       '@vitest/runner': 2.1.9
       '@vitest/snapshot': 2.1.9
