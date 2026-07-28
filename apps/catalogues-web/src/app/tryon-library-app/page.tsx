@@ -7,12 +7,10 @@ import type {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { GarmentIcon } from '@/components/icons';
+import { ChevronRight, GarmentIcon } from '@/components/icons';
 import { C } from '@/components/tokens';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { catalogAppApi as api, CatalogAppSessionExpiredError } from './catalog-app-api';
-import { CategoryTabs } from './components/CategoryTabs';
-import { Fab } from './components/Fab';
 import { ScreenHeader } from './components/ScreenHeader';
 import { SubcategoryCard } from './components/SubcategoryCard';
 import { useLoggedOut } from './logged-out-context';
@@ -23,21 +21,71 @@ function isMerchantGateError(err: unknown): boolean {
   return err instanceof Error && /merchant account/i.test(err.message);
 }
 
+const GENDER_OPTIONS: { id: Category; label: string }[] = [
+  { id: 'women', label: 'Women' },
+  { id: 'men', label: 'Men' },
+  { id: 'girls', label: 'Girls' },
+  { id: 'boys', label: 'Boys' },
+];
+
+function GenderPicker({ onSelect }: { onSelect: (category: Category) => void }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: 20,
+        padding: '16px',
+        maxWidth: 420,
+        width: '100%',
+        margin: '0 auto',
+      }}
+    >
+      {GENDER_OPTIONS.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          onClick={() => onSelect(opt.id)}
+          className="focus-ring hover-surface"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 16,
+            border: `1px solid ${C.border}`,
+            borderRadius: 16,
+            background: C.card,
+            padding: '26px 20px',
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <div style={{ flex: 1, fontSize: 19, fontWeight: 700, color: C.text, paddingLeft: 12 }}>
+            {opt.label}
+          </div>
+          <div style={{ color: C.light }}>
+            <ChevronRight />
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SubcategoriesScreenInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const qc = useQueryClient();
   const onLoggedOut = useLoggedOut();
 
-  const selectedCategory = (searchParams.get('category') as Category | null) ?? 'men';
+  const selectedCategory = searchParams.get('category') as Category | null;
   const [deleteTarget, setDeleteTarget] = useState<MerchantCatalogSubcategory | undefined>(
     undefined,
   );
 
-  function selectCategory(category: Category) {
-    const params = new URLSearchParams(searchParams);
-    params.set('category', category);
-    router.replace(`/tryon-library-app?${params.toString()}`);
+  function selectGender(category: Category) {
+    router.push(`/tryon-library-app?category=${category}`);
   }
 
   const subcategoriesQuery = useQuery({
@@ -62,7 +110,7 @@ function SubcategoriesScreenInner() {
       api.get<{ items: { id: string; label: string }[] }>(
         `/v1/models/garment-types?gender=${selectedCategory}`,
       ),
-    enabled: !merchantGated,
+    enabled: !merchantGated && !!selectedCategory,
   });
   const garmentTypes = garmentTypesQuery.data?.items ?? [];
 
@@ -77,7 +125,7 @@ function SubcategoriesScreenInner() {
   if (subcategoriesQuery.isLoading) {
     return (
       <>
-        <ScreenHeader variant="root" title="Try On Library" />
+        <ScreenHeader variant="root" />
         <div
           style={{
             flex: 1,
@@ -96,7 +144,7 @@ function SubcategoriesScreenInner() {
   if (merchantGated) {
     return (
       <>
-        <ScreenHeader variant="root" title="Try On Library" />
+        <ScreenHeader variant="root" />
         <div
           style={{
             padding: '64px 24px',
@@ -119,12 +167,30 @@ function SubcategoriesScreenInner() {
     );
   }
 
+  if (!selectedCategory) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <ScreenHeader variant="root" />
+        <GenderPicker onSelect={selectGender} />
+      </div>
+    );
+  }
+
+  const categoryLabel = GENDER_OPTIONS.find((g) => g.id === selectedCategory)?.label ?? '';
   const visibleSubs = subcategories.filter((s) => s.category === selectedCategory);
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <ScreenHeader variant="root" title="Try On Library" />
-      <CategoryTabs selected={selectedCategory} onSelect={selectCategory} />
+      <ScreenHeader
+        variant="back"
+        title={categoryLabel}
+        onBack={() => router.push('/tryon-library-app')}
+        action={{
+          label: 'Add Subcategory',
+          onClick: () =>
+            router.push(`/tryon-library-app/add-subcategory?category=${selectedCategory}`),
+        }}
+      />
 
       {visibleSubs.length === 0 ? (
         <div
@@ -144,7 +210,7 @@ function SubcategoriesScreenInner() {
             No subcategories yet
           </h3>
           <p style={{ color: C.light, fontSize: 13, margin: 0, maxWidth: 280 }}>
-            Tap the + button to create your first subcategory.
+            Tap "Add Subcategory" above to create your first one.
           </p>
         </div>
       ) : (
@@ -171,13 +237,6 @@ function SubcategoriesScreenInner() {
           })}
         </div>
       )}
-
-      <Fab
-        onClick={() =>
-          router.push(`/tryon-library-app/add-subcategory?category=${selectedCategory}`)
-        }
-        label="Add Subcategory"
-      />
 
       <ConfirmDialog
         open={!!deleteTarget}
