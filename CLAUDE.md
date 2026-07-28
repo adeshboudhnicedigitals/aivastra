@@ -273,6 +273,7 @@ Admin mobile development is paused until the product is finalised. Treat `apps/a
 - All `/admin/*` routes double-check admin role: JWT claim AND `admin_users` row lookup.
 - User hint field (300 char max) goes through sanitization before reaching the workflow prompt.
 - `@aivastra/db` exports `* as schema` from `packages/db/src/index.ts` — do not add a duplicate `schema` re-export.
+- Never run schema/migration work (`pnpm db:generate`, manual `drizzle-kit` snapshot surgery, one-off `psql`/`ts-node` data fixes) directly against the production VPS or `tryon_prod`. Do it against a local/staging DB and ship it through the normal push → CI/CD → `db:migrate:prod` path. An incident on 2026-07-27 wiped `garment_subcategories.default_lower_catalog_id`/`default_shoe_catalog_id` for ~89 of 90 rows during exactly this kind of ad-hoc live-production session; the trigger was never conclusively identified because there was no audit trail. `PATCH /admin/assets/garment-types/:id` now logs `adminUserId`/`garmentTypeId`/changed field keys (`apps/api/src/modules/admin/subcategories.routes.ts`) so a repeat is traceable via Grafana/Loki — that only covers requests through the API, not direct DB access.
 
 ## Environment Variables
 
