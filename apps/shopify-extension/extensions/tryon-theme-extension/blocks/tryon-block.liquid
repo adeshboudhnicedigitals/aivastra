@@ -6,6 +6,13 @@
   everywhere else) and only once the widget_key metafield exists (install
   incomplete, or metafield write failed) — a missing/broken button is
   safer on a live storefront than one that always errors.
+
+  Note on the `placement_selector` setting below: it deliberately has no
+  `default` key. Shopify's schema validator rejects `"default": ""` outright
+  ("default can't be blank"), and any non-blank default pins new installs to one
+  theme's markup — which is what silently broke placement for merchants who
+  switched themes. Unset renders as empty, and tryon-widget.js reads empty as
+  "auto-detect" and walks its own fallback selector chain.
 {% endcomment %}
 
 {%- assign widget_key = shop.metafields.aivastra.widget_key -%}
@@ -196,8 +203,7 @@
       "type": "text",
       "id": "placement_selector",
       "label": "Insert button at CSS selector",
-      "info": "Leave blank to place the button near the Buy button automatically. If it lands in the wrong spot on your theme, enter a CSS selector here to override.",
-      "default": ""
+      "info": "Leave blank to place the button near the Buy button automatically. If it lands in the wrong spot on your theme, enter a CSS selector here to override."
     },
     {
       "type": "select",
