@@ -1,3 +1,19 @@
+## 2026-07-28 — Pricing page: viewport-tier responsive rebuild
+
+### Done
+- Extracted all pricing-page data fetching, Razorpay checkout logic, and price formatting into `usePricingData()` (`apps/catalogues-web/src/app/(app)/pricing/use-pricing-data.ts`).
+- Added a reusable `useBreakpoint()` hook (`apps/catalogues-web/src/hooks/use-breakpoint.ts`) resolving 5 viewport tiers via `matchMedia`, intended as the template for responsive rebuilds of other pages.
+- Split the pricing page into `Desktop`/`Tablet`/`Mobile` layout components under `apps/catalogues-web/src/app/(app)/pricing/layouts/`; `small-laptop` and `laptop` tiers alias to `Desktop` since its existing 3-column grid already fits above 1024px.
+- Fixed the two real responsive breaks: the Current Plan Banner now stacks instead of clipping into a fixed side-by-side layout, and pricing cards use a CSS grid (2-col tablet, 1-col mobile) instead of relying on `flexWrap` at a fixed 320px card width.
+- Moved the country selector to a dedicated full-width bar below the topbar on Mobile only, since the real overflow cause was `TopBar`'s shared `right`-slot row (phone link + support button + user menu), not the popover's own width.
+
+### Failed / Not Done
+- (none)
+
+### Open Questions / Decisions
+- The dead `{false && activeTab === 'tryon'}` offline-pricing-card block (~534 lines) was kept only in `Desktop.tsx`, not duplicated into `Tablet.tsx`/`Mobile.tsx` — it's unreachable regardless of tier, so this is a size reduction with zero behavioral difference. If it's ever re-enabled, it'll need its own responsive treatment added at that time.
+- No test runner exists in `apps/catalogues-web`; verification for this rebuild was `typecheck`/`lint`/`build` plus manual resize checks, consistent with this repo's established convention for frontend-only responsive work.
+
 ## 2026-07-28 - Investigated production garment-type mapping wipe (admin complaint)
 
 ### Done
