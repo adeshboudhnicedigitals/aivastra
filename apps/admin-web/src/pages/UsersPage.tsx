@@ -349,14 +349,14 @@ export default function UsersPage({ onNav, toast }: Props) {
       await apiFetch('/admin/merchants', {
         method: 'POST',
         body: JSON.stringify({
-          email: detail.email,
+          userId: detail.id,
           companyName: grantMerchantForm.companyName.trim(),
           contactName: grantMerchantForm.contactName.trim() || undefined,
           phone: grantMerchantForm.phone.trim() || undefined,
           businessAddress: grantMerchantForm.businessAddress.trim() || undefined,
         }),
       });
-      toast({ title: `Merchant access granted to ${detail.email}` });
+      toast({ title: `Merchant access granted to ${userLabel(detail)}` });
       setShowGrantMerchant(false);
       await openDetail(detail);
       setUsers((prev) => prev.map((u) => (u.id === detail.id ? { ...u, isMerchant: true } : u)));
@@ -1112,8 +1112,8 @@ export default function UsersPage({ onNav, toast }: Props) {
                   />
                 </div>
                 <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: 0 }}>
-                  This instantly grants {u.email} access to the catalogue manager, using their
-                  existing login.
+                  This instantly grants {userContact(u)} access to the catalogue manager, using
+                  their existing login.
                 </p>
               </div>
               <div className="modal-foot">
