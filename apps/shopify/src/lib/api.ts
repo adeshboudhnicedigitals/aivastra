@@ -47,10 +47,30 @@ function handleReauthIfNeeded(code: string | undefined): void {
   (window.top ?? window).location.href = target;
 }
 
+// Plain fetch() has no built-in timeout — a stalled connection (dead tunnel,
+// backend hang) would otherwise leave callers awaiting forever with no way to
+// recover short of a full page reload.
+const FETCH_TIMEOUT_MS = 12000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Request timed out — check your connection and try again.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${path}`;
   const token = await getIdToken();
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     ...init,
     headers: {
       ...init.headers,
@@ -62,7 +82,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   if (res.status === 401) {
     // Session token may have expired between acquisition and use (~60s lifetime) — retry once with a fresh one.
     const freshToken = await getIdToken();
-    const retryRes = await fetch(url, {
+    const retryRes = await fetchWithTimeout(url, {
       ...init,
       headers: {
         ...init.headers,
