@@ -214,7 +214,9 @@ export const PatchModelBackgroundBody = z.object({
 
 export const PresignSampleVideoBody = z.object({
   videoContentType: z.literal('video/mp4'),
-  thumbnailContentType: AssetContentType,
+  // Thumbnail is always a client-generated animated preview GIF (see gif.ts) — no
+  // manual poster upload, so this is fixed rather than reusing the image AssetContentType enum.
+  thumbnailContentType: z.literal('image/gif'),
 });
 export const ConfirmSampleVideoBody = z.object({
   title: z.string().min(1).max(120),

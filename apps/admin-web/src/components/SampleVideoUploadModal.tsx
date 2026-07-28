@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { apiFetch } from '../lib/data';
+import { useEffect, useState } from 'react';
+import { apiFetch, UPLOAD_NETWORK_ERROR, uploadErrorMessage } from '../lib/data';
+import { makeGifFromVideo } from '../lib/gif';
+import { Icon } from './Icons';
 
 interface PresignResult {
   videoUploadUrl: string;
@@ -19,13 +21,18 @@ export interface SampleVideo {
   thumbnailUrl: string;
 }
 
-async function putFile(url: string, file: Blob, contentType: string): Promise<void> {
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: { 'Content-Type': contentType },
-    body: file,
+function uploadFile(url: string, file: Blob, contentType: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', contentType);
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(uploadErrorMessage(xhr.status)));
+    xhr.onerror = () => reject(new Error(UPLOAD_NETWORK_ERROR));
+    xhr.send(file);
   });
-  if (!response.ok) throw new Error(`Upload failed (status ${response.status})`);
 }
 
 export function SampleVideoUploadModal({
@@ -39,26 +46,65 @@ export function SampleVideoUploadModal({
 }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  const [gifBlob, setGifBlob] = useState<Blob | null>(null);
+  const [gifPreviewUrl, setGifPreviewUrl] = useState<string | null>(null);
+  const [generatingGif, setGeneratingGif] = useState(false);
+  const [gifError, setGifError] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [sortOrder, setSortOrder] = useState(0);
   const [uploading, setUploading] = useState(false);
   const canSubmit = Boolean(title.trim() && prompt.trim());
+
+  // Regenerate the preview GIF whenever a new video file is chosen — it's the auto
+  // thumbnail now, there's no separate manual poster upload step.
+  useEffect(() => {
+    if (!videoFile) {
+      setGifBlob(null);
+      setGifPreviewUrl(null);
+      return;
+    }
+    let cancelled = false;
+    setGeneratingGif(true);
+    setGifError(null);
+    makeGifFromVideo(videoFile)
+      .then((blob) => {
+        if (cancelled) return;
+        setGifBlob(blob);
+        setGifPreviewUrl(URL.createObjectURL(blob));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setGifError(err instanceof Error ? err.message : 'Failed to generate GIF preview');
+      })
+      .finally(() => {
+        if (!cancelled) setGeneratingGif(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [videoFile]);
+
+  useEffect(() => {
+    return () => {
+      if (gifPreviewUrl) URL.revokeObjectURL(gifPreviewUrl);
+    };
+  }, [gifPreviewUrl]);
+
   const submit = async () => {
-    if (!videoFile || !thumbnailFile || !canSubmit) return;
+    if (!videoFile || !gifBlob || !canSubmit) return;
     setUploading(true);
     try {
       const presign = await apiFetch<PresignResult>('/admin/assets/sample-videos/presign', {
         method: 'POST',
         body: JSON.stringify({
           videoContentType: 'video/mp4',
-          thumbnailContentType: thumbnailFile.type,
+          thumbnailContentType: 'image/gif',
         }),
       });
       await Promise.all([
-        putFile(presign.videoUploadUrl, videoFile, 'video/mp4'),
-        putFile(presign.thumbnailUploadUrl, thumbnailFile, thumbnailFile.type),
+        uploadFile(presign.videoUploadUrl, videoFile, 'video/mp4'),
+        uploadFile(presign.thumbnailUploadUrl, gifBlob, 'image/gif'),
       ]);
       const created = await apiFetch<SampleVideo>('/admin/assets/sample-videos', {
         method: 'POST',
@@ -82,64 +128,147 @@ export function SampleVideoUploadModal({
       setUploading(false);
     }
   };
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Add Sample Video</h3>
+    <div className="modal-overlay" onClick={uploading ? undefined : onClose}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(640px, calc(100vw - 40px))' }}
+      >
+        <div className="modal-head">
+          <h3>Add sample video</h3>
+          <button
+            className="btn sm ghost"
+            onClick={onClose}
+            disabled={uploading}
+            style={{ marginLeft: 'auto' }}
+          >
+            <Icon.Close />
+          </button>
+        </div>
+
         {step === 1 ? (
           <>
-            <label>
-              Sample video file (.mp4)
-              <input
-                type="file"
-                accept="video/mp4"
-                onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
-              />
-            </label>
-            <label>
-              Poster thumbnail (image)
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={(e) => setThumbnailFile(e.target.files?.[0] ?? null)}
-              />
-            </label>
-            <div className="modal-actions">
-              <button onClick={onClose}>Cancel</button>
-              <button disabled={!videoFile || !thumbnailFile} onClick={() => setStep(2)}>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+            >
+              <div className="field">
+                <label>Sample video file (.mp4)</label>
+                <input
+                  type="file"
+                  accept="video/mp4"
+                  onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
+                />
+                <span className="hint">
+                  A looping preview GIF is generated automatically from this clip — no separate
+                  poster image needed.
+                </span>
+              </div>
+
+              {videoFile && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 16,
+                    padding: 14,
+                    borderRadius: 8,
+                    border: '1px solid var(--border)',
+                    background: 'var(--surface2, #1a1a1a)',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 160,
+                      aspectRatio: '9 / 16',
+                      borderRadius: 6,
+                      overflow: 'hidden',
+                      background: 'var(--subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {gifPreviewUrl ? (
+                      // biome-ignore lint/performance/noImgElement: animated GIF preview, blob URL
+                      <img
+                        src={gifPreviewUrl}
+                        alt="Generated preview"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <Icon.Image />
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                    {generatingGif && <p style={{ margin: 0 }}>Generating preview GIF…</p>}
+                    {gifError && <p style={{ margin: 0, color: 'var(--danger)' }}>{gifError}</p>}
+                    {!generatingGif && !gifError && gifPreviewUrl && (
+                      <p style={{ margin: 0 }}>Preview GIF ready.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={onClose}>
+                Cancel
+              </button>
+              <button
+                className="btn primary"
+                disabled={!videoFile || !gifBlob || generatingGif}
+                onClick={() => setStep(2)}
+              >
                 Next
               </button>
             </div>
           </>
         ) : (
           <>
-            <label>
-              Title
-              <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
-            </label>
-            <label>
-              PixVerse prompt
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                maxLength={500}
-                rows={4}
-              />
-            </label>
-            <label>
-              Sort order
-              <input
-                type="number"
-                value={sortOrder}
-                onChange={(e) => setSortOrder(Number(e.target.value))}
-              />
-            </label>
-            <div className="modal-actions">
-              <button onClick={() => setStep(1)} disabled={uploading}>
+            <div
+              className="modal-body"
+              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+            >
+              <div className="field">
+                <label>Title</label>
+                <input
+                  className="input"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={120}
+                />
+              </div>
+              <div className="field">
+                <label>PixVerse prompt</label>
+                <textarea
+                  className="input"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  maxLength={500}
+                  rows={4}
+                />
+              </div>
+              <div className="field">
+                <label>Sort order</label>
+                <input
+                  className="input"
+                  type="number"
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(Number(e.target.value))}
+                  style={{ width: 100 }}
+                />
+              </div>
+            </div>
+            <div className="modal-foot">
+              <button className="btn ghost" onClick={() => setStep(1)} disabled={uploading}>
                 Back
               </button>
-              <button disabled={!canSubmit || uploading} onClick={submit}>
-                {uploading ? 'Uploading...' : 'Create'}
+              <button className="btn primary" disabled={!canSubmit || uploading} onClick={submit}>
+                <Icon.Upload />
+                {uploading ? 'Uploading…' : 'Create'}
               </button>
             </div>
           </>
