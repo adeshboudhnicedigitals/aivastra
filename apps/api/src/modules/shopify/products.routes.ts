@@ -3,11 +3,11 @@ import { schema } from '@aivastra/db';
 import { and, count, eq, ne } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { decryptToken } from '../../lib/crypto.js';
 import { AppError } from '../../lib/errors.js';
 import { getUploadLimitBytes } from '../../lib/upload-limits-config.js';
 import { assertShopifyCdn } from './products.sync.js';
 import { shopifyAdminFetch } from './service.js';
+import { getValidAccessToken } from './token.js';
 
 const ProductsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -28,7 +28,7 @@ export async function fetchLiveProductImages(
   store: typeof schema.shopifyStores.$inferSelect,
   shopifyProductId: string,
 ): Promise<{ id: number; src: string }[]> {
-  const token = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
+  const token = await getValidAccessToken(app, store);
   const res = await shopifyAdminFetch(
     store.shopDomain,
     token,
