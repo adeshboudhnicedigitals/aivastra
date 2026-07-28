@@ -10,14 +10,22 @@ import { merchantAdminGrant } from '../merchant/ledger.js';
 import { findOrCreateUserForMerchant } from '../merchant/user-link.js';
 import { requireAdmin } from './guard.js';
 
-const AdminCreateClient = z.object({
-  email: z.string().email(),
-  companyName: z.string().min(1),
-  contactName: z.string().min(1).optional(),
-  phone: z.string().min(1).optional(),
-  businessAddress: z.string().min(1).optional(),
-  initialCredits: z.number().int().min(0).optional(),
-});
+const AdminCreateClient = z
+  .object({
+    // Either target an already-existing user (e.g. an admin-created, username-only
+    // account with no email — see users.ts schema comment) or fall back to the
+    // email find-or-create flow used for onboarding a brand-new merchant contact.
+    userId: z.string().uuid().optional(),
+    email: z.string().email().optional(),
+    companyName: z.string().min(1),
+    contactName: z.string().min(1).optional(),
+    phone: z.string().min(1).optional(),
+    businessAddress: z.string().min(1).optional(),
+    initialCredits: z.number().int().min(0).optional(),
+  })
+  .refine((body) => body.userId || body.email, {
+    message: 'userId or email is required',
+  });
 
 const AdminCreditBody = z.object({
   amount: z.number().int().positive(),
@@ -153,12 +161,24 @@ export async function adminMerchantsRoutes(app: FastifyInstance) {
       const body = req.body as z.infer<typeof AdminCreateClient>;
 
       const client = await app.db.transaction(async (tx) => {
-        const { user } = await findOrCreateUserForMerchant(tx, {
-          email: body.email,
-          password: crypto.randomUUID(),
-          displayName: body.contactName || body.companyName,
-          phone: body.phone || '0000000000',
-        });
+        let user: typeof schema.users.$inferSelect;
+        if (body.userId) {
+          const [existing] = await tx
+            .select()
+            .from(schema.users)
+            .where(eq(schema.users.id, body.userId))
+            .limit(1);
+          if (!existing) throw new AppError('NOT_FOUND', 404, 'User not found');
+          user = existing;
+        } else {
+          ({ user } = await findOrCreateUserForMerchant(tx, {
+            // biome-ignore lint/style/noNonNullAssertion: schema refine guarantees email when userId is absent
+            email: body.email!,
+            password: crypto.randomUUID(),
+            displayName: body.contactName || body.companyName,
+            phone: body.phone || '0000000000',
+          }));
+        }
 
         const [alreadyMerchant] = await tx
           .select({ id: schema.merchants.id })
