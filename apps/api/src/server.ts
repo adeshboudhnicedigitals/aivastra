@@ -22,6 +22,7 @@ import {
 } from 'fastify-type-provider-zod';
 import type { Env } from './env.js';
 import { AppError } from './lib/errors.js';
+import { isShopifyPreviewOrigin } from './lib/shopify-origin.js';
 import { adminAuthRoutes } from './modules/admin/auth.routes.js';
 import { adminCatalogRoutes } from './modules/admin/catalog.routes.js';
 import { adminCatalogueTemplatesRoutes } from './modules/admin/catalogue-templates.routes.js';
@@ -130,6 +131,7 @@ export async function buildServer(env: Env) {
     origin: async (origin: string | undefined) => {
       if (!origin) return false;
       if (env.CORS_ORIGIN.includes(origin)) return true;
+      if (isShopifyPreviewOrigin(origin)) return true;
 
       const now = Date.now();
       const cached = originCache.get(origin);
