@@ -2,7 +2,40 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { AppError } from '../../lib/errors.js';
-import { shopifyAdminFetch } from './service.js';
+
+/**
+ * Handle of the app-embed block to activate, i.e. the filename of
+ * `apps/shopify-extension/extensions/tryon-theme-extension/blocks/tryon-block.liquid`
+ * minus its extension. Renaming that file silently breaks this deep link —
+ * Shopify just opens the editor without activating anything.
+ */
+const TRYON_BLOCK_HANDLE = 'tryon-block';
+
+/**
+ * Deep link into the merchant's live theme editor with our app embed activated.
+ *
+ * Deliberately builds a URL instead of asking the Admin API for the theme ID.
+ * The obvious implementation — GET /themes.json?role=main — needs the
+ * `read_themes` scope, which this app does not request (see `scopes` in
+ * apps/shopify-extension/shopify.app.toml). Shopify answers that call with a
+ * 403, `shopifyAdminFetch` turns every 403 into SHOPIFY_REAUTH_REQUIRED, and
+ * the SPA then bounces the merchant through OAuth — which re-grants the same
+ * scope set and 403s again on the next click. An unbreakable loop on the one
+ * button new merchants are told to press first.
+ *
+ * `themes/current` resolves the published theme server-side, so no theme ID is
+ * needed. `activateAppId` is `{client_id}/{block handle}` and toggles the embed
+ * on, which also covers the merchant switching themes: app-embed state lives in
+ * each theme's own settings and does not carry across, so re-running this link
+ * is the recovery path. No `template` param — that only applies to app blocks
+ * pinned to one template, and ours is a `target: "body"` embed.
+ */
+export function buildThemeEditorDeepLink(shopDomain: string, apiKey: string): string {
+  return (
+    `https://${shopDomain}/admin/themes/current/editor` +
+    `?context=apps&activateAppId=${apiKey}/${TRYON_BLOCK_HANDLE}`
+  );
+}
 
 export async function shopifyOnboardingRoutes(app: FastifyInstance) {
   app.post(
@@ -21,27 +54,17 @@ export async function shopifyOnboardingRoutes(app: FastifyInstance) {
     },
   );
 
-  // Deep-links straight into the merchant's live theme editor with the app-blocks
-  // panel already open (?context=apps) — the theme editor has no stable/predictable
-  // URL without the current main theme's ID, so this has to ask Shopify each time
-  // rather than being buildable client-side from just the shop domain.
+  // Pure string build — no Shopify API call, no token decrypt. See
+  // buildThemeEditorDeepLink for why asking the Admin API here is a trap.
   app.get(
     '/v1/shopify/onboarding/theme-editor-url',
     { preHandler: app.requireShopifySession },
-    async (req) => {
+    (req) => {
       const store = req.shopifyStore as typeof schema.shopifyStores.$inferSelect;
-      const { decryptToken } = await import('../../lib/crypto.js');
-      const token = decryptToken(store.accessToken, app.env.SHOPIFY_TOKEN_ENC_KEY ?? '');
-
-      const res = await shopifyAdminFetch(store.shopDomain, token, '/themes.json?role=main');
-      if (!res.ok) throw new AppError('SHOPIFY', 502, 'theme lookup failed');
-      const { themes } = (await res.json()) as { themes: Array<{ id: number }> };
-      const mainTheme = themes[0];
-      if (!mainTheme) throw new AppError('SHOPIFY', 502, 'no main theme found');
-
-      return {
-        url: `https://${store.shopDomain}/admin/themes/${mainTheme.id}/editor?context=apps`,
-      };
+      // Not `?? ''`: an empty key builds a link that opens the editor but
+      // silently activates nothing, which looks like the extension is broken.
+      if (!app.env.SHOPIFY_API_KEY) throw new AppError('CONFIG', 500, 'SHOPIFY_API_KEY missing');
+      return { url: buildThemeEditorDeepLink(store.shopDomain, app.env.SHOPIFY_API_KEY) };
     },
   );
 }

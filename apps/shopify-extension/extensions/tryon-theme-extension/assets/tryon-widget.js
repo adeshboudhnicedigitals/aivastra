@@ -489,11 +489,48 @@
     }
   }
 
+  // Tried in order when the merchant's configured selector matches nothing —
+  // which is what happens when they switch themes, since the block setting
+  // carries the old theme's markup conventions. `form[action*="/cart/add"]` is
+  // last because it is the near-universal backstop: every Shopify product page
+  // has one, whatever the theme calls its wrapper.
+  const FALLBACK_PLACEMENT_SELECTORS = [
+    '.product-form',
+    'product-form',
+    '.shopify-product-form',
+    '[data-product-form]',
+    'form[action*="/cart/add"]',
+  ];
+
   function placeWidget(root) {
-    const selector = root.dataset.placementSelector;
-    if (!selector) return;
-    const target = document.querySelector(selector);
-    if (!target) return;
+    const configured = root.dataset.placementSelector;
+    const candidates = configured
+      ? [configured].concat(FALLBACK_PLACEMENT_SELECTORS)
+      : FALLBACK_PLACEMENT_SELECTORS;
+
+    let target = null;
+    for (let i = 0; i < candidates.length && !target; i++) {
+      // A merchant-typed selector can be syntactically invalid, and
+      // querySelector throws on those rather than returning null — that would
+      // abort placement for every widget on the page, not just this one.
+      try {
+        target = document.querySelector(candidates[i]);
+      } catch {
+        target = null;
+      }
+    }
+
+    if (!target) {
+      // Without this the widget silently stays where the app embed injected it
+      // (end of <body>, since the block targets "body"), so the button appears
+      // at the bottom of the page and looks like the app is broken.
+      console.warn(
+        '[aivastra] Try It On: no placement target matched, leaving button at end of page. ' +
+          'Set a CSS selector matching your theme in Theme editor -> App embeds -> Try It On.',
+      );
+      return;
+    }
+
     if (root.dataset.blockAlignment === 'end') {
       target.appendChild(root);
     } else {
