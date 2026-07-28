@@ -200,6 +200,10 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
               .set({ ...body, updatedAt: new Date() })
               .where(eq(schema.garmentSubcategories.id, id));
           });
+          app.log.info(
+            { adminUserId: req.userId, garmentTypeId: id, fields: Object.keys(body) },
+            'garment type updated',
+          );
           return { ok: true };
         }
       }
@@ -210,6 +214,10 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .where(eq(schema.garmentSubcategories.id, id))
         .returning({ id: schema.garmentSubcategories.id });
       if (!updated) throw new AppError('NOT_FOUND', 404, 'garment type not found');
+      app.log.info(
+        { adminUserId: req.userId, garmentTypeId: id, fields: Object.keys(body) },
+        'garment type updated',
+      );
       return { ok: true };
     },
   );
@@ -232,6 +240,7 @@ export async function adminGarmentTypesRoutes(app: FastifyInstance) {
         .delete(schema.garmentSubcategories)
         .where(eq(schema.garmentSubcategories.id, id));
 
+      app.log.info({ adminUserId: req.userId, garmentTypeId: id }, 'garment type deleted');
       return { ok: true };
     },
   );
