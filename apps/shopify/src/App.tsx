@@ -1,6 +1,6 @@
 import '@shopify/polaris/build/esm/styles.css';
 import './theme.css';
-import { AppProvider, Spinner } from '@shopify/polaris';
+import { AppProvider, Banner, Box, Spinner } from '@shopify/polaris';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
@@ -16,14 +16,17 @@ import type { ShopifyMe } from './types';
 export default function App() {
   const [me, setMe] = useState<ShopifyMe | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     setLoading(true);
+    setError(null);
     apiFetch<ShopifyMe>('/v1/shopify/me')
       .then((res) => {
         setShopDomain(res.store.shopDomain);
         setMe(res);
       })
+      .catch((err) => setError((err as Error).message))
       .finally(() => setLoading(false));
   }, []);
 
@@ -35,6 +38,22 @@ export default function App() {
     return (
       <AppProvider i18n={{}}>
         <Spinner accessibilityLabel="Loading" size="large" />
+      </AppProvider>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppProvider i18n={{}}>
+        <Box padding="800">
+          <Banner
+            title="Couldn't load AiVastra"
+            tone="critical"
+            action={{ content: 'Retry', onAction: reload }}
+          >
+            {error}
+          </Banner>
+        </Box>
       </AppProvider>
     );
   }
