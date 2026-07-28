@@ -2,6 +2,7 @@ import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import fp from 'fastify-plugin';
 import { AppError } from '../lib/errors.js';
+import { isShopifyPreviewOrigin } from '../lib/shopify-origin.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,7 +27,7 @@ export const shopifyWidgetAuthPlugin = fp(async (app) => {
     }
     if (store.allowedOrigins.length > 0) {
       const origin = req.headers.origin ?? '';
-      if (!store.allowedOrigins.includes(origin)) {
+      if (!store.allowedOrigins.includes(origin) && !isShopifyPreviewOrigin(origin)) {
         throw new AppError('FORBIDDEN', 403, 'Origin not allowed');
       }
     }
