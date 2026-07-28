@@ -1,7 +1,10 @@
 import { schema } from '@aivastra/db';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { upsertShopifyStore } from '../src/modules/shopify/auth.routes.js';
+import {
+  buildPostInstallRedirect,
+  upsertShopifyStore,
+} from '../src/modules/shopify/auth.routes.js';
 import { buildTestApp, type TestApp } from './helpers/api.js';
 import { type Containers, startContainers } from './helpers/containers.js';
 
@@ -28,6 +31,27 @@ beforeAll(async () => {
 afterAll(async () => {
   await app?.close();
   await c?.stop();
+});
+
+describe('buildPostInstallRedirect', () => {
+  it('returns the merchant to Shopify, which re-opens the app with host/id_token', () => {
+    expect(buildPostInstallRedirect('demo.myshopify.com', 'apikey123')).toBe(
+      'https://admin.shopify.com/store/demo/apps/apikey123',
+    );
+  });
+
+  it('never points at our own SPA — App Bridge cannot handshake without Shopify supplying host', () => {
+    const url = buildPostInstallRedirect('demo.myshopify.com', 'apikey123');
+    expect(url.startsWith('https://admin.shopify.com/')).toBe(true);
+    expect(url).not.toContain('aivastra');
+    expect(url).not.toContain('/embedded');
+  });
+
+  it('keeps hyphenated store handles intact and strips only the myshopify suffix', () => {
+    expect(buildPostInstallRedirect('my-cool-shop.myshopify.com', 'k')).toBe(
+      'https://admin.shopify.com/store/my-cool-shop/apps/k',
+    );
+  });
 });
 
 describe('upsertShopifyStore', () => {

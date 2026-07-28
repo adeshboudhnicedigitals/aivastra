@@ -47,14 +47,13 @@ const Env = z.object({
   CHATBOT_SERVICE_TOKEN: z.string().optional(),
   SHOPIFY_API_KEY: z.string().optional(),
   SHOPIFY_API_SECRET: z.string().optional(),
-  // Used to build the OAuth redirect_uri (/v1/shopify/auth/callback) — must be a
-  // host that proxies /v1/* to this API, NOT necessarily where the embedded admin
-  // SPA itself is served (see SHOPIFY_ADMIN_URL below).
+  // Used to build the OAuth redirect_uri (/v1/shopify/auth/callback) and the
+  // webhook callback base — must be a host that proxies /v1/* to this API.
+  // Note there is deliberately no "where is the SPA served" counterpart: the
+  // post-install redirect goes back through Shopify (admin.shopify.com/store/
+  // .../apps/...) so that Shopify re-opens the app with the host/id_token params
+  // App Bridge requires. Never redirect at the SPA's own URL directly.
   SHOPIFY_APP_URL: z.string().url().optional(),
-  // Where the embedded admin SPA (apps/shopify) is actually served — used for the
-  // post-install redirect. Falls back to SHOPIFY_APP_URL when unset (dev: both
-  // point at the same ngrok tunnel, so no split is needed there).
-  SHOPIFY_ADMIN_URL: z.string().url().optional(),
   SHOPIFY_SCOPES: z.string().default('read_products'),
   // 32-byte key, base64-encoded (44 chars). Required only when Shopify is enabled.
   SHOPIFY_TOKEN_ENC_KEY: z.string().optional(),
