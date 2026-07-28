@@ -54,6 +54,7 @@ export function Mobile(props: PricingLayoutProps): React.ReactElement {
               gap: 8,
               padding: 10,
               width: '100%',
+              height: 40,
               borderRadius: 8,
               border: `1px solid ${C.border}`,
               background: C.white,
