@@ -260,37 +260,6 @@ button.prod-card-wrapper:focus-visible {
   }
 }
 
-/* Try On Library mini-app (apps/catalogues-web/src/app/tryon-library-app) —
-   header is always title/identity on row 1, contextual actions on row 2, at
-   every viewport width, so there's no unpredictable reflow at the breakpoint. */
-.library-topbar-identity-row {
-  min-height: 76px;
-  padding: 12px 28px;
-}
-.library-topbar-actions-row {
-  padding: 0 28px 16px;
-}
-.library-content-padding {
-  padding-left: 28px;
-  padding-right: 28px;
-}
-@media (max-width: 640px) {
-  .library-topbar-identity-row {
-    min-height: 56px;
-    padding: 10px 16px;
-  }
-  .library-topbar-actions-row {
-    padding: 0 16px 12px;
-  }
-  .library-topbar-phone {
-    display: none;
-  }
-  .library-content-padding {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-}
-
 /* Button Hover States (Audit 4.1) */
 .btn-hover-opacity {
   transition: opacity 0.15s ease;
