@@ -197,10 +197,12 @@ async function resolveMerchantLogoUrl(
   userId: string,
 ): Promise<string | null> {
   const [row] = await app.db
-    .select({ logoKey: schema.merchants.logoKey })
+    .select({ logoKey: schema.merchants.logoKey, updatedAt: schema.merchants.updatedAt })
     .from(schema.merchants)
     .where(eq(schema.merchants.userId, userId));
-  return row?.logoKey ? app.storage.publicUrl(row.logoKey) : null;
+  // Cache-bust: logoKey is a fixed path that never changes across re-uploads (see the
+  // matching comment in admin/users.routes.ts), so append updatedAt to force a fresh fetch.
+  return row?.logoKey ? `${app.storage.publicUrl(row.logoKey)}?v=${row.updatedAt.getTime()}` : null;
 }
 
 async function issueDeviceSession(

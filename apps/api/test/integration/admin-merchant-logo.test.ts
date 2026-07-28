@@ -36,6 +36,46 @@ describe('admin merchant logo upload', () => {
     expect(body.logoKey).toBe(`merchant-logo/${merchantId}/logo.jpg`);
   });
 
+  it('changes the returned logoUrl after the logo is replaced, even though logoKey stays fixed', async () => {
+    const { merchantId, userId } = await createTestMerchant(app);
+
+    const firstSet = await app.inject({
+      method: 'PATCH',
+      url: `/admin/merchants/${merchantId}`,
+      headers: authHeader,
+      payload: { logoKey: `merchant-logo/${merchantId}/logo.jpg` },
+    });
+    expect(firstSet.statusCode).toBe(200);
+
+    const firstDetail = await app.inject({
+      method: 'GET',
+      url: `/admin/users/${userId}`,
+      headers: authHeader,
+    });
+    const firstLogoUrl = (firstDetail.json() as { merchant: { logoUrl: string } }).merchant.logoUrl;
+    expect(firstLogoUrl).toContain(`merchant-logo/${merchantId}/logo.jpg`);
+
+    // Re-upload: same logoKey, but the PATCH bumps updatedAt.
+    await new Promise((r) => setTimeout(r, 5));
+    const secondSet = await app.inject({
+      method: 'PATCH',
+      url: `/admin/merchants/${merchantId}`,
+      headers: authHeader,
+      payload: { logoKey: `merchant-logo/${merchantId}/logo.jpg` },
+    });
+    expect(secondSet.statusCode).toBe(200);
+
+    const secondDetail = await app.inject({
+      method: 'GET',
+      url: `/admin/users/${userId}`,
+      headers: authHeader,
+    });
+    const secondLogoUrl = (secondDetail.json() as { merchant: { logoUrl: string } }).merchant
+      .logoUrl;
+
+    expect(secondLogoUrl).not.toBe(firstLogoUrl);
+  });
+
   it('persists logoKey via the existing PATCH route, and null clears it', async () => {
     const { merchantId } = await createTestMerchant(app);
 
