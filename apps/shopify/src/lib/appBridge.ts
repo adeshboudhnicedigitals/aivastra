@@ -6,23 +6,69 @@ declare global {
   }
 }
 
+/**
+ * Thrown when App Bridge's idToken() never settles. Distinct from a normal API
+ * failure because the recovery is different: the App Bridge instance itself is
+ * wedged, so retrying the call in place cannot succeed — only a fresh document
+ * (and therefore a fresh App Bridge instance) can.
+ */
+export class AppBridgeTimeoutError extends Error {
+  constructor() {
+    super('Timed out waiting for App Bridge session token');
+    this.name = 'AppBridgeTimeoutError';
+  }
+}
+
 // App Bridge's idToken() round-trips a postMessage to the parent Shopify admin
-// frame. That channel can go stale (backgrounded tab, admin's own session
-// refresh) and the promise then never settles — with no timeout here, the
-// whole app hangs on its boot-time loading screen until the merchant reloads.
+// frame. There is a known, still-open Shopify bug where every App Bridge call
+// on a second instance within the same admin session (i.e. after the merchant
+// navigates Products -> back into the app, which re-points the iframe without a
+// full page load) hangs forever: never resolves, never rejects, no console
+// error. See https://github.com/Shopify/shopify-app-bridge/issues/179 and
+// https://community.shopify.dev/t/shopify-idtoken-does-not-resolve/28349.
+// Without a timeout here the whole app sits on its boot spinner indefinitely.
 const ID_TOKEN_TIMEOUT_MS = 8000;
 
 export async function getIdToken(): Promise<string> {
   if (!window.shopify) {
     throw new Error('App Bridge not loaded — is this app running inside the Shopify admin iframe?');
   }
-  return Promise.race([
-    window.shopify.idToken(),
-    new Promise<string>((_, reject) => {
-      setTimeout(
-        () => reject(new Error('Timed out waiting for App Bridge session token')),
-        ID_TOKEN_TIMEOUT_MS,
-      );
-    }),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      window.shopify.idToken(),
+      new Promise<string>((_, reject) => {
+        timer = setTimeout(() => reject(new AppBridgeTimeoutError()), ID_TOKEN_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Reloading the frame swaps in a fresh App Bridge instance, which is the only
+// known way out of the hang above — but a reload that does not fix it must not
+// become a reload loop, so we allow exactly one per tab session and fall back
+// to showing the merchant an error instead.
+const RECOVERY_RELOAD_MARKER = 'aivastra:appbridge-recovery-reload';
+
+export function shouldAttemptRecoveryReload(): boolean {
+  try {
+    if (sessionStorage.getItem(RECOVERY_RELOAD_MARKER)) return false;
+    sessionStorage.setItem(RECOVERY_RELOAD_MARKER, '1');
+    return true;
+  } catch {
+    // sessionStorage can be unavailable in a partitioned or storage-blocked
+    // iframe. With no way to record the attempt there is no way to bound the
+    // reloads, so don't start a loop we can't stop.
+    return false;
+  }
+}
+
+export function clearRecoveryReloadMarker(): void {
+  try {
+    sessionStorage.removeItem(RECOVERY_RELOAD_MARKER);
+  } catch {
+    // Best-effort: only affects whether a later hang gets its one auto-reload.
+  }
 }

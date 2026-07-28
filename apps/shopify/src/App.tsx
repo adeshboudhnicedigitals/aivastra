@@ -6,6 +6,11 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { LinkAccountGate } from './components/LinkAccountGate';
 import { apiFetch, setShopDomain } from './lib/api';
+import {
+  AppBridgeTimeoutError,
+  clearRecoveryReloadMarker,
+  shouldAttemptRecoveryReload,
+} from './lib/appBridge';
 import CatalogGeneratePage from './pages/CatalogGeneratePage';
 import DashboardPage from './pages/DashboardPage';
 import FunnelSetupPage from './pages/FunnelSetupPage';
@@ -18,21 +23,33 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(() => {
+  const load = useCallback(() => {
     setLoading(true);
     setError(null);
     apiFetch<ShopifyMe>('/v1/shopify/me')
       .then((res) => {
+        clearRecoveryReloadMarker();
         setShopDomain(res.store.shopDomain);
         setMe(res);
+        setLoading(false);
       })
-      .catch((err) => setError((err as Error).message))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        // A wedged App Bridge instance can't be recovered by retrying the call
+        // in place — only a fresh document gets a fresh instance. Do that once
+        // automatically so the merchant never sees an error for what is a
+        // transient Shopify-side hang.
+        if (err instanceof AppBridgeTimeoutError && shouldAttemptRecoveryReload()) {
+          window.location.reload();
+          return; // Keep the spinner up; this document is being replaced.
+        }
+        setError((err as Error).message);
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    load();
+  }, [load]);
 
   if (loading) {
     return (
@@ -49,7 +66,9 @@ export default function App() {
           <Banner
             title="Couldn't load AiVastra"
             tone="critical"
-            action={{ content: 'Retry', onAction: reload }}
+            // A full reload, not load(): if App Bridge is the thing that's
+            // wedged, re-running the same call in place hangs again.
+            action={{ content: 'Retry', onAction: () => window.location.reload() }}
           >
             {error}
           </Banner>
@@ -61,7 +80,7 @@ export default function App() {
   if (!me?.store.ownerUserId) {
     return (
       <AppProvider i18n={{}}>
-        <LinkAccountGate onLinked={reload} />
+        <LinkAccountGate onLinked={load} />
       </AppProvider>
     );
   }
