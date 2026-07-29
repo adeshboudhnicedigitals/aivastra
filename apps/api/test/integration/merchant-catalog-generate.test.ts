@@ -146,13 +146,19 @@ async function seedBackground(app: TestApp) {
   return bg;
 }
 
-async function seedSareeStyle(app: TestApp, mannequinWorkflowTemplateId: string, isActive = true) {
+async function seedSareeStyle(
+  app: TestApp,
+  mannequinWorkflowTemplateId: string,
+  isActive = true,
+  mannequinTwoInputWorkflowTemplateId?: string,
+) {
   const [style] = await app.db
     .insert(schema.sareeMannequinStyles)
     .values({
       label: `Style ${randomUUID()}`,
       mannequinWorkflowTemplateId,
       isActive,
+      mannequinTwoInputWorkflowTemplateId: mannequinTwoInputWorkflowTemplateId ?? null,
     })
     .returning();
   return style;
@@ -247,6 +253,22 @@ async function seedTwoInputGarmentType(
     })
     .returning();
   return { garmentType: row, twoInputWorkflowTemplate: twoInputWf, singleInputWf };
+}
+
+async function presignFlat(app: TestApp, auth: Record<string, string>) {
+  const presign = await app.inject({
+    method: 'POST',
+    url: '/v1/merchant/catalog/presign',
+    headers: auth,
+    payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
+  });
+  const { r2Key, uploadUrl } = presign.json() as { r2Key: string; uploadUrl: string };
+  await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'image/jpeg' },
+    body: Buffer.from('flat'),
+  });
+  return r2Key;
 }
 
 // requiresMannequinStep: true is required here for the mannequinOnly/two-step
@@ -1085,25 +1107,90 @@ describe('merchant catalog generate (single, Path B)', () => {
       });
       expect(generate.statusCode).toBe(400);
     });
+
+    it('uses the style two-input workflow when both sareeStyleId and secondFlatImageKey are provided, in preference to the garment type default', async () => {
+      const { userId } = await createMerchant(app, 'style-two-input-happy@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+      const { garmentType, twoInputWorkflowTemplate: garmentTypeTwoInputWf } =
+        await seedTwoInputGarmentType(app, 'women', { withSingleInput: false });
+      const styleTwoInputWf = await seedTwoInputWorkflowTemplate(app);
+      const styleSingleWf = await seedMannequinWorkflowTemplate(app);
+      const style = await seedSareeStyle(app, styleSingleWf.id, true, styleTwoInputWf.id);
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const flatImageKey = await presignFlat(app, auth);
+      const secondFlatImageKey = await presignFlat(app, auth);
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: {
+          subcategoryId,
+          flatImageKey,
+          secondFlatImageKey,
+          mannequinOnly: true,
+          sareeStyleId: style.label,
+        },
+      });
+      expect(generate.statusCode).toBe(201);
+      const { jobId } = generate.json() as { jobId: string };
+
+      const [inputs] = await app.db
+        .select()
+        .from(schema.jobInputs)
+        .where(eq(schema.jobInputs.jobId, jobId));
+      const params = inputs.params as Record<string, unknown>;
+      expect(params.workflowTemplateId).toBe(styleTwoInputWf.id);
+      expect(params.workflowTemplateId).not.toBe(garmentTypeTwoInputWf.id);
+    });
+
+    it('rejects with 400 when the picked style has no two-input workflow configured and secondFlatImageKey is provided, even though the garment type has one', async () => {
+      const { userId } = await createMerchant(app, 'style-two-input-noconf@example.com');
+      await grantUserCredits(app, userId, 100);
+      const auth = await authHeader(userId);
+      const { garmentType } = await seedTwoInputGarmentType(app, 'women', {
+        withSingleInput: false,
+      });
+      const styleSingleWf = await seedMannequinWorkflowTemplate(app);
+      const style = await seedSareeStyle(app, styleSingleWf.id);
+
+      const subcatRes = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/subcategories',
+        headers: auth,
+        payload: { category: 'women', name: 'Sarees', garmentSubcategoryId: garmentType.id },
+      });
+      const subcategoryId = (subcatRes.json() as { id: string }).id;
+
+      const flatImageKey = await presignFlat(app, auth);
+      const secondFlatImageKey = await presignFlat(app, auth);
+
+      const generate = await app.inject({
+        method: 'POST',
+        url: '/v1/merchant/catalog/generate',
+        headers: auth,
+        payload: {
+          subcategoryId,
+          flatImageKey,
+          secondFlatImageKey,
+          mannequinOnly: true,
+          sareeStyleId: style.label,
+        },
+      });
+      expect(generate.statusCode).toBe(400);
+    });
   });
 
   describe('secondFlatImageKey (two-input)', () => {
-    async function presignFlat(auth: Record<string, string>) {
-      const presign = await app.inject({
-        method: 'POST',
-        url: '/v1/merchant/catalog/presign',
-        headers: auth,
-        payload: { kind: 'flat', contentType: 'image/jpeg', contentLength: 4 },
-      });
-      const { r2Key, uploadUrl } = presign.json() as { r2Key: string; uploadUrl: string };
-      await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'image/jpeg' },
-        body: Buffer.from('flat'),
-      });
-      return r2Key;
-    }
-
     it('creates a job with both images, snapshotting the two-input workflow and storing the pallu key', async () => {
       const { userId } = await createMerchant(app, 'two-input-happy@example.com');
       await grantUserCredits(app, userId, 100);
@@ -1122,8 +1209,8 @@ describe('merchant catalog generate (single, Path B)', () => {
       });
       const subcategoryId = (subcatRes.json() as { id: string }).id;
 
-      const flatImageKey = await presignFlat(auth);
-      const secondFlatImageKey = await presignFlat(auth);
+      const flatImageKey = await presignFlat(app, auth);
+      const secondFlatImageKey = await presignFlat(app, auth);
 
       const generate = await app.inject({
         method: 'POST',
@@ -1162,8 +1249,8 @@ describe('merchant catalog generate (single, Path B)', () => {
       });
       const subcategoryId = (subcatRes.json() as { id: string }).id;
 
-      const flatImageKey = await presignFlat(auth);
-      const secondFlatImageKey = await presignFlat(auth);
+      const flatImageKey = await presignFlat(app, auth);
+      const secondFlatImageKey = await presignFlat(app, auth);
 
       const generate = await app.inject({
         method: 'POST',
@@ -1196,8 +1283,8 @@ describe('merchant catalog generate (single, Path B)', () => {
       });
       const subcategoryId = (subcatRes.json() as { id: string }).id;
 
-      const flatImageKey = await presignFlat(auth);
-      const secondFlatImageKey = await presignFlat(auth);
+      const flatImageKey = await presignFlat(app, auth);
+      const secondFlatImageKey = await presignFlat(app, auth);
 
       const generate = await app.inject({
         method: 'POST',
@@ -1214,10 +1301,14 @@ describe('merchant catalog generate (single, Path B)', () => {
       const { userId } = await createMerchant(app, 'style-list@example.com');
       const auth = await authHeader(userId);
       const wf = await seedMannequinWorkflowTemplate(app);
+      const twoInputWf = await seedTwoInputWorkflowTemplate(app);
       await app.db.update(schema.sareeMannequinStyles).set({ isActive: false });
-      await app.db
-        .insert(schema.sareeMannequinStyles)
-        .values({ label: 'Zeta Style', mannequinWorkflowTemplateId: wf.id, sortOrder: 1 });
+      await app.db.insert(schema.sareeMannequinStyles).values({
+        label: 'Zeta Style',
+        mannequinWorkflowTemplateId: wf.id,
+        mannequinTwoInputWorkflowTemplateId: twoInputWf.id,
+        sortOrder: 1,
+      });
       await app.db
         .insert(schema.sareeMannequinStyles)
         .values({ label: 'Alpha Style', mannequinWorkflowTemplateId: wf.id, sortOrder: 0 });
@@ -1233,8 +1324,10 @@ describe('merchant catalog generate (single, Path B)', () => {
         headers: auth,
       });
       expect(res.statusCode).toBe(200);
-      const body = res.json() as { items: Array<{ label: string }> };
+      const body = res.json() as { items: Array<{ label: string; supportsTwoInput: boolean }> };
       expect(body.items.map((i) => i.label)).toEqual(['Alpha Style', 'Zeta Style']);
+      expect(body.items.find((i) => i.label === 'Alpha Style')?.supportsTwoInput).toBe(false);
+      expect(body.items.find((i) => i.label === 'Zeta Style')?.supportsTwoInput).toBe(true);
     });
   });
 });

@@ -306,27 +306,19 @@ export async function createMerchantSareeMannequinJob(
   if (!garmentType.requiresMannequinStep) {
     throw new AppError('VALIDATION', 400, 'this garment type does not use the mannequin step');
   }
-  if (params.secondFlatImageKey) {
-    if (!garmentType.mannequinTwoInputWorkflowTemplateId) {
-      throw new AppError(
-        'CONFIG',
-        400,
-        'garment type missing two-input step-1 workflow configuration',
-      );
-    }
-  } else if (!garmentType.mannequinWorkflowTemplateId) {
+  if (!params.secondFlatImageKey && !garmentType.mannequinWorkflowTemplateId) {
     throw new AppError('VALIDATION', 400, 'this garment type does not use the mannequin step');
   }
 
   let styleWorkflowTemplateId: string | undefined;
-  // Styles only apply to single-input mode — saree_mannequin_styles has no
-  // two-input variant, see MerchantCatalogGenerateBody.
-  if (params.sareeStyleId && !params.secondFlatImageKey) {
+  if (params.sareeStyleId) {
     // Matched by label (case-insensitive), not id — see MerchantCatalogGenerateBody.
     const [style] = await app.db
       .select({
         isActive: schema.sareeMannequinStyles.isActive,
         mannequinWorkflowTemplateId: schema.sareeMannequinStyles.mannequinWorkflowTemplateId,
+        mannequinTwoInputWorkflowTemplateId:
+          schema.sareeMannequinStyles.mannequinTwoInputWorkflowTemplateId,
       })
       .from(schema.sareeMannequinStyles)
       .where(ilike(schema.sareeMannequinStyles.label, params.sareeStyleId))
@@ -334,7 +326,33 @@ export async function createMerchantSareeMannequinJob(
     if (!style?.isActive) {
       throw new AppError('BAD_STYLE', 400, 'saree style not found or inactive');
     }
-    styleWorkflowTemplateId = style.mannequinWorkflowTemplateId;
+    if (params.secondFlatImageKey) {
+      if (!style.mannequinTwoInputWorkflowTemplateId) {
+        throw new AppError(
+          'CONFIG',
+          400,
+          'saree style missing two-input step-1 workflow configuration',
+        );
+      }
+      styleWorkflowTemplateId = style.mannequinTwoInputWorkflowTemplateId;
+    } else {
+      styleWorkflowTemplateId = style.mannequinWorkflowTemplateId;
+    }
+  }
+
+  // A style able to supply a two-input workflow satisfies this requirement
+  // even when the garment type itself has none configured — mirrors how a
+  // style already overrides the garment type's single-input default above.
+  if (
+    params.secondFlatImageKey &&
+    !styleWorkflowTemplateId &&
+    !garmentType.mannequinTwoInputWorkflowTemplateId
+  ) {
+    throw new AppError(
+      'CONFIG',
+      400,
+      'garment type missing two-input step-1 workflow configuration',
+    );
   }
 
   await assertMerchantUploadKey(app, params.merchantId, params.flatImageKey, 'flat garment');
@@ -364,10 +382,10 @@ export async function createMerchantSareeMannequinJob(
       garmentTypeId: params.garmentSubcategoryId,
       params: {
         kind: 'saree_mannequin',
-        ...(params.secondFlatImageKey
-          ? { workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId }
-          : styleWorkflowTemplateId
-            ? { workflowTemplateId: styleWorkflowTemplateId }
+        ...(styleWorkflowTemplateId
+          ? { workflowTemplateId: styleWorkflowTemplateId }
+          : params.secondFlatImageKey
+            ? { workflowTemplateId: garmentType.mannequinTwoInputWorkflowTemplateId }
             : {}),
       },
     });
