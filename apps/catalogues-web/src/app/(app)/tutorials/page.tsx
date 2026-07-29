@@ -168,63 +168,138 @@ const TABS = [
 export default function TutorialsPage() {
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>(CATEGORY.ALL);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
-  const visibleTutorials =
-    activeTab === CATEGORY.ALL
-      ? TUTORIALS
-      : TUTORIALS.filter((tutorial) => tutorial.category === activeTab);
+  const visibleTutorials = TUTORIALS.filter((tutorial) => {
+    const matchesTab = activeTab === CATEGORY.ALL || tutorial.category === activeTab;
+    const matchesSearch =
+      !searchQuery.trim() ||
+      tutorial.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      tutorial.tag.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesTab && matchesSearch;
+  });
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <style>{`
+        .tutorials-page-wrapper {
+          flex: 1;
+          overflow-y: auto;
+          padding: 32px;
+          background: ${C.white};
+          box-sizing: border-box;
+        }
+
+        .filters-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 32px;
+          padding-bottom: 24px;
+          border-bottom: 1px solid ${C.border2};
+          gap: 16px;
+          box-sizing: border-box;
+        }
+
+        .filters-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .tutorial-tab-btn {
+          padding: 10px 18px;
+          border-radius: 8px;
+          font-weight: 500;
+          font-size: 14px;
+          cursor: pointer;
+          white-space: nowrap;
+          box-sizing: border-box;
+          font-family: inherit;
+          transition: all 0.15s ease;
+        }
+
+        .search-container {
+          width: 320px;
+          flex-shrink: 0;
+          position: relative;
+          box-sizing: border-box;
+        }
+
         .tutorials-grid {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 24px;
           padding-bottom: 40px;
         }
+
         .tutorial-card-large {
           grid-column: span 2;
         }
+
         .tutorial-card-small {
           grid-column: span 1;
-        }
-        .filters-row {
-          display: flex;
-          gap: 12px;
-          overflow-x: auto;
-          scrollbar-width: none;
-        }
-        .filters-row::-webkit-scrollbar {
-          display: none;
-        }
-        .search-container {
-          width: 320px;
-          flex-shrink: 0;
         }
 
         /* Tablet Breakpoint */
         @media (max-width: 1024px) {
-          .tutorials-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-          .tutorial-card-large {
-            grid-column: span 2;
+          .tutorials-page-wrapper {
+            padding: 20px;
           }
           .filters-header {
-            flex-direction: column !important;
-            align-items: stretch !important;
+            flex-direction: column;
+            align-items: stretch;
             gap: 16px;
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+          }
+          .filters-row {
+            width: 100%;
           }
           .search-container {
             width: 100%;
+          }
+          .tutorials-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+          }
+          .tutorial-card-large {
+            grid-column: span 2;
           }
         }
 
         /* Mobile Breakpoint */
         @media (max-width: 640px) {
+          .tutorials-page-wrapper {
+            padding: 16px;
+          }
+          .filters-header {
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            gap: 12px;
+          }
+          .filters-row {
+            display: flex;
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            gap: 8px;
+            width: 100%;
+            padding-bottom: 4px;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+          }
+          .filters-row::-webkit-scrollbar {
+            display: none;
+          }
+          .tutorial-tab-btn {
+            flex-shrink: 0;
+            padding: 8px 14px;
+            font-size: 13px;
+          }
           .tutorials-grid {
             grid-template-columns: 1fr;
+            gap: 16px;
           }
           .tutorial-card-large, .tutorial-card-small {
             grid-column: span 1 !important;
@@ -236,19 +311,9 @@ export default function TutorialsPage() {
         subtitle="Manage your profile, billing, credits, subscriptions, and account activity."
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '32px', background: C.white }}>
+      <div className="tutorials-page-wrapper">
         {/* Filters and Search Row */}
-        <div
-          className="filters-header"
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 32,
-            paddingBottom: 24,
-            borderBottom: `1px solid ${C.border2}`,
-          }}
-        >
+        <div className="filters-header">
           <div className="filters-row">
             {TABS.map((tab) => {
               const isActive = tab === activeTab;
@@ -256,17 +321,12 @@ export default function TutorialsPage() {
                 <button
                   key={tab}
                   type="button"
+                  className="tutorial-tab-btn"
                   onClick={() => setActiveTab(tab)}
                   style={{
-                    padding: '10px 18px',
-                    borderRadius: 8,
                     border: `1px solid ${isActive ? C.pink : C.border2}`,
                     background: C.white,
                     color: isActive ? C.pink : C.text,
-                    fontWeight: 500,
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
                   }}
                 >
                   {tab}
@@ -275,7 +335,7 @@ export default function TutorialsPage() {
             })}
           </div>
 
-          <div className="search-container" style={{ position: 'relative' }}>
+          <div className="search-container">
             <div
               style={{
                 position: 'absolute',
@@ -303,6 +363,8 @@ export default function TutorialsPage() {
             </div>
             <input
               type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search tutorials..."
               style={{
                 width: '100%',

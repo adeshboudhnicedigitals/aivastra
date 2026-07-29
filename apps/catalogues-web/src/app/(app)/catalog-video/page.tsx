@@ -56,33 +56,83 @@ export default function CatalogVideoPage(): React.ReactElement {
 
   return (
     <>
+      <style>{`
+        .cat-video-main {
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          padding: 20px 24px 32px;
+          background: ${C.bg};
+          box-sizing: border-box;
+        }
+
+        .cat-video-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 20px;
+        }
+
+        .cat-video-title {
+          margin: 0;
+          color: ${C.text};
+          font-size: 20px;
+        }
+
+        .cat-video-subtitle {
+          margin: 5px 0 0;
+          color: ${C.mid};
+          font-size: 13px;
+        }
+
+        .cat-video-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+          gap: 16px;
+        }
+
+        @media (max-width: 1023px) {
+          .cat-video-main {
+            padding: 16px 20px 24px;
+          }
+          .cat-video-grid {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+          }
+        }
+
+        @media (max-width: 639px) {
+          .cat-video-main {
+            padding: 12px 16px 20px;
+          }
+          .cat-video-header {
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 12px;
+          }
+          .cat-video-title {
+            font-size: 18px;
+          }
+          .cat-video-subtitle {
+            font-size: 12px;
+          }
+          .cat-video-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+        }
+      `}</style>
       <TopBar
         title="Catalog Video"
         subtitle="Create motion-ready product video from your catalogue images"
       />
-      <main
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflowY: 'auto',
-          padding: '20px 24px 32px',
-          background: C.bg,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 16,
-            marginBottom: 20,
-          }}
-        >
+      <main className="cat-video-main">
+        <div className="cat-video-header">
           <div>
-            <h1 style={{ margin: 0, color: C.text, fontSize: 20 }}>Catalog Videos</h1>
-            <p style={{ margin: '5px 0 0', color: C.mid, fontSize: 13 }}>
-              Your generated product videos
-            </p>
+            <h1 className="cat-video-title">Catalog Videos</h1>
+            <p className="cat-video-subtitle">Your generated product videos</p>
           </div>
           <GradBtn onClick={() => setWizardOpen(true)}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -113,13 +163,7 @@ export default function CatalogVideoPage(): React.ReactElement {
             <GradBtn onClick={() => setWizardOpen(true)}>Create video</GradBtn>
           </div>
         ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-              gap: 16,
-            }}
-          >
+          <div className="cat-video-grid">
             {items.map((item) => {
               const color = statusColor(item.status);
               return (

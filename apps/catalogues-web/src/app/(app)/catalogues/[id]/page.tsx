@@ -785,6 +785,40 @@ export default function CataloguePage({
           0%   { transform: translateX(-150%); }
           100% { transform: translateX(400%); }
         }
+
+        .catalogue-detail-wrapper {
+          flex: 1;
+          overflow-y: auto;
+          padding: 24px 28px;
+          box-sizing: border-box;
+        }
+
+        .catalogue-detail-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+          gap: 16px;
+          width: 100%;
+        }
+
+        @media (max-width: 1023px) {
+          .catalogue-detail-wrapper {
+            padding: 20px 20px;
+          }
+          .catalogue-detail-grid {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+          }
+        }
+
+        @media (max-width: 639px) {
+          .catalogue-detail-wrapper {
+            padding: 16px 16px;
+          }
+          .catalogue-detail-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+          }
+        }
       `}</style>
       <TopBar
         lead={
@@ -871,7 +905,7 @@ export default function CataloguePage({
           </div>
         }
       />
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px' }}>
+      <div className="catalogue-detail-wrapper">
         {isLoading && (
           <div
             style={{ display: 'flex', justifyContent: 'center', padding: '64px 0', color: C.mid }}
@@ -880,14 +914,7 @@ export default function CataloguePage({
           </div>
         )}
         {data && (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-              gap: 16,
-              width: '100%',
-            }}
-          >
+          <div className="catalogue-detail-grid">
             {data.jobs.map((job) => (
               <ImageCard
                 key={job.id}
