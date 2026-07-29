@@ -33,14 +33,16 @@ function putFile(url: string, file: File): Promise<void> {
 
 function StyleModal({
   existing,
-  workflows,
+  singleInputWorkflows,
+  twoInputWorkflows,
   storagePublicUrl,
   onSaved,
   onClose,
   toast,
 }: {
   existing: SareeMannequinStyle | null;
-  workflows: WorkflowOption[];
+  singleInputWorkflows: WorkflowOption[];
+  twoInputWorkflows: WorkflowOption[];
   storagePublicUrl: string | null;
   onSaved: (style: SareeMannequinStyle) => void;
   onClose: () => void;
@@ -49,7 +51,10 @@ function StyleModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [label, setLabel] = useState(existing?.label ?? '');
   const [workflowTemplateId, setWorkflowTemplateId] = useState(
-    existing?.mannequinWorkflowTemplateId ?? workflows[0]?.id ?? '',
+    existing?.mannequinWorkflowTemplateId ?? singleInputWorkflows[0]?.id ?? '',
+  );
+  const [twoInputWorkflowTemplateId, setTwoInputWorkflowTemplateId] = useState(
+    existing?.mannequinTwoInputWorkflowTemplateId ?? '',
   );
   const [sortOrder, setSortOrder] = useState(existing?.sortOrder ?? 0);
   const [isActive, setIsActive] = useState(existing?.isActive ?? true);
@@ -81,6 +86,7 @@ function StyleModal({
         label: label.trim(),
         previewImageKey,
         mannequinWorkflowTemplateId: workflowTemplateId,
+        mannequinTwoInputWorkflowTemplateId: twoInputWorkflowTemplateId || undefined,
         sortOrder,
         isActive,
       };
@@ -163,12 +169,34 @@ function StyleModal({
           <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
             Mannequin workflow
             <SearchableSelect
-              options={workflows.map((workflow) => ({ id: workflow.id, label: workflow.label }))}
+              options={singleInputWorkflows.map((workflow) => ({
+                id: workflow.id,
+                label: workflow.label,
+              }))}
               value={workflowTemplateId}
               disabled={saving}
               onChange={setWorkflowTemplateId}
               placeholder="— search workflow —"
             />
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+            Two-Input Mannequin (Body + Pallu) Workflow
+            <SearchableSelect
+              options={twoInputWorkflows.map((workflow) => ({
+                id: workflow.id,
+                label: workflow.label,
+              }))}
+              value={twoInputWorkflowTemplateId}
+              disabled={saving}
+              emptyLabel="— none —"
+              onChange={setTwoInputWorkflowTemplateId}
+              placeholder="— search workflow —"
+            />
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              Optional. When set, this style can also be used for the "Body & Pallu" two-image
+              upload mode.
+            </span>
           </label>
 
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
@@ -224,7 +252,10 @@ export function SareeStylesTab() {
       setStyles(stylesRes.items);
       setWorkflows(
         workflowResponse.filter(
-          (workflow) => workflow.workflowType === 'saree_step1' && workflow.isActive,
+          (workflow) =>
+            (workflow.workflowType === 'saree_step1' ||
+              workflow.workflowType === 'saree_step1_two_input') &&
+            workflow.isActive,
         ),
       );
     } catch (e) {
@@ -321,6 +352,14 @@ export function SareeStylesTab() {
                 {workflows.find((workflow) => workflow.id === style.mannequinWorkflowTemplateId)
                   ?.label ?? '—'}
               </p>
+              <p style={{ fontSize: 10, color: 'var(--muted)' }}>
+                Two-input:{' '}
+                {style.mannequinTwoInputWorkflowTemplateId
+                  ? (workflows.find(
+                      (workflow) => workflow.id === style.mannequinTwoInputWorkflowTemplateId,
+                    )?.label ?? '—')
+                  : '—'}
+              </p>
               <div
                 style={{
                   display: 'flex',
@@ -349,7 +388,8 @@ export function SareeStylesTab() {
       {showModal && (
         <StyleModal
           existing={editing}
-          workflows={workflows}
+          singleInputWorkflows={workflows.filter((w) => w.workflowType === 'saree_step1')}
+          twoInputWorkflows={workflows.filter((w) => w.workflowType === 'saree_step1_two_input')}
           storagePublicUrl={storagePublicUrl}
           onSaved={(saved) => {
             setStyles((previous) => {
