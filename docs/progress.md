@@ -1,3 +1,14 @@
+## 2026-07-29 - Catalog Video 402 on production: surfaced insufficient-credits UX
+
+### Done
+- Investigated a production report that clicking "Generate video" on the Catalog Video wizard (`app.aivastra.com/catalog-video`) silently did nothing. Root-caused via the captured network trace (`POST /v1/jobs/catalog-video` → 402) plus git history: yesterday's `1eef716d` raised `PIXVERSE_VIDEO_COST` from 20 → 150 credits. `createCatalogVideoJob` (`apps/api/src/modules/jobs/create.ts`) → `atomicDeduct` (`apps/api/src/modules/credits/ledger.ts`) correctly rejects with `INSUFFICIENT_CREDITS`/402 when balance < cost — working as intended, not a bug — but the wizard only surfaced the failure as small red text on step 3, easy to miss.
+- Per user's choice ("improve the error UX", keep the 150 cost as-is): added `creditCost` to the `GET /v1/models/sample-videos` response (`apps/api/src/modules/models/routes.ts`, via the existing `getPixverseCreditCost()`), and wired the Catalog Video wizard (`apps/catalogues-web/src/app/(app)/catalog-video/CatalogVideoWizard.tsx`) to fetch it alongside `/v1/credits` balance, show a "{cost} credits required — you have {balance} credits" line from step 2 onward (mirrors the existing pattern in `studio/page.tsx`), and disable the Generate button with a `Tooltip` explanation when the balance is insufficient — so the user sees the blocker before submitting, not just after a failed POST.
+- Verified: `pnpm --filter @aivastra/api` integration tests for `sample-videos-public`, `catalog-video-create`, `catalog-video-access-gate` all pass (9/9, including a new assertion that `creditCost` is 150); `tsc --noEmit` clean on both changed packages (pre-existing, unrelated `shopify/token.ts` type errors from yesterday's token-refresh feature are untouched); biome clean on all 3 changed files.
+
+### Failed / Not Done
+- Did not check or change the actual production account's credit balance — no production DB access from this session; the user needs to top up or the account owner should check `/v1/credits` in the app.
+- Did not revisit the 150-credit price point itself — user explicitly chose the UX-improvement option over reverting the cost.
+
 ## 2026-07-28 - Investigated production garment-type mapping wipe (admin complaint)
 
 ### Done
