@@ -65,14 +65,15 @@ function QuickstartPanel() {
       <pre
         style={{
           margin: 0,
-          padding: '16px 18px',
+          padding: '14px 16px',
           borderRadius: 8,
           background: C.dark,
           color: C.onDark,
-          fontFamily: 'monospace',
-          fontSize: 13,
-          lineHeight: 1.6,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          fontSize: 12.5,
+          lineHeight: 1.55,
           overflowX: 'auto',
+          boxSizing: 'border-box',
         }}
       >
         {CURL_EXAMPLE}
