@@ -883,7 +883,7 @@ export default function StudioPage(): React.ReactElement {
       flattenNode,
     );
     return [...allItems].sort(() => Math.random() - 0.5).slice(0, lowerVisibleCount);
-  }, [lowerCatalog]);
+  }, [lowerCatalog, lowerVisibleCount]);
   const { data: shoesCatalog } = useQuery<{ type: string; tree: CatalogNode[] }>({
     queryKey: ['catalog', 'shoe', gender, garmentTypeId, effectivePoseIds.join(',')],
     queryFn: () => {
@@ -904,7 +904,7 @@ export default function StudioPage(): React.ReactElement {
       flattenNode,
     );
     return [...allItems].sort(() => Math.random() - 0.5).slice(0, shoeVisibleCount);
-  }, [shoesCatalog]);
+  }, [shoesCatalog, shoeVisibleCount]);
   const lowerNodes = useMemo(
     () => lowerCatalog?.tree.filter((node) => node.slug !== 'other') ?? [],
     [lowerCatalog],
