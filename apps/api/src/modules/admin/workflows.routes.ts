@@ -146,7 +146,8 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         return { detected, allImageNodes, allPromptNodes };
       }
       if (parseWorkflowType === 'saree_step1_two_input') {
-        const { detected, allImageNodes, allPromptNodes } = detectTryonTwoInputMappings(jsonContent);
+        const { detected, allImageNodes, allPromptNodes } =
+          detectTryonTwoInputMappings(jsonContent);
         return { detected, allImageNodes, allPromptNodes };
       }
 
@@ -212,11 +213,23 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         // biome-ignore lint/style/noNonNullAssertion: guaranteed by CreateWorkflowBody's superRefine
         const posNode = body.garmentPhasePromptNode!;
         if (!bodyNodeId)
-          throw new AppError('VALIDATION', 400, 'Could not detect body node — set tryonGarmentNodeId manually');
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect body node — set tryonGarmentNodeId manually',
+          );
         if (!palluNodeId)
-          throw new AppError('VALIDATION', 400, 'Could not detect pallu node — set tryonGarmentNodeId2 manually');
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect pallu node — set tryonGarmentNodeId2 manually',
+          );
         if (!outputNodeId)
-          throw new AppError('VALIDATION', 400, 'Could not detect output node — set tryonOutputNodeId manually');
+          throw new AppError(
+            'VALIDATION',
+            400,
+            'Could not detect output node — set tryonOutputNodeId manually',
+          );
         if (personNodeId) {
           validateNodeExists(body.jsonContent, personNodeId, 'person');
           validateNodeType(body.jsonContent, personNodeId, 'image', 'person');
@@ -230,9 +243,47 @@ export async function adminWorkflowsRoutes(app: FastifyInstance) {
         validateNodeType(body.jsonContent, palluNodeId, 'image', 'pallu');
         validateNodeType(body.jsonContent, negNode, 'prompt', 'negative prompt');
         validateNodeType(body.jsonContent, posNode, 'prompt', 'positive prompt');
-        const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(body.jsonContent, negNode, posNode);
-        const [row] = await app.db.insert(schema.workflowTemplates).values({ slug: body.slug, label: body.label, jsonContent: body.jsonContent, workflowType, faceNodeId: '', poseNodeId: '', bgNodeId: '', upperNodeIds: [], facePhasePromptNode: negNode, garmentPhasePromptNode: posNode, defaultFacePhasePrompt, defaultGarmentPhasePrompt, tryonPersonNodeId: personNodeId || null, tryonGarmentNodeId: bodyNodeId, tryonGarmentNodeId2: palluNodeId, tryonOutputNodeId: outputNodeId }).returning();
-        return { id: row?.id, slug: row?.slug, label: row?.label, workflowType: row?.workflowType, isActive: row?.isActive, poseCount: 0, defaultFacePhasePrompt: row?.defaultFacePhasePrompt, defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt, tryonPersonNodeId: row?.tryonPersonNodeId, tryonGarmentNodeId: row?.tryonGarmentNodeId, tryonGarmentNodeId2: row?.tryonGarmentNodeId2, tryonOutputNodeId: row?.tryonOutputNodeId, createdAt: row?.createdAt };
+        const { defaultFacePhasePrompt, defaultGarmentPhasePrompt } = extractDefaultPrompts(
+          body.jsonContent,
+          negNode,
+          posNode,
+        );
+        const [row] = await app.db
+          .insert(schema.workflowTemplates)
+          .values({
+            slug: body.slug,
+            label: body.label,
+            jsonContent: body.jsonContent,
+            workflowType,
+            faceNodeId: '',
+            poseNodeId: '',
+            bgNodeId: '',
+            upperNodeIds: [],
+            facePhasePromptNode: negNode,
+            garmentPhasePromptNode: posNode,
+            defaultFacePhasePrompt,
+            defaultGarmentPhasePrompt,
+            tryonPersonNodeId: personNodeId || null,
+            tryonGarmentNodeId: bodyNodeId,
+            tryonGarmentNodeId2: palluNodeId,
+            tryonOutputNodeId: outputNodeId,
+          })
+          .returning();
+        return {
+          id: row?.id,
+          slug: row?.slug,
+          label: row?.label,
+          workflowType: row?.workflowType,
+          isActive: row?.isActive,
+          poseCount: 0,
+          defaultFacePhasePrompt: row?.defaultFacePhasePrompt,
+          defaultGarmentPhasePrompt: row?.defaultGarmentPhasePrompt,
+          tryonPersonNodeId: row?.tryonPersonNodeId,
+          tryonGarmentNodeId: row?.tryonGarmentNodeId,
+          tryonGarmentNodeId2: row?.tryonGarmentNodeId2,
+          tryonOutputNodeId: row?.tryonOutputNodeId,
+          createdAt: row?.createdAt,
+        };
       }
 
       if (workflowType === 'tryon' || workflowType === 'saree_step1') {

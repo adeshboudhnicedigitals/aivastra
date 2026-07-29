@@ -293,7 +293,7 @@ export default function WorkflowsPage({ toast }: Props) {
                               ? 'rgba(217,119,6,0.12)'
                               : wf.workflowType === 'saree_step1_two_input'
                                 ? 'rgba(139,92,246,0.12)'
-                              : 'rgba(37,99,235,0.1)',
+                                : 'rgba(37,99,235,0.1)',
                         color:
                           wf.workflowType === 'tryon'
                             ? '#be185d'
@@ -301,7 +301,7 @@ export default function WorkflowsPage({ toast }: Props) {
                               ? '#b45309'
                               : wf.workflowType === 'saree_step1_two_input'
                                 ? '#6d28d9'
-                              : '#1d4ed8',
+                                : '#1d4ed8',
                       }}
                     >
                       {wf.workflowType === 'tryon'
@@ -310,7 +310,7 @@ export default function WorkflowsPage({ toast }: Props) {
                           ? 'Saree Step 1'
                           : wf.workflowType === 'saree_step1_two_input'
                             ? 'Saree Step 1 (2-input)'
-                          : 'Catalogue workflows'}
+                            : 'Catalogue workflows'}
                     </span>
                   </td>
                   <td>
@@ -468,7 +468,12 @@ export default function WorkflowsPage({ toast }: Props) {
                     viewingDetail.workflowType === 'saree_step1_two_input'
                       ? [
                           ['Person node', viewingDetail.tryonPersonNodeId ?? '—'],
-                          [viewingDetail.workflowType === 'saree_step1_two_input' ? 'Body node' : 'Garment node', viewingDetail.tryonGarmentNodeId ?? '—'],
+                          [
+                            viewingDetail.workflowType === 'saree_step1_two_input'
+                              ? 'Body node'
+                              : 'Garment node',
+                            viewingDetail.tryonGarmentNodeId ?? '—',
+                          ],
                           ...(viewingDetail.workflowType === 'saree_step1_two_input'
                             ? [['Pallu node', viewingDetail.tryonGarmentNodeId2 ?? '—']]
                             : []),
