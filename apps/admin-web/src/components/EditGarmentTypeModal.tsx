@@ -477,7 +477,10 @@ export function EditGarmentTypeModal({
       if (sareeStep2WorkflowTemplateId !== (garmentType.sareeStep2WorkflowTemplateId ?? '')) {
         patchBody.sareeStep2WorkflowTemplateId = sareeStep2WorkflowTemplateId || null;
       }
-      if (mannequinTwoInputWorkflowTemplateId !== (garmentType.mannequinTwoInputWorkflowTemplateId ?? '')) {
+      if (
+        mannequinTwoInputWorkflowTemplateId !==
+        (garmentType.mannequinTwoInputWorkflowTemplateId ?? '')
+      ) {
         patchBody.mannequinTwoInputWorkflowTemplateId = mannequinTwoInputWorkflowTemplateId || null;
       }
 
@@ -714,9 +717,8 @@ export function EditGarmentTypeModal({
                       onChange={setMannequinTwoInputWorkflowTemplateId}
                     />
                     <span className="hint">
-                      Optional. When set, the studio wizard offers a "Body & Pallu" two-image
-                      upload mode for this garment type, using this workflow instead of the one
-                      above.
+                      Optional. When set, the studio wizard offers a "Body & Pallu" two-image upload
+                      mode for this garment type, using this workflow instead of the one above.
                     </span>
                   </div>
                   <div className="field">

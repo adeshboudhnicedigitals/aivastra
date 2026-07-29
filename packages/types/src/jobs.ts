@@ -129,7 +129,7 @@ export const CreateCatalogVideoJobRequest = z.object({
 export const CreateSareeMannequinJobRequest = z.object({
   garmentTypeId: z.string().uuid(),
   garmentKey: z.string().regex(INPUT_GARMENT_KEY),
-  // Pallu image for the "Body & Pallu" two-input upload mode â€” only valid when
+  // Pallu image for the "Body & Pallu" two-input upload mode — only valid when
   // the garment type has mannequinTwoInputWorkflowTemplateId configured
   // (enforced server-side in createSareeMannequinJob, see Task 6).
   secondGarmentKey: z
