@@ -12,6 +12,7 @@ import type { S3Client } from '@aws-sdk/client-s3';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { and, eq, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
+import sharp from 'sharp';
 
 import {
   downloadOutputImage,
@@ -1722,14 +1723,15 @@ async function processWidgetJob(
 
     const imageBytes = await downloadOutputImage(w.url, w.apiKey, firstImage.filename);
 
-    // Upload result to R2
-    const resultKey = `widget-outputs/${jobId}/result.png`;
+    // Upload result to R2 as WebP (q90) — smaller payload for the merchant/kiosk clients.
+    const resultKey = `widget-outputs/${jobId}/result.webp`;
+    const webpBuffer = await sharp(imageBytes).webp({ quality: 90 }).toBuffer();
     await s3.send(
       new PutObjectCommand({
         Bucket: r2Bucket,
         Key: resultKey,
-        Body: imageBytes,
-        ContentType: 'image/png',
+        Body: webpBuffer,
+        ContentType: 'image/webp',
       }),
     );
 

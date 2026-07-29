@@ -1,3 +1,19 @@
+## 2026-07-29 - Merchant/kiosk tryon result: PNG → WebP q90
+
+### Done
+- Converted the result image uploaded for merchant-widget and kiosk try-on jobs (served via `GET /v1/merchant/tryon/jobs/{jobId}`) from PNG to WebP at quality 90, on the `feat/merchant-tryon-webp-result` branch. Scoped narrowly after finding this write path is entirely separate from the shared `finalizeOutput()` helper used by every other job type (regular studio, mannequin, saree, Shopify-catalog): `processWidgetJob()` in `apps/dispatcher/src/job/processor.ts` uploads via its own inline block with a literal `widget-outputs/{jobId}/result.png` key, never touching `keys.output()`/`packages/storage/src/keys.ts`, so there was no blast radius into chained-job inputs or the Shopify-catalog/`merchant/catalog.routes.ts` call sites that recompute `keys.output(jobId)` independently of the stored DB key.
+- `apps/dispatcher/src/job/processor.ts`: added a `sharp` import (already a direct dispatcher dependency) and re-encode the ComfyUI result bytes via `sharp(imageBytes).webp({ quality: 90 })` before upload; key changed to `widget-outputs/{jobId}/result.webp`, `ContentType: image/webp`. No dual-write — PNG is not retained, per decision to keep this a straight replace with no backfill of historical jobs.
+- Read-side (`apps/api/src/modules/merchant/tryon.routes.ts`, `apps/api/src/modules/kiosk/jobs.routes.ts`) needed zero changes — both already read `job_outputs.resultKey` from Postgres and presign whatever key is stored, so they're format-agnostic.
+- Added `apps/dispatcher/test/integration/merchant-widget-webp.test.ts` (new — no existing test covered this upload block at all): seeds a merchant-widget job end-to-end through `processJob` → `processWidgetJob` against the ComfyUI mock (using a real sharp-generated PNG as the mock's output, since the mock's default 8-byte PNG-magic-bytes stub isn't a decodable image), and asserts the resulting R2 object is `widget-outputs/{jobId}/result.webp` with `ContentType: image/webp` and decodes via `sharp(...).metadata().format === 'webp'`.
+- Verified: `pnpm --filter @aivastra/dispatcher build` clean (after rebuilding `packages/storage`, whose stale dist was causing an unrelated pre-existing `keys.videoOutput` type error present on `main` too). New test passes; full dispatcher integration suite run — 27 passed, only 3 pre-existing unrelated failures (`catalog_items.type` NOT NULL constraint violations in `happy-path.test.ts`/`recovery.test.ts`/`retry.test.ts`), confirmed present on `main` without this change via a stash-and-rerun check.
+
+### Failed / Not Done
+- Not implemented: no manual end-to-end check against a real ComfyUI worker or the Android app itself (no such environment available this session) — verification was via the dispatcher's MinIO-backed integration test only.
+
+### Open Questions / Decisions
+- Confirmed with the user this same code path (the non-Shopify branch of `processWidgetJob`) is shared by kiosk jobs too, so kiosk results also start getting WebP going forward — flagged as in-scope rather than re-narrowing further, since it's the same underlying serving mechanism.
+- No backfill of historical PNG results was done or planned — existing `.png` `resultKey` rows keep resolving exactly as before.
+
 ## 2026-07-29 - Saree two-input (Body + Pallu) upload
 
 ### Done
